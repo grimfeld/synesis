@@ -1,0 +1,26 @@
+# Bible Study Vault
+
+Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changing anything. Use the glossary's terms in code and UI (Note, Clipping, Composition, Source, Locator, Subject, Book, Chapter, Verse, Passage, Mention, Tag, Place, Character, Concept, Embed).
+
+## Hard constraints
+
+- The vault must stay Obsidian-compatible (ADR 0003). No custom syntax in markdown files.
+- Never rewrite the user's text. Detected Passages are decorations only.
+- All file access goes through the Rust engine (ADR 0004). The UI never touches files.
+- Verse identity: 66-book canon, English versification, `crates/engine/src/versification.rs`.
+
+## Layout
+
+- `crates/engine` — Rust library: versification, book names, Passage parser, document parser, SQLite index, vault.
+- `src-tauri` — Tauri shell exposing engine commands.
+- `src` — React UI. `src/editor` is CodeMirror, `src/views` are whole-pane views, `src/i18n` are UI strings (en, fr).
+
+## Commands
+
+- `cargo test -p engine` — engine tests. The Passage parser is the most-tested code; add a case for every bug.
+- `npm run tauri dev` — run the desktop app.
+- `npm run typecheck` — typecheck the UI.
+
+## UI smoke testing without the Tauri window
+
+In debug builds the app starts an HTTP bridge on `127.0.0.1:4321` (`src-tauri/src/devbridge.rs`); `src/lib/devbridge.ts` routes `invoke` to it when the page runs in a plain browser. So with `npm run tauri dev` running, open `http://localhost:1420` in Chrome, or drive it headless with `node scripts/ui-smoke.mjs '<json steps>'` (screenshots + console errors). Webview errors are also forwarded to the terminal as `[ui:…]` lines.

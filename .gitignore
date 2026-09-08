@@ -1,0 +1,8 @@
+node_modules/
+dist/
+target/
+src-tauri/gen/
+*.log
+.DS_Store
+examples/sample-vault/.bible-study/
+examples/sample-vault/Scripture/
