@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # One-shot developer setup for Synesis: installs the toolchain, fetches
 # dependencies, verifies the build, then starts `npm run tauri dev`.
+# Works on macOS, Linux, and Windows (Git Bash; `scripts\dev` from cmd or
+# PowerShell goes through scripts/dev.cmd, which finds or installs Git Bash).
 #
 # Usage:
-#   scripts/dev.sh              # set up, then start the dev app
-#   scripts/dev.sh --no-start   # set up only (CI, first clone, new machine)
-#   scripts/dev.sh --skip-tests # set up and start without running engine tests
+#   scripts/dev              # set up, then start the dev app
+#   scripts/dev --no-start   # set up only (CI, first clone, new machine)
+#   scripts/dev --skip-tests # set up and start without running engine tests
 #
 # Re-running is safe: every step checks before it installs.
 #
@@ -26,7 +28,7 @@ for arg in "$@"; do
   case "$arg" in
     --no-start)   START=0 ;;
     --skip-tests) RUN_TESTS=0 ;;
-    -h|--help)    sed -n '2,15p' "$0"; exit 0 ;;
+    -h|--help)    sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
@@ -39,12 +41,38 @@ warn() { printf '\033[1;33m ! \033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31m ✗ \033[0m %s\n' "$*" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
-OS="$(uname -s)"
+case "$(uname -s)" in
+  Darwin)                 OS=macos ;;
+  Linux)                  OS=linux ;;
+  MINGW*|MSYS*|CYGWIN*)   OS=windows ;;
+  *) die "Unsupported OS '$(uname -s)'. See https://v2.tauri.app/start/prerequisites/" ;;
+esac
+
+# --------------------------------------------------------------------- windows
+# Everything on Windows installs through winget (bundled with Windows 10/11).
+# Installers may show a UAC prompt. The current shell's PATH does not see new
+# installs, so the known install directories are added to PATH explicitly.
+if [ "$OS" = windows ]; then
+  have winget || die "winget not found. Install 'App Installer' from the Microsoft Store, then re-run."
+  winget_install() {  # winget_install <package id> [installer override args]
+    if [ $# -ge 2 ]; then
+      winget install --id "$1" --exact --silent --accept-package-agreements --accept-source-agreements --override "$2"
+    else
+      winget install --id "$1" --exact --silent --accept-package-agreements --accept-source-agreements
+    fi
+  }
+  win_home="$(cygpath -u "${USERPROFILE:-$HOME}")"
+  win_pf="$(cygpath -u "${PROGRAMFILES:-C:/Program Files}")"
+  # bash cannot expand a variable named "ProgramFiles(x86)"; ask cmd for it.
+  win_pf86="$(cygpath -u "$(cmd //c 'echo %ProgramFiles(x86)%' 2>/dev/null | tr -d '\r')")"
+  [ -d "$win_pf86" ] || win_pf86="/c/Program Files (x86)"
+  export PATH="$win_home/.cargo/bin:$win_pf/nodejs:$PATH"
+fi
 
 # ---------------------------------------------------------------- platform deps
 log "Platform prerequisites ($OS)"
 case "$OS" in
-  Darwin)
+  macos)
     if xcode-select -p >/dev/null 2>&1; then
       ok "Xcode Command Line Tools"
     else
@@ -53,7 +81,7 @@ case "$OS" in
       die "Finish the Command Line Tools installation, then re-run this script."
     fi
     ;;
-  Linux)
+  linux)
     # Tauri 2 system libraries: https://v2.tauri.app/start/prerequisites/#linux
     if have apt-get; then
       sudo apt-get update -qq
@@ -72,20 +100,50 @@ case "$OS" in
     fi
     ok "Tauri system libraries"
     ;;
-  *)
-    die "Unsupported OS '$OS'. On Windows, run this from WSL or follow https://v2.tauri.app/start/prerequisites/"
+  windows)
+    # Tauri 2 on Windows: https://v2.tauri.app/start/prerequisites/#windows
+    # 1. MSVC C++ build tools (rustc's default Windows target is *-pc-windows-msvc)
+    vswhere="$win_pf86/Microsoft Visual Studio/Installer/vswhere.exe"
+    have_msvc() {
+      [ -x "$vswhere" ] && [ -n "$("$vswhere" -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>/dev/null)" ]
+    }
+    if have_msvc; then
+      ok "MSVC C++ build tools"
+    else
+      warn "MSVC C++ build tools missing; installing Visual Studio Build Tools (several GB, takes a while)."
+      winget_install Microsoft.VisualStudio.BuildTools "--quiet --wait --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+      have_msvc || die "MSVC build tools still not detected. Open a new terminal and re-run; if it persists, add the 'Desktop development with C++' workload in the Visual Studio Installer."
+      ok "MSVC C++ build tools"
+    fi
+    # 2. WebView2 runtime (ships with Windows 11 and Edge; missing on some Windows 10 / Server images)
+    webview2_key='Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+    have_webview2() {
+      reg query "HKLM\\SOFTWARE\\WOW6432Node\\$webview2_key" //v pv >/dev/null 2>&1 ||
+      reg query "HKCU\\Software\\$webview2_key" //v pv >/dev/null 2>&1
+    }
+    if have_webview2; then
+      ok "WebView2 runtime"
+    else
+      warn "WebView2 runtime missing; installing."
+      winget_install Microsoft.EdgeWebView2Runtime
+      ok "WebView2 runtime"
+    fi
     ;;
 esac
 
 # ------------------------------------------------------------------------ Rust
 log "Rust toolchain"
 if ! have rustup; then
-  warn "rustup not found; installing stable Rust via rustup.rs"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+  warn "rustup not found; installing stable Rust"
+  if [ "$OS" = windows ]; then
+    winget_install Rustlang.Rustup
+  else
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+  fi
 fi
 # shellcheck disable=SC1091
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-have cargo || die "cargo is still not on PATH; open a new shell and re-run."
+have cargo || die "cargo is still not on PATH; open a new terminal and re-run."
 rustup toolchain list | grep -q '^stable' || rustup toolchain install stable --profile minimal
 ok "$(rustc -V)"
 
@@ -97,7 +155,9 @@ if ! have node || [ "$(node_major)" -lt "$MIN_NODE_MAJOR" ]; then
     fnm install "$MIN_NODE_MAJOR" && fnm use "$MIN_NODE_MAJOR"
   elif have nvm; then
     nvm install "$MIN_NODE_MAJOR" && nvm use "$MIN_NODE_MAJOR"
-  elif [ "$OS" = Darwin ] && have brew; then
+  elif [ "$OS" = windows ]; then
+    winget_install OpenJS.NodeJS.LTS
+  elif [ "$OS" = macos ] && have brew; then
     brew install node
   else
     warn "Installing fnm (Fast Node Manager) to provide Node $MIN_NODE_MAJOR"
@@ -107,7 +167,7 @@ if ! have node || [ "$(node_major)" -lt "$MIN_NODE_MAJOR" ]; then
     fnm install "$MIN_NODE_MAJOR" && fnm use "$MIN_NODE_MAJOR"
   fi
 fi
-have node || die "node is still not on PATH; open a new shell and re-run."
+have node || die "node is still not on PATH; open a new terminal and re-run."
 [ "$(node_major)" -ge "$MIN_NODE_MAJOR" ] || die "Node $(node -v) is too old; need >= $MIN_NODE_MAJOR."
 ok "node $(node -v), npm $(npm -v)"
 
@@ -133,18 +193,28 @@ else
 fi
 
 # --------------------------------------------------------------------- optional
-if [ "$OS" = Darwin ] && [ -d "/Applications/Google Chrome.app" ]; then
+chrome_found=0
+case "$OS" in
+  macos)   [ -d "/Applications/Google Chrome.app" ] && chrome_found=1 ;;
+  linux)   { have google-chrome || have chromium; } && chrome_found=1 ;;
+  windows)
+    for c in "$win_pf" "$win_pf86" "$(cygpath -u "${LOCALAPPDATA:-C:/nonexistent}")"; do
+      [ -f "$c/Google/Chrome/Application/chrome.exe" ] && chrome_found=1
+    done
+    ;;
+esac
+if [ "$chrome_found" = 1 ]; then
   ok "Google Chrome found (needed only by scripts/ui-smoke.mjs)"
-elif ! have google-chrome && ! have chromium; then
+else
   warn "Google Chrome not found; scripts/ui-smoke.mjs will not work until it is installed."
 fi
 
 # ----------------------------------------------------------------------- start
 [ "$START" = 1 ] || { log "Setup complete. Start the app with: npm run tauri dev"; exit 0; }
 
-port_busy() {
+port_busy() {  # "localhost" rather than 127.0.0.1: Vite binds ::1 only on Windows
   if have lsof; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-  else (exec 3<>"/dev/tcp/127.0.0.1/$1") >/dev/null 2>&1; fi
+  else (exec 3<>"/dev/tcp/localhost/$1") >/dev/null 2>&1; fi
 }
 for p in "$VITE_PORT" "$BRIDGE_PORT"; do
   if port_busy "$p"; then

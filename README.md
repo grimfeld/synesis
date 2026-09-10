@@ -12,12 +12,12 @@ Tauri 2 (macOS, Windows, iOS, Android). Rust engine (`crates/engine`) for parsin
 
 ## Development
 
-One command sets up a fresh machine (Rust via rustup, Node 22+, Tauri system libraries, npm and cargo dependencies), verifies the build, and starts the dev app:
+One command sets up a fresh machine (Rust via rustup, Node 22+, Tauri system libraries, npm and cargo dependencies), verifies the build, and starts the dev app. It works on macOS, Linux, and Windows; on Windows it needs Git for Windows (installed automatically through winget if missing) and runs from cmd, PowerShell, Git Bash, or a double-click on `scripts\dev.cmd`:
 
 ```sh
-scripts/dev.sh              # or: npm run dev:all
-scripts/dev.sh --no-start   # setup only (or: npm run setup)
-scripts/dev.sh --skip-tests # start without running engine tests
+scripts/dev              # or: npm run dev:all   (Windows: scripts\dev)
+scripts/dev --no-start   # setup only (or: npm run setup)
+scripts/dev --skip-tests # start without running engine tests
 ```
 
 It is safe to re-run. Once set up, the individual pieces are:
