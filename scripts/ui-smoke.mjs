@@ -1,16 +1,23 @@
 // Headless-Chrome smoke driver over the DevTools protocol. Requires `npm run tauri dev` running
 // (the debug HTTP bridge on :4321 serves the engine) and Google Chrome installed.
 // Usage: node scripts/ui-smoke.mjs '[{"goto":"http://localhost:1420","after":3000},{"clickText":"Graph"},{"shot":"/tmp/graph.png"},{"errors":true}]'
-// Step kinds: {goto:url} {wait:ms} {click:selector} {clickText:"..."} {type:text} {key:"Enter",mods?:4} {eval:js} {shot:file} {errors:true} {mouse:[x,y]} {hover:selector}
+// Step kinds: {goto:url} {wait:ms} {click:selector} {clickText:"..."} {type:text} {key:"Enter",mods?:4} {eval:js} {shot:file,clip?:[x,y,w,h],scale?:n} {dark:true|false} {errors:true} {mouse:[x,y]} {hover:selector}
 import { spawn } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const steps = JSON.parse(process.argv[2]);
 const port = 9333;
 const profile = mkdtempSync(join(tmpdir(), "cdp-"));
-const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
+const CHROME =
+  process.env.CHROME ??
+  (process.platform === "darwin"
+    ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    : process.platform === "win32"
+      ? [process.env.PROGRAMFILES, process.env["PROGRAMFILES(X86)"], process.env.LOCALAPPDATA].filter(Boolean).map((d) => join(d, "Google", "Chrome", "Application", "chrome.exe")).find(existsSync)
+      : "google-chrome");
+const chrome = spawn(CHROME, [
   "--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${profile}`, "--window-size=1400,900", "--hide-scrollbars", "--no-first-run", "--disable-gpu", "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -42,7 +49,8 @@ for (const st of steps) {
   else if (st.type) { await send("Input.insertText", { text: st.type }); await sleep(st.after ?? 300); }
   else if (st.key) { const key = st.key; const code = key === "Enter" ? 13 : key === "Escape" ? 27 : key === "Backspace" ? 8 : 0; const mods = st.mods ?? 0; await send("Input.dispatchKeyEvent", { type: "keyDown", key, code: key, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code, modifiers: mods }); await send("Input.dispatchKeyEvent", { type: "keyUp", key, code: key, windowsVirtualKeyCode: code, modifiers: mods }); await sleep(st.after ?? 400); }
   else if (st.eval) { try { console.log("EVAL:", JSON.stringify(await evaluate(st.eval))); } catch (e) { console.log("EVAL ERROR:", e.message); } }
-  else if (st.shot) { const r = await send("Page.captureScreenshot", { format: "png" }); writeFileSync(st.shot, Buffer.from(r.result.data, "base64")); console.log("SHOT", st.shot); }
+  else if (st.shot) { const r = await send("Page.captureScreenshot", { format: "png", ...(st.clip ? { clip: { x: st.clip[0], y: st.clip[1], width: st.clip[2], height: st.clip[3], scale: st.scale ?? 3 } } : {}) }); writeFileSync(st.shot, Buffer.from(r.result.data, "base64")); console.log("SHOT", st.shot); }
+  else if (st.dark != null) { await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: st.dark ? "dark" : "light" }] }); await sleep(st.after ?? 300); }
   else if (st.errors) { console.log(logs.length ? "CONSOLE:\n" + logs.join("\n") : "CONSOLE: clean"); logs.length = 0; }
 }
 ws.close(); chrome.kill();

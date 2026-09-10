@@ -1,19 +1,25 @@
 import { useEffect, useRef, useState } from "react";
+import { ArrowUpRight, Plus } from "lucide-react";
 import { api, type Backlink, type DocSummary, type PassageInfo } from "@/lib/api";
 import { splitFrontmatter } from "@/lib/frontmatter";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TypeDot } from "./DocLink";
 
 export type HoverState = { kind: "passage"; passages: PassageInfo[]; x: number; y: number } | { kind: "link"; target: string; x: number; y: number };
 
+const W = 340;
+const H = 360;
+
 function usePosition(x: number, y: number) {
-  const w = 340;
-  const left = Math.max(8, Math.min(x, window.innerWidth - w - 8));
-  const top = y + 6 + 360 > window.innerHeight ? Math.max(8, y - 6 - 360) : y + 6;
-  return { left, top };
+  const left = Math.max(8, Math.min(x, window.innerWidth - W - 8));
+  const top = y + 6 + H > window.innerHeight ? Math.max(8, y - 6 - H) : y + 6;
+  return { left, top, width: W, maxHeight: H };
 }
 
+/** Floating preview anchored to a Passage or wikilink under the cursor in the editor. */
 export function HoverCard({ state, excludeId, onClose }: { state: HoverState; excludeId?: string; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
   const pos = usePosition(state.x, state.y);
@@ -30,8 +36,18 @@ export function HoverCard({ state, excludeId, onClose }: { state: HoverState; ex
     };
   }, [onClose]);
   return (
-    <div ref={ref} className="hover-card thin-scroll" style={pos} onMouseLeave={onClose}>
+    <div ref={ref} className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
       {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} /> : <LinkCard target={state.target} onClose={onClose} />}
+    </div>
+  );
+}
+
+function Loading() {
+  return (
+    <div className="space-y-2">
+      <Skeleton className="h-3.5 w-2/3" />
+      <Skeleton className="h-3 w-full" />
+      <Skeleton className="h-3 w-5/6" />
     </div>
   );
 }
@@ -53,46 +69,47 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="font-semibold" style={{ color: "var(--passage)" }}>
-          {passages.map((x) => x.display).join("; ")}
-        </div>
-        <button
-          className="btn btn-sm"
+        <div className="font-semibold text-passage">{passages.map((x) => x.display).join("; ")}</div>
+        <Button
+          size="sm"
+          variant="outline"
           onClick={() => {
             onClose();
             s.openPassage(p);
           }}
         >
           {t.open_page}
-        </button>
+          <ArrowUpRight />
+        </Button>
       </div>
       {items === null ? (
-        <div className="muted">…</div>
+        <Loading />
       ) : items.length === 0 ? (
-        <div className="muted">{t.nothing_written}</div>
+        <div className="text-xs text-muted-foreground">{t.nothing_written}</div>
       ) : (
         <>
-          <div className="panel-title mb-1">{t.mentions_count(items.length)}</div>
-          <ul className="space-y-1">
+          <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.mentions_count(items.length)}</div>
+          <ul className="space-y-0.5">
             {items.map((b, i) => (
               <li key={i}>
                 <button
-                  className="row-hover w-full rounded px-1 py-1 text-left"
+                  type="button"
+                  className="w-full rounded-md px-2 py-1 text-left transition-colors hover:bg-accent"
                   onClick={() => {
                     onClose();
                     s.openDoc(b.doc.id);
                   }}
                 >
-                  <div className="flex items-center">
+                  <div className="flex items-center gap-2">
                     <TypeDot type={b.doc.type} />
                     <span className="truncate font-medium">{b.doc.title}</span>
                     {b.via && (
-                      <span className="muted ml-2 shrink-0 text-xs">
+                      <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {t.via} {b.via}
                       </span>
                     )}
                   </div>
-                  {b.excerpt && <div className="muted line-clamp-2 text-xs">{b.excerpt}</div>}
+                  {b.excerpt && <div className="line-clamp-2 pl-4 text-xs text-muted-foreground">{b.excerpt}</div>}
                 </button>
               </li>
             ))}
@@ -122,38 +139,38 @@ function LinkCard({ target, onClose }: { target: string; onClose: () => void }) 
       alive = false;
     };
   }, [target]);
-  if (doc === undefined) return <div className="muted">…</div>;
+  if (doc === undefined) return <Loading />;
   if (doc === null)
     return (
-      <div>
-        <div className="mb-2 font-semibold">{target}</div>
-        <button
-          className="btn btn-sm btn-primary"
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 truncate font-semibold text-unresolved">{target}</div>
+        <Button
+          size="sm"
           onClick={() => {
             onClose();
             s.setDialog({ kind: "create-link", target });
           }}
         >
+          <Plus />
           {t.create_page}
-        </button>
+        </Button>
       </div>
     );
   return (
     <div>
       <button
-        className="mb-1 flex w-full items-center text-left font-semibold"
+        type="button"
+        className="mb-0.5 flex w-full items-center gap-2 text-left font-semibold hover:underline underline-offset-4"
         onClick={() => {
           onClose();
           s.openDoc(doc.id);
         }}
       >
         <TypeDot type={doc.type} />
-        {doc.title}
+        <span className="truncate">{doc.title}</span>
       </button>
-      <div className="muted mb-2 text-xs">{t.types[doc.type]}</div>
-      <div className="whitespace-pre-wrap text-xs" style={{ fontFamily: "Georgia, serif" }}>
-        {preview || <span className="muted">—</span>}
-      </div>
+      <div className="mb-2 pl-4 text-xs text-muted-foreground">{t.types[doc.type]}</div>
+      <div className="font-prose whitespace-pre-wrap text-[13px] leading-relaxed">{preview || <span className="text-muted-foreground">—</span>}</div>
     </div>
   );
 }

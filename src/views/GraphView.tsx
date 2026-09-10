@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
+import { Search, Waypoints } from "lucide-react";
 import { api, type DocType, type Graph, type GraphLevel, type GraphNode } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
+import { ViewHeader } from "@/components/ViewHeader";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type N = GraphNode & SimulationNodeDatum & { r: number };
 type E = SimulationLinkDatum<N>;
@@ -100,21 +106,25 @@ export function GraphView() {
     const { x, y, k } = view.current;
     ctx.translate(x, y);
     ctx.scale(k, k);
-    const fg = cssVar("--fg");
+    const fg = cssVar("--foreground");
+    const edge = cssVar("--muted-foreground");
     const q = query.trim().toLowerCase();
     const hov = hover.current;
     const neigh = new Set<string>();
-    if (hov) for (const e of edgesRef.current) {
-      const a = e.source as N, b = e.target as N;
-      if (a.id === hov.id) neigh.add(b.id);
-      if (b.id === hov.id) neigh.add(a.id);
-    }
+    if (hov)
+      for (const e of edgesRef.current) {
+        const a = e.source as N,
+          b = e.target as N;
+        if (a.id === hov.id) neigh.add(b.id);
+        if (b.id === hov.id) neigh.add(a.id);
+      }
     ctx.lineWidth = 1 / k;
     for (const e of edgesRef.current) {
-      const a = e.source as N, b = e.target as N;
+      const a = e.source as N,
+        b = e.target as N;
       const lit = hov && (a.id === hov.id || b.id === hov.id);
-      ctx.strokeStyle = lit ? fg : cssVar("--border");
-      ctx.globalAlpha = hov && !lit ? 0.25 : 1;
+      ctx.strokeStyle = lit ? fg : edge;
+      ctx.globalAlpha = lit ? 0.9 : hov ? 0.08 : 0.3;
       ctx.beginPath();
       ctx.moveTo(a.x!, a.y!);
       ctx.lineTo(b.x!, b.y!);
@@ -129,13 +139,13 @@ export function GraphView() {
       ctx.arc(n.x!, n.y!, n.r, 0, Math.PI * 2);
       ctx.fill();
       if (n.doc_id === null) {
-        ctx.strokeStyle = cssVar("--bg");
+        ctx.strokeStyle = cssVar("--background");
         ctx.lineWidth = 1.5 / k;
         ctx.stroke();
       }
       if (n.r >= 6 || k > 1.6 || (hov && (n.id === hov.id || neigh.has(n.id))) || match) {
         ctx.fillStyle = fg;
-        ctx.font = `${Math.max(9, 11 / k)}px -apple-system, sans-serif`;
+        ctx.font = `${Math.max(9, 11 / k)}px ${cssVar("--font-sans") || "sans-serif"}`;
         ctx.textAlign = "center";
         ctx.fillText(n.label, n.x!, n.y! + n.r + 11 / k);
       }
@@ -227,44 +237,37 @@ export function GraphView() {
     if (m) s.openScripture(Number(m[1]), m[2] ? Number(m[2]) : undefined, m[3] ? Number(m[3]) : undefined);
   };
 
+  const shown = FILTERABLE.filter((ty) => !hidden.has(ty));
+
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
-        {!s.sidebarOpen && (
-          <button className="btn btn-ghost btn-sm" onClick={() => s.setSidebarOpen(true)}>
-            ☰
-          </button>
-        )}
-        <h1 className="text-base font-semibold">{t.views.graph}</h1>
-        <input className="w-40 py-1 text-sm" placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
-        <label className="muted ml-2 text-xs">{t.graph_level}</label>
-        <select className="py-1 text-sm" value={level} onChange={(e) => setLevel(e.target.value as GraphLevel)}>
-          <option value="book">{t.types.book}</option>
-          <option value="chapter">{t.types.chapter}</option>
-          <option value="verse">{t.types.verse}</option>
-        </select>
-        <div className="ml-2 flex flex-wrap gap-1">
+      <ViewHeader title={t.views.graph} icon={<Waypoints />} className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5">
+        <div className="relative ml-1">
+          <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-7 w-44 pl-7 text-xs" placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        <Select value={level} onValueChange={(v) => setLevel(v as GraphLevel)}>
+          <SelectTrigger size="sm" className="h-7 text-xs" aria-label={t.graph_level}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="book">{t.types.book}</SelectItem>
+            <SelectItem value="chapter">{t.types.chapter}</SelectItem>
+            <SelectItem value="verse">{t.types.verse}</SelectItem>
+          </SelectContent>
+        </Select>
+        <ToggleGroup type="multiple" value={shown} onValueChange={(v) => setHidden(new Set(FILTERABLE.filter((ty) => !v.includes(ty))))} variant="outline" size="sm" spacing={1} className="ml-1 flex-wrap">
           {FILTERABLE.map((ty) => (
-            <button
-              key={ty}
-              className={`btn btn-sm ${hidden.has(ty) ? "opacity-40" : ""}`}
-              onClick={() =>
-                setHidden((h) => {
-                  const n = new Set(h);
-                  n.has(ty) ? n.delete(ty) : n.add(ty);
-                  return n;
-                })
-              }
-            >
+            <ToggleGroupItem key={ty} value={ty} className="h-7 gap-1.5 text-xs data-[state=off]:opacity-45">
               <TypeDot type={ty} />
               {ty === "chapter" ? t.scripture : t.types_plural[ty]}
-            </button>
+            </ToggleGroupItem>
           ))}
-        </div>
-        <span className="muted ml-auto text-xs">
+        </ToggleGroup>
+        <Badge variant="secondary" className="ml-auto tabular-nums">
           {visible?.nodes.length ?? 0} · {visible?.edges.length ?? 0}
-        </span>
-      </header>
+        </Badge>
+      </ViewHeader>
       <canvas ref={canvas} className="min-h-0 flex-1" style={{ cursor: "grab", width: "100%", height: "100%" }} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp} onWheel={onWheel} />
     </div>
   );

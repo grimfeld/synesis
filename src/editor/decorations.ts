@@ -125,7 +125,7 @@ class EmbedWidget extends WidgetType {
     const env = view.state.facet(envFacet);
     const box = document.createElement("div");
     box.className = "cm-embed-box";
-    box.style.cssText = "margin:6px 0 10px; padding:10px 14px; border-left:3px solid var(--c-clipping); background:var(--bg-2); border-radius:6px; font-size:.95em; white-space:pre-wrap;";
+    box.style.cssText = "margin:6px 0 10px; padding:10px 14px; border-left:3px solid var(--c-clipping); background:var(--muted); border-radius:6px; font-size:.95em; white-space:pre-wrap;";
     box.textContent = "…";
     env.embedText(this.target).then((r) => {
       if (!r) {
@@ -134,7 +134,7 @@ class EmbedWidget extends WidgetType {
       }
       box.textContent = "";
       const h = document.createElement("div");
-      h.style.cssText = "font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin-bottom:4px; cursor:pointer;";
+      h.style.cssText = "font-size:11px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted-foreground); margin-bottom:4px; cursor:pointer;";
       h.textContent = r.title;
       h.onclick = () => env.onOpenLink(this.target);
       box.appendChild(h);

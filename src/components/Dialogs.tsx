@@ -1,10 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Globe, Plus } from "lucide-react";
+import { cn } from "cn";
 import { api, namesApi, CREATABLE_TYPES, type DocSummary, type DocType, type Frontmatter, type SearchHit, type NameEntry } from "@/lib/api";
 import { NameIndex } from "@/lib/names";
+import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
-import { Field, Modal } from "./Modal";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Button } from "@/components/ui/button";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Field } from "./Field";
 import { TypeDot } from "./DocLink";
 
 export function Dialogs() {
@@ -35,6 +47,35 @@ export function stamp(d = new Date()) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}.${pad(d.getMinutes())}`;
 }
 
+/** A modal shell: always open while mounted, closes through onClose. */
+function Shell({ title, description, wide, onClose, children }: { title: string; description?: string; wide?: boolean; onClose: () => void; children: ReactNode }) {
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className={cn(wide && "sm:max-w-2xl")}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description ? <DialogDescription>{description}</DialogDescription> : <DialogDescription className="sr-only">{title}</DialogDescription>}
+        </DialogHeader>
+        {children}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TypePicker({ value, onChange }: { value: DocType; onChange: (t: DocType) => void }) {
+  const t = useT();
+  return (
+    <ToggleGroup type="single" value={value} onValueChange={(v) => v && onChange(v as DocType)} variant="outline" size="sm" spacing={1} className="flex-wrap justify-start">
+      {CREATABLE_TYPES.map((x) => (
+        <ToggleGroupItem key={x} value={x} className="gap-1.5 data-[state=on]:bg-accent">
+          <TypeDot type={x} />
+          {t.types[x]}
+        </ToggleGroupItem>
+      ))}
+    </ToggleGroup>
+  );
+}
+
 /** Picker over existing documents of some types, with free text fallback. */
 function DocPicker({ types, value, onChange, placeholder }: { types: DocType[]; value: string; onChange: (v: string, doc?: DocSummary) => void; placeholder?: string }) {
   const s = useStore();
@@ -46,20 +87,39 @@ function DocPicker({ types, value, onChange, placeholder }: { types: DocType[]; 
   }, [list, value]);
   return (
     <div className="relative">
-      <input className="w-full" value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)} />
+      <Input value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} onFocus={() => setFocus(true)} onBlur={() => setTimeout(() => setFocus(false), 150)} />
       {focus && matches.length > 0 && (
-        <ul className="absolute z-10 mt-1 max-h-48 w-full overflow-auto rounded-md border shadow-lg" style={{ background: "var(--bg)", borderColor: "var(--border)" }}>
+        <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
           {matches.map((d) => (
             <li key={d.id}>
-              <button type="button" className="row-hover flex w-full items-center px-2 py-1 text-left text-sm" onMouseDown={() => onChange(d.title, d)}>
+              <button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent" onMouseDown={() => onChange(d.title, d)}>
                 <TypeDot type={d.type} />
-                {d.title}
+                <span className="truncate">{d.title}</span>
               </button>
             </li>
           ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function KindSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const t = useT();
+  const kinds = Object.keys(t.kinds) as (keyof typeof t.kinds)[];
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-full">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {kinds.map((k) => (
+          <SelectItem key={k} value={k}>
+            {t.kinds[k]}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -118,7 +178,7 @@ function NewDocument({ type: initial, title: initialTitle, body: initialBody, on
         // Source: existing by title, or create from URL metadata.
         let sourceTitle = f.source?.trim();
         if (sourceTitle) {
-          const existing = f.source_id ? s.docsById.get(f.source_id) : (await api.resolveLink(sourceTitle)) ?? undefined;
+          const existing = f.source_id ? s.docsById.get(f.source_id) : ((await api.resolveLink(sourceTitle)) ?? undefined);
           if (existing) sourceTitle = existing.title;
           else {
             const created = await s.createDoc("source", sourceTitle, { kind: f.kind || "article", author: f.author ?? "", url: f.url ?? "", date: f.date ?? "" }, "", false);
@@ -153,89 +213,65 @@ function NewDocument({ type: initial, title: initialTitle, body: initialBody, on
     }
   };
 
-  const kinds = Object.keys(t.kinds) as (keyof typeof t.kinds)[];
+  const urlField = (
+    <Field label={type === "source" ? t.url : t.clipping_url}>
+      <div className="flex gap-2">
+        <Input className="flex-1" value={f.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="https://" />
+        <Button type="button" variant="outline" onClick={fetchMeta} disabled={busy || !f.url}>
+          <Globe />
+          {t.fetch_metadata}
+        </Button>
+      </div>
+    </Field>
+  );
+  const sourceMeta = (
+    <div className="grid grid-cols-3 gap-3">
+      <Field label={t.kind}>
+        <KindSelect value={f.kind} onChange={(v) => set("kind", v)} />
+      </Field>
+      <Field label={t.author}>
+        <Input value={f.author ?? ""} onChange={(e) => set("author", e.target.value)} />
+      </Field>
+      <Field label={t.date}>
+        <Input value={f.date ?? ""} onChange={(e) => set("date", e.target.value)} placeholder="2026-09-08" />
+      </Field>
+    </div>
+  );
 
   return (
-    <Modal title={`${t.new} · ${t.types[type]}`} onClose={onClose} wide={type === "clipping"}>
-      <form onSubmit={submit}>
-        <div className="mb-3 flex flex-wrap gap-1">
-          {CREATABLE_TYPES.map((x) => (
-            <button type="button" key={x} className={`btn btn-sm ${type === x ? "btn-primary" : ""}`} onClick={() => setType(x)}>
-              <TypeDot type={x} />
-              {t.types[x]}
-            </button>
-          ))}
-        </div>
+    <Shell title={`${t.new} · ${t.types[type]}`} onClose={onClose} wide={type === "clipping"}>
+      <form onSubmit={submit} className="grid gap-4">
+        <TypePicker value={type} onChange={setType} />
         <Field label={t.title}>
-          <input ref={titleRef} className="w-full" value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "clipping" || type === "note" ? "(optional)" : ""} />
+          <Input ref={titleRef} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={type === "clipping" || type === "note" ? "(optional)" : ""} />
         </Field>
         {type === "clipping" && (
           <>
             <Field label={t.clipping_text}>
-              <textarea className="w-full" rows={6} value={body} onChange={(e) => setBody(e.target.value)} autoFocus />
+              <Textarea rows={6} value={body} onChange={(e) => setBody(e.target.value)} autoFocus className="font-prose" />
             </Field>
-            <Field label={t.clipping_url}>
-              <div className="flex gap-2">
-                <input className="flex-1" value={f.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="https://" />
-                <button type="button" className="btn" onClick={fetchMeta} disabled={busy || !f.url}>
-                  {t.fetch_metadata}
-                </button>
-              </div>
-            </Field>
+            {urlField}
             <Field label={t.source}>
-              <DocPicker types={["source"]} value={f.source ?? ""} onChange={(v, d) => { set("source", v); set("source_id", d?.id ?? ""); }} placeholder={t.source_existing + " / " + t.source_new} />
+              <DocPicker
+                types={["source"]}
+                value={f.source ?? ""}
+                onChange={(v, d) => {
+                  set("source", v);
+                  set("source_id", d?.id ?? "");
+                }}
+                placeholder={t.source_existing + " / " + t.source_new}
+              />
             </Field>
-            {!f.source_id && f.source && (
-              <div className="mb-3 grid grid-cols-3 gap-2">
-                <Field label={t.kind}>
-                  <select className="w-full" value={f.kind} onChange={(e) => set("kind", e.target.value)}>
-                    {kinds.map((k) => (
-                      <option key={k} value={k}>
-                        {t.kinds[k]}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label={t.author}>
-                  <input className="w-full" value={f.author ?? ""} onChange={(e) => set("author", e.target.value)} />
-                </Field>
-                <Field label={t.date}>
-                  <input className="w-full" value={f.date ?? ""} onChange={(e) => set("date", e.target.value)} placeholder="2026-09-08" />
-                </Field>
-              </div>
-            )}
+            {!f.source_id && f.source && sourceMeta}
             <Field label={t.locator}>
-              <input className="w-full" value={f.locator ?? ""} onChange={(e) => set("locator", e.target.value)} placeholder="par. 12 · p. 4 · 14:32" />
+              <Input value={f.locator ?? ""} onChange={(e) => set("locator", e.target.value)} placeholder="par. 12 · p. 4 · 14:32" />
             </Field>
           </>
         )}
         {type === "source" && (
           <>
-            <Field label={t.url}>
-              <div className="flex gap-2">
-                <input className="flex-1" value={f.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="https://" />
-                <button type="button" className="btn" onClick={fetchMeta} disabled={busy || !f.url}>
-                  {t.fetch_metadata}
-                </button>
-              </div>
-            </Field>
-            <div className="grid grid-cols-3 gap-2">
-              <Field label={t.kind}>
-                <select className="w-full" value={f.kind} onChange={(e) => set("kind", e.target.value)}>
-                  {kinds.map((k) => (
-                    <option key={k} value={k}>
-                      {t.kinds[k]}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label={t.author}>
-                <input className="w-full" value={f.author ?? ""} onChange={(e) => set("author", e.target.value)} />
-              </Field>
-              <Field label={t.date}>
-                <input className="w-full" value={f.date ?? ""} onChange={(e) => set("date", e.target.value)} />
-              </Field>
-            </div>
+            {urlField}
+            {sourceMeta}
             <Field label={t.parent_source}>
               <DocPicker types={["source"]} value={f.parent ?? ""} onChange={(v) => set("parent", v)} />
             </Field>
@@ -247,36 +283,36 @@ function NewDocument({ type: initial, title: initialTitle, body: initialBody, on
           </Field>
         )}
         {type === "composition" && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Occasion">
-              <input className="w-full" value={f.occasion ?? ""} onChange={(e) => set("occasion", e.target.value)} />
+              <Input value={f.occasion ?? ""} onChange={(e) => set("occasion", e.target.value)} />
             </Field>
             <Field label={t.date}>
-              <input className="w-full" value={f.date ?? ""} onChange={(e) => set("date", e.target.value)} />
+              <Input value={f.date ?? ""} onChange={(e) => set("date", e.target.value)} />
             </Field>
           </div>
         )}
         {type === "place" && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-3">
             <Field label={t.lat}>
-              <input className="w-full" value={f.lat ?? ""} onChange={(e) => set("lat", e.target.value)} placeholder="31.7683" />
+              <Input value={f.lat ?? ""} onChange={(e) => set("lat", e.target.value)} placeholder="31.7683" />
             </Field>
             <Field label={t.lon}>
-              <input className="w-full" value={f.lon ?? ""} onChange={(e) => set("lon", e.target.value)} placeholder="35.2137" />
+              <Input value={f.lon ?? ""} onChange={(e) => set("lon", e.target.value)} placeholder="35.2137" />
             </Field>
           </div>
         )}
-        {error && <div className="mb-2 text-sm" style={{ color: "var(--danger)" }}>{error}</div>}
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn" onClick={onClose}>
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
             {t.cancel}
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
+          </Button>
+          <Button type="submit" disabled={busy}>
             {t.create}
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </form>
-    </Modal>
+    </Shell>
   );
 }
 
@@ -290,27 +326,27 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
     onClose();
   };
   return (
-    <Modal title={t.quick_capture} onClose={onClose}>
-      <p className="muted mb-2 text-sm">{t.quick_capture_hint}</p>
-      <textarea
-        className="mb-3 w-full"
+    <Shell title={t.quick_capture} description={t.quick_capture_hint} onClose={onClose}>
+      <Textarea
         rows={6}
         autoFocus
+        className="font-prose text-[15px]"
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
           if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
         }}
       />
-      <div className="flex justify-end gap-2">
-        <button className="btn" onClick={onClose}>
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
           {t.cancel}
-        </button>
-        <button className="btn btn-primary" onClick={submit}>
-          {t.create} ⌘↵
-        </button>
-      </div>
-    </Modal>
+        </Button>
+        <Button onClick={submit}>
+          {t.create}
+          <Kbd className="bg-primary-foreground/20 text-primary-foreground">{shortcut("↵")}</Kbd>
+        </Button>
+      </DialogFooter>
+    </Shell>
   );
 }
 
@@ -320,7 +356,6 @@ function Search({ onClose }: { onClose: () => void }) {
   const [q, setQ] = useState("");
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [names, setNames] = useState<NameIndex>(() => new NameIndex());
-  const [sel, setSel] = useState(0);
   useEffect(() => {
     namesApi.names().then((n) => setNames(new NameIndex(n))).catch(console.error);
   }, []);
@@ -334,72 +369,63 @@ function Search({ onClose }: { onClose: () => void }) {
     };
   }, [q]);
   const titleHits: NameEntry[] = useMemo(() => (q.trim() ? names.suggest(q, 6) : []), [q, names]);
-  const rows: { id: string; title: string; type: DocType; detail: string }[] = useMemo(() => {
-    const seen = new Set<string>();
-    const out: { id: string; title: string; type: DocType; detail: string }[] = [];
-    for (const n of titleHits) {
-      if (seen.has(n.id)) continue;
-      seen.add(n.id);
-      out.push({ id: n.id, title: n.name, type: n.type, detail: n.alias ? "alias" : "" });
-    }
-    for (const h of hits) {
-      if (seen.has(h.doc.id)) continue;
-      seen.add(h.doc.id);
-      out.push({ id: h.doc.id, title: h.doc.title, type: h.doc.type, detail: h.snippet });
-    }
-    return out;
-  }, [titleHits, hits]);
-  useEffect(() => setSel(0), [rows.length]);
-  const go = (i: number) => {
-    const r = rows[i];
-    if (r) {
-      s.openDoc(r.id);
-      onClose();
-    }
+  const seen = new Set(titleHits.map((n) => n.id));
+  const contentHits = hits.filter((h) => !seen.has(h.doc.id));
+  const go = (id: string) => {
+    s.openDoc(id);
+    onClose();
   };
+  const query = q.trim();
   return (
-    <Modal onClose={onClose} wide>
-      <input
-        className="mb-2 w-full text-base"
-        autoFocus
-        placeholder={t.search_placeholder}
-        value={q}
-        onChange={(e) => setQ(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
-            e.preventDefault();
-            setSel((x) => Math.min(rows.length - 1, x + 1));
-          } else if (e.key === "ArrowUp") {
-            e.preventDefault();
-            setSel((x) => Math.max(0, x - 1));
-          } else if (e.key === "Enter") {
-            e.preventDefault();
-            if (rows.length) go(sel);
-            else if (q.trim()) {
-              s.setDialog({ kind: "new", title: q.trim() });
-            }
-          }
-        }}
-      />
-      <ul className="thin-scroll max-h-[50vh] overflow-auto">
-        {rows.map((r, i) => (
-          <li key={r.id}>
-            <button className="flex w-full items-start rounded px-2 py-1.5 text-left" style={i === sel ? { background: "var(--accent-soft)" } : undefined} onMouseEnter={() => setSel(i)} onClick={() => go(i)}>
-              <TypeDot type={r.type} />
-              <span className="min-w-0 flex-1">
-                <span className="font-medium">{r.title}</span>
-                {r.detail && <span className="muted ml-2 text-xs" dangerouslySetInnerHTML={{ __html: r.detail.replace(/</g, "&lt;").replace(/\[([^\]]+)\]/g, "<mark>$1</mark>") }} />}
-              </span>
-            </button>
-          </li>
-        ))}
-        {q.trim() && rows.length === 0 && (
-          <li className="muted px-2 py-2 text-sm">
-            ↵ {t.create} “{q.trim()}”
-          </li>
-        )}
-      </ul>
-    </Modal>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="top-[18%] translate-y-0 overflow-hidden p-0 sm:max-w-xl" showCloseButton={false}>
+        <DialogTitle className="sr-only">{t.search}</DialogTitle>
+        <DialogDescription className="sr-only">{t.search_placeholder}</DialogDescription>
+        <Command shouldFilter={false} className="[&_[cmdk-input-wrapper]]:h-12">
+          <CommandInput placeholder={t.search_placeholder} value={q} onValueChange={setQ} className="text-base" />
+          <CommandList className="thin-scroll max-h-[50vh]">
+            {query && <CommandEmpty>{t.no_results}</CommandEmpty>}
+            {titleHits.length > 0 && (
+              <CommandGroup heading={t.titles}>
+                {titleHits.map((n) => (
+                  <CommandItem key={n.id} value={"n:" + n.id} onSelect={() => go(n.id)}>
+                    <TypeDot type={n.type} />
+                    <span className="truncate font-medium">{n.name}</span>
+                    {n.alias && <span className="text-xs text-muted-foreground">alias</span>}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {contentHits.length > 0 && (
+              <CommandGroup heading={t.content}>
+                {contentHits.map((h) => (
+                  <CommandItem key={h.doc.id} value={"d:" + h.doc.id} onSelect={() => go(h.doc.id)} className="items-start">
+                    <TypeDot type={h.doc.type} className="mt-1.5" />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium">{h.doc.title}</span>
+                      {h.snippet && <span className="ml-2 text-xs text-muted-foreground [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-foreground" dangerouslySetInnerHTML={{ __html: h.snippet.replace(/</g, "&lt;").replace(/\[([^\]]+)\]/g, "<mark>$1</mark>") }} />}
+                    </span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+            {query && (
+              <CommandGroup>
+                <CommandItem
+                  value="__create__"
+                  onSelect={() => {
+                    s.setDialog({ kind: "new", title: query });
+                  }}
+                >
+                  <Plus />
+                  <span className="truncate">{t.create_new(query)}</span>
+                </CommandItem>
+              </CommandGroup>
+            )}
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -409,30 +435,22 @@ function CreateLink({ target, onClose }: { target: string; onClose: () => void }
   const [type, setType] = useState<DocType>("concept");
   const title = target.replace(/-/g, " ");
   return (
-    <Modal title={`${t.create_page} · ${title}`} onClose={onClose}>
-      <div className="mb-4 flex flex-wrap gap-1">
-        {CREATABLE_TYPES.map((x) => (
-          <button key={x} className={`btn btn-sm ${type === x ? "btn-primary" : ""}`} onClick={() => setType(x)}>
-            <TypeDot type={x} />
-            {t.types[x]}
-          </button>
-        ))}
-      </div>
-      <div className="flex justify-end gap-2">
-        <button className="btn" onClick={onClose}>
+    <Shell title={`${t.create_page} · ${title}`} onClose={onClose}>
+      <TypePicker value={type} onChange={setType} />
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose}>
           {t.cancel}
-        </button>
-        <button
-          className="btn btn-primary"
+        </Button>
+        <Button
           onClick={async () => {
             await s.createDoc(type, title);
             onClose();
           }}
         >
           {t.create}
-        </button>
-      </div>
-    </Modal>
+        </Button>
+      </DialogFooter>
+    </Shell>
   );
 }
 
@@ -441,25 +459,28 @@ function ConfirmDelete({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useT();
   const doc = s.docsById.get(id);
   return (
-    <Modal onClose={onClose}>
-      <p className="mb-4">{t.confirm_delete(doc?.title ?? "")}</p>
-      <div className="flex justify-end gap-2">
-        <button className="btn" onClick={onClose}>
-          {t.cancel}
-        </button>
-        <button
-          className="btn btn-danger"
-          onClick={async () => {
-            await api.deleteDocument(id);
-            await s.refresh();
-            onClose();
-            s.back();
-          }}
-        >
-          {t.delete}
-        </button>
-      </div>
-    </Modal>
+    <AlertDialog open onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t.delete}</AlertDialogTitle>
+          <AlertDialogDescription>{t.confirm_delete(doc?.title ?? "")}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={async () => {
+              await api.deleteDocument(id);
+              await s.refresh();
+              onClose();
+              s.back();
+            }}
+          >
+            {t.delete}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
@@ -478,19 +499,17 @@ function Rename({ id, onClose }: { id: string; onClose: () => void }) {
     onClose();
   };
   return (
-    <Modal title={t.rename} onClose={onClose}>
-      <form onSubmit={submit}>
-        <input className="mb-3 w-full" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.target.select()} />
-        <div className="flex justify-end gap-2">
-          <button type="button" className="btn" onClick={onClose}>
+    <Shell title={t.rename} onClose={onClose}>
+      <form onSubmit={submit} className="grid gap-4">
+        <Input autoFocus value={title} onChange={(e) => setTitle(e.target.value)} onFocus={(e) => e.target.select()} />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
             {t.cancel}
-          </button>
-          <button type="submit" className="btn btn-primary">
-            {t.rename}
-          </button>
-        </div>
+          </Button>
+          <Button type="submit">{t.rename}</Button>
+        </DialogFooter>
       </form>
-    </Modal>
+    </Shell>
   );
 }
 

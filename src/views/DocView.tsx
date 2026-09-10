@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft, ArrowUp, ChevronLeft, ChevronRight, CircleAlert, PanelRight, RefreshCw, Trash2 } from "lucide-react";
+import { cn } from "cn";
 import { api, namesApi, type DetectedRange, type DocumentPayload } from "@/lib/api";
 import { joinFrontmatter, splitFrontmatter } from "@/lib/frontmatter";
 import { NameIndex } from "@/lib/names";
@@ -7,8 +9,14 @@ import { useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
+import { IconButton } from "@/components/IconButton";
 import { RightPanel } from "@/components/RightPanel";
 import { TypeDot } from "@/components/DocLink";
+import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export function DocView({ id }: { id: string }) {
   const s = useStore();
@@ -131,7 +139,21 @@ export function DocView({ id }: { id: string }) {
     [names, s],
   );
 
-  if (!doc) return <div className="muted p-6">…</div>;
+  if (!doc)
+    return (
+      <div className="flex h-full flex-col">
+        <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
+          <SidebarTrigger className="-ml-1" />
+          <Skeleton className="h-4 w-48" />
+        </header>
+        <div className="mx-auto w-full max-w-[720px] space-y-3 px-8 py-8">
+          <Skeleton className="h-6 w-1/2" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-4 w-2/3" />
+        </div>
+      </div>
+    );
   const sum = doc.summary;
   const isScripture = sum.type === "book" || sum.type === "chapter" || sum.type === "verse";
   const book = sum.book ? s.books.find((b) => b.number === sum.book) : undefined;
@@ -160,47 +182,54 @@ export function DocView({ id }: { id: string }) {
   return (
     <div className="flex h-full min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
-          {!s.sidebarOpen && (
-            <button className="btn btn-ghost btn-sm" onClick={() => s.setSidebarOpen(true)} title="Sidebar">
-              ☰
-            </button>
-          )}
-          <button className="btn btn-ghost btn-sm" onClick={s.back} title="Back">
-            ←
-          </button>
-          <TypeDot type={sum.type} />
-          <button className="min-w-0 flex-1 truncate text-left text-base font-semibold" onClick={() => !isScripture && s.setDialog({ kind: "rename", id })} title={sum.path}>
+        <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-background px-3">
+          <SidebarTrigger className="-ml-1" />
+          <Separator orientation="vertical" className="mx-1 data-vertical:h-4 data-vertical:self-center" />
+          <IconButton label={t.back} onClick={s.back}>
+            <ArrowLeft />
+          </IconButton>
+          <TypeDot type={sum.type} className="mx-1.5" />
+          <button
+            type="button"
+            className={cn("min-w-0 flex-1 truncate rounded-md px-1 text-left text-sm font-semibold", !isScripture && "hover:bg-accent")}
+            onClick={() => !isScripture && s.setDialog({ kind: "rename", id })}
+            title={isScripture ? sum.path : `${t.rename} · ${sum.path}`}
+          >
             {scriptureTitle}
           </button>
           {neighbours && (
-            <div className="flex gap-1">
-              <button className="btn btn-ghost btn-sm" onClick={neighbours.up} title="Up">
-                ↑
-              </button>
-              <button className="btn btn-ghost btn-sm" disabled={!neighbours.prev} onClick={neighbours.prev}>
-                ‹
-              </button>
-              <button className="btn btn-ghost btn-sm" disabled={!neighbours.next} onClick={neighbours.next}>
-                ›
-              </button>
+            <div className="flex items-center gap-0.5 rounded-lg border bg-muted/40 p-0.5">
+              <IconButton label={t.up} size="icon-xs" onClick={neighbours.up}>
+                <ArrowUp />
+              </IconButton>
+              <IconButton label={t.previous} size="icon-xs" disabled={!neighbours.prev} onClick={neighbours.prev}>
+                <ChevronLeft />
+              </IconButton>
+              <IconButton label={t.next} size="icon-xs" disabled={!neighbours.next} onClick={neighbours.next}>
+                <ChevronRight />
+              </IconButton>
             </div>
           )}
-          <span className="muted text-xs">{status === "saving" ? t.saving : status === "saved" ? t.saved : status === "error" ? "⚠" : ""}</span>
-          <button className="btn btn-ghost btn-sm" onClick={() => s.setPanelOpen(!s.panelOpen)} title={t.backlinks}>
-            ▤
-          </button>
-          <button className="btn btn-ghost btn-sm btn-danger" onClick={() => s.setDialog({ kind: "delete", id })} title={t.delete}>
-            🗑
-          </button>
+          <span className={cn("mx-2 text-xs text-muted-foreground transition-opacity", status === "idle" && "opacity-0")} aria-live="polite">
+            {status === "saving" ? t.saving : status === "saved" ? t.saved : status === "error" ? <CircleAlert className="inline size-3.5 text-destructive" /> : ""}
+          </span>
+          <IconButton label={t.toggle_panel} aria-pressed={s.panelOpen} className={cn(s.panelOpen && "bg-accent text-accent-foreground")} onClick={() => s.setPanelOpen(!s.panelOpen)}>
+            <PanelRight />
+          </IconButton>
+          <IconButton label={t.delete} className="text-muted-foreground hover:text-destructive" onClick={() => s.setDialog({ kind: "delete", id })}>
+            <Trash2 />
+          </IconButton>
         </header>
         {external && (
-          <div className="flex items-center gap-3 px-4 py-2 text-sm" style={{ background: "var(--accent-soft)" }}>
-            <span>{t.external_change}</span>
-            <button className="btn btn-sm" onClick={() => load()}>
-              {t.reload}
-            </button>
-          </div>
+          <Alert className="mx-auto mt-3 w-[min(720px,calc(100%-2rem))]">
+            <RefreshCw />
+            <AlertTitle>{t.external_change}</AlertTitle>
+            <AlertAction>
+              <Button size="sm" variant="outline" onClick={() => load()}>
+                {t.reload}
+              </Button>
+            </AlertAction>
+          </Alert>
         )}
         <div className="min-h-0 flex-1">
           <Editor value={body} onChange={onBodyChange} onDetected={setDetected} env={env} names={names} tags={s.tags} placeholder={t.empty_doc} autofocus={!isScripture} />

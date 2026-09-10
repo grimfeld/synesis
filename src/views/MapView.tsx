@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
+import { MapPin, Plus } from "lucide-react";
 import { api, type DocSummary } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
+import { ViewHeader } from "@/components/ViewHeader";
+import { Button } from "@/components/ui/button";
 
 export function MapView() {
   const s = useStore();
@@ -32,10 +35,11 @@ export function MapView() {
     const g = layer.current;
     if (!m || !g) return;
     g.clearLayers();
+    const color = getComputedStyle(document.documentElement).getPropertyValue("--c-place").trim() || "#c04f6b";
     const pts: L.LatLngTuple[] = [];
     for (const p of places) {
       if (p.lat == null || p.lon == null) continue;
-      const mk = L.circleMarker([p.lat, p.lon], { radius: 7, color: "#c04f6b", fillColor: "#c04f6b", fillOpacity: 0.85, weight: 1.5 }).addTo(g);
+      const mk = L.circleMarker([p.lat, p.lon], { radius: 7, color, fillColor: color, fillOpacity: 0.85, weight: 1.5 }).addTo(g);
       mk.bindTooltip(p.title, { permanent: true, direction: "right", offset: [8, 0], className: "map-label" });
       mk.on("click", () => s.openDoc(p.id));
       pts.push([p.lat, p.lon]);
@@ -45,18 +49,13 @@ export function MapView() {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
-        {!s.sidebarOpen && (
-          <button className="btn btn-ghost btn-sm" onClick={() => s.setSidebarOpen(true)}>
-            ☰
-          </button>
-        )}
-        <h1 className="text-base font-semibold">{t.views.map}</h1>
-        <span className="muted text-xs">{places.length === 0 ? t.no_places : t.map_hint}</span>
-        <button className="btn btn-sm ml-auto" onClick={() => s.setDialog({ kind: "new", type: "place" })}>
-          + {t.types.place}
-        </button>
-      </header>
+      <ViewHeader title={t.views.map} icon={<MapPin />}>
+        <span className="hidden truncate text-xs text-muted-foreground md:inline">{places.length === 0 ? t.no_places : t.map_hint}</span>
+        <Button size="sm" variant="outline" className="ml-auto" onClick={() => s.setDialog({ kind: "new", type: "place" })}>
+          <Plus />
+          {t.types.place}
+        </Button>
+      </ViewHeader>
       <div ref={host} className="min-h-0 flex-1" />
     </div>
   );

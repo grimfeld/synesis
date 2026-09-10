@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { LangContext } from "./i18n";
 import { StoreProvider, useStore } from "./lib/store";
-import { Sidebar } from "./components/Sidebar";
+import { AppSidebar } from "./components/AppSidebar";
 import { Dialogs } from "./components/Dialogs";
 import { DocView } from "./views/DocView";
 import { GraphView } from "./views/GraphView";
@@ -10,25 +10,27 @@ import { CoverageView } from "./views/CoverageView";
 import { SettingsView } from "./views/SettingsView";
 import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
+import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
+import { TooltipProvider } from "./components/ui/tooltip";
 
 function Shell() {
   const s = useStore();
 
-  // Global shortcuts: search palette and quick capture.
+  // Global shortcuts: search palette, new document, quick capture.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.key.toLowerCase() === "k") {
+      if (!mod) return;
+      const key = e.key.toLowerCase();
+      if (key === "k") {
         e.preventDefault();
         s.setDialog({ kind: "search" });
-      } else if (mod && e.shiftKey && e.key.toLowerCase() === "n") {
+      } else if (key === "n" && e.shiftKey) {
         e.preventDefault();
         s.setDialog({ kind: "quick" });
-      } else if (mod && e.key.toLowerCase() === "n" && !e.shiftKey) {
+      } else if (key === "n") {
         e.preventDefault();
         s.setDialog({ kind: "new" });
-      } else if (e.key === "Escape" && s.dialog) {
-        s.setDialog(null);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -58,11 +60,11 @@ function Shell() {
   })();
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      {s.sidebarOpen && <Sidebar />}
-      <div className="flex min-w-0 flex-1 flex-col">{main}</div>
+    <SidebarProvider open={s.sidebarOpen} onOpenChange={s.setSidebarOpen} className="h-svh min-h-0 overflow-hidden">
+      <AppSidebar />
+      <SidebarInset className="h-svh min-h-0 overflow-hidden">{main}</SidebarInset>
       <Dialogs />
-    </div>
+    </SidebarProvider>
   );
 }
 
@@ -70,7 +72,9 @@ function LangBridge() {
   const s = useStore();
   return (
     <LangContext.Provider value={s.lang}>
-      <Shell />
+      <TooltipProvider delayDuration={400}>
+        <Shell />
+      </TooltipProvider>
     </LangContext.Provider>
   );
 }

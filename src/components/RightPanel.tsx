@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { api, fmString, linkTarget, type Backlink, type Candidate, type DetectedRange, type DocSummary, type DocumentPayload, type TrailEntry, CREATABLE_TYPES, SUBJECT_TYPES, unpackVerse } from "@/lib/api";
 import { setField } from "@/lib/frontmatter";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DocLink, TypeDot } from "./DocLink";
 
 interface Props {
@@ -35,7 +41,7 @@ export function RightPanel({ doc, fm, onFmChange, detected }: Props) {
   }, [id, type, s.changeTick, doc.summary.mtime]);
 
   return (
-    <aside className="thin-scroll flex w-80 shrink-0 flex-col overflow-y-auto border-l" style={{ borderColor: "var(--border)", background: "var(--bg-2)" }}>
+    <aside className="thin-scroll flex w-80 shrink-0 flex-col overflow-y-auto border-l bg-sidebar text-sidebar-foreground">
       <Properties doc={doc} fm={fm} onFmChange={onFmChange} />
       {type === "composition" && <Candidates items={candidates} detected={detected} />}
       {type === "source" && <SourceTrail trail={trail} childrenDocs={children} />}
@@ -44,17 +50,19 @@ export function RightPanel({ doc, fm, onFmChange, detected }: Props) {
   );
 }
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+function Section({ title, count, hint, children }: { title: string; count?: number; hint?: string; children: ReactNode }) {
   return (
-    <section className="border-b px-3 py-2" style={{ borderColor: "var(--border)" }}>
-      <button className="panel-title flex w-full items-center justify-between py-1" onClick={() => setOpen(!open)}>
-        <span>{title}</span>
-        <span>{open ? "▾" : "▸"}</span>
-      </button>
-      {open && hint && <div className="muted mb-2 text-xs">{hint}</div>}
-      {open && children}
-    </section>
+    <Collapsible defaultOpen className="border-b">
+      <CollapsibleTrigger className="group flex w-full items-center gap-1.5 px-3 py-2.5 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase transition-colors hover:text-foreground">
+        <ChevronRight className="size-3.5 transition-transform group-data-[state=open]:rotate-90" />
+        <span className="flex-1 text-left">{title}</span>
+        {count != null && <span className="font-normal tabular-nums">{count}</span>}
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-3 pb-3">
+        {hint && <p className="mb-2 text-xs text-muted-foreground">{hint}</p>}
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 
@@ -64,39 +72,50 @@ function Properties({ doc, fm, onFmChange }: { doc: DocumentPayload; fm: string;
   const [adding, setAdding] = useState("");
   const entries = useMemo(() => Object.entries(doc.frontmatter).filter(([k]) => k !== "id"), [doc.frontmatter]);
   const set = (k: string, v: string) => onFmChange(setField(fm, k, v));
+  const isScripture = doc.summary.type === "book" || doc.summary.type === "chapter" || doc.summary.type === "verse";
   return (
     <Section title={t.properties}>
-      <div className="space-y-1">
+      <div className="space-y-1.5">
         <div className="flex items-center gap-2 text-sm">
-          <span className="muted w-24 shrink-0 truncate">{t.type}</span>
-          {doc.summary.type === "book" || doc.summary.type === "chapter" || doc.summary.type === "verse" ? (
-            <span>{t.types[doc.summary.type]}</span>
+          <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">{t.type}</span>
+          {isScripture ? (
+            <span className="flex items-center gap-2 text-xs">
+              <TypeDot type={doc.summary.type} />
+              {t.types[doc.summary.type]}
+            </span>
           ) : (
-            <select className="flex-1 py-0.5" value={fmString(doc.frontmatter.type) || "note"} onChange={(e) => set("type", e.target.value)}>
-              {CREATABLE_TYPES.map((x) => (
-                <option key={x} value={x}>
-                  {t.types[x]}
-                </option>
-              ))}
-            </select>
+            <Select value={fmString(doc.frontmatter.type) || "note"} onValueChange={(v) => set("type", v)}>
+              <SelectTrigger size="sm" className="h-7 flex-1 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CREATABLE_TYPES.map((x) => (
+                  <SelectItem key={x} value={x}>
+                    <TypeDot type={x} />
+                    {t.types[x]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
         </div>
         {entries
           .filter(([k]) => k !== "type")
           .map(([k, v]) => {
             const link = typeof v === "string" && /^\[\[.*\]\]$/.test(v.trim()) ? linkTarget(v) : null;
+            const shown = Array.isArray(v) ? v.map(fmString).join(", ") : fmString(v);
             return (
               <div key={k} className="flex items-center gap-2 text-sm">
-                <span className="muted w-24 shrink-0 truncate" title={k}>
+                <span className="w-24 shrink-0 truncate text-xs text-muted-foreground" title={k}>
                   {k}
                 </span>
-                <input
-                  className="min-w-0 flex-1 py-0.5"
-                  defaultValue={Array.isArray(v) ? v.map(fmString).join(", ") : fmString(v)}
-                  key={k + fmString(v)}
+                <Input
+                  className="h-7 min-w-0 flex-1 text-xs"
+                  defaultValue={shown}
+                  key={k + shown}
                   onBlur={(e) => {
                     const val = e.target.value;
-                    if (val === (Array.isArray(v) ? v.map(fmString).join(", ") : fmString(v))) return;
+                    if (val === shown) return;
                     if (Array.isArray(v) || k === "aliases" || k === "tags")
                       onFmChange(
                         setField(
@@ -112,15 +131,15 @@ function Properties({ doc, fm, onFmChange }: { doc: DocumentPayload; fm: string;
                   }}
                 />
                 {link && (
-                  <button className="btn btn-ghost btn-sm shrink-0" style={{ color: "var(--link)" }} onClick={() => s.openLink(link)} title={link}>
-                    ↗
-                  </button>
+                  <Button variant="ghost" size="icon-xs" className="shrink-0 text-link" onClick={() => s.openLink(link)} title={link} aria-label={t.open}>
+                    <ExternalLink />
+                  </Button>
                 )}
               </div>
             );
           })}
         <form
-          className="flex gap-1 pt-1"
+          className="pt-1"
           onSubmit={(e) => {
             e.preventDefault();
             const k = adding.trim().replace(/[^\w-]/g, "");
@@ -129,27 +148,38 @@ function Properties({ doc, fm, onFmChange }: { doc: DocumentPayload; fm: string;
             setAdding("");
           }}
         >
-          <input className="flex-1 py-0.5 text-xs" placeholder={t.add_property} value={adding} onChange={(e) => setAdding(e.target.value)} />
+          <Input className="h-7 text-xs" placeholder={`+ ${t.add_property}`} value={adding} onChange={(e) => setAdding(e.target.value)} />
         </form>
       </div>
     </Section>
   );
 }
 
+function kindLabel(b: Backlink, via: string, inferred: string): string {
+  if (b.kind === "mention" && b.via) return `${via} ${b.via}${b.inferred ? ` · ${inferred}` : ""}`;
+  if (b.kind === "tag") return "#";
+  if (b.kind === "property") return b.property ?? "";
+  if (b.kind === "embed") return "![[ ]]";
+  return "";
+}
+
 function BacklinkItem({ b }: { b: Backlink }) {
   const s = useStore();
   const t = useT();
+  const label = kindLabel(b, t.via, t.inferred);
   return (
     <li>
-      <button className="row-hover w-full rounded px-2 py-1 text-left" onClick={() => s.openDoc(b.doc.id)}>
-        <div className="flex items-center text-sm">
+      <button type="button" className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent" onClick={() => s.openDoc(b.doc.id)}>
+        <div className="flex items-center gap-2 text-sm">
           <TypeDot type={b.doc.type} />
           <span className="min-w-0 flex-1 truncate font-medium">{b.doc.title}</span>
-          <span className="muted ml-2 shrink-0 text-xs">
-            {b.kind === "mention" && b.via ? `${t.via} ${b.via}${b.inferred ? ` · ${t.inferred}` : ""}` : b.kind === "tag" ? "#" : b.kind === "property" ? b.property : b.kind === "embed" ? "![[ ]]" : ""}
-          </span>
+          {label && (
+            <Badge variant="outline" className="h-4 shrink-0 px-1 text-[10px] font-normal text-muted-foreground">
+              {label}
+            </Badge>
+          )}
         </div>
-        {b.excerpt && <div className="muted line-clamp-2 text-xs">{b.excerpt}</div>}
+        {b.excerpt && <div className="mt-0.5 line-clamp-2 pl-4 text-xs text-muted-foreground">{b.excerpt}</div>}
       </button>
     </li>
   );
@@ -174,13 +204,13 @@ function Backlinks({ items, subject }: { items: Backlink[]; subject: boolean }) 
     return out;
   }, [items, subject, s.books, t.other_docs]);
   return (
-    <Section title={`${t.backlinks} · ${items.length}`} hint={subject && items.length ? t.book_order : undefined}>
+    <Section title={t.backlinks} count={items.length} hint={subject && items.length ? t.book_order : undefined}>
       {items.length === 0 ? (
-        <div className="muted text-xs">{t.no_backlinks}</div>
+        <div className="text-xs text-muted-foreground">{t.no_backlinks}</div>
       ) : (
         groups.map((g, i) => (
-          <div key={i} className="mb-2">
-            {g.label && <div className="muted mb-1 text-xs font-semibold">{g.label}</div>}
+          <div key={i} className="mb-2 last:mb-0">
+            {g.label && <div className="mb-1 px-2 text-xs font-semibold text-muted-foreground">{g.label}</div>}
             <ul className="space-y-0.5">
               {g.items.map((b, j) => (
                 <BacklinkItem key={j} b={b} />
@@ -198,19 +228,30 @@ function Candidates({ items, detected }: { items: Candidate[]; detected: Detecte
   const t = useT();
   const live = detected.length;
   return (
-    <Section title={`${t.candidates} · ${items.length}`} hint={t.candidates_hint}>
+    <Section title={t.candidates} count={items.length} hint={t.candidates_hint}>
       {items.length === 0 ? (
-        <div className="muted text-xs">{live ? "…" : t.no_candidates}</div>
+        <div className="text-xs text-muted-foreground">{live ? t.loading : t.no_candidates}</div>
       ) : (
         <ul className="space-y-0.5">
           {items.map((c) => (
             <li key={c.doc.id}>
-              <button className="row-hover w-full rounded px-2 py-1 text-left" onClick={() => s.openDoc(c.doc.id)}>
-                <div className="flex items-center text-sm">
+              <button type="button" className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent" onClick={() => s.openDoc(c.doc.id)}>
+                <div className="flex items-center gap-2 text-sm">
                   <TypeDot type={c.doc.type} />
                   <span className="min-w-0 flex-1 truncate font-medium">{c.doc.title}</span>
                 </div>
-                <div className="muted truncate text-xs">{[...c.shared_tags.map((x) => "#" + x), ...c.shared_passages].join(" · ")}</div>
+                <div className="mt-0.5 flex flex-wrap gap-1 pl-4">
+                  {c.shared_tags.map((x) => (
+                    <Badge key={"t" + x} variant="secondary" className="h-4 px-1 text-[10px] font-normal text-tag">
+                      #{x}
+                    </Badge>
+                  ))}
+                  {c.shared_passages.map((x) => (
+                    <Badge key={"p" + x} variant="secondary" className="h-4 px-1 text-[10px] font-normal text-passage">
+                      {x}
+                    </Badge>
+                  ))}
+                </div>
               </button>
             </li>
           ))}
@@ -226,8 +267,8 @@ function SourceTrail({ trail, childrenDocs }: { trail: TrailEntry[]; childrenDoc
   return (
     <>
       {childrenDocs.length > 0 && (
-        <Section title={`${t.child_sources} · ${childrenDocs.length}`}>
-          <ul>
+        <Section title={t.child_sources} count={childrenDocs.length}>
+          <ul className="space-y-0.5">
             {childrenDocs.map((d) => (
               <li key={d.id}>
                 <DocLink doc={d} />
@@ -236,18 +277,18 @@ function SourceTrail({ trail, childrenDocs }: { trail: TrailEntry[]; childrenDoc
           </ul>
         </Section>
       )}
-      <Section title={`${t.reading_trail} · ${trail.length}`}>
+      <Section title={t.reading_trail} count={trail.length}>
         {trail.length === 0 ? (
-          <div className="muted text-xs">{t.no_trail}</div>
+          <div className="text-xs text-muted-foreground">{t.no_trail}</div>
         ) : (
           <ul className="space-y-0.5">
             {trail.map((e, i) => (
               <li key={i}>
-                <button className="row-hover flex w-full items-center rounded px-2 py-1 text-left text-sm" onClick={() => s.openDoc(e.doc.id)}>
-                  <span className="muted w-16 shrink-0 truncate text-xs">{e.locator ?? "—"}</span>
+                <button type="button" className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-accent" onClick={() => s.openDoc(e.doc.id)}>
+                  <span className="w-14 shrink-0 truncate text-xs text-muted-foreground tabular-nums">{e.locator ?? "—"}</span>
                   <TypeDot type={e.doc.type} />
                   <span className="min-w-0 flex-1 truncate">{e.doc.title}</span>
-                  {e.source.id !== trail[0]?.source.id && <span className="muted ml-1 truncate text-xs">{e.source.title}</span>}
+                  {e.source.id !== trail[0]?.source.id && <span className="ml-1 truncate text-xs text-muted-foreground">{e.source.title}</span>}
                 </button>
               </li>
             ))}
