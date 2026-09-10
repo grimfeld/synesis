@@ -1,4 +1,4 @@
-# Bible Study Vault
+# Synesis
 
 A local-first note-taking app for Bible study. The user reads Scripture, meditates, writes, collects material from other people's work, and composes their own talks and content from all of it. Everything lives in a Vault the user owns.
 

@@ -1,4 +1,4 @@
-# Bible Study Vault — Design Plan
+# Synesis — Design Plan
 
 Outcome of the grilling session on 2026-09-08. Vocabulary is defined in [CONTEXT.md](../CONTEXT.md); hard-to-reverse decisions are in [docs/adr](./adr). This document is the shared understanding; nothing below is built yet.
 

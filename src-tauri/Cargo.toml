@@ -1,11 +1,11 @@
 [package]
-name = "bible-study-vault"
+name = "synesis"
 version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "bible_study_vault_lib"
+name = "synesis_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

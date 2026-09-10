@@ -458,7 +458,7 @@ fn html_unescape(s: &str) -> String {
 #[tauri::command]
 async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
     let client = reqwest::Client::builder()
-        .user_agent("BibleStudyVault/0.1 (+https://github.com)")
+        .user_agent("Synesis/0.1 (+https://github.com/grimfeld/synesis)")
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(err)?;

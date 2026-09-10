@@ -1,4 +1,4 @@
-//! Bible Study Vault engine: versification, Passage parsing, document parsing,
+//! Synesis engine: versification, Passage parsing, document parsing,
 //! the SQLite index and the Vault itself. Everything that is not UI lives here
 //! (see docs/adr/0004-rust-engine-react-ui.md).
 

@@ -1,6 +1,6 @@
 import type { Dict } from "./en";
 export const fr: Dict = {
-  app: "Bible Study Vault",
+  app: "Synesis",
   welcome_title: "Ouvrir un coffre",
   welcome_body: "Un coffre est un dossier de fichiers markdown. Il s’ouvre aussi dans Obsidian.",
   open_folder: "Ouvrir un dossier…",

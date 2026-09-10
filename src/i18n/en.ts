@@ -1,5 +1,5 @@
 export const en = {
-  app: "Bible Study Vault",
+  app: "Synesis",
   welcome_title: "Open a vault",
   welcome_body: "A vault is a folder of markdown files. It opens in Obsidian too.",
   open_folder: "Open folder…",
