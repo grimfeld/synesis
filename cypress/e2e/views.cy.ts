@@ -9,11 +9,11 @@ describe("Views", () => {
       "have.length.greaterThan",
       15,
     );
-    cy.get("[data-testid=coverage-cell][title^='Genesis 2 ']").should(
-      "have.attr",
-      "data-count",
-      "1",
-    );
+    // Counts come from the engine, so the assertion follows the demo vault's content.
+    cy.bridge<{ book: number; chapter: number; count: number }[]>("coverage").then((cells) => {
+      const gen2 = cells.find((c) => c.book === 1 && c.chapter === 2);
+      cy.get("[data-testid=coverage-cell][title^='Genesis 2 ']").should("have.attr", "data-count", String(gen2?.count ?? 0));
+    });
     cy.get("[data-testid=coverage-cell][title^='Romans 8 ']").click();
     cy.get("[data-testid=hub-header]").should("contain", "Romans 8");
   });
@@ -40,10 +40,9 @@ describe("Views", () => {
 
   it("Map shows every Place with coordinates", () => {
     cy.get("[data-testid=nav-map]").click();
-    cy.get("[data-testid=map] path.leaflet-interactive").should(
-      "have.length",
-      5,
-    );
+    cy.bridge<unknown[]>("places").then((places) => {
+      cy.get("[data-testid=map] path.leaflet-interactive").should("have.length", places.length);
+    });
     cy.get("[data-testid=map] .leaflet-tooltip")
       .should("contain", "Ephesus")
       .and("contain", "Corinth");

@@ -187,3 +187,20 @@ Each step ships with tests (engine unit tests, Cypress spec under `cypress/e2e/`
 - Online geocoder (Nominatim): modern names, network dependency, no gain for ancient sites.
 - Versions as vault files.
 - Dates on Compositions / Sources joining the Timeline: those are today's calendar, a different Property type.
+
+## 14. Onboarding and free sync (grilling session, 2026-09-12)
+
+### Decided
+
+1. **Onboarding is the Welcome wizard**, shown whenever no Vault is open: (1) Welcome: what a Vault is; (2) Devices & sync: "Which devices will you use?" (current one pre-ticked) -> the app recommends the one free method covering that set and shows its tutorial, the others one click away; "Only this device" skips; (3) Vault: open a Vault found in the synced folder ("synced from <device>"), create one at the suggested path inside the synced folder, or choose any folder; (4) Done: three things to try. No coach marks, no starter Note, no separate Help view.
+2. **Free sync methods documented**: iCloud Drive (macOS, iOS; Apple-only sets), Syncthing (Windows, macOS, Linux, Android; any set with Android), provider desktop clients OneDrive / Google Drive / Dropbox (desktop-only sets). Git declined. Recommendation rule: Apple-only -> iCloud; contains Android -> Syncthing; desktop-only -> provider client (Syncthing offered as alternative). iOS + Android together: no free method; say so.
+3. **Sync first, Vault second.** The wizard proposes a default Vault path inside the synced folder (iCloud Drive/Synesis, ~/Sync/Synesis, <Provider>/Synesis) so no Vault ever needs moving.
+4. **Second device**: step 3 scans the suggested locations for folders containing `.bible-study/` and offers them first, labelled by the Device that created them. Each Device writes `device.json` (name, platform, last snapshot time) into its sync folder; a status query lists the Devices seen.
+5. **Sync in Settings**: method, Vault path, Devices seen with last snapshot time, "Set up sync on another device" reopening the wizard's sync step; a Command "Set up sync".
+6. **Tutorials** are markdown files `docs/sync/<method>.<platform>.<lang>.md` (en, fr), bundled at build time and rendered in-app; each ends with a verification step (create a Note on one Device, watch it appear on the other) and a short note on how conflicts are merged.
+
+### Declined
+
+- Coach-mark tour, starter "Getting started" Note, standalone Help view.
+- Git as a sync method.
+- Tutorials as i18n string arrays.

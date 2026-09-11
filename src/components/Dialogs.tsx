@@ -18,6 +18,7 @@ import {
   type Frontmatter,
   type GazetteerHit,
   type SearchHit,
+  type SyncLocations,
   type NameEntry,
 } from "@/lib/api";
 import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
@@ -66,6 +67,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import L from "leaflet";
 import { diffLines, diffStats } from "@/lib/diff";
 import { Field } from "./Field";
+import { SyncSetup } from "./SyncSetup";
 import { TypeDot } from "./DocLink";
 
 export function Dialogs() {
@@ -90,6 +92,8 @@ export function Dialogs() {
       return <Palette initial={d.query ?? ""} onClose={close} />;
     case "goto-passage":
       return <GotoPassage onClose={close} />;
+    case "sync":
+      return <SyncDialog onClose={close} />;
     case "create-link":
       return <CreateLink target={d.target} onClose={close} />;
     case "delete":
@@ -1113,6 +1117,27 @@ function Palette({
             )}
           </CommandList>
         </CommandRoot>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** "Set up sync on another device": the wizard's sync step, on its own. */
+function SyncDialog({ onClose }: { onClose: () => void }) {
+  const s = useStore();
+  const t = useT();
+  const [locations, setLocations] = useState<SyncLocations | null>(null);
+  useEffect(() => {
+    api.syncLocations().then(setLocations).catch(console.error);
+  }, []);
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-3xl" data-testid="sync-dialog">
+        <DialogHeader>
+          <DialogTitle>{t.sync.title}</DialogTitle>
+          <DialogDescription>{t.sync.dialog_body}</DialogDescription>
+        </DialogHeader>
+        <SyncSetup locations={locations} onChange={(m) => m && m !== s.settings?.sync_method && s.setSyncMethod(m)} />
       </DialogContent>
     </Dialog>
   );

@@ -23,6 +23,101 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 pub const SYNC_DIR: &str = "sync";
+const DEVICE_FILE: &str = "device.json";
+
+/// What a Device writes about itself into its sync folder, so other Devices
+/// can name it ("synced from Paul's MacBook").
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct DeviceCard {
+    name: String,
+    platform: String,
+}
+
+/// A Device seen in the vault's sync folder.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceInfo {
+    pub id: String,
+    pub name: String,
+    pub platform: String,
+    /// Newest snapshot in milliseconds since the epoch; 0 when none yet.
+    pub last_snapshot: i64,
+    pub is_self: bool,
+}
+
+/// A vault folder found while looking for one synced from another Device.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FoundVault {
+    pub path: String,
+    pub devices: Vec<DeviceInfo>,
+}
+
+fn this_device_card() -> DeviceCard {
+    let name = hostname::get().ok().and_then(|h| h.into_string().ok()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "device".into());
+    DeviceCard { name, platform: std::env::consts::OS.to_string() }
+}
+
+fn mtime_ms_of(p: &Path) -> i64 {
+    fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0)
+}
+
+/// Devices that have published into `<vault>/.bible-study/sync/`.
+pub fn devices_in(vault_root: &Path, self_id: Option<&str>) -> Vec<DeviceInfo> {
+    let dir = vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR);
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(&dir) else { return out };
+    for e in entries.flatten() {
+        if !e.path().is_dir() {
+            continue;
+        }
+        let id = e.file_name().to_string_lossy().to_string();
+        let card: Option<DeviceCard> = fs::read_to_string(e.path().join(DEVICE_FILE)).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let mut last = 0;
+        if let Ok(files) = fs::read_dir(e.path()) {
+            for f in files.flatten() {
+                if f.path().extension().map_or(false, |x| x == "loro") {
+                    last = last.max(mtime_ms_of(&f.path()));
+                }
+            }
+        }
+        if last == 0 {
+            last = mtime_ms_of(&e.path().join(DEVICE_FILE));
+        }
+        out.push(DeviceInfo {
+            is_self: self_id == Some(id.as_str()),
+            id,
+            name: card.as_ref().map(|c| c.name.clone()).unwrap_or_default(),
+            platform: card.map(|c| c.platform).unwrap_or_default(),
+            last_snapshot: last,
+        });
+    }
+    out.sort_by(|a, b| b.last_snapshot.cmp(&a.last_snapshot));
+    out
+}
+
+/// Vault folders under each of `roots`: the root itself and its direct
+/// children. A folder is a vault when it contains `.bible-study/`.
+pub fn find_vaults(roots: &[PathBuf], self_id: Option<&str>) -> Vec<FoundVault> {
+    let mut out: Vec<FoundVault> = Vec::new();
+    let mut consider = |p: PathBuf| {
+        if p.join(crate::vault::HIDDEN_DIR).is_dir() && !out.iter().any(|v| v.path == p.to_string_lossy()) {
+            out.push(FoundVault { path: p.to_string_lossy().to_string(), devices: devices_in(&p, self_id) });
+        }
+    };
+    for root in roots {
+        if !root.is_dir() {
+            continue;
+        }
+        consider(root.clone());
+        if let Ok(entries) = fs::read_dir(root) {
+            for e in entries.flatten() {
+                if e.path().is_dir() {
+                    consider(e.path());
+                }
+            }
+        }
+    }
+    out
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RemoteChange {
@@ -127,14 +222,28 @@ impl Sync {
             .ok()
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default();
+        let vault_sync_dir = vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR);
+        // Announce this Device to the others (name + platform); harmless if it fails.
+        let mine = vault_sync_dir.join(&device_id);
+        if fs::create_dir_all(&mine).is_ok() {
+            if let Ok(json) = serde_json::to_string_pretty(&this_device_card()) {
+                let _ = fs::write(mine.join(DEVICE_FILE), json);
+            }
+        }
         Ok(Sync {
             device_id,
             peer,
-            vault_sync_dir: vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR),
+            vault_sync_dir,
             local_dir,
             docs: HashMap::new(),
             manifest,
         })
+    }
+
+    /// Every Device that has published into this vault, newest first.
+    pub fn devices(&self) -> Vec<DeviceInfo> {
+        let root = self.vault_sync_dir.parent().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+        devices_in(&root, Some(&self.device_id))
     }
 
     pub fn device_id(&self) -> &str {

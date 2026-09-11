@@ -23,6 +23,7 @@ import {
   type PropertySchema,
   type PropertyType,
   type Settings,
+  type SyncMethod,
   type TagCount,
   type VaultInfo,
 } from "./api";
@@ -47,6 +48,7 @@ export type Dialog =
   | { kind: "quick" }
   | { kind: "search"; query?: string }
   | { kind: "goto-passage" }
+  | { kind: "sync" }
   | { kind: "create-link"; target: string }
   | {
       kind: "version";
@@ -106,6 +108,7 @@ interface Store {
   ) => Promise<DocumentPayload>;
   setDialog: (d: Dialog | null) => void;
   setLang: (l: Lang) => Promise<void>;
+  setSyncMethod: (m: SyncMethod | null) => Promise<void>;
   setSidebarOpen: (b: boolean) => void;
   setPanelOpen: (b: boolean) => void;
   setSourceMode: (b: boolean) => void;
@@ -337,6 +340,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setChangeTick((n) => n + 1);
   }, []);
 
+  const setSyncMethod = useCallback(async (m: SyncMethod | null) => {
+    await api.setSyncMethod(m);
+    setSettings(await api.getSettings());
+  }, []);
+
   const setSourceMode = useCallback((b: boolean) => {
     setSourceModeState(b);
     try {
@@ -379,6 +387,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     createDoc,
     setDialog,
     setLang,
+    setSyncMethod,
     setSidebarOpen,
     setPanelOpen,
     setSourceMode,

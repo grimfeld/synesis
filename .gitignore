@@ -10,3 +10,5 @@ examples/demo-vault/.bible-study/sync/
 examples/demo-vault/Scripture/
 cypress/screenshots/
 cypress/videos/
+*.keystore
+*.jks

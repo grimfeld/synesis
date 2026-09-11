@@ -626,6 +626,10 @@ impl Vault {
     pub fn verse_coverage(&self, book: u8, chapter: u16) -> Result<Vec<(u16, u32)>> {
         self.index.verse_coverage(book, chapter)
     }
+    /// Devices seen in the sync folder (ADR 0001); empty when sync is off.
+    pub fn devices(&self) -> Vec<crate::sync::DeviceInfo> {
+        self.sync.as_ref().map(|s| s.devices()).unwrap_or_default()
+    }
     pub fn graph(&self, level: GraphLevel) -> Result<Graph> {
         self.index.graph(level, self.lang)
     }

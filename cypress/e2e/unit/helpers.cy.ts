@@ -13,6 +13,7 @@ import {
   toCodeMirrorKey,
 } from "../../../src/lib/keys";
 import { NameIndex, norm } from "../../../src/lib/names";
+import { recommend } from "../../../src/lib/syncRules";
 
 describe("frontmatter helpers", () => {
   const text = "---\nid: X\ntype: note\ntags: [a, b]\n---\nBody line\n";
@@ -141,5 +142,20 @@ describe("line diff", () => {
       { kind: "del", text: "" },
       { kind: "add", text: "one" },
     ]);
+  });
+});
+
+describe("sync recommendation", () => {
+  const r = (...d: string[]) => recommend(new Set(d as never));
+  it("follows the plan's rule", () => {
+    expect(r("windows")).to.deep.equal({ method: null, alternatives: [], impossible: false });
+    expect(r("mac", "ios").method).to.equal("icloud");
+    expect(r("windows", "ios").method).to.equal("icloud");
+    expect(r("linux", "ios").impossible).to.equal(true);
+    expect(r("windows", "android").method).to.equal("syncthing");
+    expect(r("mac", "ios", "android").impossible).to.equal(true);
+    expect(r("mac", "mac")).to.deep.equal({ method: null, alternatives: [], impossible: false });
+    expect(r("windows", "linux")).to.deep.equal({ method: "provider", alternatives: ["syncthing"], impossible: false });
+    expect(r("mac", "windows").method).to.equal("provider");
   });
 });

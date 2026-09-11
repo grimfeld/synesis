@@ -172,8 +172,35 @@ have node || die "node is still not on PATH; open a new terminal and re-run."
 ok "node $(node -v), npm $(npm -v)"
 
 # ---------------------------------------------------------------- dependencies
+# ------------------------------------------------------------ already running?
+# Checked before touching node_modules: a running dev server keeps native
+# modules (lightningcss, esbuild) loaded, and on Windows npm cannot replace them.
+port_busy() {  # "localhost" rather than 127.0.0.1: Vite binds ::1 only on Windows
+  if have lsof; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  else (exec 3<>"/dev/tcp/localhost/$1") >/dev/null 2>&1; fi
+}
+for p in "$VITE_PORT" "$BRIDGE_PORT"; do
+  if port_busy "$p"; then
+    die "Port $p is already in use: the dev app is already running. Use http://localhost:$VITE_PORT, or stop it (Ctrl-C in its terminal) and re-run."
+  fi
+done
+
+# ---------------------------------------------------------------- dependencies
 log "npm dependencies"
-if [ -f package-lock.json ]; then npm ci --no-audit --no-fund; else npm install --no-audit --no-fund; fi
+# `npm ci` wipes node_modules; only do that when the lockfile changed.
+deps_current() { [ -f node_modules/.package-lock.json ] && [ ! package-lock.json -nt node_modules/.package-lock.json ]; }
+deps_hint() {
+  die "npm could not update node_modules (a file is locked). Close editors/terminals running this project, or delete the node_modules folder, then re-run."
+}
+if [ ! -f package-lock.json ]; then
+  npm install --no-audit --no-fund || deps_hint
+elif [ ! -d node_modules ]; then
+  npm ci --no-audit --no-fund || deps_hint
+elif deps_current; then
+  :
+else
+  npm install --no-audit --no-fund || deps_hint
+fi
 ok "node_modules"
 
 log "Cargo dependencies"
@@ -211,16 +238,6 @@ fi
 
 # ----------------------------------------------------------------------- start
 [ "$START" = 1 ] || { log "Setup complete. Start the app with: npm run tauri dev"; exit 0; }
-
-port_busy() {  # "localhost" rather than 127.0.0.1: Vite binds ::1 only on Windows
-  if have lsof; then lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
-  else (exec 3<>"/dev/tcp/localhost/$1") >/dev/null 2>&1; fi
-}
-for p in "$VITE_PORT" "$BRIDGE_PORT"; do
-  if port_busy "$p"; then
-    die "Port $p is already in use. A dev app is probably running; stop it or open http://localhost:$VITE_PORT."
-  fi
-done
 
 log "Starting the dev app"
 echo "    Vite UI:     http://localhost:$VITE_PORT   (also usable in a plain browser)"

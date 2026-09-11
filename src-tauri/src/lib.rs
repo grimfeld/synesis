@@ -31,6 +31,9 @@ pub struct Settings {
     pub recent: Vec<String>,
     #[serde(default)]
     pub graph_level: Option<GraphLevel>,
+    /// How this Device keeps the vault folder in sync: "icloud", "syncthing", "provider", "none".
+    #[serde(default)]
+    pub sync_method: Option<String>,
 }
 
 pub struct AppState {
@@ -251,6 +254,92 @@ fn open_vault(
     *state.watcher.lock().map_err(err)? = watch::Watcher::start(app.clone(), root).ok();
     app.emit("vault:opened", &info).ok();
     Ok(info)
+}
+
+#[tauri::command]
+fn set_sync_method(state: State<AppState>, method: Option<String>) -> CmdResult<()> {
+    state.settings.lock().map_err(err)?.sync_method = method;
+    state.save_settings()
+}
+
+/// Devices that have published into the open vault's sync folder.
+#[tauri::command]
+fn sync_status(state: State<AppState>) -> CmdResult<Vec<engine::sync::DeviceInfo>> {
+    state.with_vault(|v| Ok(v.devices()))
+}
+
+#[derive(Serialize)]
+pub struct SyncLocation {
+    /// "icloud", "syncthing", "onedrive", "gdrive", "dropbox".
+    pub method: String,
+    /// The folder the sync tool keeps in sync, when it exists on this Device.
+    pub root: String,
+    pub exists: bool,
+    /// Where the wizard proposes to create the vault.
+    pub suggested: String,
+}
+
+#[derive(Serialize)]
+pub struct SyncLocations {
+    pub platform: String,
+    pub home: String,
+    pub locations: Vec<SyncLocation>,
+    /// Vaults already present in those folders (synced from another Device).
+    pub found: Vec<engine::sync::FoundVault>,
+}
+
+/// Where the free sync tools keep their folders on this Device, and any vault already in them.
+#[tauri::command]
+fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocations> {
+    let home = app.path().home_dir().map_err(err)?;
+    let platform = std::env::consts::OS.to_string();
+    let env_dir = |k: &str| std::env::var(k).ok().map(PathBuf::from);
+    let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
+    match platform.as_str() {
+        "windows" => {
+            candidates.push(("icloud", home.join("iCloudDrive")));
+            candidates.push(("onedrive", env_dir("OneDrive").unwrap_or_else(|| home.join("OneDrive"))));
+            candidates.push(("gdrive", home.join("My Drive")));
+            candidates.push(("gdrive", PathBuf::from("G:\\My Drive")));
+            candidates.push(("dropbox", home.join("Dropbox")));
+            candidates.push(("syncthing", home.join("Sync")));
+        }
+        "macos" => {
+            candidates.push(("icloud", home.join("Library/Mobile Documents/com~apple~CloudDocs")));
+            let cloud = home.join("Library/CloudStorage");
+            if let Ok(entries) = std::fs::read_dir(&cloud) {
+                for e in entries.flatten() {
+                    let n = e.file_name().to_string_lossy().to_string();
+                    let m = if n.starts_with("OneDrive") { "onedrive" } else if n.starts_with("GoogleDrive") { "gdrive" } else if n.starts_with("Dropbox") { "dropbox" } else { continue };
+                    candidates.push((m, e.path()));
+                }
+            }
+            candidates.push(("dropbox", home.join("Dropbox")));
+            candidates.push(("syncthing", home.join("Sync")));
+        }
+        "android" => {
+            candidates.push(("syncthing", PathBuf::from("/storage/emulated/0/Sync")));
+        }
+        "ios" => {
+            if let Ok(d) = app.path().document_dir() {
+                candidates.push(("icloud", d));
+            }
+        }
+        _ => {
+            candidates.push(("syncthing", home.join("Sync")));
+            candidates.push(("dropbox", home.join("Dropbox")));
+            candidates.push(("onedrive", home.join("OneDrive")));
+            candidates.push(("gdrive", home.join("GoogleDrive")));
+        }
+    }
+    let self_id = state.with_vault(|v| Ok(v.device_id().map(str::to_string))).ok().flatten();
+    let roots: Vec<PathBuf> = candidates.iter().filter(|(_, p)| p.is_dir()).map(|(_, p)| p.clone()).collect();
+    let found = engine::sync::find_vaults(&roots, self_id.as_deref());
+    let locations = candidates
+        .into_iter()
+        .map(|(method, root)| SyncLocation { method: method.into(), exists: root.is_dir(), suggested: root.join("Synesis").to_string_lossy().to_string(), root: root.to_string_lossy().to_string() })
+        .collect();
+    Ok(SyncLocations { platform, home: home.to_string_lossy().to_string(), locations, found })
 }
 
 #[tauri::command]
@@ -760,6 +849,9 @@ pub fn run() {
             get_settings,
             set_language,
             set_graph_level,
+            set_sync_method,
+            sync_status,
+            sync_locations,
             open_vault,
             close_vault,
             vault_info,

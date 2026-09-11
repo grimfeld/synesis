@@ -16,6 +16,7 @@ import {
   LayoutGrid,
   MapPin,
   PenLine,
+  RefreshCw,
   Search,
   Settings,
   Waypoints,
@@ -133,6 +134,14 @@ export function useCommands(): Command[] {
       icon: BookOpenText,
       keywords: "verse scripture",
       run: () => s.setDialog({ kind: "goto-passage" }),
+    });
+    list.push({
+      id: "nav.sync",
+      title: t.sync.setup_command,
+      group: "navigate",
+      icon: RefreshCw,
+      keywords: "sync icloud syncthing dropbox onedrive drive devices",
+      run: () => s.setDialog({ kind: "sync" }),
     });
     list.push({
       id: "nav.random",

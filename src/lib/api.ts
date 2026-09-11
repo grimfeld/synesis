@@ -278,6 +278,36 @@ export interface Settings {
   lang: Lang;
   recent: string[];
   graph_level: GraphLevel | null;
+  sync_method: SyncMethod | null;
+}
+
+export type SyncMethod = "icloud" | "syncthing" | "provider" | "none";
+
+export interface DeviceInfo {
+  id: string;
+  name: string;
+  platform: string;
+  last_snapshot: number;
+  is_self: boolean;
+}
+
+export interface FoundVault {
+  path: string;
+  devices: DeviceInfo[];
+}
+
+export interface SyncLocation {
+  method: "icloud" | "syncthing" | "onedrive" | "gdrive" | "dropbox";
+  root: string;
+  exists: boolean;
+  suggested: string;
+}
+
+export interface SyncLocations {
+  platform: string;
+  home: string;
+  locations: SyncLocation[];
+  found: FoundVault[];
 }
 
 export interface VaultInfo {
@@ -293,6 +323,9 @@ export interface ChangedPayload {
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setLanguage: (lang: Lang) => invoke<void>("set_language", { lang }),
+  setSyncMethod: (method: SyncMethod | null) => invoke<void>("set_sync_method", { method }),
+  syncStatus: () => invoke<DeviceInfo[]>("sync_status"),
+  syncLocations: () => invoke<SyncLocations>("sync_locations"),
   setGraphLevel: (level: GraphLevel) =>
     invoke<void>("set_graph_level", { level }),
   openVault: (path?: string) =>

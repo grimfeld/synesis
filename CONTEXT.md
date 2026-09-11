@@ -98,6 +98,16 @@ _Avoid_: Document (every page is a document), content page
 A page that gathers what points at it: a Source or any Subject. Opens as a view (metadata, reading trail, mentions, backlinks); its body is an optional "About" the user may fill or ignore.
 _Avoid_: Index page, landing page, entity page
 
+### Where things live
+
+**Vault**:
+The folder that holds every document as a markdown file. The user owns it; the app is an index over it. Obsidian opens the same folder.
+_Avoid_: Library, workspace, database
+
+**Device**:
+One installation of the app on one machine or phone. Each Device writes its own sync snapshots into the Vault and reads the others'; merging happens on the Device, never in the cloud.
+_Avoid_: Client, node, peer
+
 ### Things the user does in the app
 
 **Home**:
