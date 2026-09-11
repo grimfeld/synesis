@@ -81,17 +81,35 @@ jobs:
 
       - run: npm ci --no-audit --no-fund
 
-      - name: Build and upload to the release
-        uses: tauri-apps/tauri-action@v0
+      # Optional code signing; builds stay unsigned when the secrets are absent.
+      # The bundler signs whenever APPLE_CERTIFICATE exists in the environment,
+      # and a workflow `env:` entry for a missing secret still exists — it is
+      # just empty — so the variables are exported here instead, only once we
+      # know they carry a value. Otherwise `security import` is handed an empty
+      # certificate and the macOS jobs fail.
+      - name: Export the Apple signing secrets (when they are set)
+        if: runner.os == 'macOS' && needs.version.outputs.has_apple == 'true'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Optional code signing; builds stay unsigned when these are absent.
           APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for name in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+            APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            value="${!name}"
+            [ -n "$value" ] || continue
+            # Heredoc form: a base64 certificate may span several lines.
+            printf '%s<<APPLE_SECRET_EOF\n%s\nAPPLE_SECRET_EOF\n' \
+              "$name" "$value" >> "$GITHUB_ENV"
+          done
+
+      - name: Build and upload to the release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Synesis ${{ github.ref_name }}"

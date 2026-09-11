@@ -22,6 +22,9 @@ fn concurrent_edits_merge_and_converge() {
         .create(DocType::Note, "Shared", &Map::new(), "Base line.")
         .unwrap();
     let id = doc.summary.id.clone();
+    // The file name is the lowercased title, so ask the document for its path
+    // rather than guessing (case matters on Linux).
+    let file = root.join(&doc.summary.path);
     assert_ne!(a.device_id(), None);
 
     // B comes online, sees the file and A's snapshot.
@@ -34,9 +37,7 @@ fn concurrent_edits_merge_and_converge() {
     let base = on_b.text.clone();
     a.write(&id, &format!("{base}A line.\n")).unwrap();
     b.write(&id, &format!("{base}B line.\n")).unwrap();
-    assert!(!fs::read_to_string(root.join("Notes/Shared.md"))
-        .unwrap()
-        .contains("A line"));
+    assert!(!fs::read_to_string(&file).unwrap().contains("A line"));
 
     // Sync: each device imports the other's snapshot; the merged text is materialised.
     let changed = a.apply_remote().unwrap();
@@ -49,10 +50,7 @@ fn concurrent_edits_merge_and_converge() {
     b.apply_remote().unwrap();
     let merged_b = b.read(&id).unwrap().text;
     assert_eq!(merged_a, merged_b);
-    assert_eq!(
-        fs::read_to_string(root.join("Notes/Shared.md")).unwrap(),
-        merged_a
-    );
+    assert_eq!(fs::read_to_string(&file).unwrap(), merged_a);
 
     // Nothing more to import.
     assert!(a.apply_remote().unwrap().is_empty());
@@ -99,23 +97,23 @@ fn stale_file_is_replaced_by_newer_snapshot() {
     let root = tmp.path().join("vault");
     fs::create_dir_all(&root).unwrap();
     let mut a = open(&root, &tmp.path().join("devA"));
-    let id = a
+    let summary = a
         .create(DocType::Note, "N", &Map::new(), "v1")
         .unwrap()
-        .summary
-        .id;
+        .summary;
+    let (id, file) = (summary.id, root.join(&summary.path));
     let mut b = open(&root, &tmp.path().join("devB"));
     // A edits; the provider delivers A's snapshot but the markdown file is still the old one.
-    let old = fs::read_to_string(root.join("Notes/N.md")).unwrap();
+    let old = fs::read_to_string(&file).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(20));
     a.write(&id, &old.replace("v1", "v2")).unwrap();
-    fs::write(root.join("Notes/N.md"), &old).unwrap();
+    fs::write(&file, &old).unwrap();
     // Make the stale file older than the snapshot.
     let past = filetime_ago(2);
     let _ = std::process::Command::new("touch")
         .arg("-t")
         .arg(&past)
-        .arg(root.join("Notes/N.md"))
+        .arg(&file)
         .status();
     b.scan().unwrap();
     assert!(b.read(&id).unwrap().text.contains("v2"));
@@ -210,7 +208,7 @@ Shepherd.",
         .unwrap();
 
     // A device that has never seen this document opens the folder.
-    let mut b = open(&root, &tmp.path().join("devB"));
+    let b = open(&root, &tmp.path().join("devB"));
     assert_eq!(
         fs::read_to_string(&path).unwrap(),
         v2,
