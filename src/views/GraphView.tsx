@@ -1,14 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { forceCenter, forceCollide, forceLink, forceManyBody, forceSimulation, type SimulationLinkDatum, type SimulationNodeDatum } from "d3-force";
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from "d3-force";
 import { Search, Waypoints } from "lucide-react";
-import { api, type DocType, type Graph, type GraphLevel, type GraphNode } from "@/lib/api";
+import {
+  api,
+  type DocType,
+  type Graph,
+  type GraphLevel,
+  type GraphNode,
+} from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
 type N = GraphNode & SimulationNodeDatum & { r: number };
@@ -25,15 +45,28 @@ const COLORS: Record<DocType, string> = {
   place: "--c-place",
   character: "--c-character",
   concept: "--c-concept",
+  event: "--c-event",
   other: "--c-other",
 };
-const FILTERABLE: DocType[] = ["note", "clipping", "composition", "source", "concept", "character", "place", "chapter"];
+const FILTERABLE: DocType[] = [
+  "note",
+  "clipping",
+  "composition",
+  "source",
+  "concept",
+  "character",
+  "place",
+  "event",
+  "chapter",
+];
 
 export function GraphView() {
   const s = useStore();
   const t = useT();
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [level, setLevel] = useState<GraphLevel>(s.settings?.graph_level ?? "chapter");
+  const [level, setLevel] = useState<GraphLevel>(
+    s.settings?.graph_level ?? "chapter",
+  );
   const [graph, setGraph] = useState<Graph | null>(null);
   const [hidden, setHidden] = useState<Set<DocType>>(new Set());
   const [query, setQuery] = useState("");
@@ -42,7 +75,13 @@ export function GraphView() {
   const edgesRef = useRef<E[]>([]);
   const view = useRef({ x: 0, y: 0, k: 1 });
   const hover = useRef<N | null>(null);
-  const drag = useRef<{ node: N | null; panning: boolean; lx: number; ly: number; moved: boolean }>({ node: null, panning: false, lx: 0, ly: 0, moved: false });
+  const drag = useRef<{
+    node: N | null;
+    panning: boolean;
+    lx: number;
+    ly: number;
+    moved: boolean;
+  }>({ node: null, panning: false, lx: 0, ly: 0, moved: false });
 
   useEffect(() => {
     api.graph(level).then(setGraph).catch(console.error);
@@ -52,10 +91,17 @@ export function GraphView() {
   const visible = useMemo(() => {
     if (!graph) return null;
     const scriptureHidden = hidden.has("chapter");
-    const keep = (n: GraphNode) => !hidden.has(n.type) && !(scriptureHidden && (n.type === "book" || n.type === "chapter" || n.type === "verse"));
+    const keep = (n: GraphNode) =>
+      !hidden.has(n.type) &&
+      !(
+        scriptureHidden &&
+        (n.type === "book" || n.type === "chapter" || n.type === "verse")
+      );
     const nodes = graph.nodes.filter(keep);
     const ids = new Set(nodes.map((n) => n.id));
-    const edges = graph.edges.filter((e) => ids.has(e.source) && ids.has(e.target));
+    const edges = graph.edges.filter(
+      (e) => ids.has(e.source) && ids.has(e.target),
+    );
     return { nodes, edges };
   }, [graph, hidden]);
 
@@ -65,10 +111,20 @@ export function GraphView() {
     const prev = new Map(nodesRef.current.map((n) => [n.id, n]));
     const nodes: N[] = visible.nodes.map((n) => {
       const old = prev.get(n.id);
-      return { ...n, x: old?.x, y: old?.y, vx: 0, vy: 0, r: 3 + Math.min(12, Math.sqrt(n.degree) * 2) };
+      return {
+        ...n,
+        x: old?.x,
+        y: old?.y,
+        vx: 0,
+        vy: 0,
+        r: 3 + Math.min(12, Math.sqrt(n.degree) * 2),
+      };
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    const edges: E[] = visible.edges.map((e) => ({ source: byId.get(e.source)!, target: byId.get(e.target)! }));
+    const edges: E[] = visible.edges.map((e) => ({
+      source: byId.get(e.source)!,
+      target: byId.get(e.target)!,
+    }));
     nodesRef.current = nodes;
     edgesRef.current = edges;
     sim.current?.stop();
@@ -76,10 +132,19 @@ export function GraphView() {
     const w = c.clientWidth,
       h = c.clientHeight;
     sim.current = forceSimulation<N>(nodes)
-      .force("link", forceLink<N, E>(edges).id((d) => d.id).distance(40).strength(0.4))
+      .force(
+        "link",
+        forceLink<N, E>(edges)
+          .id((d) => d.id)
+          .distance(40)
+          .strength(0.4),
+      )
       .force("charge", forceManyBody().strength(-90))
       .force("center", forceCenter(w / 2, h / 2))
-      .force("collide", forceCollide<N>((d) => d.r + 4))
+      .force(
+        "collide",
+        forceCollide<N>((d) => d.r + 4),
+      )
       .alpha(1)
       .on("tick", draw);
     return () => {
@@ -88,7 +153,8 @@ export function GraphView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const cssVar = (name: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const cssVar = (name: string) =>
+    getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   function draw() {
     const c = canvas.current;
@@ -143,7 +209,12 @@ export function GraphView() {
         ctx.lineWidth = 1.5 / k;
         ctx.stroke();
       }
-      if (n.r >= 6 || k > 1.6 || (hov && (n.id === hov.id || neigh.has(n.id))) || match) {
+      if (
+        n.r >= 6 ||
+        k > 1.6 ||
+        (hov && (n.id === hov.id || neigh.has(n.id))) ||
+        match
+      ) {
         ctx.fillStyle = fg;
         ctx.font = `${Math.max(9, 11 / k)}px ${cssVar("--font-sans") || "sans-serif"}`;
         ctx.textAlign = "center";
@@ -179,7 +250,13 @@ export function GraphView() {
   const onDown = (e: React.MouseEvent) => {
     const p = toWorld(e);
     const n = nodeAt(p);
-    drag.current = { node: n, panning: !n, lx: e.clientX, ly: e.clientY, moved: false };
+    drag.current = {
+      node: n,
+      panning: !n,
+      lx: e.clientX,
+      ly: e.clientY,
+      moved: false,
+    };
     if (n) {
       n.fx = n.x;
       n.fy = n.y;
@@ -234,20 +311,38 @@ export function GraphView() {
   const openNode = (n: N) => {
     if (n.doc_id) return s.openDoc(n.doc_id);
     const m = /^s:(\d+)(?::(\d+))?(?::(\d+))?$/.exec(n.id);
-    if (m) s.openScripture(Number(m[1]), m[2] ? Number(m[2]) : undefined, m[3] ? Number(m[3]) : undefined);
+    if (m)
+      s.openScripture(
+        Number(m[1]),
+        m[2] ? Number(m[2]) : undefined,
+        m[3] ? Number(m[3]) : undefined,
+      );
   };
 
   const shown = FILTERABLE.filter((ty) => !hidden.has(ty));
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.graph} icon={<Waypoints />} className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5">
+      <ViewHeader
+        title={t.views.graph}
+        icon={<Waypoints />}
+        className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5"
+      >
         <div className="relative ml-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input className="h-7 w-44 pl-7 text-xs" placeholder={t.search} value={query} onChange={(e) => setQuery(e.target.value)} />
+          <Input
+            className="h-7 w-44 pl-7 text-xs"
+            placeholder={t.search}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
         </div>
         <Select value={level} onValueChange={(v) => setLevel(v as GraphLevel)}>
-          <SelectTrigger size="sm" className="h-7 text-xs" aria-label={t.graph_level}>
+          <SelectTrigger
+            size="sm"
+            className="h-7 text-xs"
+            aria-label={t.graph_level}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -256,19 +351,47 @@ export function GraphView() {
             <SelectItem value="verse">{t.types.verse}</SelectItem>
           </SelectContent>
         </Select>
-        <ToggleGroup type="multiple" value={shown} onValueChange={(v) => setHidden(new Set(FILTERABLE.filter((ty) => !v.includes(ty))))} variant="outline" size="sm" spacing={1} className="ml-1 flex-wrap">
+        <ToggleGroup
+          type="multiple"
+          value={shown}
+          onValueChange={(v) =>
+            setHidden(new Set(FILTERABLE.filter((ty) => !v.includes(ty))))
+          }
+          variant="outline"
+          size="sm"
+          spacing={1}
+          className="ml-1 flex-wrap"
+        >
           {FILTERABLE.map((ty) => (
-            <ToggleGroupItem key={ty} value={ty} className="h-7 gap-1.5 text-xs data-[state=off]:opacity-45">
+            <ToggleGroupItem
+              key={ty}
+              value={ty}
+              className="h-7 gap-1.5 text-xs data-[state=off]:opacity-45"
+            >
               <TypeDot type={ty} />
               {ty === "chapter" ? t.scripture : t.types_plural[ty]}
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
-        <Badge variant="secondary" className="ml-auto tabular-nums">
+        <Badge
+          data-testid="graph-counts"
+          variant="secondary"
+          className="ml-auto tabular-nums"
+        >
           {visible?.nodes.length ?? 0} · {visible?.edges.length ?? 0}
         </Badge>
       </ViewHeader>
-      <canvas ref={canvas} className="min-h-0 flex-1" style={{ cursor: "grab", width: "100%", height: "100%" }} onMouseDown={onDown} onMouseMove={onMove} onMouseUp={onUp} onMouseLeave={onUp} onWheel={onWheel} />
+      <canvas
+        data-testid="graph-canvas"
+        ref={canvas}
+        className="min-h-0 flex-1"
+        style={{ cursor: "grab", width: "100%", height: "100%" }}
+        onMouseDown={onDown}
+        onMouseMove={onMove}
+        onMouseUp={onUp}
+        onMouseLeave={onUp}
+        onWheel={onWheel}
+      />
     </div>
   );
 }

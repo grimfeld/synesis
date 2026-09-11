@@ -1,22 +1,68 @@
 // App-wide state: settings, the open vault, document summaries, navigation.
 // The engine owns the truth; this is a mirror kept fresh by events.
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { api, type BookMeta, type ChangedPayload, type DocSummary, type DocType, type DocumentPayload, type Frontmatter, type Lang, type PassageInfo, type Settings, type TagCount, type VaultInfo } from "./api";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import {
+  api,
+  type BookMeta,
+  type ChangedPayload,
+  type DocSummary,
+  type DocType,
+  type DocumentPayload,
+  type Frontmatter,
+  type Lang,
+  type PassageInfo,
+  type PropertySchema,
+  type PropertyType,
+  type Settings,
+  type TagCount,
+  type VaultInfo,
+} from "./api";
 
 export type View =
+  | { kind: "home" }
   | { kind: "doc"; id: string }
   | { kind: "graph" }
   | { kind: "map" }
   | { kind: "coverage" }
+  | { kind: "timeline" }
   | { kind: "settings" };
 
 export type Dialog =
-  | { kind: "new"; type?: DocType; title?: string; body?: string }
+  | {
+      kind: "new";
+      type?: DocType;
+      title?: string;
+      body?: string;
+      fields?: Record<string, string>;
+    }
   | { kind: "quick" }
-  | { kind: "search" }
+  | { kind: "search"; query?: string }
+  | { kind: "goto-passage" }
   | { kind: "create-link"; target: string }
-  | { kind: "delete"; id: string }
-  | { kind: "rename"; id: string };
+  | {
+      kind: "version";
+      id: string;
+      frontier: string;
+      label: string;
+      onRestore: (text: string) => void;
+    }
+  | {
+      kind: "set-location";
+      id: string;
+      onPick: (lat: number, lon: number, modernName: string | null) => void;
+    }
+  | { kind: "delete"; id: string };
+
+const SOURCE_MODE_KEY = "synesis.sourceMode";
 
 interface Store {
   settings: Settings | null;
@@ -26,27 +72,70 @@ interface Store {
   docsById: Map<string, DocSummary>;
   books: BookMeta[];
   tags: TagCount[];
+  /** Property schema of the open vault (built-ins until a vault is open). */
+  schema: PropertySchema;
   view: View;
+  canBack: boolean;
+  canForward: boolean;
   dialog: Dialog | null;
   changeTick: number;
   lastChange: ChangedPayload | null;
   sidebarOpen: boolean;
   panelOpen: boolean;
+  sourceMode: boolean;
   openVault: (path?: string) => Promise<void>;
   closeVault: () => Promise<void>;
   refresh: () => Promise<void>;
   navigate: (v: View) => void;
   back: () => void;
+  forward: () => void;
   openDoc: (id: string) => void;
   openLink: (target: string) => Promise<void>;
   openPassage: (p: PassageInfo) => Promise<void>;
-  openScripture: (book: number, chapter?: number, verse?: number) => Promise<void>;
-  createDoc: (type: DocType, title: string, fields?: Frontmatter, body?: string, open?: boolean) => Promise<DocumentPayload>;
+  openScripture: (
+    book: number,
+    chapter?: number,
+    verse?: number,
+  ) => Promise<void>;
+  createDoc: (
+    type: DocType,
+    title: string,
+    fields?: Frontmatter,
+    body?: string,
+    open?: boolean,
+  ) => Promise<DocumentPayload>;
   setDialog: (d: Dialog | null) => void;
   setLang: (l: Lang) => Promise<void>;
   setSidebarOpen: (b: boolean) => void;
   setPanelOpen: (b: boolean) => void;
+  setSourceMode: (b: boolean) => void;
+  /** Declare or change a Property name's type, vault-wide. */
+  setPropertyType: (name: string, t: PropertyType) => Promise<void>;
 }
+
+const BUILTIN_SCHEMA: PropertySchema = {
+  types: {
+    aliases: "list",
+    author: "text",
+    born: "date",
+    characters: "list",
+    created: "calendar",
+    date: "calendar",
+    died: "date",
+    end: "date",
+    kind: "text",
+    lat: "number",
+    locator: "text",
+    lon: "number",
+    modern_name: "text",
+    occasion: "text",
+    parent: "link",
+    place: "link",
+    source: "link",
+    start: "date",
+    url: "text",
+  },
+};
 
 const StoreContext = createContext<Store | null>(null);
 
@@ -56,40 +145,69 @@ export function useStore(): Store {
   return s;
 }
 
+function readSourceMode(): boolean {
+  try {
+    return localStorage.getItem(SOURCE_MODE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function StoreProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [info, setInfo] = useState<VaultInfo | null>(null);
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [books, setBooks] = useState<BookMeta[]>([]);
   const [tags, setTags] = useState<TagCount[]>([]);
-  const [view, setView] = useState<View>({ kind: "coverage" });
-  const [, setHistory] = useState<View[]>([]);
+  const [view, setView] = useState<View>({ kind: "home" });
+  const [history, setHistory] = useState<{ back: View[]; forward: View[] }>({
+    back: [],
+    forward: [],
+  });
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<ChangedPayload | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 900);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
+  const [sourceMode, setSourceModeState] = useState(readSourceMode);
   const viewRef = useRef(view);
   viewRef.current = view;
+  const booted = useRef(false);
 
   const lang: Lang = settings?.lang ?? "en";
 
+  const [schema, setSchema] = useState<PropertySchema>(BUILTIN_SCHEMA);
+
   const refresh = useCallback(async () => {
-    const [d, t, i] = await Promise.all([api.listDocuments(), api.tags(), api.vaultInfo()]);
+    const [d, t, i, sc] = await Promise.all([
+      api.listDocuments(),
+      api.tags(),
+      api.vaultInfo(),
+      api.propertySchema(),
+    ]);
     setDocs(d);
     setTags(t);
     setInfo(i);
+    setSchema(sc);
+  }, []);
+
+  const setPropertyType = useCallback(async (name: string, t: PropertyType) => {
+    setSchema(await api.setPropertyType(name, t));
   }, []);
 
   const openVault = useCallback(
     async (path?: string) => {
-      const i = await api.openVault(path);
-      setInfo(i);
-      setSettings(await api.getSettings());
-      setBooks(await api.books());
+      await api.openVault(path);
+      const [settings, books] = await Promise.all([
+        api.getSettings(),
+        api.books(),
+      ]);
+      // Navigation resets first: once `info` is set the shell renders and the user may click.
+      setView({ kind: "home" });
+      setHistory({ back: [], forward: [] });
+      setSettings(settings);
+      setBooks(books);
       await refresh();
-      setView({ kind: "coverage" });
-      setHistory([]);
     },
     [refresh],
   );
@@ -103,6 +221,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   // Boot: load settings, reopen the last vault.
   useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
     (async () => {
       const s = await api.getSettings();
       setSettings(s);
@@ -119,29 +239,53 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // External changes.
   useEffect(() => {
     let un: (() => void) | undefined;
-    api.onVaultChanged((p) => {
-      setLastChange(p);
-      setChangeTick((n) => n + 1);
-      refresh().catch(console.error);
-    }).then((u) => (un = u));
+    api
+      .onVaultChanged((p) => {
+        setLastChange(p);
+        setChangeTick((n) => n + 1);
+        refresh().catch(console.error);
+      })
+      .then((u) => (un = u));
     return () => un?.();
   }, [refresh]);
 
   const navigate = useCallback((v: View) => {
-    setHistory((h) => [...h.slice(-49), viewRef.current]);
+    setHistory((h) => ({
+      back: [...h.back.slice(-49), viewRef.current],
+      forward: [],
+    }));
     setView(v);
     if (window.innerWidth < 900) setSidebarOpen(false);
   }, []);
 
   const back = useCallback(() => {
     setHistory((h) => {
-      if (h.length === 0) return h;
-      setView(h[h.length - 1]);
-      return h.slice(0, -1);
+      if (h.back.length === 0) return h;
+      const target = h.back[h.back.length - 1];
+      setView(target);
+      return {
+        back: h.back.slice(0, -1),
+        forward: [...h.forward, viewRef.current],
+      };
     });
   }, []);
 
-  const openDoc = useCallback((id: string) => navigate({ kind: "doc", id }), [navigate]);
+  const forward = useCallback(() => {
+    setHistory((h) => {
+      if (h.forward.length === 0) return h;
+      const target = h.forward[h.forward.length - 1];
+      setView(target);
+      return {
+        back: [...h.back, viewRef.current],
+        forward: h.forward.slice(0, -1),
+      };
+    });
+  }, []);
+
+  const openDoc = useCallback(
+    (id: string) => navigate({ kind: "doc", id }),
+    [navigate],
+  );
 
   const openLink = useCallback(
     async (target: string) => {
@@ -171,7 +315,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   );
 
   const createDoc = useCallback(
-    async (type: DocType, title: string, fields?: Frontmatter, body?: string, open = true) => {
+    async (
+      type: DocType,
+      title: string,
+      fields?: Frontmatter,
+      body?: string,
+      open = true,
+    ) => {
       const d = await api.createDocument(type, title, fields, body);
       await refresh();
       if (open) openDoc(d.summary.id);
@@ -187,6 +337,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setChangeTick((n) => n + 1);
   }, []);
 
+  const setSourceMode = useCallback((b: boolean) => {
+    setSourceModeState(b);
+    try {
+      localStorage.setItem(SOURCE_MODE_KEY, b ? "1" : "0");
+    } catch {
+      /* preference only */
+    }
+  }, []);
+
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const value: Store = {
@@ -197,17 +356,22 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     docsById,
     books,
     tags,
+    schema,
     view,
+    canBack: history.back.length > 0,
+    canForward: history.forward.length > 0,
     dialog,
     changeTick,
     lastChange,
     sidebarOpen,
     panelOpen,
+    sourceMode,
     openVault,
     closeVault,
     refresh,
     navigate,
     back,
+    forward,
     openDoc,
     openLink,
     openPassage,
@@ -217,6 +381,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLang,
     setSidebarOpen,
     setPanelOpen,
+    setSourceMode,
+    setPropertyType,
   };
-  return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+  return (
+    <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
 }

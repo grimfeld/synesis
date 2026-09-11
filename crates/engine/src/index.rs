@@ -1,6 +1,7 @@
 //! SQLite index over the vault: documents, aliases, links, tags, Scripture
 //! Mentions and full-text search. Rebuilt from files; never the source of truth.
 
+use crate::dates::{BibleDate, Precision};
 use crate::document::{DocType, ParsedDoc};
 use crate::names;
 use crate::scripture::{Lang, Passage, VerseId};
@@ -94,12 +95,33 @@ pub struct SearchHit {
     pub snippet: String,
 }
 
+/// One Date-typed Property on a document (ADR 0005). `date` is `None` when the
+/// text did not parse; the page shows a warning and the Timeline skips it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DatedProperty {
+    pub doc: DocSummary,
+    pub name: String,
+    pub text: String,
+    pub date: Option<BibleDate>,
+    pub precision: Option<Precision>,
+}
+
+/// An Event naming a Subject through its `place` or `characters` Property.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EventLink {
+    pub event: String,
+    pub subject: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
     pub doc: DocSummary,
     pub shared_tags: Vec<String>,
     pub shared_passages: Vec<String>,
     pub score: u32,
+    /// The Composition already Mentions this document (inline link, Embed or
+    /// Tag naming it), so it is used material rather than a Candidate.
+    pub used: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -178,6 +200,9 @@ CREATE TABLE IF NOT EXISTS mentions(doc_id TEXT NOT NULL, verse_id INTEGER NOT N
 CREATE INDEX IF NOT EXISTS mentions_verse ON mentions(verse_id);
 CREATE INDEX IF NOT EXISTS mentions_bc ON mentions(book, chapter);
 CREATE INDEX IF NOT EXISTS mentions_doc ON mentions(doc_id);
+CREATE TABLE IF NOT EXISTS dates(doc_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, year INTEGER, month INTEGER, day INTEGER, approx INTEGER, sort_key REAL);
+CREATE INDEX IF NOT EXISTS dates_doc ON dates(doc_id);
+CREATE INDEX IF NOT EXISTS dates_sort ON dates(sort_key);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');
 "#;
 
@@ -202,12 +227,24 @@ const SUMMARY_COLS: &str = "d.id, d.path, d.title, d.type, d.mtime, d.book, d.ch
 fn excerpt_at(text: &str, start: usize) -> String {
     let start = start.min(text.len());
     let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_end = text[start..].find('\n').map(|i| start + i).unwrap_or(text.len());
+    let line_end = text[start..]
+        .find('\n')
+        .map(|i| start + i)
+        .unwrap_or(text.len());
     let line = text[line_start..line_end].trim();
     if line.chars().count() > 220 {
         let rel = start - line_start;
-        let from = line.char_indices().map(|(i, _)| i).filter(|&i| i <= rel.saturating_sub(80)).last().unwrap_or(0);
-        let to = line.char_indices().map(|(i, _)| i).find(|&i| i >= rel + 140).unwrap_or(line.len());
+        let from = line
+            .char_indices()
+            .map(|(i, _)| i)
+            .filter(|&i| i <= rel.saturating_sub(80))
+            .last()
+            .unwrap_or(0);
+        let to = line
+            .char_indices()
+            .map(|(i, _)| i)
+            .find(|&i| i >= rel + 140)
+            .unwrap_or(line.len());
         format!("…{}…", &line[from..to])
     } else {
         line.to_string()
@@ -236,7 +273,12 @@ impl Index {
     }
 
     pub fn mtime_of(&self, path: &str) -> Result<Option<i64>> {
-        Ok(self.conn.query_row("SELECT mtime FROM documents WHERE path = ?1", [path], |r| r.get(0)).optional()?)
+        Ok(self
+            .conn
+            .query_row("SELECT mtime FROM documents WHERE path = ?1", [path], |r| {
+                r.get(0)
+            })
+            .optional()?)
     }
 
     pub fn all_paths(&self) -> Result<Vec<String>> {
@@ -245,13 +287,27 @@ impl Index {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Replace everything the index knows about one document.
-    pub fn upsert(&mut self, id: &str, path: &str, mtime: i64, text: &str, doc: &ParsedDoc) -> Result<()> {
+    /// Replace everything the index knows about one document. `date_names`
+    /// are the Property names typed as Dates (ADR 0006); their values are
+    /// parsed into the `dates` table.
+    pub fn upsert(
+        &mut self,
+        id: &str,
+        path: &str,
+        mtime: i64,
+        text: &str,
+        doc: &ParsedDoc,
+        date_names: &[&str],
+    ) -> Result<()> {
         let tx = self.conn.transaction()?;
         // A different document may previously have lived at this path.
-        let old_id: Option<String> = tx.query_row("SELECT id FROM documents WHERE path = ?1", [path], |r| r.get(0)).optional()?;
+        let old_id: Option<String> = tx
+            .query_row("SELECT id FROM documents WHERE path = ?1", [path], |r| {
+                r.get(0)
+            })
+            .optional()?;
         for victim in [Some(id.to_string()), old_id].into_iter().flatten() {
-            for t in ["aliases", "tags", "mentions"] {
+            for t in ["aliases", "tags", "mentions", "dates"] {
                 tx.execute(&format!("DELETE FROM {t} WHERE doc_id = ?1"), [&victim])?;
             }
             tx.execute("DELETE FROM links WHERE from_id = ?1", [&victim])?;
@@ -262,19 +318,51 @@ impl Index {
         let book = number_field(fm, "book_number").map(|x| x as i64);
         let chapter = number_field(fm, "chapter").map(|x| x as i64);
         let verse = number_field(fm, "verse").map(|x| x as i64);
-        let (lat, lon) = if doc.doc_type == DocType::Place { (number_field(fm, "lat"), number_field(fm, "lon")) } else { (None, None) };
+        let (lat, lon) = if doc.doc_type == DocType::Place {
+            (number_field(fm, "lat"), number_field(fm, "lon"))
+        } else {
+            (None, None)
+        };
         tx.execute(
             "INSERT INTO documents(id, path, title, title_norm, type, mtime, frontmatter, text, body_offset, book, chapter, verse, lat, lon)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![id, path, doc.title, norm(&doc.title), doc.doc_type.as_str(), mtime, Value::Object(fm.clone()).to_string(), text, doc.body_offset as i64, book, chapter, verse, lat, lon],
         )?;
         for a in &doc.aliases {
-            tx.execute("INSERT INTO aliases(doc_id, alias, norm) VALUES(?1, ?2, ?3)", params![id, a, norm(a)])?;
+            tx.execute(
+                "INSERT INTO aliases(doc_id, alias, norm) VALUES(?1, ?2, ?3)",
+                params![id, a, norm(a)],
+            )?;
         }
         for l in &doc.links {
             tx.execute(
                 "INSERT INTO links(from_id, target, norm, alias, embed, start, end, property) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![id, l.target, norm(last_segment(&l.target)), l.alias, l.embed as i64, l.start as i64, l.end as i64, l.property],
+            )?;
+        }
+        // Frontmatter order, so a page lists its Dates as written.
+        for (name, value) in fm.iter().filter(|(k, _)| date_names.contains(&k.as_str())) {
+            let raw = match value {
+                Value::String(s) => s.trim().to_string(),
+                Value::Number(n) => n.to_string(),
+                _ => continue,
+            };
+            if raw.is_empty() {
+                continue;
+            }
+            let parsed = BibleDate::parse(&raw);
+            tx.execute(
+                "INSERT INTO dates(doc_id, name, text, year, month, day, approx, sort_key) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    id,
+                    name,
+                    raw,
+                    parsed.map(|d| d.year as i64),
+                    parsed.and_then(|d| d.month).map(|m| m as i64),
+                    parsed.and_then(|d| d.day).map(|d| d as i64),
+                    parsed.map(|d| d.approx as i64),
+                    parsed.map(|d| d.sort_key()),
+                ],
             )?;
         }
         for t in &doc.tags {
@@ -309,13 +397,21 @@ impl Index {
                 }
             }
         }
-        tx.execute("INSERT INTO docs_fts(id, title, body) VALUES(?1, ?2, ?3)", params![id, doc.title, &text[doc.body_offset.min(text.len())..]])?;
+        tx.execute(
+            "INSERT INTO docs_fts(id, title, body) VALUES(?1, ?2, ?3)",
+            params![id, doc.title, &text[doc.body_offset.min(text.len())..]],
+        )?;
         tx.commit()?;
         Ok(())
     }
 
     pub fn remove_path(&mut self, path: &str) -> Result<()> {
-        let id: Option<String> = self.conn.query_row("SELECT id FROM documents WHERE path = ?1", [path], |r| r.get(0)).optional()?;
+        let id: Option<String> = self
+            .conn
+            .query_row("SELECT id FROM documents WHERE path = ?1", [path], |r| {
+                r.get(0)
+            })
+            .optional()?;
         if let Some(id) = id {
             self.remove_id(&id)?;
         }
@@ -337,21 +433,33 @@ impl Index {
     pub fn get(&self, id: &str) -> Result<Option<DocSummary>> {
         Ok(self
             .conn
-            .query_row(&format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.id = ?1"), [id], row_summary)
+            .query_row(
+                &format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.id = ?1"),
+                [id],
+                row_summary,
+            )
             .optional()?)
     }
 
     pub fn get_by_path(&self, path: &str) -> Result<Option<DocSummary>> {
         Ok(self
             .conn
-            .query_row(&format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.path = ?1"), [path], row_summary)
+            .query_row(
+                &format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.path = ?1"),
+                [path],
+                row_summary,
+            )
             .optional()?)
     }
 
     pub fn text_of(&self, id: &str) -> Result<Option<(String, String)>> {
         Ok(self
             .conn
-            .query_row("SELECT text, frontmatter FROM documents WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(
+                "SELECT text, frontmatter FROM documents WHERE id = ?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
             .optional()?)
     }
 
@@ -365,7 +473,9 @@ impl Index {
                 }
             }
             None => {
-                let mut st = self.conn.prepare(&format!("SELECT {SUMMARY_COLS} FROM documents d ORDER BY d.path COLLATE NOCASE"))?;
+                let mut st = self.conn.prepare(&format!(
+                    "SELECT {SUMMARY_COLS} FROM documents d ORDER BY d.path COLLATE NOCASE"
+                ))?;
                 for r in st.query_map([], row_summary)? {
                     out.push(r?);
                 }
@@ -374,7 +484,12 @@ impl Index {
         Ok(out)
     }
 
-    pub fn scripture_doc(&self, book: u8, chapter: Option<u16>, verse: Option<u16>) -> Result<Option<DocSummary>> {
+    pub fn scripture_doc(
+        &self,
+        book: u8,
+        chapter: Option<u16>,
+        verse: Option<u16>,
+    ) -> Result<Option<DocSummary>> {
         let t = match (chapter, verse) {
             (None, _) => "book",
             (Some(_), None) => "chapter",
@@ -400,7 +515,13 @@ impl Index {
             let p = format!("{}.md", target.trim_end_matches(".md"));
             if let Some(d) = self
                 .conn
-                .query_row(&format!("SELECT {SUMMARY_COLS} FROM documents d WHERE lower(d.path) = lower(?1)"), [&p], row_summary)
+                .query_row(
+                    &format!(
+                        "SELECT {SUMMARY_COLS} FROM documents d WHERE lower(d.path) = lower(?1)"
+                    ),
+                    [&p],
+                    row_summary,
+                )
                 .optional()?
             {
                 return Ok(Some(d));
@@ -414,25 +535,42 @@ impl Index {
         {
             return Ok(Some(d));
         }
-        Ok(self
+        if let Some(d) = self
             .conn
             .query_row(
                 &format!("SELECT {SUMMARY_COLS} FROM documents d JOIN aliases a ON a.doc_id = d.id WHERE a.norm = ?1 LIMIT 1"),
                 [&n],
                 row_summary,
             )
+            .optional()?
+        {
+            return Ok(Some(d));
+        }
+        // Last resort: the file stem, for documents whose `title` property differs from it.
+        let stem = last_segment(target).trim().to_lowercase();
+        Ok(self
+            .conn
+            .query_row(
+                &format!("SELECT {SUMMARY_COLS} FROM documents d WHERE lower(d.path) = ?1 OR lower(d.path) LIKE ?2 ORDER BY length(d.path) LIMIT 1"),
+                [format!("{stem}.md"), format!("%/{stem}.md")],
+                row_summary,
+            )
             .optional()?)
     }
 
     pub fn aliases_of(&self, id: &str) -> Result<Vec<String>> {
-        let mut st = self.conn.prepare("SELECT alias FROM aliases WHERE doc_id = ?1")?;
+        let mut st = self
+            .conn
+            .prepare("SELECT alias FROM aliases WHERE doc_id = ?1")?;
         let rows = st.query_map([id], |r| r.get::<_, String>(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     fn names_of(&self, doc: &DocSummary) -> Result<Vec<String>> {
         let mut names = vec![norm(&doc.title)];
-        let mut st = self.conn.prepare("SELECT norm FROM aliases WHERE doc_id = ?1")?;
+        let mut st = self
+            .conn
+            .prepare("SELECT norm FROM aliases WHERE doc_id = ?1")?;
         for r in st.query_map([&doc.id], |r| r.get::<_, String>(0))? {
             names.push(r?);
         }
@@ -459,7 +597,8 @@ impl Index {
             "SELECT {SUMMARY_COLS}, l.embed, l.property, l.start, d.text FROM links l JOIN documents d ON d.id = l.from_id WHERE l.norm IN ({ph}) AND l.from_id != ?{}",
             names.len() + 1
         ))?;
-        let mut args: Vec<&dyn rusqlite::ToSql> = names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+        let mut args: Vec<&dyn rusqlite::ToSql> =
+            names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
         args.push(&id);
         let rows = st.query_map(args.as_slice(), |r| {
             let d = row_summary(r)?;
@@ -478,8 +617,20 @@ impl Index {
             } else {
                 BacklinkKind::Link
             };
-            let excerpt = if property.is_some() { String::new() } else { excerpt_at(&text, start) };
-            out.push(Backlink { doc: d, kind, via: None, property, excerpt, start, inferred: false });
+            let excerpt = if property.is_some() {
+                String::new()
+            } else {
+                excerpt_at(&text, start)
+            };
+            out.push(Backlink {
+                doc: d,
+                kind,
+                via: None,
+                property,
+                excerpt,
+                start,
+                inferred: false,
+            });
         }
         let mut st = self.conn.prepare(&format!(
             "SELECT {SUMMARY_COLS}, t.start, t.in_frontmatter, d.text FROM tags t JOIN documents d ON d.id = t.doc_id WHERE t.norm IN ({ph}) AND t.doc_id != ?{}",
@@ -494,8 +645,20 @@ impl Index {
         })?;
         for r in rows {
             let (d, start, fm, text) = r?;
-            let excerpt = if fm { String::new() } else { excerpt_at(&text, start) };
-            out.push(Backlink { doc: d, kind: BacklinkKind::Tag, via: None, property: None, excerpt, start, inferred: false });
+            let excerpt = if fm {
+                String::new()
+            } else {
+                excerpt_at(&text, start)
+            };
+            out.push(Backlink {
+                doc: d,
+                kind: BacklinkKind::Tag,
+                via: None,
+                property: None,
+                excerpt,
+                start,
+                inferred: false,
+            });
         }
         if doc.doc_type.is_scripture() {
             if let Some(book) = doc.book {
@@ -503,13 +666,26 @@ impl Index {
             }
         }
         // Dedupe identical (doc, start) pairs and order: by kind then title.
-        out.sort_by(|a, b| a.doc.first_verse.cmp(&b.doc.first_verse).then(a.doc.title.cmp(&b.doc.title)).then(a.start.cmp(&b.start)));
+        out.sort_by(|a, b| {
+            a.doc
+                .first_verse
+                .cmp(&b.doc.first_verse)
+                .then(a.doc.title.cmp(&b.doc.title))
+                .then(a.start.cmp(&b.start))
+        });
         out.dedup_by(|a, b| a.doc.id == b.doc.id && a.start == b.start && a.kind == b.kind);
         Ok(out)
     }
 
     /// Mentions covering a Book, Chapter or Verse, one row per Passage as written.
-    pub fn mentions_of(&self, book: u8, chapter: Option<u16>, verse: Option<u16>, lang: Lang, exclude: Option<&str>) -> Result<Vec<Backlink>> {
+    pub fn mentions_of(
+        &self,
+        book: u8,
+        chapter: Option<u16>,
+        verse: Option<u16>,
+        lang: Lang,
+        exclude: Option<&str>,
+    ) -> Result<Vec<Backlink>> {
         let sql = format!(
             "SELECT {SUMMARY_COLS}, m.start, m.p_start_ch, m.p_start_v, m.p_end_ch, m.p_end_v, m.inferred, d.text
              FROM mentions m JOIN documents d ON d.id = m.doc_id
@@ -518,20 +694,28 @@ impl Index {
              ORDER BY d.title COLLATE NOCASE, m.start"
         );
         let mut st = self.conn.prepare(&sql)?;
-        let rows = st.query_map(params![book as i64, chapter.map(|c| c as i64), verse.map(|v| v as i64), exclude], |r| {
-            let d = row_summary(r)?;
-            let start: i64 = r.get("start")?;
-            let p = Passage {
-                book,
-                start_chapter: r.get::<_, i64>("p_start_ch")? as u16,
-                start_verse: r.get::<_, Option<i64>>("p_start_v")?.map(|x| x as u16),
-                end_chapter: r.get::<_, i64>("p_end_ch")? as u16,
-                end_verse: r.get::<_, Option<i64>>("p_end_v")?.map(|x| x as u16),
-            };
-            let inferred: i64 = r.get("inferred")?;
-            let text: String = r.get("text")?;
-            Ok((d, start as usize, p, inferred == 1, text))
-        })?;
+        let rows = st.query_map(
+            params![
+                book as i64,
+                chapter.map(|c| c as i64),
+                verse.map(|v| v as i64),
+                exclude
+            ],
+            |r| {
+                let d = row_summary(r)?;
+                let start: i64 = r.get("start")?;
+                let p = Passage {
+                    book,
+                    start_chapter: r.get::<_, i64>("p_start_ch")? as u16,
+                    start_verse: r.get::<_, Option<i64>>("p_start_v")?.map(|x| x as u16),
+                    end_chapter: r.get::<_, i64>("p_end_ch")? as u16,
+                    end_verse: r.get::<_, Option<i64>>("p_end_v")?.map(|x| x as u16),
+                };
+                let inferred: i64 = r.get("inferred")?;
+                let text: String = r.get("text")?;
+                Ok((d, start as usize, p, inferred == 1, text))
+            },
+        )?;
         let mut out = Vec::new();
         for r in rows {
             let (d, start, p, inferred, text) = r?;
@@ -549,8 +733,25 @@ impl Index {
     }
 
     pub fn coverage(&self) -> Result<Vec<CoverageCell>> {
-        let mut st = self.conn.prepare("SELECT book, chapter, COUNT(DISTINCT doc_id) FROM mentions GROUP BY book, chapter")?;
-        let rows = st.query_map([], |r| Ok(CoverageCell { book: r.get::<_, i64>(0)? as u8, chapter: r.get::<_, i64>(1)? as u16, count: r.get::<_, i64>(2)? as u32 }))?;
+        let mut st = self.conn.prepare(
+            "SELECT book, chapter, COUNT(DISTINCT doc_id) FROM mentions GROUP BY book, chapter",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(CoverageCell {
+                book: r.get::<_, i64>(0)? as u8,
+                chapter: r.get::<_, i64>(1)? as u16,
+                count: r.get::<_, i64>(2)? as u32,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Documents mentioning each verse of one chapter, for the verse strip on a Chapter Hub.
+    pub fn verse_coverage(&self, book: u8, chapter: u16) -> Result<Vec<(u16, u32)>> {
+        let mut st = self.conn.prepare("SELECT verse, COUNT(DISTINCT doc_id) FROM mentions WHERE book = ?1 AND chapter = ?2 GROUP BY verse ORDER BY verse")?;
+        let rows = st.query_map([book as i64, chapter as i64], |r| {
+            Ok((r.get::<_, i64>(0)? as u16, r.get::<_, i64>(1)? as u32))
+        })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -562,7 +763,13 @@ impl Index {
         }
     }
 
-    fn scripture_node_label(level: GraphLevel, book: u8, chapter: u16, verse: u16, lang: Lang) -> String {
+    fn scripture_node_label(
+        level: GraphLevel,
+        book: u8,
+        chapter: u16,
+        verse: u16,
+        lang: Lang,
+    ) -> String {
         let name = names::book_name(book, lang);
         match level {
             GraphLevel::Book => name.to_string(),
@@ -585,7 +792,10 @@ impl Index {
                         // A Book page collapses to its book node, etc.
                         let lvl = match (level, d.doc_type) {
                             (GraphLevel::Verse, DocType::Verse) => GraphLevel::Verse,
-                            (GraphLevel::Verse, DocType::Chapter) | (GraphLevel::Chapter, DocType::Chapter | DocType::Verse) => GraphLevel::Chapter,
+                            (GraphLevel::Verse, DocType::Chapter)
+                            | (GraphLevel::Chapter, DocType::Chapter | DocType::Verse) => {
+                                GraphLevel::Chapter
+                            }
                             _ => GraphLevel::Book,
                         };
                         let nid = Self::scripture_node_id(lvl, b, ch, vs);
@@ -601,7 +811,12 @@ impl Index {
                             degree: 0,
                         });
                         // The page for exactly this unit owns the node.
-                        let owns = matches!((lvl, d.doc_type), (GraphLevel::Book, DocType::Book) | (GraphLevel::Chapter, DocType::Chapter) | (GraphLevel::Verse, DocType::Verse));
+                        let owns = matches!(
+                            (lvl, d.doc_type),
+                            (GraphLevel::Book, DocType::Book)
+                                | (GraphLevel::Chapter, DocType::Chapter)
+                                | (GraphLevel::Verse, DocType::Verse)
+                        );
                         if owns {
                             entry.doc_id = Some(d.id.clone());
                         }
@@ -610,19 +825,37 @@ impl Index {
                     _ => d.id.clone(),
                 }
             } else {
-                nodes.insert(d.id.clone(), GraphNode { id: d.id.clone(), label: d.title.clone(), doc_type: d.doc_type, doc_id: Some(d.id.clone()), degree: 0 });
+                nodes.insert(
+                    d.id.clone(),
+                    GraphNode {
+                        id: d.id.clone(),
+                        label: d.title.clone(),
+                        doc_type: d.doc_type,
+                        doc_id: Some(d.id.clone()),
+                        degree: 0,
+                    },
+                );
                 d.id.clone()
             };
             doc_node.insert(d.id.clone(), node_id);
         }
         // Links and tags, resolved.
-        let mut st = self.conn.prepare("SELECT from_id, target FROM links UNION SELECT doc_id, tag FROM tags")?;
-        let rows: Vec<(String, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = self
+            .conn
+            .prepare("SELECT from_id, target FROM links UNION SELECT doc_id, tag FROM tags")?;
+        let rows: Vec<(String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut cache: HashMap<String, Option<String>> = HashMap::new();
         for (from, target) in rows {
             let to = cache
                 .entry(target.clone())
-                .or_insert_with(|| self.resolve(&target).ok().flatten().and_then(|d| doc_node.get(&d.id).cloned()))
+                .or_insert_with(|| {
+                    self.resolve(&target)
+                        .ok()
+                        .flatten()
+                        .and_then(|d| doc_node.get(&d.id).cloned())
+                })
                 .clone();
             if let (Some(a), Some(b)) = (doc_node.get(&from), to) {
                 if *a != b {
@@ -631,8 +864,12 @@ impl Index {
             }
         }
         // Mentions.
-        let mut st = self.conn.prepare("SELECT DISTINCT doc_id, book, chapter, verse FROM mentions")?;
-        let rows: Vec<(String, i64, i64, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = self
+            .conn
+            .prepare("SELECT DISTINCT doc_id, book, chapter, verse FROM mentions")?;
+        let rows: Vec<(String, i64, i64, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         for (doc_id, b, c, v) in rows {
             let (b, c, v) = (b as u8, c as u16, v as u16);
             let nid = Self::scripture_node_id(level, b, c, v);
@@ -663,7 +900,10 @@ impl Index {
         }
         let mut nodes: Vec<GraphNode> = nodes.into_values().collect();
         nodes.sort_by(|a, b| a.id.cmp(&b.id));
-        let mut edges: Vec<GraphEdge> = edges.into_iter().map(|(source, target)| GraphEdge { source, target }).collect();
+        let mut edges: Vec<GraphEdge> = edges
+            .into_iter()
+            .map(|(source, target)| GraphEdge { source, target })
+            .collect();
         edges.sort_by(|a, b| a.source.cmp(&b.source).then(a.target.cmp(&b.target)));
         Ok(Graph { nodes, edges })
     }
@@ -678,12 +918,27 @@ impl Index {
             return Ok(vec![]);
         }
         let n = terms.len();
-        let fts: Vec<String> = terms.iter().enumerate().map(|(i, t)| if i + 1 == n { format!("\"{t}\"*") } else { format!("\"{t}\"") }).collect();
+        let fts: Vec<String> = terms
+            .iter()
+            .enumerate()
+            .map(|(i, t)| {
+                if i + 1 == n {
+                    format!("\"{t}\"*")
+                } else {
+                    format!("\"{t}\"")
+                }
+            })
+            .collect();
         let q = fts.join(" ");
         let mut st = self.conn.prepare(&format!(
             "SELECT {SUMMARY_COLS}, snippet(docs_fts, 2, '[', ']', '…', 14) AS snip FROM docs_fts f JOIN documents d ON d.id = f.id WHERE docs_fts MATCH ?1 ORDER BY bm25(docs_fts, 0, 5.0, 1.0) LIMIT ?2"
         ))?;
-        let rows = st.query_map(params![q, limit as i64], |r| Ok(SearchHit { doc: row_summary(r)?, snippet: r.get("snip")? }))?;
+        let rows = st.query_map(params![q, limit as i64], |r| {
+            Ok(SearchHit {
+                doc: row_summary(r)?,
+                snippet: r.get("snip")?,
+            })
+        })?;
         let mut out = Vec::new();
         for r in rows {
             out.push(r?);
@@ -705,8 +960,110 @@ impl Index {
     }
 
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
-        let mut st = self.conn.prepare("SELECT tag, COUNT(DISTINCT doc_id) FROM tags GROUP BY norm ORDER BY 2 DESC, tag")?;
+        let mut st = self.conn.prepare(
+            "SELECT tag, COUNT(DISTINCT doc_id) FROM tags GROUP BY norm ORDER BY 2 DESC, tag",
+        )?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as u32)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Documents carrying `tag` (frontmatter or inline), newest first.
+    pub fn tagged(&self, tag: &str) -> Result<Vec<DocSummary>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.id IN (SELECT doc_id FROM tags WHERE norm = ?1) ORDER BY d.mtime DESC, d.title"
+        ))?;
+        let rows = st.query_map([norm(tag)], row_summary)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn dated_rows(&self, sql: &str, args: &[&dyn rusqlite::ToSql]) -> Result<Vec<DatedProperty>> {
+        let mut st = self.conn.prepare(sql)?;
+        let rows = st.query_map(args, |r| {
+            let doc = row_summary(r)?;
+            let year: Option<i64> = r.get("year")?;
+            let date = year.map(|y| BibleDate {
+                year: y as i32,
+                month: r
+                    .get::<_, Option<i64>>("month")
+                    .ok()
+                    .flatten()
+                    .map(|m| m as u8),
+                day: r
+                    .get::<_, Option<i64>>("day")
+                    .ok()
+                    .flatten()
+                    .map(|d| d as u8),
+                approx: r
+                    .get::<_, Option<i64>>("approx")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(0)
+                    != 0,
+            });
+            Ok(DatedProperty {
+                doc,
+                name: r.get("name")?,
+                text: r.get("text")?,
+                precision: date.map(|d| d.precision()),
+                date,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every Date-typed Property on one document, parsed or not, in frontmatter order.
+    pub fn dates_of(&self, id: &str) -> Result<Vec<DatedProperty>> {
+        self.dated_rows(
+            &format!("SELECT {SUMMARY_COLS}, x.name, x.text, x.year, x.month, x.day, x.approx FROM dates x JOIN documents d ON d.id = x.doc_id WHERE x.doc_id = ?1 ORDER BY x.rowid"),
+            &[&id],
+        )
+    }
+
+    /// Every parsed Date on every Subject, earliest first: the Timeline's data.
+    pub fn timeline(&self) -> Result<Vec<DatedProperty>> {
+        self.dated_rows(
+            &format!("SELECT {SUMMARY_COLS}, x.name, x.text, x.year, x.month, x.day, x.approx FROM dates x JOIN documents d ON d.id = x.doc_id WHERE x.year IS NOT NULL ORDER BY x.sort_key, d.title, x.rowid"),
+            &[],
+        )
+    }
+
+    /// Every (Event, Subject) pair from Events' `place` and `characters` Properties.
+    pub fn event_links(&self) -> Result<Vec<EventLink>> {
+        let mut st = self.conn.prepare(
+            "SELECT l.from_id, l.target FROM links l JOIN documents e ON e.id = l.from_id WHERE e.type = 'event' AND l.property IN ('place', 'characters') ORDER BY l.from_id, l.rowid",
+        )?;
+        let pairs: Vec<(String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::new();
+        for (event, target) in pairs {
+            if let Some(d) = self.resolve(&target)? {
+                let link = EventLink {
+                    event,
+                    subject: d.id,
+                };
+                if !out.contains(&link) {
+                    out.push(link);
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Events whose `place` or `characters` Property names this document.
+    pub fn events_naming(&self, id: &str) -> Result<Vec<DocSummary>> {
+        let doc = match self.get(id)? {
+            Some(d) => d,
+            None => return Ok(vec![]),
+        };
+        let names = self.names_of(&doc)?;
+        let ph = Self::placeholders(names.len());
+        let mut st = self.conn.prepare(&format!(
+            "SELECT DISTINCT {SUMMARY_COLS} FROM links l JOIN documents d ON d.id = l.from_id WHERE d.type = 'event' AND l.property IN ('place', 'characters') AND l.norm IN ({ph}) ORDER BY d.title"
+        ))?;
+        let args: Vec<&dyn rusqlite::ToSql> =
+            names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+        let rows = st.query_map(args.as_slice(), row_summary)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
@@ -722,7 +1079,9 @@ impl Index {
         let mut st = self.conn.prepare(
             "SELECT o.doc_id, o.tag FROM tags o WHERE o.norm IN (SELECT norm FROM tags WHERE doc_id = ?1) AND o.doc_id != ?1 GROUP BY o.doc_id, o.norm",
         )?;
-        for r in st.query_map([id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+        for r in st.query_map([id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })? {
             let (d, t) = r?;
             by_doc.entry(d).or_default().0.push(t);
         }
@@ -748,25 +1107,47 @@ impl Index {
                 e.1.push(s);
             }
         }
+        // Names the Composition itself points at: link targets (inline and Embed) and Tags.
+        let mut linked: HashSet<String> = HashSet::new();
+        let mut st = self.conn.prepare("SELECT norm FROM links WHERE from_id = ?1 UNION SELECT norm FROM tags WHERE doc_id = ?1")?;
+        for r in st.query_map([id], |r| r.get::<_, String>(0))? {
+            linked.insert(r?);
+        }
         let mut out = Vec::new();
         for (doc_id, (tags, passages)) in by_doc {
             if let Some(doc) = self.get(&doc_id)? {
                 if doc.doc_type.is_scripture() {
                     continue;
                 }
+                let used = self.names_of(&doc)?.iter().any(|n| linked.contains(n));
                 let score = (tags.len() * 2 + passages.len()) as u32;
-                out.push(Candidate { doc, shared_tags: tags, shared_passages: passages, score });
+                out.push(Candidate {
+                    doc,
+                    shared_tags: tags,
+                    shared_passages: passages,
+                    score,
+                    used,
+                });
             }
         }
-        out.sort_by(|a, b| b.score.cmp(&a.score).then(a.doc.title.cmp(&b.doc.title)));
+        out.sort_by(|a, b| {
+            a.used
+                .cmp(&b.used)
+                .then(b.score.cmp(&a.score))
+                .then(a.doc.title.cmp(&b.doc.title))
+        });
         out.truncate(limit);
         Ok(out)
     }
 
     /// Child Sources of a Source (via the `parent` property), recursively.
     pub fn source_descendants(&self, id: &str) -> Result<Vec<DocSummary>> {
-        let mut st = self.conn.prepare("SELECT from_id, target FROM links WHERE property = 'parent'")?;
-        let rows: Vec<(String, String)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = self
+            .conn
+            .prepare("SELECT from_id, target FROM links WHERE property = 'parent'")?;
+        let rows: Vec<(String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut children: HashMap<String, Vec<String>> = HashMap::new();
         for (from, target) in rows {
             if let Some(parent) = self.resolve(&target)? {
@@ -806,7 +1187,8 @@ impl Index {
                 "SELECT DISTINCT {SUMMARY_COLS}, d.frontmatter FROM links l JOIN documents d ON d.id = l.from_id WHERE l.norm IN ({ph}) AND l.from_id != ?{} AND d.type != 'source'",
                 names.len() + 1
             ))?;
-            let mut args: Vec<&dyn rusqlite::ToSql> = names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+            let mut args: Vec<&dyn rusqlite::ToSql> =
+                names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
             args.push(&s.id);
             let rows = st.query_map(args.as_slice(), |r| {
                 let d = row_summary(r)?;
@@ -826,37 +1208,69 @@ impl Index {
                         Value::Number(n) => Some(n.to_string()),
                         _ => None,
                     });
-                out.push(TrailEntry { doc: d, source: s.clone(), locator });
+                out.push(TrailEntry {
+                    doc: d,
+                    source: s.clone(),
+                    locator,
+                });
             }
         }
-        out.sort_by(|a, b| a.source.title.cmp(&b.source.title).then_with(|| natural_cmp(a.locator.as_deref().unwrap_or(""), b.locator.as_deref().unwrap_or(""))).then(a.doc.title.cmp(&b.doc.title)));
+        out.sort_by(|a, b| {
+            a.source
+                .title
+                .cmp(&b.source.title)
+                .then_with(|| {
+                    natural_cmp(
+                        a.locator.as_deref().unwrap_or(""),
+                        b.locator.as_deref().unwrap_or(""),
+                    )
+                })
+                .then(a.doc.title.cmp(&b.doc.title))
+        });
         Ok(out)
     }
 
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
-        let mut st = self.conn.prepare("SELECT target, COUNT(*) FROM links GROUP BY norm ORDER BY 2 DESC")?;
-        let rows: Vec<(String, i64)> = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?;
+        let mut st = self
+            .conn
+            .prepare("SELECT target, COUNT(*) FROM links GROUP BY norm ORDER BY 2 DESC")?;
+        let rows: Vec<(String, i64)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut out = Vec::new();
         for (target, count) in rows {
             if self.resolve(&target)?.is_none() {
-                out.push(UnresolvedLink { target, count: count as u32 });
+                out.push(UnresolvedLink {
+                    target,
+                    count: count as u32,
+                });
             }
         }
         Ok(out)
     }
 
     pub fn verse_count_in_index(&self) -> Result<u32> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM mentions", [], |r| r.get::<_, i64>(0))? as u32)
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM mentions", [], |r| r.get::<_, i64>(0))?
+            as u32)
     }
 
     pub fn document_count(&self) -> Result<u32> {
-        Ok(self.conn.query_row("SELECT COUNT(*) FROM documents", [], |r| r.get::<_, i64>(0))? as u32)
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM documents", [], |r| r.get::<_, i64>(0))?
+            as u32)
     }
 
     pub fn first_verse_of(&self, id: &str) -> Result<Option<VerseId>> {
         Ok(self
             .conn
-            .query_row("SELECT MIN(verse_id) FROM mentions WHERE doc_id = ?1", [id], |r| r.get::<_, Option<i64>>(0))?
+            .query_row(
+                "SELECT MIN(verse_id) FROM mentions WHERE doc_id = ?1",
+                [id],
+                |r| r.get::<_, Option<i64>>(0),
+            )?
             .map(|v| VerseId(v as u32)))
     }
 }
@@ -886,7 +1300,10 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                 }
             }
             (Some(x), Some(y)) => {
-                let (lx, ly) = (x.to_lowercase().next().unwrap(), y.to_lowercase().next().unwrap());
+                let (lx, ly) = (
+                    x.to_lowercase().next().unwrap(),
+                    y.to_lowercase().next().unwrap(),
+                );
                 if lx != ly {
                     return lx.cmp(&ly);
                 }
@@ -906,9 +1323,83 @@ mod tests {
         let mut idx = Index::in_memory().unwrap();
         for (id, path, text) in docs {
             let parsed = document::parse(path, text);
-            idx.upsert(id, path, 1, text, &parsed).unwrap();
+            idx.upsert(
+                id,
+                path,
+                1,
+                text,
+                &parsed,
+                &["start", "end", "born", "died", "anointed"],
+            )
+            .unwrap();
         }
         idx
+    }
+
+    #[test]
+    fn dates_are_indexed_from_typed_properties() {
+        let idx = idx_with(&[
+            ("d", "Characters/David.md", "---\ntype: character\nborn: c. 1107 BCE\nanointed: c. 1077 BCE\ndied: 1037 BCE\nmodern_name: 33 CE\n---\n"),
+            ("e", "Events/Exodus.md", "---\ntype: event\nstart: 1513 BCE\nplace: \"[[Egypt]]\"\ncharacters: [\"[[Moses]]\", \"[[David]]\"]\n---\n"),
+            ("f", "Events/Flood.md", "---\ntype: event\nstart: 2370 BCE\nend: not a date\n---\n"),
+            ("m", "Characters/Moses.md", "---\ntype: character\n---\n"),
+        ]);
+        // modern_name is not a Date-typed name, so "33 CE" there is ignored.
+        let d = idx.dates_of("d").unwrap();
+        let names: Vec<_> = d.iter().map(|x| x.name.as_str()).collect();
+        assert_eq!(names, vec!["born", "anointed", "died"]);
+        assert!(d.iter().all(|x| x.date.is_some()));
+        assert!(d[0].date.unwrap().approx);
+        // Unparseable values are kept, flagged by a missing date, and off the Timeline.
+        let f = idx.dates_of("f").unwrap();
+        assert_eq!(f.len(), 2);
+        assert!(f[1].date.is_none());
+        assert_eq!(f[1].text, "not a date");
+        let tl = idx.timeline().unwrap();
+        let order: Vec<(&str, &str)> = tl
+            .iter()
+            .map(|x| (x.doc.id.as_str(), x.name.as_str()))
+            .collect();
+        assert_eq!(
+            order,
+            vec![
+                ("f", "start"),
+                ("e", "start"),
+                ("d", "born"),
+                ("d", "anointed"),
+                ("d", "died")
+            ]
+        );
+        // Events name their Characters and Place through link Properties.
+        let ev: Vec<_> = idx
+            .events_naming("m")
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(ev, vec!["e"]);
+        let ev: Vec<_> = idx
+            .events_naming("d")
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(ev, vec!["e"]);
+        // Egypt has no page, so only the resolved links remain.
+        let links = idx.event_links().unwrap();
+        assert_eq!(
+            links,
+            vec![
+                EventLink {
+                    event: "e".into(),
+                    subject: "m".into()
+                },
+                EventLink {
+                    event: "e".into(),
+                    subject: "d".into()
+                }
+            ]
+        );
     }
 
     #[test]
@@ -970,6 +1461,81 @@ mod tests {
         let ids: Vec<_> = c.iter().map(|x| x.doc.id.as_str()).collect();
         assert_eq!(ids, vec!["c1", "n"]);
         assert_eq!(c[1].shared_passages, vec!["Romans 5:3-5"]);
+        assert!(c.iter().all(|x| !x.used));
+    }
+
+    #[test]
+    fn candidates_mark_used_material() {
+        // Embedding, linking (by alias) or tagging a document makes it used; sharing a Tag alone does not.
+        let idx = idx_with(&[
+            (
+                "c1",
+                "Clippings/A.md",
+                "---
+type: clipping
+tags: [endurance]
+---
+Quote",
+            ),
+            (
+                "c2",
+                "Clippings/B.md",
+                "---
+type: clipping
+tags: [endurance]
+---
+Quote two",
+            ),
+            (
+                "n1",
+                "Notes/Steadfast.md",
+                "---
+tags: [endurance]
+aliases: [Hypomone]
+---
+Ro 5:3",
+            ),
+            (
+                "n2",
+                "Notes/Other.md",
+                "---
+tags: [endurance]
+---
+unrelated",
+            ),
+            (
+                "k",
+                "Concepts/Endurance.md",
+                "---
+type: concept
+tags: [endurance]
+---
+",
+            ),
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---
+type: composition
+tags: [endurance]
+---
+![[A]] and [[hypomone]] #Endurance
+Ro 5:3",
+            ),
+        ]);
+        let c = idx.candidates("comp", Lang::En, 10).unwrap();
+        let rows: Vec<(&str, bool)> = c.iter().map(|x| (x.doc.id.as_str(), x.used)).collect();
+        // Unused first, then used; within each, by score (n1 also shares the Passage) then title.
+        assert_eq!(
+            rows,
+            vec![
+                ("c2", false),
+                ("n2", false),
+                ("n1", true),
+                ("c1", true),
+                ("k", true)
+            ]
+        );
     }
 
     #[test]

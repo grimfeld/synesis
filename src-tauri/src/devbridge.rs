@@ -29,7 +29,13 @@ pub fn start(app: AppHandle) {
 }
 
 fn respond(stream: &mut TcpStream, status: u16, body: &str) {
-    let reason = if status == 200 { "OK" } else if status == 204 { "No Content" } else { "Error" };
+    let reason = if status == 200 {
+        "OK"
+    } else if status == 204 {
+        "No Content"
+    } else {
+        "Error"
+    };
     let _ = write!(
         stream,
         "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -51,7 +57,11 @@ fn handle(mut stream: TcpStream, app: AppHandle) {
             let head = String::from_utf8_lossy(&buf[..pos]).to_string();
             let len = head
                 .lines()
-                .find_map(|l| l.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().parse::<usize>().unwrap_or(0)))
+                .find_map(|l| {
+                    l.to_ascii_lowercase()
+                        .strip_prefix("content-length:")
+                        .map(|v| v.trim().parse::<usize>().unwrap_or(0))
+                })
                 .unwrap_or(0);
             break (pos + 4, len);
         }
@@ -83,7 +93,8 @@ fn handle(mut stream: TcpStream, app: AppHandle) {
 }
 
 fn arg<T: serde::de::DeserializeOwned>(args: &Value, key: &str) -> Result<T, String> {
-    serde_json::from_value(args.get(key).cloned().unwrap_or(Value::Null)).map_err(|e| format!("bad argument {key}: {e}"))
+    serde_json::from_value(args.get(key).cloned().unwrap_or(Value::Null))
+        .map_err(|e| format!("bad argument {key}: {e}"))
 }
 
 fn ok<T: Serialize>(v: T) -> Result<Value, String> {
@@ -103,22 +114,65 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "list_documents" => ok(list_documents(state, arg(&a, "docType")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
         "save_document" => ok(save_document(state, arg(&a, "id")?, arg(&a, "text")?)?),
-        "create_document" => ok(create_document(state, arg(&a, "docType")?, arg(&a, "title")?, arg(&a, "fields")?, arg(&a, "body")?)?),
+        "create_document" => ok(create_document(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "title")?,
+            arg(&a, "fields")?,
+            arg(&a, "body")?,
+        )?),
         "rename_document" => ok(rename_document(state, arg(&a, "id")?, arg(&a, "title")?)?),
         "delete_document" => ok(delete_document(state, arg(&a, "id")?)?),
         "resolve_link" => ok(resolve_link(state, arg(&a, "target")?)?),
         "resolve_many" => ok(resolve_many(state, arg(&a, "targets")?)?),
         "names" => ok(names(state)?),
         "backlinks" => ok(backlinks(state, arg(&a, "id")?)?),
-        "verse_mentions" => ok(verse_mentions(state, arg(&a, "book")?, arg(&a, "chapter")?, arg(&a, "verse")?)?),
-        "scripture_page" => ok(scripture_page(state, arg(&a, "book")?, arg(&a, "chapter")?, arg(&a, "verse")?)?),
-        "ensure_scripture_page" => ok(ensure_scripture_page(state, arg(&a, "book")?, arg(&a, "chapter")?, arg(&a, "verse")?)?),
+        "verse_mentions" => ok(verse_mentions(
+            state,
+            arg(&a, "book")?,
+            arg(&a, "chapter")?,
+            arg(&a, "verse")?,
+        )?),
+        "scripture_page" => ok(scripture_page(
+            state,
+            arg(&a, "book")?,
+            arg(&a, "chapter")?,
+            arg(&a, "verse")?,
+        )?),
+        "ensure_scripture_page" => ok(ensure_scripture_page(
+            state,
+            arg(&a, "book")?,
+            arg(&a, "chapter")?,
+            arg(&a, "verse")?,
+        )?),
         "coverage" => ok(coverage(state)?),
+        "verse_coverage" => ok(verse_coverage(
+            state,
+            arg(&a, "book")?,
+            arg(&a, "chapter")?,
+        )?),
         "graph" => ok(graph(state, arg(&a, "level")?)?),
         "search" => ok(search(state, arg(&a, "query")?, arg(&a, "limit")?)?),
         "suggest" => ok(suggest(state, arg(&a, "prefix")?, arg(&a, "limit")?)?),
         "tags" => ok(tags(state)?),
+        "tagged_documents" => ok(tagged_documents(state, arg(&a, "tag")?)?),
         "places" => ok(places(state)?),
+        "property_schema" => ok(property_schema(state)?),
+        "set_property_type" => ok(set_property_type(
+            state,
+            arg(&a, "name")?,
+            arg(&a, "propType")?,
+        )?),
+        "dates_of" => ok(dates_of(state, arg(&a, "id")?)?),
+        "timeline" => ok(timeline(state)?),
+        "events_naming" => ok(events_naming(state, arg(&a, "id")?)?),
+        "event_links" => ok(event_links(state)?),
+        "gazetteer" => ok(gazetteer(arg(&a, "query")?, arg(&a, "limit")?)),
+        "versions" => ok(versions(state, arg(&a, "id")?)?),
+        "save_version" => ok(save_version(state, arg(&a, "id")?, arg(&a, "label")?)?),
+        "delete_version" => ok(delete_version(state, arg(&a, "id")?, arg(&a, "key")?)?),
+        "text_at" => ok(text_at(state, arg(&a, "id")?, arg(&a, "frontier")?)?),
+        "history" => ok(history(state, arg(&a, "id")?)?),
         "candidates" => ok(candidates(state, arg(&a, "id")?)?),
         "source_trail" => ok(source_trail(state, arg(&a, "id")?)?),
         "source_children" => ok(source_children(state, arg(&a, "id")?)?),
@@ -126,7 +180,9 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "find_source_by_url" => ok(find_source_by_url(state, arg(&a, "url")?)?),
         "detect_passages" => ok(detect_passages(state, arg(&a, "text")?)?),
         "books" => ok(books(state)?),
-        "fetch_url_metadata" => ok(tauri::async_runtime::block_on(fetch_url_metadata(arg(&a, "url")?))?),
+        "fetch_url_metadata" => ok(tauri::async_runtime::block_on(fetch_url_metadata(arg(
+            &a, "url",
+        )?))?),
         "hidden_dir" => ok(hidden_dir()),
         "ui_log" => {
             ui_log(arg(&a, "level")?, arg(&a, "message")?);

@@ -22,7 +22,10 @@ pub fn chapter_count(book_number: u8) -> u16 {
 }
 
 pub fn verse_count(book_number: u8, chapter: u16) -> Option<u16> {
-    book(book_number).chapters.get(chapter.checked_sub(1)? as usize).copied()
+    book(book_number)
+        .chapters
+        .get(chapter.checked_sub(1)? as usize)
+        .copied()
 }
 
 pub fn is_single_chapter(book_number: u8) -> bool {
@@ -52,7 +55,12 @@ impl VerseId {
         (self.0 % 1000) as u16
     }
     pub fn display(self, lang: Lang) -> String {
-        format!("{} {}:{}", names::book_name(self.book(), lang), self.chapter(), self.verse())
+        format!(
+            "{} {}:{}",
+            names::book_name(self.book(), lang),
+            self.chapter(),
+            self.verse()
+        )
     }
 }
 
@@ -81,16 +89,40 @@ pub struct Passage {
 
 impl Passage {
     pub fn chapter(book: u8, chapter: u16) -> Self {
-        Passage { book, start_chapter: chapter, start_verse: None, end_chapter: chapter, end_verse: None }
+        Passage {
+            book,
+            start_chapter: chapter,
+            start_verse: None,
+            end_chapter: chapter,
+            end_verse: None,
+        }
     }
     pub fn chapters(book: u8, from: u16, to: u16) -> Self {
-        Passage { book, start_chapter: from, start_verse: None, end_chapter: to, end_verse: None }
+        Passage {
+            book,
+            start_chapter: from,
+            start_verse: None,
+            end_chapter: to,
+            end_verse: None,
+        }
     }
     pub fn verse(book: u8, chapter: u16, verse: u16) -> Self {
-        Passage { book, start_chapter: chapter, start_verse: Some(verse), end_chapter: chapter, end_verse: Some(verse) }
+        Passage {
+            book,
+            start_chapter: chapter,
+            start_verse: Some(verse),
+            end_chapter: chapter,
+            end_verse: Some(verse),
+        }
     }
     pub fn verses_in(book: u8, chapter: u16, from: u16, to: u16) -> Self {
-        Passage { book, start_chapter: chapter, start_verse: Some(from), end_chapter: chapter, end_verse: Some(to) }
+        Passage {
+            book,
+            start_chapter: chapter,
+            start_verse: Some(from),
+            end_chapter: chapter,
+            end_verse: Some(to),
+        }
     }
     pub fn whole_book(book: u8) -> Self {
         Passage::chapters(book, 1, chapter_count(book))
@@ -100,7 +132,9 @@ impl Passage {
         VerseId::new(self.book, self.start_chapter, self.start_verse.unwrap_or(1))
     }
     pub fn last(&self) -> VerseId {
-        let v = self.end_verse.unwrap_or_else(|| verse_count(self.book, self.end_chapter).unwrap_or(1));
+        let v = self
+            .end_verse
+            .unwrap_or_else(|| verse_count(self.book, self.end_chapter).unwrap_or(1));
         VerseId::new(self.book, self.end_chapter, v)
     }
 
@@ -109,7 +143,11 @@ impl Passage {
             return false;
         }
         let chapters = chapter_count(self.book);
-        if self.start_chapter == 0 || self.end_chapter == 0 || self.start_chapter > chapters || self.end_chapter > chapters {
+        if self.start_chapter == 0
+            || self.end_chapter == 0
+            || self.start_chapter > chapters
+            || self.end_chapter > chapters
+        {
             return false;
         }
         if let Some(v) = self.start_verse {
@@ -126,13 +164,23 @@ impl Passage {
     }
 
     pub fn unit(&self) -> Unit {
-        if self.start_chapter == 1 && self.start_verse.is_none() && self.end_verse.is_none() && self.end_chapter == chapter_count(self.book) {
+        if self.start_chapter == 1
+            && self.start_verse.is_none()
+            && self.end_verse.is_none()
+            && self.end_chapter == chapter_count(self.book)
+        {
             return Unit::Book;
         }
-        if self.start_verse.is_none() && self.end_verse.is_none() && self.start_chapter == self.end_chapter {
+        if self.start_verse.is_none()
+            && self.end_verse.is_none()
+            && self.start_chapter == self.end_chapter
+        {
             return Unit::Chapter;
         }
-        if self.start_chapter == self.end_chapter && self.start_verse.is_some() && self.start_verse == self.end_verse {
+        if self.start_chapter == self.end_chapter
+            && self.start_verse.is_some()
+            && self.start_verse == self.end_verse
+        {
             return Unit::Verse;
         }
         Unit::Range
@@ -150,8 +198,16 @@ impl Passage {
                 Some(n) => n,
                 None => continue,
             };
-            let from = if ch == self.start_chapter { self.start_verse.unwrap_or(1) } else { 1 };
-            let to = if ch == self.end_chapter { self.end_verse.unwrap_or(n) } else { n };
+            let from = if ch == self.start_chapter {
+                self.start_verse.unwrap_or(1)
+            } else {
+                1
+            };
+            let to = if ch == self.end_chapter {
+                self.end_verse.unwrap_or(n)
+            } else {
+                n
+            };
             for v in from..=to.min(n) {
                 out.push(VerseId::new(self.book, ch, v));
             }
@@ -174,7 +230,9 @@ impl Passage {
             }
             _ => {
                 let sv = self.start_verse.unwrap_or(1);
-                let ev = self.end_verse.unwrap_or_else(|| verse_count(self.book, self.end_chapter).unwrap_or(1));
+                let ev = self
+                    .end_verse
+                    .unwrap_or_else(|| verse_count(self.book, self.end_chapter).unwrap_or(1));
                 if self.start_chapter == self.end_chapter {
                     if sv == ev {
                         format!("{name} {}:{sv}", self.start_chapter)
@@ -182,7 +240,10 @@ impl Passage {
                         format!("{name} {}:{sv}-{ev}", self.start_chapter)
                     }
                 } else {
-                    format!("{name} {}:{sv}-{}:{ev}", self.start_chapter, self.end_chapter)
+                    format!(
+                        "{name} {}:{sv}-{}:{ev}",
+                        self.start_chapter, self.end_chapter
+                    )
                 }
             }
         }
@@ -209,7 +270,13 @@ mod tests {
         assert_eq!(Passage::chapter(45, 8).verses().len(), 39);
         assert_eq!(Passage::chapter(45, 8).unit(), Unit::Chapter);
         assert_eq!(Passage::verse(45, 8, 28).unit(), Unit::Verse);
-        let cross = Passage { book: 42, start_chapter: 9, start_verse: Some(51), end_chapter: 10, end_verse: Some(12) };
+        let cross = Passage {
+            book: 42,
+            start_chapter: 9,
+            start_verse: Some(51),
+            end_chapter: 10,
+            end_verse: Some(12),
+        };
         assert!(cross.is_valid());
         assert_eq!(cross.verses().len(), 62 - 51 + 1 + 12);
         assert_eq!(cross.display(Lang::En), "Luke 9:51-10:12");

@@ -11,33 +11,141 @@ use unicode_normalization::UnicodeNormalization;
 /// Numbered books are written with a leading digit; the variant generator
 /// expands "1 " into "I ", "1st ", "1er " etc.
 static NAMES: [(&str, &[&str], &str, &[&str]); 66] = [
-    ("Genesis", &["Gen", "Ge", "Gn"], "Genèse", &["Gen", "Gn", "Ge"]),
+    (
+        "Genesis",
+        &["Gen", "Ge", "Gn"],
+        "Genèse",
+        &["Gen", "Gn", "Ge"],
+    ),
     ("Exodus", &["Exod", "Exo", "Ex"], "Exode", &["Ex"]),
-    ("Leviticus", &["Lev", "Le", "Lv"], "Lévitique", &["Lév", "Lev", "Lv", "Le"]),
-    ("Numbers", &["Num", "Nu", "Nb", "Nm"], "Nombres", &["Nb", "Nomb", "Nu"]),
-    ("Deuteronomy", &["Deut", "Deu", "De", "Dt"], "Deutéronome", &["Deut", "Dt", "De"]),
+    (
+        "Leviticus",
+        &["Lev", "Le", "Lv"],
+        "Lévitique",
+        &["Lév", "Lev", "Lv", "Le"],
+    ),
+    (
+        "Numbers",
+        &["Num", "Nu", "Nb", "Nm"],
+        "Nombres",
+        &["Nb", "Nomb", "Nu"],
+    ),
+    (
+        "Deuteronomy",
+        &["Deut", "Deu", "De", "Dt"],
+        "Deutéronome",
+        &["Deut", "Dt", "De"],
+    ),
     ("Joshua", &["Josh", "Jos"], "Josué", &["Jos"]),
-    ("Judges", &["Judg", "Jdg", "Jg", "Jgs"], "Juges", &["Jg", "Jug"]),
+    (
+        "Judges",
+        &["Judg", "Jdg", "Jg", "Jgs"],
+        "Juges",
+        &["Jg", "Jug"],
+    ),
     ("Ruth", &["Ru", "Rth"], "Ruth", &["Ru", "Rt"]),
-    ("1 Samuel", &["1 Sam", "1 Sa", "1 S", "1Sam", "1Sa", "1S"], "1 Samuel", &["1 Sam", "1 Sa", "1 S", "1Sam", "1Sa", "1S"]),
-    ("2 Samuel", &["2 Sam", "2 Sa", "2 S", "2Sam", "2Sa", "2S"], "2 Samuel", &["2 Sam", "2 Sa", "2 S", "2Sam", "2Sa", "2S"]),
-    ("1 Kings", &["1 Kgs", "1 Ki", "1 Kg", "1Kgs", "1Ki", "1K"], "1 Rois", &["1 R", "1R", "1 Ro", "1Ro"]),
-    ("2 Kings", &["2 Kgs", "2 Ki", "2 Kg", "2Kgs", "2Ki", "2K"], "2 Rois", &["2 R", "2R", "2 Ro", "2Ro"]),
-    ("1 Chronicles", &["1 Chron", "1 Chr", "1 Ch", "1Chron", "1Chr", "1Ch"], "1 Chroniques", &["1 Chron", "1 Chr", "1 Ch", "1Chron", "1Chr", "1Ch"]),
-    ("2 Chronicles", &["2 Chron", "2 Chr", "2 Ch", "2Chron", "2Chr", "2Ch"], "2 Chroniques", &["2 Chron", "2 Chr", "2 Ch", "2Chron", "2Chr", "2Ch"]),
+    (
+        "1 Samuel",
+        &["1 Sam", "1 Sa", "1 S", "1Sam", "1Sa", "1S"],
+        "1 Samuel",
+        &["1 Sam", "1 Sa", "1 S", "1Sam", "1Sa", "1S"],
+    ),
+    (
+        "2 Samuel",
+        &["2 Sam", "2 Sa", "2 S", "2Sam", "2Sa", "2S"],
+        "2 Samuel",
+        &["2 Sam", "2 Sa", "2 S", "2Sam", "2Sa", "2S"],
+    ),
+    (
+        "1 Kings",
+        &["1 Kgs", "1 Ki", "1 Kg", "1Kgs", "1Ki", "1K"],
+        "1 Rois",
+        &["1 R", "1R", "1 Ro", "1Ro"],
+    ),
+    (
+        "2 Kings",
+        &["2 Kgs", "2 Ki", "2 Kg", "2Kgs", "2Ki", "2K"],
+        "2 Rois",
+        &["2 R", "2R", "2 Ro", "2Ro"],
+    ),
+    (
+        "1 Chronicles",
+        &["1 Chron", "1 Chr", "1 Ch", "1Chron", "1Chr", "1Ch"],
+        "1 Chroniques",
+        &["1 Chron", "1 Chr", "1 Ch", "1Chron", "1Chr", "1Ch"],
+    ),
+    (
+        "2 Chronicles",
+        &["2 Chron", "2 Chr", "2 Ch", "2Chron", "2Chr", "2Ch"],
+        "2 Chroniques",
+        &["2 Chron", "2 Chr", "2 Ch", "2Chron", "2Chr", "2Ch"],
+    ),
     ("Ezra", &["Ezr"], "Esdras", &["Esd", "Esdr"]),
     ("Nehemiah", &["Neh", "Ne"], "Néhémie", &["Néh", "Neh", "Ne"]),
     ("Esther", &["Esth", "Est", "Es"], "Esther", &["Est", "Esth"]),
     ("Job", &["Jb"], "Job", &["Jb"]),
-    ("Psalms", &["Psalm", "Pss", "Ps", "Psa", "Psm"], "Psaumes", &["Psaume", "Ps"]),
-    ("Proverbs", &["Prov", "Pro", "Pr", "Prv"], "Proverbes", &["Prov", "Pr"]),
-    ("Ecclesiastes", &["Eccl", "Ecc", "Ec", "Qoh"], "Ecclésiaste", &["Eccl", "Ecc", "Ec", "Qo"]),
-    ("Song of Solomon", &["Song of Songs", "Song", "Canticles", "Cant", "Ca", "SoS", "So"], "Chant de Salomon", &["Cantique des cantiques", "Cantique", "Cant", "Ct", "Ch"]),
-    ("Isaiah", &["Isa", "Is"], "Isaïe", &["Ésaïe", "Esaïe", "Is", "És", "Es", "Isa"]),
-    ("Jeremiah", &["Jer", "Je", "Jr"], "Jérémie", &["Jér", "Jer", "Jr"]),
-    ("Lamentations", &["Lam", "La"], "Lamentations", &["Lam", "Lm", "La"]),
-    ("Ezekiel", &["Ezek", "Eze", "Ez"], "Ézéchiel", &["Ezéchiel", "Éz", "Ez", "Ézé", "Eze"]),
-    ("Daniel", &["Dan", "Da", "Dn"], "Daniel", &["Dan", "Dn", "Da"]),
+    (
+        "Psalms",
+        &["Psalm", "Pss", "Ps", "Psa", "Psm"],
+        "Psaumes",
+        &["Psaume", "Ps"],
+    ),
+    (
+        "Proverbs",
+        &["Prov", "Pro", "Pr", "Prv"],
+        "Proverbes",
+        &["Prov", "Pr"],
+    ),
+    (
+        "Ecclesiastes",
+        &["Eccl", "Ecc", "Ec", "Qoh"],
+        "Ecclésiaste",
+        &["Eccl", "Ecc", "Ec", "Qo"],
+    ),
+    (
+        "Song of Solomon",
+        &[
+            "Song of Songs",
+            "Song",
+            "Canticles",
+            "Cant",
+            "Ca",
+            "SoS",
+            "So",
+        ],
+        "Chant de Salomon",
+        &["Cantique des cantiques", "Cantique", "Cant", "Ct", "Ch"],
+    ),
+    (
+        "Isaiah",
+        &["Isa", "Is"],
+        "Isaïe",
+        &["Ésaïe", "Esaïe", "Is", "És", "Es", "Isa"],
+    ),
+    (
+        "Jeremiah",
+        &["Jer", "Je", "Jr"],
+        "Jérémie",
+        &["Jér", "Jer", "Jr"],
+    ),
+    (
+        "Lamentations",
+        &["Lam", "La"],
+        "Lamentations",
+        &["Lam", "Lm", "La"],
+    ),
+    (
+        "Ezekiel",
+        &["Ezek", "Eze", "Ez"],
+        "Ézéchiel",
+        &["Ezéchiel", "Éz", "Ez", "Ézé", "Eze"],
+    ),
+    (
+        "Daniel",
+        &["Dan", "Da", "Dn"],
+        "Daniel",
+        &["Dan", "Dn", "Da"],
+    ),
     ("Hosea", &["Hos", "Ho"], "Osée", &["Os"]),
     ("Joel", &["Joe", "Jl"], "Joël", &["Joe", "Jl"]),
     ("Amos", &["Am"], "Amos", &["Am"]),
@@ -46,37 +154,137 @@ static NAMES: [(&str, &[&str], &str, &[&str]); 66] = [
     ("Micah", &["Mic", "Mi"], "Michée", &["Mi", "Mich"]),
     ("Nahum", &["Nah", "Na"], "Nahum", &["Na", "Nah"]),
     ("Habakkuk", &["Hab", "Hb"], "Habacuc", &["Hab", "Ha"]),
-    ("Zephaniah", &["Zeph", "Zep", "Zp"], "Sophonie", &["Sph", "Sop", "So"]),
+    (
+        "Zephaniah",
+        &["Zeph", "Zep", "Zp"],
+        "Sophonie",
+        &["Sph", "Sop", "So"],
+    ),
     ("Haggai", &["Hag", "Hg"], "Aggée", &["Ag", "Agg"]),
-    ("Zechariah", &["Zech", "Zec", "Zc"], "Zacharie", &["Za", "Zach", "Zac"]),
+    (
+        "Zechariah",
+        &["Zech", "Zec", "Zc"],
+        "Zacharie",
+        &["Za", "Zach", "Zac"],
+    ),
     ("Malachi", &["Mal", "Ml"], "Malachie", &["Ml", "Mal"]),
-    ("Matthew", &["Matt", "Mat", "Mt"], "Matthieu", &["Mat", "Mt"]),
+    (
+        "Matthew",
+        &["Matt", "Mat", "Mt"],
+        "Matthieu",
+        &["Mat", "Mt"],
+    ),
     ("Mark", &["Mrk", "Mk", "Mr"], "Marc", &["Mc", "Mr"]),
     ("Luke", &["Luk", "Lk", "Lu"], "Luc", &["Lc", "Lu"]),
     ("John", &["Joh", "Jn", "Jhn"], "Jean", &["Jn", "Jean"]),
     ("Acts", &["Act", "Ac"], "Actes", &["Ac", "Act"]),
-    ("Romans", &["Rom", "Ro", "Rm"], "Romains", &["Rom", "Rm", "Ro"]),
-    ("1 Corinthians", &["1 Cor", "1 Co", "1Cor", "1Co"], "1 Corinthiens", &["1 Cor", "1 Co", "1Cor", "1Co"]),
-    ("2 Corinthians", &["2 Cor", "2 Co", "2Cor", "2Co"], "2 Corinthiens", &["2 Cor", "2 Co", "2Cor", "2Co"]),
+    (
+        "Romans",
+        &["Rom", "Ro", "Rm"],
+        "Romains",
+        &["Rom", "Rm", "Ro"],
+    ),
+    (
+        "1 Corinthians",
+        &["1 Cor", "1 Co", "1Cor", "1Co"],
+        "1 Corinthiens",
+        &["1 Cor", "1 Co", "1Cor", "1Co"],
+    ),
+    (
+        "2 Corinthians",
+        &["2 Cor", "2 Co", "2Cor", "2Co"],
+        "2 Corinthiens",
+        &["2 Cor", "2 Co", "2Cor", "2Co"],
+    ),
     ("Galatians", &["Gal", "Ga"], "Galates", &["Gal", "Ga"]),
-    ("Ephesians", &["Eph", "Ep"], "Éphésiens", &["Ephésiens", "Éph", "Eph", "Ép", "Ep"]),
-    ("Philippians", &["Phil", "Php", "Pp"], "Philippiens", &["Php", "Phil", "Ph"]),
+    (
+        "Ephesians",
+        &["Eph", "Ep"],
+        "Éphésiens",
+        &["Ephésiens", "Éph", "Eph", "Ép", "Ep"],
+    ),
+    (
+        "Philippians",
+        &["Phil", "Php", "Pp"],
+        "Philippiens",
+        &["Php", "Phil", "Ph"],
+    ),
     ("Colossians", &["Col"], "Colossiens", &["Col"]),
-    ("1 Thessalonians", &["1 Thess", "1 Thes", "1 Th", "1Thess", "1Thes", "1Th"], "1 Thessaloniciens", &["1 Thess", "1 Th", "1Thess", "1Th"]),
-    ("2 Thessalonians", &["2 Thess", "2 Thes", "2 Th", "2Thess", "2Thes", "2Th"], "2 Thessaloniciens", &["2 Thess", "2 Th", "2Thess", "2Th"]),
-    ("1 Timothy", &["1 Tim", "1 Ti", "1Tim", "1Ti"], "1 Timothée", &["1 Tim", "1 Tm", "1Tim", "1Tm", "1 Ti", "1Ti"]),
-    ("2 Timothy", &["2 Tim", "2 Ti", "2Tim", "2Ti"], "2 Timothée", &["2 Tim", "2 Tm", "2Tim", "2Tm", "2 Ti", "2Ti"]),
+    (
+        "1 Thessalonians",
+        &["1 Thess", "1 Thes", "1 Th", "1Thess", "1Thes", "1Th"],
+        "1 Thessaloniciens",
+        &["1 Thess", "1 Th", "1Thess", "1Th"],
+    ),
+    (
+        "2 Thessalonians",
+        &["2 Thess", "2 Thes", "2 Th", "2Thess", "2Thes", "2Th"],
+        "2 Thessaloniciens",
+        &["2 Thess", "2 Th", "2Thess", "2Th"],
+    ),
+    (
+        "1 Timothy",
+        &["1 Tim", "1 Ti", "1Tim", "1Ti"],
+        "1 Timothée",
+        &["1 Tim", "1 Tm", "1Tim", "1Tm", "1 Ti", "1Ti"],
+    ),
+    (
+        "2 Timothy",
+        &["2 Tim", "2 Ti", "2Tim", "2Ti"],
+        "2 Timothée",
+        &["2 Tim", "2 Tm", "2Tim", "2Tm", "2 Ti", "2Ti"],
+    ),
     ("Titus", &["Tit", "Ti"], "Tite", &["Tt", "Tit"]),
-    ("Philemon", &["Phlm", "Phm", "Pm"], "Philémon", &["Phm", "Phlm"]),
-    ("Hebrews", &["Heb", "He"], "Hébreux", &["Héb", "Heb", "Hé", "He"]),
+    (
+        "Philemon",
+        &["Phlm", "Phm", "Pm"],
+        "Philémon",
+        &["Phm", "Phlm"],
+    ),
+    (
+        "Hebrews",
+        &["Heb", "He"],
+        "Hébreux",
+        &["Héb", "Heb", "Hé", "He"],
+    ),
     ("James", &["Jas", "Jm"], "Jacques", &["Jc", "Jac", "Jq"]),
-    ("1 Peter", &["1 Pet", "1 Pe", "1 Pt", "1Pet", "1Pe", "1Pt", "1P"], "1 Pierre", &["1 Pi", "1 P", "1Pi", "1P"]),
-    ("2 Peter", &["2 Pet", "2 Pe", "2 Pt", "2Pet", "2Pe", "2Pt", "2P"], "2 Pierre", &["2 Pi", "2 P", "2Pi", "2P"]),
-    ("1 John", &["1 Jn", "1 Jo", "1 Joh", "1Jn", "1Jo", "1Joh"], "1 Jean", &["1 Jn", "1Jn"]),
-    ("2 John", &["2 Jn", "2 Jo", "2 Joh", "2Jn", "2Jo", "2Joh"], "2 Jean", &["2 Jn", "2Jn"]),
-    ("3 John", &["3 Jn", "3 Jo", "3 Joh", "3Jn", "3Jo", "3Joh"], "3 Jean", &["3 Jn", "3Jn"]),
+    (
+        "1 Peter",
+        &["1 Pet", "1 Pe", "1 Pt", "1Pet", "1Pe", "1Pt", "1P"],
+        "1 Pierre",
+        &["1 Pi", "1 P", "1Pi", "1P"],
+    ),
+    (
+        "2 Peter",
+        &["2 Pet", "2 Pe", "2 Pt", "2Pet", "2Pe", "2Pt", "2P"],
+        "2 Pierre",
+        &["2 Pi", "2 P", "2Pi", "2P"],
+    ),
+    (
+        "1 John",
+        &["1 Jn", "1 Jo", "1 Joh", "1Jn", "1Jo", "1Joh"],
+        "1 Jean",
+        &["1 Jn", "1Jn"],
+    ),
+    (
+        "2 John",
+        &["2 Jn", "2 Jo", "2 Joh", "2Jn", "2Jo", "2Joh"],
+        "2 Jean",
+        &["2 Jn", "2Jn"],
+    ),
+    (
+        "3 John",
+        &["3 Jn", "3 Jo", "3 Joh", "3Jn", "3Jo", "3Joh"],
+        "3 Jean",
+        &["3 Jn", "3Jn"],
+    ),
     ("Jude", &["Jud", "Jd"], "Jude", &["Jud", "Jd"]),
-    ("Revelation", &["Rev", "Re", "Rv", "Apocalypse", "Apoc"], "Révélation", &["Apocalypse", "Apoc", "Ré", "Re", "Rév", "Rev", "Ap"]),
+    (
+        "Revelation",
+        &["Rev", "Re", "Rv", "Apocalypse", "Apoc"],
+        "Révélation",
+        &["Apocalypse", "Apoc", "Ré", "Re", "Rév", "Rev", "Ap"],
+    ),
 ];
 
 pub fn book_name(book: u8, lang: Lang) -> &'static str {
@@ -118,7 +326,12 @@ fn number_prefixes(n: char, lang: Lang) -> Vec<String> {
         '2' => "II",
         _ => "III",
     };
-    let mut v = vec![format!("{n} "), format!("{n}"), format!("{roman} "), format!("{roman}")];
+    let mut v = vec![
+        format!("{n} "),
+        format!("{n}"),
+        format!("{roman} "),
+        format!("{roman}"),
+    ];
     match lang {
         Lang::En => {
             let ord = match n {
@@ -166,7 +379,11 @@ fn expand(name: &str, lang: Lang) -> Vec<String> {
     // Unaccented spellings are common when typing fast.
     let extra: Vec<String> = out
         .iter()
-        .map(|s| s.nfd().filter(|c| !unicode_normalization::char::is_combining_mark(*c)).collect::<String>())
+        .map(|s| {
+            s.nfd()
+                .filter(|c| !unicode_normalization::char::is_combining_mark(*c))
+                .collect::<String>()
+        })
         .filter(|s| !out.contains(s))
         .collect();
     out.extend(extra);

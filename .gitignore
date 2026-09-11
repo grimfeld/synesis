@@ -6,3 +6,7 @@ src-tauri/gen/
 .DS_Store
 examples/sample-vault/.bible-study/
 examples/sample-vault/Scripture/
+examples/demo-vault/.bible-study/sync/
+examples/demo-vault/Scripture/
+cypress/screenshots/
+cypress/videos/

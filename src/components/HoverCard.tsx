@@ -36,7 +36,7 @@ export function HoverCard({ state, excludeId, onClose }: { state: HoverState; ex
     };
   }, [onClose]);
   return (
-    <div ref={ref} className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
+    <div ref={ref} data-testid="hover-card" className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
       {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} /> : <LinkCard target={state.target} onClose={onClose} />}
     </div>
   );

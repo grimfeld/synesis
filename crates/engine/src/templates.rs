@@ -25,7 +25,10 @@ fn value_to_yaml(v: &Value) -> String {
 
 /// Frontmatter keys a new document of this type starts with, in order.
 pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
-    let mut f: Vec<(&str, Value)> = vec![("type", Value::String(doc_type.as_str().into())), ("created", Value::String(now()))];
+    let mut f: Vec<(&str, Value)> = vec![
+        ("type", Value::String(doc_type.as_str().into())),
+        ("created", Value::String(now())),
+    ];
     match doc_type {
         DocType::Note => f.push(("source", Value::String(String::new()))),
         DocType::Clipping => {
@@ -50,13 +53,24 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
         }
         DocType::Character => f.push(("aliases", Value::Array(vec![]))),
         DocType::Concept => f.push(("aliases", Value::Array(vec![]))),
+        DocType::Event => {
+            f.push(("start", Value::String(String::new())));
+            f.push(("end", Value::String(String::new())));
+            f.push(("place", Value::String(String::new())));
+            f.push(("characters", Value::Array(vec![])));
+        }
         _ => {}
     }
     f
 }
 
 /// Build the full text of a new document. `fields` override or extend the defaults.
-pub fn new_document(id: &str, doc_type: DocType, fields: &Map<String, Value>, body: &str) -> String {
+pub fn new_document(
+    id: &str,
+    doc_type: DocType,
+    fields: &Map<String, Value>,
+    body: &str,
+) -> String {
     let mut out = String::from("---\n");
     out.push_str(&format!("id: {}\n", id));
     let mut written = vec!["id".to_string()];
@@ -83,10 +97,11 @@ pub fn new_document(id: &str, doc_type: DocType, fields: &Map<String, Value>, bo
 /// Vault-relative path for a Scripture page.
 pub fn scripture_path(book: u8, chapter: Option<u16>, verse: Option<u16>) -> String {
     let name = names::english_name(book);
+    let file = name.to_lowercase();
     match (chapter, verse) {
-        (None, _) => format!("Scripture/{name}/{name}.md"),
-        (Some(c), None) => format!("Scripture/{name}/{name} {c}/{name} {c}.md"),
-        (Some(c), Some(v)) => format!("Scripture/{name}/{name} {c}/{name} {c}.{v}.md"),
+        (None, _) => format!("Scripture/{name}/{file}.md"),
+        (Some(c), None) => format!("Scripture/{name}/{name} {c}/{file} {c}.md"),
+        (Some(c), Some(v)) => format!("Scripture/{name}/{name} {c}/{file} {c}.{v}.md"),
     }
 }
 
@@ -169,9 +184,15 @@ mod tests {
 
     #[test]
     fn scripture_paths() {
-        assert_eq!(scripture_path(43, None, None), "Scripture/John/John.md");
-        assert_eq!(scripture_path(43, Some(3), None), "Scripture/John/John 3/John 3.md");
-        assert_eq!(scripture_path(43, Some(3), Some(16)), "Scripture/John/John 3/John 3.16.md");
+        assert_eq!(scripture_path(43, None, None), "Scripture/John/john.md");
+        assert_eq!(
+            scripture_path(43, Some(3), None),
+            "Scripture/John/John 3/john 3.md"
+        );
+        assert_eq!(
+            scripture_path(43, Some(3), Some(16)),
+            "Scripture/John/John 3/john 3.16.md"
+        );
     }
 
     #[test]
@@ -189,7 +210,10 @@ mod tests {
     fn pages_for_units() {
         assert_eq!(pages_for(&Passage::chapter(45, 8)).len(), 2);
         assert_eq!(pages_for(&Passage::verse(45, 8, 28)).len(), 3);
-        assert_eq!(pages_for(&Passage::verses_in(45, 8, 28, 30)).len(), 1 + 1 + 3);
+        assert_eq!(
+            pages_for(&Passage::verses_in(45, 8, 28, 30)).len(),
+            1 + 1 + 3
+        );
     }
 
     #[test]

@@ -21,11 +21,12 @@ pub enum DocType {
     Place,
     Character,
     Concept,
+    Event,
     Other,
 }
 
 impl DocType {
-    pub const ALL: [DocType; 10] = [
+    pub const ALL: [DocType; 11] = [
         DocType::Note,
         DocType::Clipping,
         DocType::Composition,
@@ -36,6 +37,7 @@ impl DocType {
         DocType::Place,
         DocType::Character,
         DocType::Concept,
+        DocType::Event,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -50,6 +52,7 @@ impl DocType {
             DocType::Place => "place",
             DocType::Character => "character",
             DocType::Concept => "concept",
+            DocType::Event => "event",
             DocType::Other => "other",
         }
     }
@@ -66,6 +69,7 @@ impl DocType {
             "place" => DocType::Place,
             "character" => DocType::Character,
             "concept" => DocType::Concept,
+            "event" => DocType::Event,
             _ => return None,
         })
     }
@@ -81,6 +85,7 @@ impl DocType {
             DocType::Place => "Places",
             DocType::Character => "Characters",
             DocType::Concept => "Concepts",
+            DocType::Event => "Events",
             DocType::Other => "",
         }
     }
@@ -94,6 +99,7 @@ impl DocType {
             "Places" => DocType::Place,
             "Characters" => DocType::Character,
             "Concepts" => DocType::Concept,
+            "Events" => DocType::Event,
             _ => return None,
         })
     }
@@ -103,7 +109,11 @@ impl DocType {
     }
 
     pub fn is_subject(self) -> bool {
-        self.is_scripture() || matches!(self, DocType::Place | DocType::Character | DocType::Concept)
+        self.is_scripture()
+            || matches!(
+                self,
+                DocType::Place | DocType::Character | DocType::Concept | DocType::Event
+            )
     }
 }
 
@@ -141,11 +151,13 @@ pub struct ParsedDoc {
     pub references: Vec<Detected>,
 }
 
-static WIKILINK_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(!?)\[\[([^\[\]\|#]+?)(?:#[^\[\]\|]*)?(?:\|([^\[\]]*))?\]\]").unwrap());
+static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"(!?)\[\[([^\[\]\|#]+?)(?:#[^\[\]\|]*)?(?:\|([^\[\]]*))?\]\]").unwrap()
+});
 static TAG_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?:^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/\-]+)").unwrap());
-static SKIP_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+").unwrap());
+static SKIP_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+").unwrap());
 static FM_KEY_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^([A-Za-z0-9_\-]+)\s*:").unwrap());
 
 /// Split a file into its YAML frontmatter (raw) and the byte offset of the body.
@@ -185,13 +197,18 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
             }
         }
         serde_yaml::Value::String(s) => Value::String(s),
-        serde_yaml::Value::Sequence(seq) => Value::Array(seq.into_iter().map(yaml_to_json).collect()),
+        serde_yaml::Value::Sequence(seq) => {
+            Value::Array(seq.into_iter().map(yaml_to_json).collect())
+        }
         serde_yaml::Value::Mapping(m) => Value::Object(
             m.into_iter()
                 .map(|(k, v)| {
                     let key = match k {
                         serde_yaml::Value::String(s) => s,
-                        other => serde_yaml::to_string(&other).unwrap_or_default().trim().to_string(),
+                        other => serde_yaml::to_string(&other)
+                            .unwrap_or_default()
+                            .trim()
+                            .to_string(),
                     };
                     (key, yaml_to_json(v))
                 })
@@ -232,8 +249,74 @@ pub fn title_from_path(path: &str) -> String {
     name.strip_suffix(".md").unwrap_or(name).to_string()
 }
 
+/// A title as shown in the app: the first letter capitalised, the rest as written.
+/// File names are lowercase; this recovers a presentable title from a stem.
+pub fn display_title(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut done = false;
+    for c in s.chars() {
+        if !done && c.is_alphabetic() {
+            out.extend(c.to_uppercase());
+            done = true;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Set (or remove, with `None`) one scalar property in the frontmatter. Every
+/// other line and the body stay byte-for-byte untouched.
+pub fn set_frontmatter_field(text: &str, key: &str, value: Option<&str>) -> String {
+    let (yaml, body_offset) = split_frontmatter(text);
+    let Some(yaml) = yaml else {
+        return match value {
+            Some(v) => with_frontmatter_fields(text, &[(key, &yaml_str(v))]),
+            None => text.to_string(),
+        };
+    };
+    let re = Regex::new(&format!(r"^{}\s*:", regex::escape(key))).unwrap();
+    let rendered = value.map(|v| format!("{key}: {}", yaml_str(v)));
+    let mut lines: Vec<&str> = yaml.lines().collect();
+    let idx = lines.iter().position(|l| re.is_match(l));
+    // Continuation lines (block lists, nested maps) belong to the key above them.
+    let end_of = |i: usize, lines: &[&str]| {
+        let mut e = i + 1;
+        while e < lines.len() && (lines[e].starts_with(' ') || lines[e].starts_with("- ")) {
+            e += 1;
+        }
+        e
+    };
+    match (idx, &rendered) {
+        (Some(i), Some(r)) => {
+            let e = end_of(i, &lines);
+            lines.splice(i..e, [r.as_str()]);
+        }
+        (Some(i), None) => {
+            let e = end_of(i, &lines);
+            lines.drain(i..e);
+        }
+        (None, Some(r)) => lines.push(r.as_str()),
+        (None, None) => return text.to_string(),
+    }
+    let bom = if text.starts_with('\u{feff}') {
+        "\u{feff}"
+    } else {
+        ""
+    };
+    let nl = if yaml.contains("\r\n") { "\r\n" } else { "\n" };
+    format!(
+        "{bom}---{nl}{}{nl}---{nl}{}",
+        lines.join(nl),
+        &text[body_offset..]
+    )
+}
+
 fn zones(text: &str) -> Vec<(usize, usize)> {
-    SKIP_RE.find_iter(text).map(|m| (m.start(), m.end())).collect()
+    SKIP_RE
+        .find_iter(text)
+        .map(|m| (m.start(), m.end()))
+        .collect()
 }
 
 fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
@@ -244,13 +327,24 @@ fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
 pub fn parse(path: &str, text: &str) -> ParsedDoc {
     let (yaml, body_offset) = split_frontmatter(text);
     let frontmatter = yaml.map(parse_frontmatter).unwrap_or_default();
-    let title = title_from_path(path);
+    // Display title: an explicit `title` property, else the (lowercase) file stem capitalised.
+    let title = frontmatter
+        .get("title")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| display_title(&title_from_path(path)));
     let id = frontmatter.get("id").and_then(|v| match v {
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
         _ => None,
     });
-    let folder = path.split('/').next().filter(|_| path.contains('/')).unwrap_or("");
+    let folder = path
+        .split('/')
+        .next()
+        .filter(|_| path.contains('/'))
+        .unwrap_or("");
     let doc_type = frontmatter
         .get("type")
         .and_then(Value::as_str)
@@ -266,10 +360,18 @@ pub fn parse(path: &str, text: &str) -> ParsedDoc {
     // Links and tags declared in frontmatter properties.
     if let Some(yaml) = yaml {
         let yaml_start = text.len() - text.trim_start_matches('\u{feff}').len() + 4; // after "---\n"
-        // Map each byte of yaml to the property key it belongs to.
-        let mut keys: Vec<(usize, String)> = FM_KEY_RE.captures_iter(yaml).map(|c| (c.get(1).unwrap().start(), c[1].to_string())).collect();
+                                                                                     // Map each byte of yaml to the property key it belongs to.
+        let mut keys: Vec<(usize, String)> = FM_KEY_RE
+            .captures_iter(yaml)
+            .map(|c| (c.get(1).unwrap().start(), c[1].to_string()))
+            .collect();
         keys.sort();
-        let key_at = |pos: usize| keys.iter().rev().find(|(s, _)| *s <= pos).map(|(_, k)| k.clone());
+        let key_at = |pos: usize| {
+            keys.iter()
+                .rev()
+                .find(|(s, _)| *s <= pos)
+                .map(|(_, k)| k.clone())
+        };
         for caps in WIKILINK_RE.captures_iter(yaml) {
             let m = caps.get(0).unwrap();
             links.push(Link {
@@ -281,10 +383,18 @@ pub fn parse(path: &str, text: &str) -> ParsedDoc {
                 property: key_at(m.start()),
             });
         }
-        for t in string_list(frontmatter.get("tags")).into_iter().chain(string_list(frontmatter.get("tag"))) {
+        for t in string_list(frontmatter.get("tags"))
+            .into_iter()
+            .chain(string_list(frontmatter.get("tag")))
+        {
             let name = t.trim_start_matches('#').to_string();
             if !name.is_empty() {
-                tags.push(TagRef { name, start: 0, end: 0, in_frontmatter: true });
+                tags.push(TagRef {
+                    name,
+                    start: 0,
+                    end: 0,
+                    in_frontmatter: true,
+                });
             }
         }
     }
@@ -309,10 +419,18 @@ pub fn parse(path: &str, text: &str) -> ParsedDoc {
         let m = caps.get(1).unwrap();
         let name = m.as_str().trim_end_matches(['/', '-']);
         // Obsidian: a tag needs at least one non-numeric character.
-        if name.is_empty() || name.chars().all(|c| c.is_ascii_digit()) || in_zone(&z, m.start(), m.end()) {
+        if name.is_empty()
+            || name.chars().all(|c| c.is_ascii_digit())
+            || in_zone(&z, m.start(), m.end())
+        {
             continue;
         }
-        tags.push(TagRef { name: name.to_string(), start: body_offset + m.start() - 1, end: body_offset + m.start() + name.len(), in_frontmatter: false });
+        tags.push(TagRef {
+            name: name.to_string(),
+            start: body_offset + m.start() - 1,
+            end: body_offset + m.start() + name.len(),
+            in_frontmatter: false,
+        });
     }
 
     let mut references = parser::detect(body);
@@ -321,7 +439,17 @@ pub fn parse(path: &str, text: &str) -> ParsedDoc {
         r.end += body_offset;
     }
 
-    ParsedDoc { id, doc_type, title, aliases, frontmatter, body_offset, links, tags, references }
+    ParsedDoc {
+        id,
+        doc_type,
+        title,
+        aliases,
+        frontmatter,
+        body_offset,
+        links,
+        tags,
+        references,
+    }
 }
 
 /// Return `text` with `key: value` lines inserted into the frontmatter for every
@@ -365,10 +493,33 @@ pub fn with_frontmatter_fields(text: &str, fields: &[(&str, &str)]) -> String {
 /// Quote a string for a YAML scalar when needed.
 pub fn yaml_str(s: &str) -> String {
     let needs = s.is_empty()
-        || s.contains(|c: char| matches!(c, ':' | '#' | '[' | ']' | '{' | '}' | ',' | '&' | '*' | '!' | '|' | '>' | '\'' | '"' | '%' | '@' | '`'))
+        || s.contains(|c: char| {
+            matches!(
+                c,
+                ':' | '#'
+                    | '['
+                    | ']'
+                    | '{'
+                    | '}'
+                    | ','
+                    | '&'
+                    | '*'
+                    | '!'
+                    | '|'
+                    | '>'
+                    | '\''
+                    | '"'
+                    | '%'
+                    | '@'
+                    | '`'
+            )
+        })
         || s.starts_with(|c: char| c == '-' || c == '?' || c.is_whitespace())
         || s.ends_with(char::is_whitespace)
-        || matches!(s.to_ascii_lowercase().as_str(), "true" | "false" | "null" | "yes" | "no" | "~")
+        || matches!(
+            s.to_ascii_lowercase().as_str(),
+            "true" | "false" | "null" | "yes" | "no" | "~"
+        )
         || s.parse::<f64>().is_ok();
     if needs {
         format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
@@ -398,7 +549,62 @@ mod tests {
         assert_eq!(names, vec!["faith", "hope", "endurance"]);
         assert_eq!(&text[d.tags[2].start..d.tags[2].end], "#endurance");
         assert_eq!(d.references.len(), 1);
-        assert_eq!(&text[d.references[0].start..d.references[0].end], "John 3:16");
+        assert_eq!(
+            &text[d.references[0].start..d.references[0].end],
+            "John 3:16"
+        );
+    }
+
+    #[test]
+    fn display_titles_and_title_property() {
+        assert_eq!(display_title("paul of tarsus"), "Paul of tarsus");
+        assert_eq!(display_title("1 samuel 2"), "1 Samuel 2");
+        assert_eq!(display_title("2026-09-10 17.07"), "2026-09-10 17.07");
+        assert_eq!(display_title("éclair"), "Éclair");
+        let text = "---
+id: X
+type: note
+---
+body
+";
+        let with = set_frontmatter_field(text, "title", Some("Paul of Tarsus"));
+        assert_eq!(
+            with,
+            "---
+id: X
+type: note
+title: Paul of Tarsus
+---
+body
+"
+        );
+        assert_eq!(
+            parse("Characters/paul of tarsus.md", &with).title,
+            "Paul of Tarsus"
+        );
+        assert_eq!(
+            parse("Characters/paul of tarsus.md", text).title,
+            "Paul of tarsus"
+        );
+        let replaced = set_frontmatter_field(&with, "title", Some("Other: one"));
+        assert!(replaced.contains(
+            "title: \"Other: one\"
+"
+        ));
+        assert_eq!(set_frontmatter_field(&with, "title", None), text);
+        assert_eq!(
+            set_frontmatter_field(
+                "no frontmatter
+",
+                "title",
+                Some("T")
+            ),
+            "---
+title: T
+---
+no frontmatter
+"
+        );
     }
 
     #[test]
@@ -406,19 +612,28 @@ mod tests {
         assert_eq!(parse("Sources/X.md", "hello").doc_type, DocType::Source);
         assert_eq!(parse("Random/X.md", "hello").doc_type, DocType::Note);
         assert_eq!(parse("X.md", "hello").doc_type, DocType::Note);
-        assert_eq!(parse("Notes/X.md", "---\ntype: concept\n---\n").doc_type, DocType::Concept);
+        assert_eq!(
+            parse("Notes/X.md", "---\ntype: concept\n---\n").doc_type,
+            DocType::Concept
+        );
     }
 
     #[test]
     fn tags_rules() {
-        let d = parse("N.md", "# Heading\nA #tag/sub and #123 and x#no and `#code` and #fin.");
+        let d = parse(
+            "N.md",
+            "# Heading\nA #tag/sub and #123 and x#no and `#code` and #fin.",
+        );
         let names: Vec<_> = d.tags.iter().map(|t| t.name.as_str()).collect();
         assert_eq!(names, vec!["tag/sub", "fin"]);
     }
 
     #[test]
     fn embeds_and_aliases() {
-        let d = parse("N.md", "![[Clip one]] and [[Paul|the apostle]] and [[Notes/Deep#Heading|x]]");
+        let d = parse(
+            "N.md",
+            "![[Clip one]] and [[Paul|the apostle]] and [[Notes/Deep#Heading|x]]",
+        );
         assert!(d.links[0].embed);
         assert_eq!(d.links[1].alias.as_deref(), Some("the apostle"));
         assert_eq!(d.links[2].target, "Notes/Deep");
@@ -426,7 +641,10 @@ mod tests {
 
     #[test]
     fn add_fields() {
-        let t = with_frontmatter_fields("---\ntype: note\n---\nbody", &[("id", "X"), ("type", "note")]);
+        let t = with_frontmatter_fields(
+            "---\ntype: note\n---\nbody",
+            &[("id", "X"), ("type", "note")],
+        );
         assert_eq!(t, "---\nid: X\ntype: note\n---\nbody");
         let t = with_frontmatter_fields("body only", &[("id", "X")]);
         assert_eq!(t, "---\nid: X\n---\nbody only");

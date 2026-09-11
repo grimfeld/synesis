@@ -1,7 +1,8 @@
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, Settings } from "lucide-react";
 import type { Lang } from "@/lib/api";
-import { shortcut } from "@/lib/keys";
+import { useCommands } from "@/lib/commands";
+import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -13,16 +14,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export function SettingsView() {
   const s = useStore();
   const t = useT();
+  const commands = useCommands();
   const change = async () => {
     const dir = await openDialog({ directory: true, multiple: false });
     if (typeof dir === "string") await s.openVault(dir);
   };
-  const shortcuts: [string, string[]][] = [
-    [t.search, [shortcut("K")]],
-    [t.new_doc, [shortcut("N")]],
-    [t.quick_capture, [shortcut("⇧N")]],
-    [t.toggle_sidebar, [shortcut("B")]],
-  ];
+  const shortcuts = commands.filter((c) => c.shortcut);
   return (
     <div className="flex h-full flex-col">
       <ViewHeader title={t.views.settings} icon={<Settings />} />
@@ -62,16 +59,17 @@ export function SettingsView() {
           <Card>
             <CardHeader>
               <CardTitle>{t.shortcuts}</CardTitle>
+              <CardDescription>{t.cmd_hint}</CardDescription>
             </CardHeader>
             <CardContent>
               <dl className="grid grid-cols-[1fr_auto] items-center gap-x-4 gap-y-2 text-sm">
-                {shortcuts.map(([label, keys]) => (
-                  <div key={label} className="contents">
-                    <dt className="text-muted-foreground">{label}</dt>
+                {shortcuts.map((c) => (
+                  <div key={c.id} className="contents">
+                    <dt className="text-muted-foreground">{c.title}</dt>
                     <dd>
                       <KbdGroup>
-                        {keys.map((k) => (
-                          <Kbd key={k}>{k}</Kbd>
+                        {formatShortcut(c.shortcut!).map((k, i) => (
+                          <Kbd key={i}>{k}</Kbd>
                         ))}
                       </KbdGroup>
                     </dd>

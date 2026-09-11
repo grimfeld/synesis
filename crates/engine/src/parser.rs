@@ -37,7 +37,11 @@ static BOOK_ALT: Lazy<String> = Lazy::new(|| {
 });
 
 static BOOK_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(r"(?i)(?:^|[^\p{{L}}\p{{N}}])(?P<book>{})\.?[ \t]*(?P<num>\d{{1,3}})", *BOOK_ALT)).expect("book regex")
+    Regex::new(&format!(
+        r"(?i)(?:^|[^\p{{L}}\p{{N}}])(?P<book>{})\.?[ \t]*(?P<num>\d{{1,3}})",
+        *BOOK_ALT
+    ))
+    .expect("book regex")
 });
 
 /// Anchored form: does a book reference start exactly here?
@@ -125,7 +129,10 @@ fn parse_verse_list(cur: &mut Cursor, book: u8, mut chapter: u16) -> Vec<Passage
         }
         // "c:v" inside a list moves to another chapter.
         let mut sv = v;
-        let mut probe = Cursor { s: cur.s, pos: cur.pos };
+        let mut probe = Cursor {
+            s: cur.s,
+            pos: cur.pos,
+        };
         if probe.eat(|c| c == ':') {
             if let Some(v2) = probe.number() {
                 chapter = v;
@@ -135,15 +142,27 @@ fn parse_verse_list(cur: &mut Cursor, book: u8, mut chapter: u16) -> Vec<Passage
         }
         let mut passage = Passage::verse(book, chapter, sv);
         // range?
-        let mut probe = Cursor { s: cur.s, pos: cur.pos };
+        let mut probe = Cursor {
+            s: cur.s,
+            pos: cur.pos,
+        };
         probe.skip_spaces();
         if probe.eat(is_dash) {
             probe.skip_spaces();
             if let Some(n) = probe.number() {
-                let mut probe2 = Cursor { s: cur.s, pos: probe.pos };
+                let mut probe2 = Cursor {
+                    s: cur.s,
+                    pos: probe.pos,
+                };
                 if probe2.eat(|c| c == ':') {
                     if let Some(ev) = probe2.number() {
-                        passage = Passage { book, start_chapter: chapter, start_verse: Some(sv), end_chapter: n, end_verse: Some(ev) };
+                        passage = Passage {
+                            book,
+                            start_chapter: chapter,
+                            start_verse: Some(sv),
+                            end_chapter: n,
+                            end_verse: Some(ev),
+                        };
                         probe.pos = probe2.pos;
                         chapter = n;
                     }
@@ -161,7 +180,10 @@ fn parse_verse_list(cur: &mut Cursor, book: u8, mut chapter: u16) -> Vec<Passage
         }
         out.push(passage);
         // separator?
-        let mut probe = Cursor { s: cur.s, pos: cur.pos };
+        let mut probe = Cursor {
+            s: cur.s,
+            pos: cur.pos,
+        };
         let sep_pos = probe.pos;
         if probe.eat(|c| c == ',' || c == ';') {
             probe.skip_spaces();
@@ -185,7 +207,8 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     };
     let single = is_single_chapter(book);
     let next = cur.peek();
-    let comma_then_digit = next == Some(',') && cur.peek_at(1).map_or(false, |c| c.is_ascii_digit());
+    let comma_then_digit =
+        next == Some(',') && cur.peek_at(1).map_or(false, |c| c.is_ascii_digit());
     if next == Some(':') || comma_then_digit {
         cur.pos += 1;
         // "John 3:99" or a dangling "John 3:" yield nothing: invalid
@@ -199,14 +222,20 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
         return list;
     }
     // Chapter, or chapter range "Acts 1-2" / "Acts 1-2:5".
-    let mut probe = Cursor { s: cur.s, pos: cur.pos };
+    let mut probe = Cursor {
+        s: cur.s,
+        pos: cur.pos,
+    };
     probe.skip_spaces();
     if probe.eat(is_dash) {
         probe.skip_spaces();
         let range_num_start = probe.pos;
         if let Some(m) = probe.number() {
             let mut p = Passage::chapters(book, n, m);
-            let mut probe2 = Cursor { s: cur.s, pos: probe.pos };
+            let mut probe2 = Cursor {
+                s: cur.s,
+                pos: probe.pos,
+            };
             if probe2.eat(|c| c == ':') {
                 if let Some(ev) = probe2.number() {
                     p.end_verse = Some(ev);
@@ -228,7 +257,10 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
 }
 
 fn skip_zones(text: &str) -> Vec<(usize, usize)> {
-    SKIP_RE.find_iter(text).map(|m| (m.start(), m.end())).collect()
+    SKIP_RE
+        .find_iter(text)
+        .map(|m| (m.start(), m.end()))
+        .collect()
 }
 
 fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
@@ -262,7 +294,10 @@ pub fn detect(text: &str) -> Vec<Detected> {
             Some(b) => b,
             None => continue,
         };
-        let mut cur = Cursor { s: text, pos: num_m.start() };
+        let mut cur = Cursor {
+            s: text,
+            pos: num_m.start(),
+        };
         let passages = parse_tail(&mut cur, book);
         if passages.is_empty() {
             continue;
@@ -274,7 +309,12 @@ pub fn detect(text: &str) -> Vec<Detected> {
         if out.last().map_or(false, |d| d.end > start) {
             continue;
         }
-        out.push(Detected { start, end, passages, inferred: false });
+        out.push(Detected {
+            start,
+            end,
+            passages,
+            inferred: false,
+        });
     }
 
     let breaks = paragraph_breaks(text);
@@ -284,7 +324,11 @@ pub fn detect(text: &str) -> Vec<Detected> {
         let kw = caps.name("kw").unwrap();
         let num = caps.name("num").unwrap();
         let start = kw.start();
-        if in_zone(&zones, start, num.end()) || explicit.iter().any(|d| d.start < num.end() && d.end > start) {
+        if in_zone(&zones, start, num.end())
+            || explicit
+                .iter()
+                .any(|d| d.start < num.end() && d.end > start)
+        {
             continue;
         }
         let para = paragraph_of(&breaks, start);
@@ -300,12 +344,20 @@ pub fn detect(text: &str) -> Vec<Detected> {
             Some(p) => p,
             None => continue,
         };
-        let mut cur = Cursor { s: text, pos: num.start() };
+        let mut cur = Cursor {
+            s: text,
+            pos: num.start(),
+        };
         let passages = parse_verse_list(&mut cur, last.book, last.end_chapter);
         if passages.is_empty() {
             continue;
         }
-        inferred.push(Detected { start, end: cur.pos, passages, inferred: true });
+        inferred.push(Detected {
+            start,
+            end: cur.pos,
+            passages,
+            inferred: true,
+        });
     }
     out.extend(inferred);
     out.sort_by_key(|d| d.start);
@@ -332,30 +384,57 @@ mod tests {
     #[test]
     fn basic_forms() {
         assert_eq!(refs("See John 3:16 today"), vec!["John 3:16"]);
-        assert_eq!(refs("Ro 8:38, 39 is great"), vec!["Romans 8:38", "Romans 8:39"]);
+        assert_eq!(
+            refs("Ro 8:38, 39 is great"),
+            vec!["Romans 8:38", "Romans 8:39"]
+        );
         assert_eq!(refs("Read Acts 20 fully"), vec!["Acts 20"]);
         assert_eq!(refs("Ps 23:1-3."), vec!["Psalms 23:1-3"]);
         assert_eq!(refs("Rev. 21:4"), vec!["Revelation 21:4"]);
         assert_eq!(refs("1 Corinthians 13:4-8a"), vec!["1 Corinthians 13:4-8"]);
-        assert_eq!(refs("(2 Timothy 3:16, 17)"), vec!["2 Timothy 3:16", "2 Timothy 3:17"]);
+        assert_eq!(
+            refs("(2 Timothy 3:16, 17)"),
+            vec!["2 Timothy 3:16", "2 Timothy 3:17"]
+        );
     }
 
     #[test]
     fn watchtower_and_french() {
-        assert_eq!(refs("Joh 3:16; Mr 1:1; Lu 2:1; Php 4:6; Re 21:3"), vec!["John 3:16", "Mark 1:1", "Luke 2:1", "Philippians 4:6", "Revelation 21:3"]);
-        assert_eq!(refs("Jean 3:16 et Jn 3,16 et Éph 4:5"), vec!["John 3:16", "John 3:16", "Ephesians 4:5"]);
+        assert_eq!(
+            refs("Joh 3:16; Mr 1:1; Lu 2:1; Php 4:6; Re 21:3"),
+            vec![
+                "John 3:16",
+                "Mark 1:1",
+                "Luke 2:1",
+                "Philippians 4:6",
+                "Revelation 21:3"
+            ]
+        );
+        assert_eq!(
+            refs("Jean 3:16 et Jn 3,16 et Éph 4:5"),
+            vec!["John 3:16", "John 3:16", "Ephesians 4:5"]
+        );
         assert_eq!(refs("1 Corinthiens 13:4"), vec!["1 Corinthians 13:4"]);
-        assert_eq!(refs("Genèse 1:1 puis Genese 1:2"), vec!["Genesis 1:1", "Genesis 1:2"]);
+        assert_eq!(
+            refs("Genèse 1:1 puis Genese 1:2"),
+            vec!["Genesis 1:1", "Genesis 1:2"]
+        );
     }
 
     #[test]
     fn ranges_and_lists() {
         assert_eq!(refs("Luke 9:51-10:12"), vec!["Luke 9:51-10:12"]);
         assert_eq!(refs("Luke 9:51–10:12"), vec!["Luke 9:51-10:12"]);
-        assert_eq!(refs("Romans 8:1-4, 12"), vec!["Romans 8:1-4", "Romans 8:12"]);
+        assert_eq!(
+            refs("Romans 8:1-4, 12"),
+            vec!["Romans 8:1-4", "Romans 8:12"]
+        );
         assert_eq!(refs("Gen 1:1; 2:4"), vec!["Genesis 1:1", "Genesis 2:4"]);
         assert_eq!(refs("Acts 1-2"), vec!["Acts 1-2"]);
-        assert_eq!(refs("Matthew 24:3, 7-14"), vec!["Matthew 24:3", "Matthew 24:7-14"]);
+        assert_eq!(
+            refs("Matthew 24:3, 7-14"),
+            vec!["Matthew 24:3", "Matthew 24:7-14"]
+        );
     }
 
     #[test]
@@ -381,22 +460,37 @@ mod tests {
 
     #[test]
     fn list_does_not_swallow_next_book() {
-        assert_eq!(refs("John 3:16, 2 Corinthians 5:17"), vec!["John 3:16", "2 Corinthians 5:17"]);
-        assert_eq!(refs("Ro 8:38, 39 And then"), vec!["Romans 8:38", "Romans 8:39"]);
+        assert_eq!(
+            refs("John 3:16, 2 Corinthians 5:17"),
+            vec!["John 3:16", "2 Corinthians 5:17"]
+        );
+        assert_eq!(
+            refs("Ro 8:38, 39 And then"),
+            vec!["Romans 8:38", "Romans 8:39"]
+        );
     }
 
     #[test]
     fn contextual_verses() {
         let d = detect("Read Romans 8:28 carefully. Then v. 29 and verses 31, 32 too.");
-        let names: Vec<_> = d.iter().flat_map(|x| x.passages.iter().map(|p| p.display(Lang::En))).collect();
-        assert_eq!(names, vec!["Romans 8:28", "Romans 8:29", "Romans 8:31", "Romans 8:32"]);
+        let names: Vec<_> = d
+            .iter()
+            .flat_map(|x| x.passages.iter().map(|p| p.display(Lang::En)))
+            .collect();
+        assert_eq!(
+            names,
+            vec!["Romans 8:28", "Romans 8:29", "Romans 8:31", "Romans 8:32"]
+        );
         assert!(d[1].inferred && d[2].inferred && !d[0].inferred);
         // New paragraph: no context.
         assert_eq!(refs("Romans 8:28.\n\nv. 29 alone"), vec!["Romans 8:28"]);
         // No prior reference: nothing.
         assert!(refs("v. 29 alone").is_empty());
         // French keyword.
-        assert_eq!(refs("Jean 3:16, puis verset 17"), vec!["John 3:16", "John 3:17"]);
+        assert_eq!(
+            refs("Jean 3:16, puis verset 17"),
+            vec!["John 3:16", "John 3:17"]
+        );
     }
 
     #[test]

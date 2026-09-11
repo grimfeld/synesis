@@ -13,11 +13,12 @@
 //! app data directory, never inside the vault.
 
 use crate::Result;
-use loro::{ExportMode, LoroDoc, LoroValue, UpdateOptions, ValueOrContainer};
+use loro::{ExportMode, Frontiers, LoroDoc, LoroValue, UpdateOptions, ValueOrContainer, ID};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::fs;
+use std::ops::ControlFlow;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -30,6 +31,31 @@ pub struct RemoteChange {
     pub path: Option<String>,
     pub deleted: bool,
 }
+
+/// A named moment in a document's history (ADR 0007). Lives in the Loro
+/// document itself, so it syncs with it.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Version {
+    pub key: String,
+    pub label: String,
+    /// Unix milliseconds.
+    pub created: i64,
+    /// Hex-encoded Loro frontier.
+    pub frontier: String,
+}
+
+/// One change in a document's history, for browsing unnamed history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct HistoryPoint {
+    pub frontier: String,
+    /// Unix seconds, 0 when the change carries no timestamp.
+    pub timestamp: i64,
+    pub lamport: u32,
+    pub peer: String,
+    pub ops: usize,
+}
+
+const VERSIONS: &str = "versions";
 
 #[derive(Default, Serialize, Deserialize)]
 struct Manifest {
@@ -47,7 +73,12 @@ pub struct Sync {
 }
 
 fn mtime_ms(p: &Path) -> i64 {
-    fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0)
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -68,7 +99,10 @@ fn map_string(doc: &LoroDoc, key: &str) -> Option<String> {
 }
 
 fn map_bool(doc: &LoroDoc, key: &str) -> bool {
-    matches!(doc.get_map("meta").get(key), Some(ValueOrContainer::Value(LoroValue::Bool(true))))
+    matches!(
+        doc.get_map("meta").get(key),
+        Some(ValueOrContainer::Value(LoroValue::Bool(true)))
+    )
 }
 
 impl Sync {
@@ -89,8 +123,18 @@ impl Sync {
         let peer = u64::from_le_bytes(digest[..8].try_into().unwrap()) | 1;
         let local_dir = vault_local_dir.join("crdt");
         fs::create_dir_all(&local_dir)?;
-        let manifest = fs::read_to_string(local_dir.join("imported.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        Ok(Sync { device_id, peer, vault_sync_dir: vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR), local_dir, docs: HashMap::new(), manifest })
+        let manifest = fs::read_to_string(local_dir.join("imported.json"))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default();
+        Ok(Sync {
+            device_id,
+            peer,
+            vault_sync_dir: vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR),
+            local_dir,
+            docs: HashMap::new(),
+            manifest,
+        })
     }
 
     pub fn device_id(&self) -> &str {
@@ -102,13 +146,18 @@ impl Sync {
     }
 
     fn published_path(&self, id: &str) -> PathBuf {
-        self.vault_sync_dir.join(&self.device_id).join(format!("{id}.loro"))
+        self.vault_sync_dir
+            .join(&self.device_id)
+            .join(format!("{id}.loro"))
     }
 
     fn doc(&mut self, id: &str) -> &LoroDoc {
         if !self.docs.contains_key(id) {
             let doc = LoroDoc::new();
             let _ = doc.set_peer_id(self.peer);
+            doc.set_record_timestamp(true);
+            // Every save is its own change, so history can be browsed save by save.
+            doc.set_change_merge_interval(-1);
             if let Ok(bytes) = fs::read(self.local_snapshot_path(id)) {
                 let _ = doc.import(&bytes);
                 let _ = doc.set_peer_id(self.peer);
@@ -121,7 +170,9 @@ impl Sync {
     fn persist(&self, id: &str, publish: bool) -> Result<()> {
         let doc = &self.docs[id];
         doc.commit();
-        let bytes = doc.export(ExportMode::Snapshot).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let bytes = doc
+            .export(ExportMode::Snapshot)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
         write_atomic(&self.local_snapshot_path(id), &bytes)?;
         if publish {
             write_atomic(&self.published_path(id), &bytes)?;
@@ -150,15 +201,18 @@ impl Sync {
         let meta = doc.get_map("meta");
         let mut changed = false;
         if body.to_string() != text {
-            body.update(text, UpdateOptions::default()).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            body.update(text, UpdateOptions::default())
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
             changed = true;
         }
         if map_string(doc, "path").as_deref() != Some(path) {
-            meta.insert("path", path).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            meta.insert("path", path)
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
             changed = true;
         }
         if map_bool(doc, "deleted") {
-            meta.insert("deleted", false).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            meta.insert("deleted", false)
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
             changed = true;
         }
         if changed {
@@ -167,12 +221,119 @@ impl Sync {
         Ok(changed)
     }
 
+    fn known(&self, id: &str) -> bool {
+        self.docs.contains_key(id) || self.local_snapshot_path(id).exists()
+    }
+
+    /// Named Versions of a document, newest first.
+    pub fn versions(&mut self, id: &str) -> Vec<Version> {
+        if !self.known(id) {
+            return vec![];
+        }
+        let doc = self.doc(id);
+        let mut out: Vec<Version> = match doc.get_map(VERSIONS).get_value() {
+            LoroValue::Map(m) => m
+                .values()
+                .filter_map(|v| match v {
+                    LoroValue::String(s) => serde_json::from_str::<Version>(s).ok(),
+                    _ => None,
+                })
+                .collect(),
+            _ => vec![],
+        };
+        out.sort_by(|a, b| b.created.cmp(&a.created).then(a.key.cmp(&b.key)));
+        out
+    }
+
+    /// Label the document's current state as a Version.
+    pub fn save_version(&mut self, id: &str, label: &str) -> Result<Version> {
+        if !self.known(id) {
+            return Err(crate::Error::Invalid(format!("no history for {id}")));
+        }
+        let doc = self.doc(id);
+        doc.commit();
+        let frontier = hex::encode(doc.oplog_frontiers().encode());
+        let created = std::time::SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0);
+        let v = Version {
+            key: ulid::Ulid::new().to_string(),
+            label: label.trim().to_string(),
+            created,
+            frontier,
+        };
+        doc.get_map(VERSIONS)
+            .insert(&v.key, serde_json::to_string(&v)?)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        self.persist(id, true)?;
+        Ok(v)
+    }
+
+    pub fn delete_version(&mut self, id: &str, key: &str) -> Result<()> {
+        if !self.known(id) {
+            return Ok(());
+        }
+        let doc = self.doc(id);
+        doc.get_map(VERSIONS)
+            .delete(key)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        self.persist(id, true)
+    }
+
+    /// The document's text at a frontier (a Version's or a history point's).
+    pub fn text_at(&mut self, id: &str, frontier_hex: &str) -> Result<String> {
+        if !self.known(id) {
+            return Err(crate::Error::Invalid(format!("no history for {id}")));
+        }
+        let bytes = hex::decode(frontier_hex).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let f = Frontiers::decode(&bytes).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let doc = self.doc(id);
+        doc.commit();
+        let old = doc
+            .fork_at(&f)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        Ok(old.get_text("body").to_string())
+    }
+
+    /// Every change in the document's history, newest first.
+    pub fn history(&mut self, id: &str) -> Result<Vec<HistoryPoint>> {
+        if !self.known(id) {
+            return Ok(vec![]);
+        }
+        let doc = self.doc(id);
+        doc.commit();
+        let ids: Vec<ID> = doc.oplog_frontiers().iter().collect();
+        let mut out = Vec::new();
+        doc.travel_change_ancestors(&ids, &mut |c| {
+            let end = ID::new(c.id.peer, c.id.counter + c.len as i32 - 1);
+            out.push(HistoryPoint {
+                frontier: hex::encode(Frontiers::from_id(end).encode()),
+                timestamp: c.timestamp,
+                lamport: c.lamport,
+                peer: c.id.peer.to_string(),
+                ops: c.len,
+            });
+            ControlFlow::Continue(())
+        })
+        .map_err(|e| crate::Error::Invalid(format!("{e:?}")))?;
+        out.sort_by(|a, b| {
+            b.timestamp
+                .cmp(&a.timestamp)
+                .then(b.lamport.cmp(&a.lamport))
+                .then(a.peer.cmp(&b.peer))
+        });
+        Ok(out)
+    }
+
     pub fn record_delete(&mut self, id: &str) -> Result<()> {
         let doc = self.doc(id);
         if map_bool(doc, "deleted") {
             return Ok(());
         }
-        doc.get_map("meta").insert("deleted", true).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        doc.get_map("meta")
+            .insert("deleted", true)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
         self.persist(id, true)
     }
 
@@ -227,7 +388,11 @@ impl Sync {
                 };
                 let before = {
                     let doc = self.doc(&id);
-                    (doc.get_text("body").to_string(), map_string(doc, "path"), map_bool(doc, "deleted"))
+                    (
+                        doc.get_text("body").to_string(),
+                        map_string(doc, "path"),
+                        map_bool(doc, "deleted"),
+                    )
                 };
                 let doc = self.doc(&id);
                 if doc.import(&bytes).is_err() {
@@ -236,16 +401,28 @@ impl Sync {
                 self.manifest.imported.insert(key, stamp);
                 let after = {
                     let doc = &self.docs[&id];
-                    (doc.get_text("body").to_string(), map_string(doc, "path"), map_bool(doc, "deleted"))
+                    (
+                        doc.get_text("body").to_string(),
+                        map_string(doc, "path"),
+                        map_bool(doc, "deleted"),
+                    )
                 };
                 self.persist(&id, false)?;
                 if before != after && !touched.contains(&id) {
                     touched.push(id.clone());
-                    out.push(RemoteChange { id, text: after.0, path: after.1, deleted: after.2 });
+                    out.push(RemoteChange {
+                        id,
+                        text: after.0,
+                        path: after.1,
+                        deleted: after.2,
+                    });
                 }
             }
         }
-        write_atomic(&self.local_dir.join("imported.json"), serde_json::to_string(&self.manifest)?.as_bytes())?;
+        write_atomic(
+            &self.local_dir.join("imported.json"),
+            serde_json::to_string(&self.manifest)?.as_bytes(),
+        )?;
         Ok(out)
     }
 }

@@ -1,0 +1,3 @@
+# Refuse commits that do not compile: UI types + every Rust crate.
+npm run --silent typecheck
+cargo check --workspace --quiet

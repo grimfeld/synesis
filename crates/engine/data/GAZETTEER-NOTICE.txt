@@ -1,0 +1,8 @@
+gazetteer.tsv is derived from the OpenBible.info Bible Geocoding Data
+(https://github.com/openbibleinfo/Bible-Geocoding-Data), by Stephen Smith,
+licensed under Creative Commons Attribution 4.0 International
+(https://creativecommons.org/licenses/by/4.0/).
+
+For each ancient place the highest-scoring modern identification was kept:
+its coordinates and modern name. Columns: name, latitude, longitude,
+modern name, number of verses mentioning the place, OpenBible slug, score.

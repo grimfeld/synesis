@@ -14,20 +14,50 @@ export const TYPE_BG: Record<DocType, string> = {
   place: "bg-type-place",
   character: "bg-type-character",
   concept: "bg-type-concept",
+  event: "bg-type-event",
   other: "bg-type-other",
 };
 
-export function TypeDot({ type, className }: { type: string; className?: string }) {
-  return <span aria-hidden className={cn("inline-block size-2 shrink-0 rounded-full", TYPE_BG[type as DocType] ?? TYPE_BG.other, className)} />;
+export function TypeDot({
+  type,
+  className,
+}: {
+  type: string;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "inline-block size-2 shrink-0 rounded-full",
+        TYPE_BG[type as DocType] ?? TYPE_BG.other,
+        className,
+      )}
+    />
+  );
 }
 
 /** A clickable document title with its type colour. */
-export function DocLink({ doc, active, className, children }: { doc: DocSummary; active?: boolean; className?: string; children?: React.ReactNode }) {
+export function DocLink({
+  doc,
+  active,
+  className,
+  children,
+}: {
+  doc: DocSummary;
+  active?: boolean;
+  className?: string;
+  children?: React.ReactNode;
+}) {
   const s = useStore();
   return (
     <button
       type="button"
-      className={cn("flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground", active && "bg-accent font-medium", className)}
+      className={cn(
+        "flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+        active && "bg-accent font-medium",
+        className,
+      )}
       onClick={() => s.openDoc(doc.id)}
       title={doc.path}
     >

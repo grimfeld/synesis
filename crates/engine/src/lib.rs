@@ -2,15 +2,18 @@
 //! the SQLite index and the Vault itself. Everything that is not UI lives here
 //! (see docs/adr/0004-rust-engine-react-ui.md).
 
-pub mod versification;
-pub mod scripture;
+pub mod dates;
+pub mod document;
+pub mod gazetteer;
+pub mod index;
 pub mod names;
 pub mod parser;
-pub mod document;
-pub mod index;
+pub mod properties;
+pub mod scripture;
+pub mod sync;
 pub mod templates;
 pub mod vault;
-pub mod sync;
+pub mod versification;
 
 pub use scripture::{Lang, Passage, Unit, VerseId};
 pub use vault::Vault;

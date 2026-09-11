@@ -12,6 +12,7 @@
 :root {
   color-scheme: light;
   --radius: 0.625rem;
+  --font-prose: "iA Writer Quattro", "Source Serif 4", Georgia, "Times New Roman", serif;
 
   --background: oklch(0.985 0.004 85);
   --foreground: oklch(0.24 0.012 265);
@@ -54,6 +55,7 @@
   --c-place: #c04f6b;
   --c-character: #d0651e;
   --c-concept: #4f5bd5;
+  --c-event: #7a8b12;
   --c-other: #6b7280;
   /* editor decorations */
   --passage: #5a7d3a;
@@ -105,6 +107,7 @@
   --c-place: #e88aa0;
   --c-character: #f0a060;
   --c-concept: #9aa4f0;
+  --c-event: #c5d45a;
   --c-other: #9aa0a8;
   --passage: #9ec27a;
   --passage-inferred: #7f9b66;
@@ -156,6 +159,7 @@
   --color-type-place: var(--c-place);
   --color-type-character: var(--c-character);
   --color-type-concept: var(--c-concept);
+  --color-type-event: var(--c-event);
   --color-type-other: var(--c-other);
   --color-passage: var(--passage);
   --color-link: var(--link);
@@ -196,10 +200,8 @@
 .thin-scroll { scrollbar-width: thin; }
 
 /* ------------------------------------------------------------------ editor */
-.cm-editor { height: 100%; font-size: 15.5px; line-height: 1.65; background: transparent; }
+.cm-editor { height: auto; font-size: 15.5px; line-height: 1.65; background: transparent; }
 .cm-editor.cm-focused { outline: none; }
-.cm-scroller { font-family: var(--font-prose); padding: 28px 0 40vh; scrollbar-width: thin; }
-.cm-content { max-width: 720px; margin: 0 auto; padding: 0 32px; caret-color: var(--foreground); }
 .cm-line { padding: 0; }
 .cm-gutters { display: none; }
 .cm-activeLine { background: transparent; }
@@ -242,3 +244,15 @@
 .dark .leaflet-tile { filter: brightness(.7) contrast(1.05) saturate(.8); }
 .leaflet-bar a { background: var(--popover); color: var(--popover-foreground); border-bottom-color: var(--border); }
 .leaflet-bar a:hover { background: var(--accent); }
+
+/* ------------------------------------------------------------ live preview */
+.cm-md-heading-line { padding-top: .35em; }
+.cm-md-heading-line-1 { padding-top: .6em; }
+.cm-md-quote-line { border-left: 3px solid var(--border); padding-left: 12px !important; color: var(--muted-foreground); font-style: italic; }
+.cm-md-quote { border-left: none; padding-left: 0; }
+.cm-md-codeblock { background: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; padding-left: 12px !important; padding-right: 12px !important; }
+.cm-md-codeblock .cm-md-code { background: transparent; padding: 0; font-size: inherit; }
+.cm-md-bullet { display: inline-block; width: 1ch; color: var(--primary); font-weight: 700; }
+.cm-md-hr-widget { display: inline-block; width: 100%; height: 1px; background: var(--border); vertical-align: middle; }
+.cm-md-task { appearance: auto; width: 15px; height: 15px; margin: 0 .35em 0 0; vertical-align: -2px; accent-color: var(--primary); cursor: pointer; }
+.cm-line:has(> .cm-md-task:checked) { color: var(--muted-foreground); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted-foreground) 60%, transparent); }

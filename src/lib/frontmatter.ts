@@ -7,7 +7,10 @@ export interface Split {
 }
 
 export function splitFrontmatter(text: string): Split {
-  const m = /^(?:﻿)?---\r?\n([\s\S]*?)(?:\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(text);
+  const m =
+    /^(?:﻿)?---\r?\n([\s\S]*?)(?:\r?\n)?(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/.exec(
+      text,
+    );
   if (!m || !text.startsWith(m[0])) return { fm: "", body: text };
   return { fm: m[0], body: text.slice(m[0].length) };
 }
@@ -37,7 +40,11 @@ function fmLines(fm: string): string[] {
   // drop leading '---' and trailing fence + trailing empty
   while (lines.length && lines[lines.length - 1] === "") lines.pop();
   if (lines[0]?.replace(/^﻿/, "") === "---") lines.shift();
-  if (lines.length && (lines[lines.length - 1] === "---" || lines[lines.length - 1] === "...")) lines.pop();
+  if (
+    lines.length &&
+    (lines[lines.length - 1] === "---" || lines[lines.length - 1] === "...")
+  )
+    lines.pop();
   return lines;
 }
 
@@ -45,12 +52,27 @@ function buildFm(lines: string[]): string {
   return lines.length ? `---\n${lines.join("\n")}\n---\n` : "";
 }
 
-/** Replace or add a scalar / flow-list value for `key`. `value` is raw (unquoted). */
-export function setField(fm: string, key: string, value: string | string[] | null): string {
+/**
+ * Replace or add a value for `key`. A string is written as a YAML scalar
+ * (quoted when needed), a string array as a flow list, a number or boolean
+ * bare (so `lat: 37.9` stays a number and `done: true` a boolean).
+ */
+export function setField(
+  fm: string,
+  key: string,
+  value: string | string[] | number | boolean | null,
+): string {
   const lines = fmLines(fm);
   const re = keyRegex(key);
   const idx = lines.findIndex((l) => re.test(l));
-  const rendered = value === null ? null : Array.isArray(value) ? `${key}: [${value.map(yamlScalar).join(", ")}]` : `${key}: ${yamlScalar(value)}`;
+  const rendered =
+    value === null
+      ? null
+      : Array.isArray(value)
+        ? `${key}: [${value.map(yamlScalar).join(", ")}]`
+        : typeof value === "number" || typeof value === "boolean"
+          ? `${key}: ${String(value)}`
+          : `${key}: ${yamlScalar(value)}`;
   if (idx >= 0) {
     // Remove continuation lines (block lists / nested maps) under this key.
     let end = idx + 1;

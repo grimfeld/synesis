@@ -56,7 +56,7 @@ export function MapView() {
           {t.types.place}
         </Button>
       </ViewHeader>
-      <div ref={host} className="min-h-0 flex-1" />
+      <div data-testid="map" ref={host} className="min-h-0 flex-1" />
     </div>
   );
 }

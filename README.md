@@ -27,6 +27,16 @@ npm run tauri dev     # desktop app: Vite on :1420, Tauri window, dev bridge on 
 cargo test -p engine  # engine tests
 ```
 
+## Releasing
+
+Pushing a `vX.Y.Z` tag runs [.github/workflows/release.yml](.github/workflows/release.yml): it builds macOS (Apple Silicon and Intel), Windows, Linux and Android, and attaches the installers to a GitHub Release named after the tag. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.
+
+```sh
+npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; tags v0.2.0; pushes
+```
+
+The workflow refuses a tag whose version differs from those files. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run check` (typecheck + `cargo check --workspace`) so a commit that does not compile is refused.
+
 ## Licence
 
 App: MIT. Sync server (when it exists): AGPL-3.0.
@@ -36,6 +46,7 @@ App: MIT. Sync server (when it exists): AGPL-3.0.
 ```sh
 cargo test -p engine                       # parser, index, vault, two-device sync
 cargo run -p engine --example inspect -- <vault>   # print what the engine sees in a vault
+npm run test:e2e                           # Cypress: UI end-to-end + TS unit specs (dev app must be running)
 node scripts/ui-smoke.mjs '<steps>'        # headless UI run against the dev app (see CLAUDE.md)
 ```
 

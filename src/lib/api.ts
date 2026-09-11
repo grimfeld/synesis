@@ -14,11 +14,42 @@ export type DocType =
   | "place"
   | "character"
   | "concept"
+  | "event"
   | "other";
 
-export const CREATABLE_TYPES: DocType[] = ["note", "clipping", "composition", "source", "place", "character", "concept"];
-export const SUBJECT_TYPES: DocType[] = ["book", "chapter", "verse", "place", "character", "concept"];
+export const CREATABLE_TYPES: DocType[] = [
+  "note",
+  "clipping",
+  "composition",
+  "source",
+  "place",
+  "character",
+  "concept",
+  "event",
+];
+export const SUBJECT_TYPES: DocType[] = [
+  "book",
+  "chapter",
+  "verse",
+  "place",
+  "character",
+  "concept",
+  "event",
+];
 export const SCRIPTURE_TYPES: DocType[] = ["book", "chapter", "verse"];
+/** Pages whose body is the point; they open in the editor. */
+export const WRITING_TYPES: DocType[] = ["note", "clipping", "composition"];
+/** Pages that gather what points at them (Sources and Subjects); they open as a view. */
+export const HUB_TYPES: DocType[] = [
+  "source",
+  "book",
+  "chapter",
+  "verse",
+  "place",
+  "character",
+  "concept",
+  "event",
+];
 
 export type Lang = "en" | "fr";
 export type GraphLevel = "book" | "chapter" | "verse";
@@ -75,6 +106,25 @@ export interface TagRange {
 
 export type Frontmatter = Record<string, unknown>;
 
+/** Property types (ADR 0006): one per name, vault-wide. */
+export type PropertyType =
+  "text" | "number" | "date" | "calendar" | "link" | "list" | "checkbox";
+export const PROPERTY_TYPES: PropertyType[] = [
+  "text",
+  "number",
+  "date",
+  "calendar",
+  "link",
+  "list",
+  "checkbox",
+];
+/** Names the app owns; never retyped by the user. */
+export const RESERVED_PROPERTIES = ["id", "type", "title", "tags"];
+
+export interface PropertySchema {
+  types: Record<string, PropertyType>;
+}
+
 export interface DocumentPayload {
   summary: DocSummary;
   text: string;
@@ -95,6 +145,11 @@ export interface Backlink {
   excerpt: string;
   start: number;
   inferred: boolean;
+}
+
+export interface VerseCount {
+  verse: number;
+  count: number;
 }
 
 export interface CoverageCell {
@@ -126,11 +181,63 @@ export interface SearchHit {
   snippet: string;
 }
 
+/** A Date in the Bible's chronology (ADR 0005). Astronomical year: 1 BCE is 0. */
+export interface BibleDate {
+  year: number;
+  month: number | null;
+  day: number | null;
+  approx: boolean;
+}
+
+/** One Date-typed Property on a document; `date` is null when the text did not parse. */
+export interface DatedProperty {
+  doc: DocSummary;
+  name: string;
+  text: string;
+  date: BibleDate | null;
+  precision: "year" | "month" | "day" | null;
+}
+
+/** An Event naming a Subject through its `place` or `characters` Property. */
+export interface EventLink {
+  event: string;
+  subject: string;
+}
+
+/** A hit in the bundled Bible-place gazetteer (OpenBible.info, CC BY 4.0). */
+export interface GazetteerHit {
+  name: string;
+  lat: number;
+  lon: number;
+  modern_name: string;
+  verses: number;
+}
+
+/** A named moment in a Composition's history (ADR 0007). */
+export interface Version {
+  key: string;
+  label: string;
+  /** Unix milliseconds. */
+  created: number;
+  frontier: string;
+}
+
+export interface HistoryPoint {
+  frontier: string;
+  /** Unix seconds, 0 when unknown. */
+  timestamp: number;
+  lamport: number;
+  peer: string;
+  ops: number;
+}
+
 export interface Candidate {
   doc: DocSummary;
   shared_tags: string[];
   shared_passages: string[];
   score: number;
+  /** The Composition already Mentions this document (link, Embed or Tag). */
+  used: boolean;
 }
 
 export interface TrailEntry {
@@ -186,49 +293,115 @@ export interface ChangedPayload {
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setLanguage: (lang: Lang) => invoke<void>("set_language", { lang }),
-  setGraphLevel: (level: GraphLevel) => invoke<void>("set_graph_level", { level }),
-  openVault: (path?: string) => invoke<VaultInfo>("open_vault", { path: path ?? null }),
+  setGraphLevel: (level: GraphLevel) =>
+    invoke<void>("set_graph_level", { level }),
+  openVault: (path?: string) =>
+    invoke<VaultInfo>("open_vault", { path: path ?? null }),
   closeVault: () => invoke<void>("close_vault"),
   vaultInfo: () => invoke<VaultInfo>("vault_info"),
   rescan: () => invoke<DocSummary[]>("rescan"),
-  listDocuments: (docType?: DocType) => invoke<DocSummary[]>("list_documents", { docType: docType ?? null }),
+  listDocuments: (docType?: DocType) =>
+    invoke<DocSummary[]>("list_documents", { docType: docType ?? null }),
   getDocument: (id: string) => invoke<DocumentPayload>("get_document", { id }),
-  saveDocument: (id: string, text: string) => invoke<DocumentPayload>("save_document", { id, text }),
-  createDocument: (docType: DocType, title: string, fields?: Frontmatter, body?: string) =>
-    invoke<DocumentPayload>("create_document", { docType, title, fields: fields ?? null, body: body ?? null }),
-  renameDocument: (id: string, title: string) => invoke<DocumentPayload>("rename_document", { id, title }),
+  saveDocument: (id: string, text: string) =>
+    invoke<DocumentPayload>("save_document", { id, text }),
+  createDocument: (
+    docType: DocType,
+    title: string,
+    fields?: Frontmatter,
+    body?: string,
+  ) =>
+    invoke<DocumentPayload>("create_document", {
+      docType,
+      title,
+      fields: fields ?? null,
+      body: body ?? null,
+    }),
+  renameDocument: (id: string, title: string) =>
+    invoke<DocumentPayload>("rename_document", { id, title }),
   deleteDocument: (id: string) => invoke<void>("delete_document", { id }),
-  resolveLink: (target: string) => invoke<DocSummary | null>("resolve_link", { target }),
-  resolveMany: (targets: string[]) => invoke<(DocSummary | null)[]>("resolve_many", { targets }),
+  resolveLink: (target: string) =>
+    invoke<DocSummary | null>("resolve_link", { target }),
+  resolveMany: (targets: string[]) =>
+    invoke<(DocSummary | null)[]>("resolve_many", { targets }),
   backlinks: (id: string) => invoke<Backlink[]>("backlinks", { id }),
   verseMentions: (book: number, chapter?: number, verse?: number) =>
-    invoke<Backlink[]>("verse_mentions", { book, chapter: chapter ?? null, verse: verse ?? null }),
+    invoke<Backlink[]>("verse_mentions", {
+      book,
+      chapter: chapter ?? null,
+      verse: verse ?? null,
+    }),
   scripturePage: (book: number, chapter?: number, verse?: number) =>
-    invoke<DocSummary | null>("scripture_page", { book, chapter: chapter ?? null, verse: verse ?? null }),
+    invoke<DocSummary | null>("scripture_page", {
+      book,
+      chapter: chapter ?? null,
+      verse: verse ?? null,
+    }),
   ensureScripturePage: (book: number, chapter?: number, verse?: number) =>
-    invoke<DocSummary>("ensure_scripture_page", { book, chapter: chapter ?? null, verse: verse ?? null }),
+    invoke<DocSummary>("ensure_scripture_page", {
+      book,
+      chapter: chapter ?? null,
+      verse: verse ?? null,
+    }),
   coverage: () => invoke<CoverageCell[]>("coverage"),
+  verseCoverage: (book: number, chapter: number) =>
+    invoke<VerseCount[]>("verse_coverage", { book, chapter }),
   graph: (level: GraphLevel) => invoke<Graph>("graph", { level }),
-  search: (query: string, limit = 30) => invoke<SearchHit[]>("search", { query, limit }),
-  suggest: (prefix: string, limit = 12) => invoke<DocSummary[]>("suggest", { prefix, limit }),
+  search: (query: string, limit = 30) =>
+    invoke<SearchHit[]>("search", { query, limit }),
+  suggest: (prefix: string, limit = 12) =>
+    invoke<DocSummary[]>("suggest", { prefix, limit }),
   tags: () => invoke<TagCount[]>("tags"),
+  taggedDocuments: (tag: string) =>
+    invoke<DocSummary[]>("tagged_documents", { tag }),
   places: () => invoke<DocSummary[]>("places"),
+  propertySchema: () => invoke<PropertySchema>("property_schema"),
+  setPropertyType: (name: string, propType: PropertyType) =>
+    invoke<PropertySchema>("set_property_type", { name, propType }),
+  datesOf: (id: string) => invoke<DatedProperty[]>("dates_of", { id }),
+  timeline: () => invoke<DatedProperty[]>("timeline"),
+  eventsNaming: (id: string) => invoke<DocSummary[]>("events_naming", { id }),
+  eventLinks: () => invoke<EventLink[]>("event_links"),
+  versions: (id: string) => invoke<Version[]>("versions", { id }),
+  saveVersion: (id: string, label: string) =>
+    invoke<Version>("save_version", { id, label }),
+  deleteVersion: (id: string, key: string) =>
+    invoke<void>("delete_version", { id, key }),
+  textAt: (id: string, frontier: string) =>
+    invoke<string>("text_at", { id, frontier }),
+  history: (id: string) => invoke<HistoryPoint[]>("history", { id }),
+  gazetteer: (query: string, limit = 8) =>
+    invoke<GazetteerHit[]>("gazetteer", { query, limit }),
   candidates: (id: string) => invoke<Candidate[]>("candidates", { id }),
   sourceTrail: (id: string) => invoke<TrailEntry[]>("source_trail", { id }),
-  sourceChildren: (id: string) => invoke<DocSummary[]>("source_children", { id }),
+  sourceChildren: (id: string) =>
+    invoke<DocSummary[]>("source_children", { id }),
   unresolvedLinks: () => invoke<UnresolvedLink[]>("unresolved_links"),
-  findSourceByUrl: (url: string) => invoke<DocSummary | null>("find_source_by_url", { url }),
-  detectPassages: (text: string) => invoke<DetectedRange[]>("detect_passages", { text }),
+  findSourceByUrl: (url: string) =>
+    invoke<DocSummary | null>("find_source_by_url", { url }),
+  detectPassages: (text: string) =>
+    invoke<DetectedRange[]>("detect_passages", { text }),
   books: () => invoke<BookMeta[]>("books"),
-  fetchUrlMetadata: (url: string) => invoke<UrlMeta>("fetch_url_metadata", { url }),
+  fetchUrlMetadata: (url: string) =>
+    invoke<UrlMeta>("fetch_url_metadata", { url }),
 
-  onVaultChanged: (cb: (p: ChangedPayload) => void): Promise<UnlistenFn> => listen<ChangedPayload>("vault:changed", (e) => cb(e.payload)),
-  onQuickCapture: (cb: () => void): Promise<UnlistenFn> => listen("quick-capture", () => cb()),
+  onVaultChanged: (cb: (p: ChangedPayload) => void): Promise<UnlistenFn> =>
+    listen<ChangedPayload>("vault:changed", (e) => cb(e.payload)),
+  onQuickCapture: (cb: () => void): Promise<UnlistenFn> =>
+    listen("quick-capture", () => cb()),
 };
 
 /** Book / chapter / verse of a packed VerseId. */
-export function unpackVerse(v: number): { book: number; chapter: number; verse: number } {
-  return { book: Math.floor(v / 1_000_000), chapter: Math.floor(v / 1000) % 1000, verse: v % 1000 };
+export function unpackVerse(v: number): {
+  book: number;
+  chapter: number;
+  verse: number;
+} {
+  return {
+    book: Math.floor(v / 1_000_000),
+    chapter: Math.floor(v / 1000) % 1000,
+    verse: v % 1000,
+  };
 }
 
 /** Frontmatter value as display string. */

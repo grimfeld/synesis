@@ -22,6 +22,10 @@ _Avoid_: Talk, sermon, essay, article (these are kinds of Composition, not the t
 A Clipping shown live inside a Composition. The Composition displays the Clipping's current text and Source rather than holding a copy.
 _Avoid_: Transclusion, include
 
+**Version**:
+A named moment in a Composition's history, kept by the user ("as delivered, 2026-09-20"). A Version can be read, compared with the current text, or restored; restoring is a new edit, never a rewind. Not a separate document.
+_Avoid_: Revision, snapshot, backup, draft
+
 ### Things the user collects
 
 **Source**:
@@ -35,7 +39,7 @@ _Avoid_: Position, anchor
 ### Things the writing points at
 
 **Subject**:
-A thing in the Bible's world that Notes, Clippings and Compositions refer to. Every Subject has its own page with backlinks and a place in the graph. Subjects are either Scripture (Book, Chapter, Verse) or Topical (Place, Character, Concept).
+A thing in the Bible's world that Notes, Clippings and Compositions refer to. Every Subject has its own page with backlinks and a place in the graph. Subjects are either Scripture (Book, Chapter, Verse) or Topical (Place, Character, Concept, Event).
 _Avoid_: Entity, topic page, node
 
 **Book**:
@@ -71,3 +75,55 @@ _Avoid_: Person, figure
 **Concept**:
 An idea or theme the user studies across Scripture, such as grace or covenant. Created manually by the user.
 _Avoid_: Topic, theme, idea
+
+**Event**:
+Something that happened in the Bible's world at a point or span in time, such as the Flood or Paul's stay in Ephesus. Has a Date, may name a Place and Characters, and sits on the Timeline. Created manually by the user.
+_Avoid_: Happening, occurrence, milestone
+
+**Date**:
+A moment in the Bible's chronology, written the way a reader would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". Carries its own precision (year, month, day) and whether it is approximate. A Date is never rewritten; the app only reads it. A pair of Dates makes a span.
+_Avoid_: Timestamp, year (a year is one precision of Date)
+
+**Property**:
+A named, typed value on a document's front matter, such as a Place's latitude or a Character's `born` Date. A property name means the same thing and has the same type everywhere in the Vault; the user chooses the type once, the first time the name is used. Types: text, number, Date, calendar date (today's world), link, list, checkbox.
+_Avoid_: Field, attribute, metadata (Source metadata is a set of Properties)
+
+### Kinds of page
+
+**Writing**:
+A page whose body is the point: a Note, a Clipping or a Composition. Opens in the editor.
+_Avoid_: Document (every page is a document), content page
+
+**Hub**:
+A page that gathers what points at it: a Source or any Subject. Opens as a view (metadata, reading trail, mentions, backlinks); its body is an optional "About" the user may fill or ignore.
+_Avoid_: Index page, landing page, entity page
+
+### Things the user does in the app
+
+**Home**:
+The view the app opens on: recent documents, a quick-capture box, and Compositions in progress. Not a document.
+_Avoid_: Dashboard, start page, landing
+
+**Timeline**:
+The view that lays every dated thing along the Bible's chronology: Events, and each Subject that carries a Date, on its own lane. Zooms from millennia to a single year.
+_Avoid_: Chronology (that is the subject matter), history view, Gantt
+
+**Candidate**:
+A document that shares a Tag or a Passage with a Composition and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used.
+_Avoid_: Suggestion, related, recommendation
+
+**Command**:
+A named action the user can run from the Command Palette ("New Clipping", "Toggle Source mode", "Go to Graph"). Commands may also have a keyboard shortcut; the shortcut is a way to run the command, not a separate thing.
+_Avoid_: Action, verb, hotkey
+
+**Command Palette**:
+The single search box that finds documents by default and runs Commands when the query starts with `>`.
+_Avoid_: Quick switcher, launcher, omnibox
+
+**Live Preview**:
+The default editing mode: markdown syntax is hidden and rendered except on the line being edited. The text underneath is unchanged.
+_Avoid_: WYSIWYG, rich text, rendered mode
+
+**Source mode**:
+The editing mode that shows the raw markdown of a document exactly as stored.
+_Avoid_: Raw mode, text mode, code view

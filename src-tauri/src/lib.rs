@@ -3,8 +3,13 @@
 //! external edits and forwards changes to the UI as events.
 
 use engine::document::DocType;
-use engine::index::{Backlink, Candidate, CoverageCell, DocSummary, Graph, GraphLevel, SearchHit, TrailEntry, UnresolvedLink};
+use engine::index::{
+    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph, GraphLevel,
+    SearchHit, TrailEntry, UnresolvedLink,
+};
+use engine::properties::{PropertySchema, PropertyType};
 use engine::scripture::{Lang, Passage};
+use engine::sync::{HistoryPoint, Version};
 use engine::vault::{DocumentView, VaultInfo, HIDDEN_DIR};
 use engine::{parser, Vault};
 use serde::{Deserialize, Serialize};
@@ -13,9 +18,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, Manager, State};
 
-mod watch;
 #[cfg(debug_assertions)]
 mod devbridge;
+mod watch;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -57,7 +62,11 @@ impl AppState {
         if let Some(p) = self.settings_path.parent() {
             std::fs::create_dir_all(p).map_err(err)?;
         }
-        std::fs::write(&self.settings_path, serde_json::to_string_pretty(&*s).map_err(err)?).map_err(err)
+        std::fs::write(
+            &self.settings_path,
+            serde_json::to_string_pretty(&*s).map_err(err)?,
+        )
+        .map_err(err)
     }
 }
 
@@ -146,12 +155,23 @@ fn to_payload(v: &Vault, view: DocumentView) -> DocumentPayload {
         tags: view
             .tags
             .iter()
-            .map(|t| TagRange { from: u16(t.start), to: u16(t.end), name: t.name.clone(), in_frontmatter: t.in_frontmatter, resolved: v.resolve(&t.name).ok().flatten() })
+            .map(|t| TagRange {
+                from: u16(t.start),
+                to: u16(t.end),
+                name: t.name.clone(),
+                in_frontmatter: t.in_frontmatter,
+                resolved: v.resolve(&t.name).ok().flatten(),
+            })
             .collect(),
         references: view
             .references
             .iter()
-            .map(|d| DetectedRange { from: u16(d.start), to: u16(d.end), passages: d.passages.iter().map(|p| passage_info(p, lang)).collect(), inferred: d.inferred })
+            .map(|d| DetectedRange {
+                from: u16(d.start),
+                to: u16(d.end),
+                passages: d.passages.iter().map(|p| passage_info(p, lang)).collect(),
+                inferred: d.inferred,
+            })
             .collect(),
         body_offset: u16(view.body_offset),
         summary: view.summary,
@@ -183,9 +203,19 @@ fn set_graph_level(state: State<AppState>, level: GraphLevel) -> CmdResult<()> {
 }
 
 #[tauri::command]
-fn open_vault(app: AppHandle, state: State<AppState>, path: Option<String>) -> CmdResult<VaultInfo> {
+fn open_vault(
+    app: AppHandle,
+    state: State<AppState>,
+    path: Option<String>,
+) -> CmdResult<VaultInfo> {
     let lang = state.settings.lock().map_err(err)?.lang;
-    let path = match path.or_else(|| state.settings.lock().ok().and_then(|s| s.vault_path.clone())) {
+    let path = match path.or_else(|| {
+        state
+            .settings
+            .lock()
+            .ok()
+            .and_then(|s| s.vault_path.clone())
+    }) {
         Some(p) => p,
         None => return Err("no vault path".into()),
     };
@@ -193,7 +223,17 @@ fn open_vault(app: AppHandle, state: State<AppState>, path: Option<String>) -> C
     // Stop watching the previous vault before touching files.
     *state.watcher.lock().map_err(err)? = None;
     std::fs::create_dir_all(&root).map_err(err)?;
-    for folder in ["Notes", "Clippings", "Compositions", "Sources", "Scripture", "Places", "Characters", "Concepts"] {
+    for folder in [
+        "Notes",
+        "Clippings",
+        "Compositions",
+        "Sources",
+        "Scripture",
+        "Places",
+        "Characters",
+        "Concepts",
+        "Events",
+    ] {
         std::fs::create_dir_all(root.join(folder)).map_err(err)?;
     }
     let data_dir = app.path().app_data_dir().map_err(err)?;
@@ -250,15 +290,30 @@ fn save_document(state: State<AppState>, id: String, text: String) -> CmdResult<
 }
 
 #[tauri::command]
-fn create_document(state: State<AppState>, doc_type: DocType, title: String, fields: Option<Map<String, Value>>, body: Option<String>) -> CmdResult<DocumentPayload> {
+fn create_document(
+    state: State<AppState>,
+    doc_type: DocType,
+    title: String,
+    fields: Option<Map<String, Value>>,
+    body: Option<String>,
+) -> CmdResult<DocumentPayload> {
     state.with_vault_mut(|v| {
-        let view = v.create(doc_type, &title, &fields.unwrap_or_default(), body.as_deref().unwrap_or(""))?;
+        let view = v.create(
+            doc_type,
+            &title,
+            &fields.unwrap_or_default(),
+            body.as_deref().unwrap_or(""),
+        )?;
         Ok(to_payload(v, view))
     })
 }
 
 #[tauri::command]
-fn rename_document(state: State<AppState>, id: String, title: String) -> CmdResult<DocumentPayload> {
+fn rename_document(
+    state: State<AppState>,
+    id: String,
+    title: String,
+) -> CmdResult<DocumentPayload> {
     state.with_vault_mut(|v| {
         let view = v.rename(&id, &title)?;
         Ok(to_payload(v, view))
@@ -290,9 +345,19 @@ fn names(state: State<AppState>) -> CmdResult<Vec<NameEntry>> {
     state.with_vault(|v| {
         let mut out = Vec::new();
         for d in v.list(None)? {
-            out.push(NameEntry { name: d.title.clone(), id: d.id.clone(), doc_type: d.doc_type, alias: false });
+            out.push(NameEntry {
+                name: d.title.clone(),
+                id: d.id.clone(),
+                doc_type: d.doc_type,
+                alias: false,
+            });
             for a in v.aliases_of(&d.id)? {
-                out.push(NameEntry { name: a, id: d.id.clone(), doc_type: d.doc_type, alias: true });
+                out.push(NameEntry {
+                    name: a,
+                    id: d.id.clone(),
+                    doc_type: d.doc_type,
+                    alias: true,
+                });
             }
         }
         Ok(out)
@@ -300,7 +365,10 @@ fn names(state: State<AppState>) -> CmdResult<Vec<NameEntry>> {
 }
 
 #[tauri::command]
-fn resolve_many(state: State<AppState>, targets: Vec<String>) -> CmdResult<Vec<Option<DocSummary>>> {
+fn resolve_many(
+    state: State<AppState>,
+    targets: Vec<String>,
+) -> CmdResult<Vec<Option<DocSummary>>> {
     state.with_vault(|v| targets.iter().map(|t| v.resolve(t)).collect())
 }
 
@@ -310,19 +378,34 @@ fn backlinks(state: State<AppState>, id: String) -> CmdResult<Vec<Backlink>> {
 }
 
 #[tauri::command]
-fn verse_mentions(state: State<AppState>, book: u8, chapter: Option<u16>, verse: Option<u16>) -> CmdResult<Vec<Backlink>> {
+fn verse_mentions(
+    state: State<AppState>,
+    book: u8,
+    chapter: Option<u16>,
+    verse: Option<u16>,
+) -> CmdResult<Vec<Backlink>> {
     state.with_vault(|v| v.verse_mentions(book, chapter, verse))
 }
 
 #[tauri::command]
-fn scripture_page(state: State<AppState>, book: u8, chapter: Option<u16>, verse: Option<u16>) -> CmdResult<Option<DocSummary>> {
+fn scripture_page(
+    state: State<AppState>,
+    book: u8,
+    chapter: Option<u16>,
+    verse: Option<u16>,
+) -> CmdResult<Option<DocSummary>> {
     state.with_vault(|v| v.scripture_doc(book, chapter, verse))
 }
 
 /// Materialise (and return) the page for a Scripture unit, e.g. when the user
 /// clicks a detected Passage that has not been written on yet.
 #[tauri::command]
-fn ensure_scripture_page(state: State<AppState>, book: u8, chapter: Option<u16>, verse: Option<u16>) -> CmdResult<DocSummary> {
+fn ensure_scripture_page(
+    state: State<AppState>,
+    book: u8,
+    chapter: Option<u16>,
+    verse: Option<u16>,
+) -> CmdResult<DocSummary> {
     state.with_vault_mut(|v| {
         let p = match (chapter, verse) {
             (None, _) => Passage::whole_book(book),
@@ -330,7 +413,8 @@ fn ensure_scripture_page(state: State<AppState>, book: u8, chapter: Option<u16>,
             (Some(c), Some(vs)) => Passage::verse(book, c, vs),
         };
         v.materialise(&[p])?;
-        v.scripture_doc(book, chapter, verse)?.ok_or_else(|| engine::Error::NotFound("scripture page".into()))
+        v.scripture_doc(book, chapter, verse)?
+            .ok_or_else(|| engine::Error::NotFound("scripture page".into()))
     })
 }
 
@@ -339,18 +423,42 @@ fn coverage(state: State<AppState>) -> CmdResult<Vec<CoverageCell>> {
     state.with_vault(|v| v.coverage())
 }
 
+#[derive(Serialize)]
+pub struct VerseCount {
+    pub verse: u16,
+    pub count: u32,
+}
+
+#[tauri::command]
+fn verse_coverage(state: State<AppState>, book: u8, chapter: u16) -> CmdResult<Vec<VerseCount>> {
+    state.with_vault(|v| {
+        Ok(v.verse_coverage(book, chapter)?
+            .into_iter()
+            .map(|(verse, count)| VerseCount { verse, count })
+            .collect())
+    })
+}
+
 #[tauri::command]
 fn graph(state: State<AppState>, level: GraphLevel) -> CmdResult<Graph> {
     state.with_vault(|v| v.graph(level))
 }
 
 #[tauri::command]
-fn search(state: State<AppState>, query: String, limit: Option<usize>) -> CmdResult<Vec<SearchHit>> {
+fn search(
+    state: State<AppState>,
+    query: String,
+    limit: Option<usize>,
+) -> CmdResult<Vec<SearchHit>> {
     state.with_vault(|v| v.search(&query, limit.unwrap_or(30)))
 }
 
 #[tauri::command]
-fn suggest(state: State<AppState>, prefix: String, limit: Option<usize>) -> CmdResult<Vec<DocSummary>> {
+fn suggest(
+    state: State<AppState>,
+    prefix: String,
+    limit: Option<usize>,
+) -> CmdResult<Vec<DocSummary>> {
     state.with_vault(|v| v.suggest(&prefix, limit.unwrap_or(12)))
 }
 
@@ -362,12 +470,86 @@ pub struct TagCount {
 
 #[tauri::command]
 fn tags(state: State<AppState>) -> CmdResult<Vec<TagCount>> {
-    state.with_vault(|v| Ok(v.tags()?.into_iter().map(|(tag, count)| TagCount { tag, count }).collect()))
+    state.with_vault(|v| {
+        Ok(v.tags()?
+            .into_iter()
+            .map(|(tag, count)| TagCount { tag, count })
+            .collect())
+    })
+}
+
+#[tauri::command]
+fn tagged_documents(state: State<AppState>, tag: String) -> CmdResult<Vec<DocSummary>> {
+    state.with_vault(|v| v.tagged(&tag))
 }
 
 #[tauri::command]
 fn places(state: State<AppState>) -> CmdResult<Vec<DocSummary>> {
     state.with_vault(|v| v.places())
+}
+
+#[tauri::command]
+fn property_schema(state: State<AppState>) -> CmdResult<PropertySchema> {
+    state.with_vault(|v| Ok(v.property_schema().clone()))
+}
+
+#[tauri::command]
+fn set_property_type(
+    state: State<AppState>,
+    name: String,
+    prop_type: PropertyType,
+) -> CmdResult<PropertySchema> {
+    state.with_vault_mut(|v| v.set_property_type(&name, prop_type))
+}
+
+#[tauri::command]
+fn dates_of(state: State<AppState>, id: String) -> CmdResult<Vec<DatedProperty>> {
+    state.with_vault(|v| v.dates_of(&id))
+}
+
+#[tauri::command]
+fn timeline(state: State<AppState>) -> CmdResult<Vec<DatedProperty>> {
+    state.with_vault(|v| v.timeline())
+}
+
+#[tauri::command]
+fn events_naming(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
+    state.with_vault(|v| v.events_naming(&id))
+}
+
+#[tauri::command]
+fn versions(state: State<AppState>, id: String) -> CmdResult<Vec<Version>> {
+    state.with_vault_mut(|v| v.versions(&id))
+}
+
+#[tauri::command]
+fn save_version(state: State<AppState>, id: String, label: String) -> CmdResult<Version> {
+    state.with_vault_mut(|v| v.save_version(&id, &label))
+}
+
+#[tauri::command]
+fn delete_version(state: State<AppState>, id: String, key: String) -> CmdResult<()> {
+    state.with_vault_mut(|v| v.delete_version(&id, &key))
+}
+
+#[tauri::command]
+fn text_at(state: State<AppState>, id: String, frontier: String) -> CmdResult<String> {
+    state.with_vault_mut(|v| v.text_at(&id, &frontier))
+}
+
+#[tauri::command]
+fn history(state: State<AppState>, id: String) -> CmdResult<Vec<HistoryPoint>> {
+    state.with_vault_mut(|v| v.history(&id))
+}
+
+#[tauri::command]
+fn gazetteer(query: String, limit: Option<usize>) -> Vec<engine::gazetteer::GazetteerHit> {
+    engine::gazetteer::search(&query, limit.unwrap_or(8))
+}
+
+#[tauri::command]
+fn event_links(state: State<AppState>) -> CmdResult<Vec<EventLink>> {
+    state.with_vault(|v| v.event_links())
 }
 
 #[tauri::command]
@@ -446,13 +628,28 @@ pub struct UrlMeta {
 
 fn meta_content(html: &str, key: &str) -> Option<String> {
     // <meta property="og:title" content="..."> in either attribute order.
-    let re1 = regex::Regex::new(&format!(r#"(?is)<meta[^>]+(?:property|name)\s*=\s*["']{}["'][^>]*content\s*=\s*["']([^"']*)["']"#, regex::escape(key))).ok()?;
-    let re2 = regex::Regex::new(&format!(r#"(?is)<meta[^>]+content\s*=\s*["']([^"']*)["'][^>]*(?:property|name)\s*=\s*["']{}["']"#, regex::escape(key))).ok()?;
-    re1.captures(html).or_else(|| re2.captures(html)).map(|c| html_unescape(c[1].trim()))
+    let re1 = regex::Regex::new(&format!(
+        r#"(?is)<meta[^>]+(?:property|name)\s*=\s*["']{}["'][^>]*content\s*=\s*["']([^"']*)["']"#,
+        regex::escape(key)
+    ))
+    .ok()?;
+    let re2 = regex::Regex::new(&format!(
+        r#"(?is)<meta[^>]+content\s*=\s*["']([^"']*)["'][^>]*(?:property|name)\s*=\s*["']{}["']"#,
+        regex::escape(key)
+    ))
+    .ok()?;
+    re1.captures(html)
+        .or_else(|| re2.captures(html))
+        .map(|c| html_unescape(c[1].trim()))
 }
 
 fn html_unescape(s: &str) -> String {
-    s.replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
+    s.replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&nbsp;", " ")
 }
 
 #[tauri::command]
@@ -462,17 +659,38 @@ async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
         .timeout(std::time::Duration::from_secs(12))
         .build()
         .map_err(err)?;
-    let html = client.get(&url).send().await.map_err(err)?.text().await.map_err(err)?;
-    let title_tag = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>").ok().and_then(|re| re.captures(&html).map(|c| html_unescape(c[1].trim())));
+    let html = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(err)?
+        .text()
+        .await
+        .map_err(err)?;
+    let title_tag = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>")
+        .ok()
+        .and_then(|re| re.captures(&html).map(|c| html_unescape(c[1].trim())));
     let title = meta_content(&html, "og:title").or(title_tag);
     let author = meta_content(&html, "author").or_else(|| meta_content(&html, "article:author"));
-    let site = meta_content(&html, "og:site_name").or_else(|| url.split('/').nth(2).map(|h| h.trim_start_matches("www.").to_string()));
+    let site = meta_content(&html, "og:site_name").or_else(|| {
+        url.split('/')
+            .nth(2)
+            .map(|h| h.trim_start_matches("www.").to_string())
+    });
     let date = meta_content(&html, "article:published_time")
         .or_else(|| meta_content(&html, "datePublished"))
         .or_else(|| meta_content(&html, "date"))
         .map(|d| d.chars().take(10).collect());
-    let description = meta_content(&html, "og:description").or_else(|| meta_content(&html, "description"));
-    Ok(UrlMeta { url, title, author, site, date, description })
+    let description =
+        meta_content(&html, "og:description").or_else(|| meta_content(&html, "description"));
+    Ok(UrlMeta {
+        url,
+        title,
+        author,
+        site,
+        date,
+        description,
+    })
 }
 
 /// Webview errors, forwarded to the terminal in development.
@@ -487,16 +705,24 @@ fn hidden_dir() -> String {
 }
 
 fn settings_path(app: &AppHandle) -> PathBuf {
-    app.path().app_config_dir().unwrap_or_else(|_| PathBuf::from(".")).join("settings.json")
+    app.path()
+        .app_config_dir()
+        .unwrap_or_else(|_| PathBuf::from("."))
+        .join("settings.json")
 }
 
 fn load_settings(p: &Path) -> Settings {
-    std::fs::read_to_string(p).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
+    std::fs::read_to_string(p)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_opener::init());
+    let builder = tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_opener::init());
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -515,7 +741,12 @@ pub fn run() {
         .setup(|app| {
             let sp = settings_path(app.handle());
             let settings = load_settings(&sp);
-            app.manage(AppState { vault: Mutex::new(None), settings: Mutex::new(settings), settings_path: sp, watcher: Mutex::new(None) });
+            app.manage(AppState {
+                vault: Mutex::new(None),
+                settings: Mutex::new(settings),
+                settings_path: sp,
+                watcher: Mutex::new(None),
+            });
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -547,11 +778,25 @@ pub fn run() {
             scripture_page,
             ensure_scripture_page,
             coverage,
+            verse_coverage,
             graph,
             search,
             suggest,
             tags,
+            tagged_documents,
             places,
+            property_schema,
+            set_property_type,
+            dates_of,
+            timeline,
+            events_naming,
+            event_links,
+            gazetteer,
+            versions,
+            save_version,
+            delete_version,
+            text_at,
+            history,
             candidates,
             source_trail,
             source_children,

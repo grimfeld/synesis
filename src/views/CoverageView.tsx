@@ -42,6 +42,8 @@ export function CoverageView() {
                   return (
                     <button
                       key={i}
+                      data-testid="coverage-cell"
+                      data-count={n}
                       type="button"
                       className="size-3.5 rounded-[3px] transition-transform hover:scale-125 hover:ring-1 hover:ring-foreground/60"
                       style={{ background: shade(n) }}
