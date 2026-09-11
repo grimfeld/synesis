@@ -7,7 +7,9 @@ describe("Sidebar", () => {
       .and("contain", "8");
     cy.get("[data-testid=group-clipping]").should("contain", "4");
     cy.get("[data-testid=group-source]").should("contain", "7");
-    cy.get("[data-testid=group-place]").should("contain", "5");
+    cy.get("[data-testid=group-place]").should("contain", "11");
+    cy.get("[data-testid=group-character]").should("contain", "11");
+    cy.get("[data-testid=group-event]").should("contain", "19");
   });
 
   it("expands a group and opens a document", () => {

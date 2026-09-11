@@ -1,5 +1,9 @@
 {
   "types": {
-    "anointed": "date"
+    "anointed": "date",
+    "crossed_euphrates": "date",
+    "destroyed": "date",
+    "exiled": "date",
+    "reign_start": "date"
   }
 }

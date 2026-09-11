@@ -450,7 +450,7 @@ export function TimelineView() {
                               strokeDasharray={m.approx ? "2 2" : undefined}
                             />
                           )}
-                          {showLabels && (
+                          {showLabels && !onLane && (
                             <text
                               x={(x2 ?? x1) + 8}
                               y={mid + 4}

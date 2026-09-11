@@ -6,5 +6,6 @@ created: "2026-08-02T10:11:00"
 lat: 31.7767
 lon: 35.2342
 modern_name: "Jerusalem"
+destroyed: "607 BCE"
 ---
 

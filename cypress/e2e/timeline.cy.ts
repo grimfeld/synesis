@@ -8,22 +8,25 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane]")
       .first()
       .should("have.attr", "data-lane", "events");
+    // Eleven Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
     cy.get("[data-testid=tl-lane][data-type=character]").should(
       "have.length",
-      3,
+      11,
     );
-    // David (born c. 1107 BCE) comes before Jesus (born 2 BCE) and Paul (died c. 65 CE).
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(0)
-      .should("contain", "David");
+      .should("contain", "Adam");
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(1)
-      .should("contain", "Jesus");
-    cy.get("[data-testid=tl-lane][data-type=character]")
-      .eq(2)
-      .should("contain", "Paul");
+      .should("contain", "Noah");
+    cy.get("[data-testid=tl-lane][data-type=place]")
+      .should("have.length", 1)
+      .and("contain", "Jerusalem");
+    cy.get(
+      "[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark]",
+    ).should("have.length", 19);
     cy.docByTitle("Paul in Ephesus").then((ev) => {
-      // The Event sits on the Events lane and on Paul's and Timothy's... Timothy has no Dates, so Paul's only.
+      // The Event sits on the Events lane and on the lanes of the Characters it names.
       cy.get(
         `[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark][data-doc=${ev.id}]`,
       ).should("have.length", 1);
