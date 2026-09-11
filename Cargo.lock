@@ -4595,7 +4595,7 @@ dependencies = [
 
 [[package]]
 name = "synesis"
-version = "0.0.1"
+version = "0.0.1-1"
 dependencies = [
  "engine",
  "notify",
