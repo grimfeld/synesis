@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BookOpenText,
   CalendarRange,
@@ -42,6 +42,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
   SidebarRail,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -73,6 +74,11 @@ export function AppSidebar() {
   const s = useStore();
   const t = useT();
   const [tab, setTab] = useState("documents");
+  const { isMobile, setOpenMobile } = useSidebar();
+  // On mobile the sidebar is a sheet over the page: close it once a pick changed the view.
+  useEffect(() => {
+    if (isMobile) setOpenMobile(false);
+  }, [s.view, isMobile, setOpenMobile]);
   const vaultName = s.info?.root.split(/[\\/]/).filter(Boolean).pop();
 
   return (

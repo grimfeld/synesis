@@ -243,7 +243,9 @@
 .cm-placeholder { color: var(--muted-foreground); }
 
 /* ------------------------------------------------------------------ leaflet */
-.leaflet-container { background: var(--muted); font-family: var(--font-sans); }
+/* Leaflet stacks its panes at z-index 400+ and its controls at 1000. Isolate the map so those
+   stay inside it and never cover the mobile sidebar sheet or the dialogs (z-50). */
+.leaflet-container { background: var(--muted); font-family: var(--font-sans); isolation: isolate; }
 .leaflet-popup-content-wrapper { background: var(--popover); color: var(--popover-foreground); }
 .leaflet-popup-tip { background: var(--popover); }
 .leaflet-tooltip.map-label { background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; padding: 2px 6px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
