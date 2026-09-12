@@ -18,6 +18,8 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
     if let Some(n) = state.p2p.lock().map_err(err)?.clone() {
         return Ok(n);
     }
+    // Every document needs a snapshot before another Device can receive it.
+    state.with_vault_mut(|v| v.publish_missing())?;
     let (root, device_id) = state.with_vault(|v| Ok((v.root().to_path_buf(), v.device_id().unwrap_or("device").to_string())))?;
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let local_dir = engine::vault::local_dir_for(&data_dir, &root);
@@ -28,6 +30,16 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
     let forward = app.clone();
     tauri::async_runtime::spawn(async move {
         while let Some(ev) = rx.recv().await {
+            // Snapshots that just arrived: merge and materialise them now rather
+            // than waiting for the file watcher (which mobile may not deliver).
+            if let Event::Synced { .. } = ev {
+                let state = forward.state::<AppState>();
+                if let Ok(changed) = state.with_vault_mut(|v| v.apply_remote()) {
+                    if !changed.is_empty() {
+                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![] });
+                    }
+                }
+            }
             let _ = forward.emit("pairing:event", &ev);
         }
     });
@@ -58,6 +70,22 @@ pub async fn stop(state: &AppState) {
     if let Some(n) = node {
         n.shutdown().await;
     }
+}
+
+/// After a document was written: make sure it has a snapshot, then push.
+pub fn after_write(state: &AppState) {
+    let _ = state.with_vault_mut(|v| v.publish_missing());
+    notify(state);
+}
+
+#[tauri::command]
+pub async fn pairing_sync_now(state: tauri::State<'_, AppState>) -> CmdResult<Option<Status>> {
+    let _ = state.with_vault_mut(|v| v.publish_missing());
+    let n = state.p2p.lock().map_err(err)?.clone();
+    Ok(n.map(|n| {
+        n.notify_changed();
+        n.status()
+    }))
 }
 
 /// Something local changed: push it to connected peers now.

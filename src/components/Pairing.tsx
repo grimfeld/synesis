@@ -27,8 +27,18 @@ function useQr(text: string | null) {
 export function PairingPanel({ className, compact }: { className?: string; compact?: boolean }) {
   const t = useT();
   const s = useStore();
-  const { status, refresh } = usePairing();
+  const { status, refresh, lastEvent } = usePairing();
   const [code, setCode] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const syncNow = async () => {
+    setSyncing(true);
+    try {
+      await api.pairingSyncNow();
+      refresh();
+    } finally {
+      window.setTimeout(() => setSyncing(false), 800);
+    }
+  };
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const svg = useQr(code);
@@ -91,6 +101,17 @@ export function PairingPanel({ className, compact }: { className?: string; compa
       )}
       {status && <PendingRequests status={status} onDone={refresh} />}
       {status && status.members.length > 0 && <Members status={status} onDone={refresh} />}
+      {status && status.members.length > 1 && (
+        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" data-testid="pairing-activity">
+          <span>{status.connected.length > 0 ? t.pairing.connected_n(status.connected.length) : t.pairing.no_peer_online}</span>
+          <Button variant="ghost" size="xs" onClick={syncNow} disabled={syncing}>
+            <RefreshCw className={cn(syncing && "animate-spin")} />
+            {t.pairing.sync_now}
+          </Button>
+          {lastEvent?.kind === "error" && <span className="text-destructive">{lastEvent.message}</span>}
+          {lastEvent?.kind === "synced" && <span>{t.pairing.received_n(lastEvent.files)}</span>}
+        </div>
+      )}
     </div>
   );
 }

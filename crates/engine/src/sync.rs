@@ -58,8 +58,57 @@ pub fn this_device() -> (String, String) {
 }
 
 fn this_device_card() -> DeviceCard {
-    let name = hostname::get().ok().and_then(|h| h.into_string().ok()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "device".into());
-    DeviceCard { name, platform: std::env::consts::OS.to_string() }
+    let os = std::env::consts::OS;
+    let host = hostname::get().ok().and_then(|h| h.into_string().ok());
+    DeviceCard { name: device_name(host, product_name(), os), platform: os.to_string() }
+}
+
+/// A human name for this Device. Phones report a hostname of `localhost`, so
+/// the product name (Android's `ro.product.*`) wins over the hostname, and a
+/// meaningless hostname falls back to the platform.
+pub fn device_name(hostname: Option<String>, product: Option<String>, os: &str) -> String {
+    let clean = |s: Option<String>| s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !matches!(s.to_ascii_lowercase().as_str(), "localhost" | "unknown" | "android" | "device"));
+    if let Some(p) = clean(product) {
+        return p;
+    }
+    if let Some(h) = clean(hostname) {
+        return h;
+    }
+    match os {
+        "android" => "Android device",
+        "ios" => "iPhone",
+        "macos" => "Mac",
+        "windows" => "Windows PC",
+        "linux" => "Linux PC",
+        _ => "device",
+    }
+    .to_string()
+}
+
+/// Android: the marketing name when the vendor sets one, else "<Manufacturer> <Model>".
+#[cfg(target_os = "android")]
+fn product_name() -> Option<String> {
+    fn prop(key: &str) -> Option<String> {
+        let out = std::process::Command::new("getprop").arg(key).output().ok()?;
+        let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!s.is_empty()).then_some(s)
+    }
+    prop("ro.product.marketname").or_else(|| prop("ro.product.vendor.marketname")).or_else(|| {
+        let model = prop("ro.product.model")?;
+        Some(match prop("ro.product.manufacturer") {
+            Some(m) if !model.to_ascii_lowercase().starts_with(&m.to_ascii_lowercase()) => {
+                let mut c = m.chars();
+                let m = c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or(m);
+                format!("{m} {model}")
+            }
+            _ => model,
+        })
+    })
+}
+
+#[cfg(not(target_os = "android"))]
+fn product_name() -> Option<String> {
+    None
 }
 
 fn mtime_ms_of(p: &Path) -> i64 {
@@ -310,6 +359,20 @@ impl Sync {
 
     /// Record the current file text and path as this device's state.
     /// No-op (and no publish) when nothing changed.
+    /// Whether this Device has ever published a snapshot for `id`.
+    pub fn is_published(&self, id: &str) -> bool {
+        self.published_path(id).exists()
+    }
+
+    /// Record the text like `record_local`, then make sure the published
+    /// snapshot exists even when nothing changed (a lost or never-written file).
+    pub fn republish(&mut self, id: &str, text: &str, path: &str) -> Result<()> {
+        if !self.record_local(id, text, path)? {
+            self.persist(id, true)?;
+        }
+        Ok(())
+    }
+
     pub fn record_local(&mut self, id: &str, text: &str, path: &str) -> Result<bool> {
         let doc = self.doc(id);
         let body = doc.get_text("body");
@@ -539,5 +602,19 @@ impl Sync {
             serde_json::to_string(&self.manifest)?.as_bytes(),
         )?;
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod device_name_tests {
+    use super::device_name;
+
+    #[test]
+    fn device_name_prefers_product_then_hostname_then_platform() {
+        assert_eq!(device_name(Some("localhost".into()), Some("Pixel 8".into()), "android"), "Pixel 8");
+        assert_eq!(device_name(Some("localhost".into()), None, "android"), "Android device");
+        assert_eq!(device_name(Some("  ".into()), None, "ios"), "iPhone");
+        assert_eq!(device_name(Some("DESKTOP-42".into()), None, "windows"), "DESKTOP-42");
+        assert_eq!(device_name(None, None, "linux"), "Linux PC");
     }
 }

@@ -115,6 +115,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "pairing_approve" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_approve(state, arg(&a, "node")?, arg(&a, "allow")?))?),
         "pairing_remove" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_remove(state, arg(&a, "node")?))?),
         "pairing_stop" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_stop(state))?),
+        "pairing_sync_now" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_sync_now(state))?),
         "set_relay" => ok(tauri::async_runtime::block_on(crate::pairing::set_relay(app.clone(), state, arg(&a, "url")?))?),
         "set_background_sync" => ok(crate::pairing::set_background_sync(state, arg(&a, "enabled")?)?),
         "sync_status" => ok(sync_status(state)?),

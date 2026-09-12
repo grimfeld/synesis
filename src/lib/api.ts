@@ -361,6 +361,7 @@ export const api = {
   pairingApprove: (node: string, allow: boolean) => invoke<boolean>("pairing_approve", { node, allow }),
   pairingRemove: (node: string) => invoke<void>("pairing_remove", { node }),
   pairingStop: () => invoke<void>("pairing_stop"),
+  pairingSyncNow: () => invoke<PairingStatus | null>("pairing_sync_now"),
   setRelay: (url: string | null) => invoke<void>("set_relay", { url }),
   setBackgroundSync: (enabled: boolean) => invoke<void>("set_background_sync", { enabled }),
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> => listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),

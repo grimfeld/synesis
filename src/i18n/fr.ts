@@ -348,5 +348,12 @@ export const fr: Dict = {
     background_hint: "Fermer la fenêtre laisse Synesis dans la barre d'état pour que vos autres appareils puissent encore se synchroniser avec celui-ci.",
     relay: "Serveur relais (facultatif)",
     relay_placeholder: "Laissez vide pour les relais publics d'Iroh",
+    sync_now: "Synchroniser maintenant",
+    connected_n: (n: number) => `${n} appareil${n === 1 ? "" : "s"} connecté${n === 1 ? "" : "s"}`,
+    no_peer_online: "Aucun appareil appairé en ligne pour l'instant",
+    received_n: (n: number) => `${n} changement${n === 1 ? "" : "s"} reçu${n === 1 ? "" : "s"}`,
   },
+  close_vault: "Fermer ce coffre",
+  close_vault_hint: "Retourne à l'écran de départ, où vous pouvez ouvrir un autre coffre ou appairer un autre appareil.",
+  waiting_for_documents: "En attente des documents de vos appareils appairés. Ouvrez Synesis sur l'un d'eux pour qu'ils se parlent.",
 };

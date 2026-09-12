@@ -197,6 +197,26 @@ impl Vault {
         self.sync_mut()?.history(id)
     }
 
+    /// Publish a snapshot for every document that has none yet, so a Device
+    /// that pairs (or a cloud folder that starts syncing) receives the whole
+    /// vault and not only what was edited since sync began.
+    pub fn publish_missing(&mut self) -> Result<usize> {
+        let docs = self.index.list(None)?;
+        let mut n = 0;
+        for d in docs {
+            let missing = self.sync.as_ref().map_or(false, |s| !s.is_published(&d.id));
+            if !missing {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(self.abs(&d.path)) else { continue };
+            if let Some(sync) = self.sync.as_mut() {
+                sync.republish(&d.id, &text, &d.path)?;
+                n += 1;
+            }
+        }
+        Ok(n)
+    }
+
     pub fn device_id(&self) -> Option<&str> {
         self.sync.as_ref().map(|s| s.device_id())
     }
@@ -774,6 +794,26 @@ mod tests {
         v.delete(&renamed.summary.id).unwrap();
         assert!(v.resolve("Paul of Tarsus").unwrap().is_none());
         assert!(!dir.path().join("Characters/paul of tarsus.md").exists());
+    }
+
+    #[test]
+    fn publish_missing_snapshots_every_document() {
+        let (dir, mut v) = vault();
+        // A file that arrived outside the app (Obsidian, a cloud folder) gets its snapshot at scan time;
+        // a lost snapshot (older app data, wiped folder) is what publish_missing repairs.
+        fs::write(dir.path().join("Notes/External.md"), "Written elsewhere.
+").unwrap();
+        v.scan().unwrap();
+        let ext = v.get_by_path("Notes/External.md").unwrap().unwrap().id;
+        let dev = v.device_id().unwrap().to_string();
+        let snap = dir.path().join(HIDDEN_DIR).join("sync").join(&dev).join(format!("{ext}.loro"));
+        assert!(snap.exists(), "scan snapshots new files");
+        assert_eq!(v.publish_missing().unwrap(), 0, "nothing missing after a scan");
+        fs::remove_file(&snap).unwrap();
+        let n = v.publish_missing().unwrap();
+        assert!(n >= 1, "the missing snapshot is republished");
+        assert!(snap.exists());
+        assert_eq!(v.publish_missing().unwrap(), 0, "second call publishes nothing new");
     }
 
     #[test]

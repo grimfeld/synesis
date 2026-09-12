@@ -347,6 +347,13 @@ export const en = {
     background_hint: "Closing the window leaves Synesis in the tray so your other devices can still sync with this one.",
     relay: "Relay server (optional)",
     relay_placeholder: "Leave empty for Iroh's public relays",
+    sync_now: "Sync now",
+    connected_n: (n: number) => `${n} device${n === 1 ? "" : "s"} connected`,
+    no_peer_online: "No paired device online right now",
+    received_n: (n: number) => `received ${n} change${n === 1 ? "" : "s"}`,
   },
+  close_vault: "Close this vault",
+  close_vault_hint: "Returns to the start screen, where you can open another vault or pair with a different device.",
+  waiting_for_documents: "Waiting for documents from your paired devices. Open Synesis on one of them so the two can talk.",
 };
 export type Dict = typeof en;

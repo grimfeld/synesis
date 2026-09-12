@@ -240,7 +240,18 @@ impl Node {
             None => {}
         }
         let endpoint = builder.bind().await.map_err(|e| crate::Error::Invalid(format!("p2p bind: {e}")))?;
-        let membership = Membership::load(local_dir);
+        let mut membership = Membership::load(local_dir);
+        // This Device's card may have changed since it was recorded (a better
+        // name, an OS upgrade): refresh it so every peer shows the new one.
+        let my_id = *endpoint.id().as_bytes();
+        if let Some(mine) = membership.members.iter_mut().find(|m| m.node == my_id) {
+            if mine.name != me.name || mine.platform != me.platform {
+                mine.name = me.name.clone();
+                mine.platform = me.platform.clone();
+                membership.version += 1;
+                membership.save(local_dir);
+            }
+        }
         let node = Arc::new(Node {
             endpoint,
             sync_dir: vault_root.join(HIDDEN_DIR).join(SYNC_DIR),

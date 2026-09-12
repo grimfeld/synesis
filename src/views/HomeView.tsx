@@ -94,8 +94,10 @@ export function HomeView() {
 }
 
 function Empty() {
+  const s = useStore();
   const t = useT();
-  return <p className="text-sm text-muted-foreground">{t.nothing_yet}</p>;
+  const paired = s.settings?.sync_method === "pairing" && s.docs.length === 0;
+  return <p className="text-sm text-muted-foreground">{paired ? t.waiting_for_documents : t.nothing_yet}</p>;
 }
 
 function QuickCapture() {

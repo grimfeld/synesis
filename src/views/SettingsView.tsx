@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, RefreshCw, Settings } from "lucide-react";
+import { FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
 import { api, type DeviceInfo, type Lang } from "@/lib/api";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
@@ -65,14 +65,19 @@ export function SettingsView() {
             </CardHeader>
             <CardContent className="grid gap-3">
               <code className="rounded-md bg-muted px-2 py-1.5 text-xs break-all">{s.info?.root}</code>
-              {!mobile && (
-                <div>
+              <div className="flex flex-wrap gap-2">
+                {!mobile && (
                   <Button variant="outline" onClick={change}>
                     <FolderOpen />
                     {t.change_vault}
                   </Button>
-                </div>
-              )}
+                )}
+                <Button variant="outline" onClick={() => s.closeVault()} data-testid="close-vault">
+                  <LogOut />
+                  {t.close_vault}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t.close_vault_hint}</p>
             </CardContent>
           </Card>
           <Card data-testid="settings-sync">

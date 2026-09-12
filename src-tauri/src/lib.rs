@@ -406,7 +406,7 @@ fn save_document(state: State<AppState>, id: String, text: String) -> CmdResult<
     })
     })();
     if r.is_ok() {
-        pairing::notify(&state);
+        pairing::after_write(&state);
     }
     r
 }
@@ -419,6 +419,7 @@ fn create_document(
     fields: Option<Map<String, Value>>,
     body: Option<String>,
 ) -> CmdResult<DocumentPayload> {
+    let r = (|| {
     state.with_vault_mut(|v| {
         let view = v.create(
             doc_type,
@@ -428,6 +429,11 @@ fn create_document(
         )?;
         Ok(to_payload(v, view))
     })
+    })();
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
 }
 
 #[tauri::command]
@@ -436,10 +442,16 @@ fn rename_document(
     id: String,
     title: String,
 ) -> CmdResult<DocumentPayload> {
+    let r = (|| {
     state.with_vault_mut(|v| {
         let view = v.rename(&id, &title)?;
         Ok(to_payload(v, view))
     })
+    })();
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
 }
 
 #[tauri::command]
@@ -448,7 +460,7 @@ fn delete_document(state: State<AppState>, id: String) -> CmdResult<()> {
     state.with_vault_mut(|v| v.delete(&id))
     })();
     if r.is_ok() {
-        pairing::notify(&state);
+        pairing::after_write(&state);
     }
     r
 }
@@ -915,6 +927,7 @@ pub fn run() {
             pairing::pairing_approve,
             pairing::pairing_remove,
             pairing::pairing_stop,
+            pairing::pairing_sync_now,
             pairing::set_relay,
             pairing::set_background_sync,
             sync_status,
