@@ -4,7 +4,8 @@
 
 use engine::document::DocType;
 use engine::index::{
-    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph, GraphLevel,
+    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
+    GraphLevel,
     SearchHit, TrailEntry, UnresolvedLink,
 };
 use engine::properties::{PropertySchema, PropertyType};
@@ -693,6 +694,11 @@ fn event_links(state: State<AppState>) -> CmdResult<Vec<EventLink>> {
 }
 
 #[tauri::command]
+fn timeline_tags(state: State<AppState>) -> CmdResult<Vec<DocTag>> {
+    state.with_vault(|v| v.timeline_tags())
+}
+
+#[tauri::command]
 fn candidates(state: State<AppState>, id: String) -> CmdResult<Vec<Candidate>> {
     state.with_vault(|v| v.candidates(&id))
 }
@@ -963,6 +969,7 @@ pub fn run() {
             timeline,
             events_naming,
             event_links,
+            timeline_tags,
             gazetteer,
             versions,
             save_version,

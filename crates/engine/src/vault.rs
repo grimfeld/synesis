@@ -3,7 +3,7 @@
 
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph,
+    self, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
     GraphLevel, Index, SearchHit, TrailEntry, UnresolvedLink,
 };
 use crate::parser::Detected;
@@ -164,6 +164,11 @@ impl Vault {
     /// Every (Event, Subject) pair, for the Timeline.
     pub fn event_links(&self) -> Result<Vec<EventLink>> {
         self.index.event_links()
+    }
+
+    /// Every (document, Tag) pair over dated documents, for the Timeline's filter.
+    pub fn timeline_tags(&self) -> Result<Vec<DocTag>> {
+        self.index.timeline_tags()
     }
 
     fn sync_mut(&mut self) -> Result<&mut Sync> {

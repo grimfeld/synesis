@@ -204,6 +204,12 @@ export interface EventLink {
   subject: string;
 }
 
+/** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §16). */
+export interface DocTag {
+  doc: string;
+  tag: string;
+}
+
 /** A hit in the bundled Bible-place gazetteer (OpenBible.info, CC BY 4.0). */
 export interface GazetteerHit {
   name: string;
@@ -434,6 +440,7 @@ export const api = {
   timeline: () => invoke<DatedProperty[]>("timeline"),
   eventsNaming: (id: string) => invoke<DocSummary[]>("events_naming", { id }),
   eventLinks: () => invoke<EventLink[]>("event_links"),
+  timelineTags: () => invoke<DocTag[]>("timeline_tags"),
   versions: (id: string) => invoke<Version[]>("versions", { id }),
   saveVersion: (id: string, label: string) =>
     invoke<Version>("save_version", { id, label }),
