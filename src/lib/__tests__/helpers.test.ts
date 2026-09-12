@@ -1,19 +1,20 @@
-// Unit tests for pure TypeScript helpers, run in the browser by Cypress.
+// Unit tests for pure TypeScript helpers (Vitest, jsdom): `npm run test:unit`.
+import { describe, expect, it } from "vitest";
 import {
   joinFrontmatter,
   removeField,
   setField,
   splitFrontmatter,
   yamlScalar,
-} from "../../../src/lib/frontmatter";
-import { diffLines, diffStats } from "../../../src/lib/diff";
+} from "../frontmatter";
+import { diffLines, diffStats } from "../diff";
 import {
   formatShortcut,
   matchShortcut,
   toCodeMirrorKey,
-} from "../../../src/lib/keys";
-import { NameIndex, norm } from "../../../src/lib/names";
-import { recommend } from "../../../src/lib/syncRules";
+} from "../keys";
+import { NameIndex, norm } from "../names";
+import { recommend } from "../syncRules";
 
 describe("frontmatter helpers", () => {
   const text = "---\nid: X\ntype: note\ntags: [a, b]\n---\nBody line\n";

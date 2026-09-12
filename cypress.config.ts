@@ -23,6 +23,9 @@ export default defineConfig({
     video: false,
     screenshotOnRunFailure: true,
     defaultCommandTimeout: 8000,
+    // Keep the page between tests: cy.openApp loads it once per spec and resets
+    // it in place afterwards (cypress/support/commands.ts).
+    testIsolation: false,
     env: { bridge: BRIDGE },
     setupNodeEvents(on) {
       on("task", {
