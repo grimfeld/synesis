@@ -2,6 +2,15 @@
 # (`git tag v0.2.0 && git push --tags`, or `npm run release -- 0.2.0`) and
 # attaches them to a GitHub Release named after the tag.
 #
+# The release itself is created up front by the `version` job, and the build
+# jobs only attach files to it. tauri-action would otherwise create it with
+# `target_commitish` set to the tagged commit, and GitHub refuses that with
+# "Resource not accessible by integration" whenever the default branch has
+# since moved past the tag with a change under .github/workflows/ (creating a
+# release for such a commit needs the `workflows` permission, which the
+# GITHUB_TOKEN can never hold). `gh release create` on an existing tag sends
+# no target commit, so it is not subject to that check.
+#
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
 #   Windows .msi / .exe
 #   Linux   .AppImage / .deb / .rpm
@@ -36,6 +45,24 @@ jobs:
       - uses: actions/checkout@v4
       - name: Compare tag with package.json, tauri.conf.json and Cargo.toml
         run: node scripts/release.mjs --check "${GITHUB_REF_NAME#v}"
+
+      # Create the release before any build starts (see the note at the top).
+      # A re-run finds the release already there and leaves it alone.
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists."
+            exit 0
+          fi
+          prerelease=""
+          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag $prerelease \
+            --title "Synesis $GITHUB_REF_NAME" \
+            --notes "Installers for macOS, Windows, Linux and Android. See the assets below."
+
       # Which signing material is available. The macOS and iOS answers are
       # separate: APPLE_CERTIFICATE is a "Developer ID Application" identity,
       # which signs the desktop builds and nothing else. An iOS build is signed
@@ -124,6 +151,9 @@ jobs:
               "$name" "$value" >> "$GITHUB_ENV"
           done
 
+      # The release already exists (created by the `version` job), so this
+      # only builds and uploads. releaseName is still required by the action
+      # but is never used to create anything.
       - name: Build and upload to the release
         uses: tauri-apps/tauri-action@v0
         env:
@@ -131,7 +161,6 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "Synesis ${{ github.ref_name }}"
-          releaseBody: "Installers for macOS, Windows, Linux and Android. See the assets below."
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
