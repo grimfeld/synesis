@@ -19,6 +19,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 
 - `cargo test -p engine` — engine tests. The Passage parser is the most-tested code; add a case for every bug.
 - `npm run tauri dev` — run the desktop app.
+- `npm run icons:mobile` — after `tauri android init` / `tauri ios init`, copy the app icons from `src-tauri/icons/{android,ios}` into the generated project (the templates ship Tauri's default icon). The release workflow does this.
 - `npm run typecheck` — typecheck the UI.
 - `npm run test:e2e` — Cypress suite (UI end-to-end + TS unit specs). Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge and reopens your vault afterwards. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
 
