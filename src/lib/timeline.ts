@@ -164,3 +164,194 @@ export function extentOf(lanes: Lane[], fallback: [number, number] = [-2000, 100
   const pad = (hi - lo) * 0.06;
   return [lo - pad, hi + pad];
 }
+
+/** A point mark, or several that fell too close to draw apart (PLAN §16). */
+export interface Placed {
+  key: string;
+  /** The marks this stands for: one, unless it is a Cluster. */
+  marks: Mark[];
+  /** Plot x of the mark, or of a Cluster's centre. */
+  x: number;
+  /** Plot x of a span's end; null for a point or a Cluster. */
+  x2: number | null;
+  /** Label to draw, once collisions are resolved; null when it would overlap. */
+  label: string | null;
+  /** True when a point sits over a span on its own Lane, and must ride above it. */
+  overSpan?: boolean;
+}
+
+/** Points closer than this merge into one Cluster: a mark's diameter plus a gap. */
+export const CLUSTER_PX = 14;
+
+/**
+ * Lay one Lane's marks out in plot space. Spans keep their width and never
+ * Cluster, since the bar is the thing they show; points within CLUSTER_PX of
+ * each other merge into one mark carrying a count.
+ */
+export function placeMarks(marks: Mark[], x: (year: number) => number): Placed[] {
+  const spans = marks.filter((m) => m.to != null);
+  const points = marks.filter((m) => m.to == null).sort((a, b) => a.from - b.from);
+  const out: Placed[] = spans.map((m) => ({
+    key: m.key,
+    marks: [m],
+    x: x(m.from),
+    // A span thinner than a point reads as a mark that lost its width.
+    x2: Math.max(x(m.to as number), x(m.from) + 3),
+    label: m.label,
+  }));
+  let group: Mark[] = [];
+  const flush = () => {
+    if (group.length === 0) return;
+    const xs = group.map((m) => x(m.from));
+    out.push({
+      key: group.length === 1 ? group[0].key : `cluster:${group[0].key}`,
+      marks: group,
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      x2: null,
+      label: group.length === 1 ? group[0].label : String(group.length),
+    });
+    group = [];
+  };
+  for (const m of points) {
+    if (group.length > 0 && x(m.from) - x(group[group.length - 1].from) > CLUSTER_PX) flush();
+    group.push(m);
+  }
+  flush();
+  const bars = out.filter((p) => p.x2 != null);
+  return out.map((p) =>
+    p.x2 == null && bars.some((b) => p.x >= b.x - 2 && p.x <= (b.x2 as number) + 2)
+      ? { ...p, overSpan: true }
+      : p,
+  );
+}
+
+/** How much horizontal room a mark's own shape takes, label aside. */
+function footprint(p: Placed): [number, number] {
+  if (p.x2 != null) return [p.x, p.x2];
+  const r = p.marks.length > 1 ? 9 : 6;
+  return [p.x - r, p.x + r];
+}
+
+/**
+ * Blank the labels that would overlap something already drawn: another label,
+ * or any mark's own shape, so a Cluster's badge never lands on a neighbour's
+ * text. Spans win over points and earlier wins over later, so which label
+ * survives never depends on the order Properties sit in the frontmatter.
+ */
+export function resolveLabels(
+  placed: Placed[],
+  widthOf: (label: string) => number,
+  /** Plot right edge; a label that would run past it is dropped rather than clipped. */
+  right = Infinity,
+  /** Where a span's label starts: after the bar by default, inside it for the mini. */
+  spanLabelAt: (p: Placed) => number = (p) => (p.x2 as number) + 8,
+): Placed[] {
+  const order = [...placed]
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => {
+      const span = (z: Placed) => (z.x2 != null ? 0 : 1);
+      return span(a.p) - span(b.p) || a.p.x - b.p.x || a.i - b.i;
+    });
+  // Every mark holds its own ground before any label is placed.
+  const taken: [number, number][] = placed.map(footprint);
+  const kept = new Set<string>();
+  for (const { p } of order) {
+    if (p.label == null) continue;
+    // A Cluster's count is drawn inside its circle, which it already owns.
+    if (p.marks.length > 1) {
+      kept.add(p.key);
+      continue;
+    }
+    const start = p.x2 != null ? spanLabelAt(p) : p.x + 14;
+    const box: [number, number] = [start, start + widthOf(p.label)];
+    if (box[1] > right) continue;
+    const own = footprint(p);
+    // A mark never blocks its own label; a span may even carry it inside its bar.
+    const clash = taken.some(
+      ([a, b]) =>
+        box[0] < b && a < box[1] && !(a === own[0] && b === own[1]),
+    );
+    if (clash) continue;
+    taken.push(box);
+    kept.add(p.key);
+  }
+  return placed.map((p) => (kept.has(p.key) ? p : { ...p, label: null }));
+}
+
+/** What the Timeline's five filters currently restrict to (PLAN §16.2). */
+export interface Filters {
+  hiddenTypes: DocType[];
+  tags: string[];
+  props: string[];
+  search: string;
+  inView: boolean;
+}
+
+export const NO_FILTERS: Filters = {
+  hiddenTypes: [],
+  tags: [],
+  props: [],
+  search: "",
+  inView: true,
+};
+
+/** How many restrictions the user added; the viewport cull is a mode, not a restriction. */
+export function activeCount(f: Filters): number {
+  return (
+    f.hiddenTypes.length +
+    f.tags.length +
+    f.props.length +
+    (f.search.trim() ? 1 : 0)
+  );
+}
+
+/** Case- and accent-insensitive, matching how the engine norms a name. */
+function fold(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
+/**
+ * Narrow the rows a Lane is built from. Property names filter *before* spans are
+ * paired, so asking for `born` alone leaves a point rather than a `born`/`died`
+ * bar (PLAN §16.2).
+ */
+export function filterRows(
+  rows: DatedProperty[],
+  f: Filters,
+  tagsByDoc: Map<string, string[]>,
+): DatedProperty[] {
+  const hidden = new Set(f.hiddenTypes);
+  const wanted = new Set(f.props.map(fold));
+  const tags = new Set(f.tags.map(fold));
+  const needle = fold(f.search.trim());
+  return rows.filter((r) => {
+    if (hidden.has(r.doc.type)) return false;
+    if (wanted.size > 0 && !wanted.has(fold(r.name))) return false;
+    if (needle && !fold(r.doc.title).includes(needle)) return false;
+    if (tags.size > 0) {
+      const own = tagsByDoc.get(r.doc.id) ?? [];
+      if (!own.some((tg) => tags.has(fold(tg)))) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Drop the Lanes the current view does not reach. Order is left alone, so a Lane
+ * that survives never jumps past another while the view is panned.
+ */
+export function cullToView(lanes: Lane[], from: number, to: number): Lane[] {
+  return lanes.filter((l) =>
+    l.marks.some((m) => m.from <= to && (m.to ?? m.from) >= from),
+  );
+}
+
+/** Every Date Property name in play, for the filter's chips. */
+export function propertyNames(rows: DatedProperty[]): string[] {
+  const seen = new Map<string, string>();
+  for (const r of rows) if (r.date) seen.set(fold(r.name), r.name);
+  return [...seen.values()].sort((a, b) => a.localeCompare(b));
+}

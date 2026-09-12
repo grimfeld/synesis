@@ -91,4 +91,34 @@ describe("Events and Dates", () => {
     });
     cy.get("[data-sidebar=content]").should("contain", "Events");
   });
+
+  it("shows a mini-timeline on a dated Subject's Hub, and opens the Timeline from it", () => {
+    cy.openDoc("Abraham");
+    cy.get("[data-testid=hub-minitimeline]").should("be.visible");
+    // Two rows: the Subject's own Dates, then the Events naming it.
+    cy.get("[data-testid=mini-lane][data-lane=own]").should("exist");
+    cy.get("[data-testid=mini-lane][data-lane=events]").should("exist");
+    // The text lists stay: they carry the Dates a timeline cannot draw.
+    cy.get("[data-testid=hub-dates] [data-testid=date-born]").should("exist");
+    // A mark opens the document it stands for.
+    cy.get("[data-testid=mini-lane][data-lane=events] [data-testid=mini-mark]")
+      .first()
+      .click({ force: true });
+    cy.get("[data-testid=hub-header]").should("contain", "Event");
+    // "Open in Timeline" lands on the Timeline scoped to this Subject.
+    cy.openDoc("Abraham");
+    cy.get("[data-testid=tl-open-full]").click();
+    cy.get("h1").should("contain", "Timeline");
+    cy.get("[data-testid=tl-search]").should("have.value", "Abraham");
+    cy.get("[data-testid=tl-lane][data-type=character]")
+      .should("have.length", 1)
+      .and("contain", "Abraham");
+  });
+
+  it("an Event's own Hub shows its Date alone, with no Events row", () => {
+    cy.openDoc("The Flood");
+    cy.get("[data-testid=hub-minitimeline]").should("be.visible");
+    cy.get("[data-testid=mini-lane]").should("have.length", 1);
+    cy.get("[data-testid=mini-lane][data-lane=events]").should("not.exist");
+  });
 });

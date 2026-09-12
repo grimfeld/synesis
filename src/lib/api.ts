@@ -287,6 +287,8 @@ export interface Settings {
   sync_method: SyncMethod | null;
   relay_url: string | null;
   background_sync: boolean;
+  timeline_hidden_types: DocType[];
+  timeline_in_view: boolean;
 }
 
 export interface PairingMember {
@@ -373,6 +375,8 @@ export const api = {
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> => listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
   setGraphLevel: (level: GraphLevel) =>
     invoke<void>("set_graph_level", { level }),
+  setTimelineFilters: (hiddenTypes: DocType[], inView: boolean) =>
+    invoke<void>("set_timeline_filters", { hiddenTypes, inView }),
   openVault: (path?: string) =>
     invoke<VaultInfo>("open_vault", { path: path ?? null }),
   closeVault: () => invoke<void>("close_vault"),

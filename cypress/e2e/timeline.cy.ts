@@ -1,6 +1,16 @@
 // Timeline view: lanes by Subject, Events lane on top, zoom and pan.
 describe("Timeline", () => {
-  beforeEach(() => cy.openApp());
+  beforeEach(() => {
+    // The type chips and the viewport cull persist in settings, so reset them
+    // before each test rather than inheriting the previous one's filters.
+    cy.bridge("set_timeline_filters", { hiddenTypes: [], inView: true });
+    cy.openApp();
+  });
+
+  // The chips and the cull persist, so no test may leave the Vault filtered.
+  afterEach(() =>
+    cy.bridge("set_timeline_filters", { hiddenTypes: [], inView: true }),
+  );
 
   it("draws an Events lane and one lane per dated Subject, earliest first", () => {
     cy.get("[data-testid=nav-timeline]").click();
@@ -22,9 +32,19 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane][data-type=place]")
       .should("have.length", 1)
       .and("contain", "Jerusalem");
-    cy.get(
-      "[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark]",
-    ).should("have.length", 19);
+    // At fit zoom the 1st-century Events collapse into Clusters, so the Lane's
+    // marks and the counts on its Clusters together still account for all 19.
+    cy.get("[data-testid=tl-lane][data-lane=events]").then(($lane) => {
+      const single = $lane.find("[data-testid=tl-mark]").length;
+      const clustered = [...$lane.find("[data-testid=tl-cluster]")].reduce(
+        (n, el) => n + Number(el.getAttribute("data-count")),
+        0,
+      );
+      expect(single + clustered).to.equal(19);
+      expect(clustered).to.be.greaterThan(0);
+    });
+    // Narrowing to Paul leaves few enough Events that none of them Cluster.
+    cy.get("[data-testid=tl-search]").type("Paul");
     cy.docByTitle("Paul in Ephesus").then((ev) => {
       // The Event sits on the Events lane and on the lanes of the Characters it names.
       cy.get(
@@ -36,17 +56,19 @@ describe("Timeline", () => {
         ).should("have.length", 1);
       });
       cy.docByTitle("David").then((david) => {
-        cy.get(
-          `[data-testid=tl-lane][data-lane=${david.id}] [data-testid=tl-mark][data-doc=${ev.id}]`,
-        ).should("not.exist");
+        cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should(
+          "not.exist",
+        );
       });
     });
-    // Approximate Dates are drawn faded.
+    // Approximate Dates are drawn faded, once nothing Clusters over them.
+    cy.get("[data-testid=tl-search]").clear().type("anointed");
     cy.docByTitle("David anointed king").then((ev) => {
       cy.get(
         `[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark][data-doc=${ev.id}]`,
       ).should("have.attr", "data-approx", "true");
     });
+    cy.get("[data-testid=tl-search]").clear();
   });
 
   it("zooms with the buttons and the wheel, fits back, and opens a mark", () => {
@@ -78,6 +100,8 @@ describe("Timeline", () => {
         ).to.equal(span);
       });
     });
+    // Narrow first: at fit zoom this Event sits inside a Cluster.
+    cy.get("[data-testid=tl-search]").type("Death of Jesus");
     cy.docByTitle("Death of Jesus").then((ev) => {
       cy.get(
         `[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark][data-doc=${ev.id}]`,
@@ -90,5 +114,86 @@ describe("Timeline", () => {
   it("is reachable from the Command Palette", () => {
     cy.runCommand("Timeline");
     cy.get("h1").should("contain", "Timeline");
+  });
+
+  it("filters Lanes by kind, Tag, Date Property and title, and clears them", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=tl-lane]").its("length").as("all");
+    // Title search narrows to the Lanes that match, badge counts the restriction.
+    cy.get("[data-testid=tl-search]").type("Paul");
+    cy.get("[data-testid=tl-lane][data-type=character]")
+      .should("have.length", 1)
+      .and("contain", "Paul");
+    cy.get("[data-testid=tl-filter]").should("have.attr", "data-active", "1");
+    cy.get("[data-testid=tl-search]").clear();
+    cy.get("@all").then((all) => {
+      cy.get("[data-testid=tl-lane]").should("have.length", Number(all));
+    });
+    // Kinds are chips; hiding Characters leaves the Places and the Events Lane.
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "Characters").click();
+    cy.get("[data-testid=tl-lane][data-type=character]").should("not.exist");
+    cy.get("[data-testid=tl-lane][data-lane=events]").should("exist");
+    cy.get("[data-slot=popover-content]").contains("button", "Characters").click();
+    cy.get("[data-testid=tl-lane][data-type=character]").should("exist");
+    // A Date Property name filters both axes: only Lanes carrying `died`.
+    cy.get("[data-slot=popover-content]").contains("button", "died").click();
+    cy.get("[data-testid=tl-lane]").should("have.length.lessThan", 13);
+    cy.get("[data-testid=tl-filter-clear]").click();
+    cy.get("@all").then((all) => {
+      cy.get("[data-testid=tl-lane]").should("have.length", Number(all));
+    });
+  });
+
+  it("says so when the filters match nothing, and clears them from there", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=tl-search]").type("nothing matches this");
+    cy.get("[data-testid=tl-empty]")
+      .should("be.visible")
+      .and("not.contain", "Nothing dated yet");
+    // The plot stays: an empty result must still pan and zoom back into range.
+    cy.get("[data-testid=timeline] svg").should("exist");
+    cy.get("[data-testid=tl-empty-clear]").click();
+    cy.get("[data-testid=tl-lane]").should("exist");
+  });
+
+  it("draws only the Lanes the view reaches, until the cull is turned off", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=tl-lane]").its("length").then((all) => {
+      // Zooming in drops the Lanes whose Dates fall outside the visible years.
+      cy.get("button[aria-label='Zoom in']").click().click().click();
+      cy.get("[data-testid=tl-lane]").should("have.length.lessThan", all);
+      cy.get("[data-testid=tl-filter]").click();
+      cy.get("[data-testid=tl-in-view]").uncheck();
+      cy.get("[data-testid=tl-lane]").should("have.length", all);
+      cy.get("[data-testid=tl-in-view]").check();
+      cy.get("[data-testid=tl-lane]").should("have.length.lessThan", all);
+    });
+  });
+
+  it("gathers crowded Dates into a Cluster that opens and zooms apart", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=tl-lane][data-lane=events] [data-testid=tl-cluster]")
+      .first()
+      .as("cluster");
+    cy.get("@cluster").should("have.attr", "data-count");
+    // Hovering lists the members; each one opens its own Hub.
+    cy.get("@cluster").trigger("pointerover", { force: true });
+    cy.get("[data-testid=tl-cluster-card]").should("be.visible");
+    cy.get("[data-testid=tl-cluster-card] button").first().click();
+    cy.get("[data-testid=hub-header]").should("exist");
+    // Clicking a Cluster zooms to its own extent, which splits it.
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=timeline] svg").then(($svg) => {
+      const span = Number($svg.attr("data-to")) - Number($svg.attr("data-from"));
+      cy.get("[data-testid=tl-lane][data-lane=events] [data-testid=tl-cluster]")
+        .first()
+        .click({ force: true });
+      cy.get("[data-testid=timeline] svg").should(($z) => {
+        expect(
+          Number($z.attr("data-to")) - Number($z.attr("data-from")),
+        ).to.be.lessThan(span);
+      });
+    });
   });
 });
