@@ -123,8 +123,16 @@ The view the app opens on: recent documents, a quick-capture box, and Compositio
 _Avoid_: Dashboard, start page, landing
 
 **Timeline**:
-The view that lays every dated thing along the Bible's chronology: Events, and each Subject that carries a Date, on its own lane. Zooms from millennia to a single year.
+The view that lays every dated thing along the Bible's chronology: Events, and each Subject that carries a Date, on its own Lane. Zooms from millennia to a single year, and narrows to the Lanes worth seeing by type, Tag, Property name, title, or what the current zoom covers.
 _Avoid_: Chronology (that is the subject matter), history view, Gantt
+
+**Lane**:
+One row of a Timeline: the Events Lane on top, then one per dated Subject. A Subject's Lane carries its own Dates and every Event naming it. A Subject's Hub shows the same Lane in miniature.
+_Avoid_: Row, track, swimlane
+
+**Cluster**:
+Marks that fall too close together to draw apart, shown as one mark carrying how many it stands for. Zooming or opening it reveals the members. Spans are never Clustered.
+_Avoid_: Group, bundle, stack
 
 **Candidate**:
 A document that shares a Tag or a Passage with a Composition and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used.

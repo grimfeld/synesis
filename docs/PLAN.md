@@ -226,3 +226,42 @@ Syncthing was judged too involved for most users. Decided: a built-in peer-to-pe
 - Per-Device pairing covering all Vaults.
 - Same-network-only sync without relays.
 - Key rotation on removal (later).
+
+## 16. Timeline filters and Hub mini-timeline (grilling session, 2026-09-12)
+
+The Timeline works but crowds on both axes: one Lane per dated Subject means endless vertical scroll in a grown Vault, and marks on a Lane collide horizontally because zoom only moves the x-axis. New vocabulary in [CONTEXT.md](../CONTEXT.md): **Lane**, **Cluster**.
+
+### Decided
+
+1. **Five filters**, AND across them, OR within each: **type chips** (event / character / place / concept, the `ToggleGroup` GraphView already uses), **viewport cull** (a Lane renders only when one of its marks falls in the visible range), **title search**, **Tag chips**, and **Property-name chips** (`born`, `died`, `reign_start`, …). Property filtering applies *before* span pairing, so filtering to `born` alone breaks a `born`/`died` span back into a point.
+2. **Viewport cull is a toggle, default on.** It makes zoom do double duty: narrowing to 33 CE collapses the Vault to the Subjects alive then. Lane order stays globally sorted by first Date, so culled Lanes leave no gap and survivors never jump past each other while panning. The toggle is the escape hatch for a Lane that vanishes mid-drag.
+3. **One filter popover** with an active-count badge, plus the search box inline in the header where width allows. Tag and Property chip lists are unbounded, so a wrapping bar would be three rows tall; a popover also survives `GUTTER_NARROW` on a phone. The cull toggle sits in the popover but does not count toward the badge, which counts user-added restrictions only.
+4. **Empty result gets its own state**, naming the active filters with a "clear filters" button. Reusing `no_timeline` would claim the Vault holds no dated things.
+5. **Persistence splits** along the `graph_level` precedent: the cull toggle and type chips persist through engine settings; Tag chips, Property chips and search are session-only, because a Tag renamed in the Vault would otherwise silently hide everything with no way to see why. All five live in the app store rather than component state, so the Timeline -> Hub -> back round-trip keeps them.
+6. **Label collision**: per Lane, skip a label overlapping the last drawn, spans before points and earliest first, so which label survives does not depend on frontmatter order. This replaces the blanket `LABEL_MAX_SPAN` cutoff, which is removed — a few labels that fit beat none.
+7. **Clusters**: points within 14px (mark diameter plus a gap) merge into one mark carrying a count; spans never Cluster, since a bar's width is the thing it shows. Click zooms to the Cluster's extent, hover lists the members, and on touch a tap opens that list with a "Zoom to these" button. The list is not optional: two Characters born "c. 1513 BCE" never separate under zoom, so a zoom-only Cluster would be a trap.
+8. **Hub mini-timeline** on any Subject with at least one parsed Date — Character, Place, Concept and Event alike. One rule the user can learn, matching how the Timeline already picks Lanes without special-casing Character. Notes and Sources stay out (§14 Declined: their dates are today's calendar).
+9. **Mini content is the Subject's own Dates plus the Events naming it** — what `DatesSection` already fetches, and the same Lane the Timeline builds. Two Lanes: own Dates above, Events below; an Event's own Hub collapses to one. Static: no zoom or pan, because a wheel-zoom inside a scrolling Hub hijacks the page. Extent is the content plus 6% padding, reusing the main view's degenerate-range padding. Labels off except the span bar. The existing Dates and Events text lists stay — they carry the unparseable Dates no timeline can show.
+10. **"Open in Timeline"** on the mini's header sets the range to the Subject's extent and prefills search with its title. A soft scope, so "who else was alive then?" stays answerable; a hard one-document filter would show a single Lane and be useless.
+11. **Filtering stays client-side.** `timeline()` keeps returning every parsed Date and all five filters run in JS: one person's Vault is ~1500 rows at worst, and a round-trip per search keystroke would be slower than filtering in memory.
+12. **One new engine command, `timeline_tags()`** -> `(doc_id, tag)[]` over dated documents, mirroring `event_links()`. `DocSummary` is left alone; adding `tags` there would grow every query in the app to serve one feature. The Tag chips offer only Tags present on dated documents, so a chip can never match nothing.
+13. **`src/lib/timeline.ts`** takes the shared core — `buildLanes`, `yearOf`, `formatYear`, scale projection, collision skipping, Clustering — leaving `TimelineView` and `MiniTimeline` as thin SVG shells. That logic needs no engine, so it is Vitest territory (`npm run test:unit`), tested once rather than through two views.
+
+### Build order
+
+Each step ships with tests and demo-vault content that exercises it.
+
+1. Extract `src/lib/timeline.ts`: move `buildLanes` / `yearOf` / `formatYear` with no behaviour change, Vitest covering what they already do. Green before anything else.
+2. Label collision and Clusters as pure functions in that module (Vitest: overlap, span priority, identical Dates), then wired into `TimelineView` with the Cluster hover card and click-to-zoom.
+3. Engine `timeline_tags()`: query, Rust test, Tauri command, `api.timelineTags()`.
+4. Filter state in the store, plus the popover: five controls, AND / OR, empty state, the persistence split. Cypress: each filter narrows Lanes, the badge counts, clear-filters restores.
+5. Viewport cull: the toggle and stable ordering. Cypress: zoom in and Lane count drops; toggle off and they return.
+6. `MiniTimeline` and the Hub section: two Lanes, static, "Open in Timeline". Cypress: a Character Hub shows it, a mark opens its document, Open-in-Timeline lands with search prefilled. Check the demo Vault's David / Paul / Jesus and four Events exercise Clustering, and give a Place `founded` / `destroyed` if none has Dates.
+
+### Declined
+
+- **A pin list** of hand-picked Subjects: it needs a persistence decision of its own and users rarely maintain one. Tags already do the job and live in the Vault.
+- **Mentioned-by and mentions-Passage filters**: relational queries are the Graph's job, and they would turn the filter popover into a query builder.
+- **Contemporaries on the mini-timeline**: that is the Timeline. The Hub's job is the one Subject.
+- **Reusing `TimelineView` behind a `mini` prop**: the mini has no gutter, axis, filters, header or pan, which is four `if (mini)` branches through 500 lines.
+- **Engine-side filtering**, **`tags` on `DocSummary`**, **Notes and Sources on the Timeline**.
