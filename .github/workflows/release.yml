@@ -1,15 +1,24 @@
-# Builds installers for every platform when a version tag is pushed
-# (`git tag v0.2.0 && git push --tags`, or `npm run release -- 0.2.0`) and
-# attaches them to a GitHub Release named after the tag.
+# Builds installers for every platform and attaches them to a GitHub Release
+# named `vX.Y.Z`. Started by hand with `npm run release -- X.Y.Z` (which bumps
+# the version files, pushes, and runs `gh workflow run release.yml`), or from
+# the Actions tab.
 #
-# The release itself is created up front by the `version` job, and the build
-# jobs only attach files to it. tauri-action would otherwise create it with
-# `target_commitish` set to the tagged commit, and GitHub refuses that with
-# "Resource not accessible by integration" whenever the default branch has
-# since moved past the tag with a change under .github/workflows/ (creating a
-# release for such a commit needs the `workflows` permission, which the
-# GITHUB_TOKEN can never hold). `gh release create` on an existing tag sends
-# no target commit, so it is not subject to that check.
+# It is a workflow_dispatch from `main` rather than a tag push on purpose.
+# GitHub scopes the Actions cache to the ref a run started from plus the
+# default branch, so a run on a freshly pushed tag can neither restore the
+# `target/` directory a previous release saved nor save one that any later
+# release could read. Every release then rebuilt all ~750 crates from scratch
+# on every platform (12-19 minutes per job). Run from `main`, each job
+# restores the previous release's cache and only compiles what changed.
+#
+# The `version` job checks that the files carry the requested version, tags
+# the commit (a push made with GITHUB_TOKEN starts no other workflow) and
+# creates the release; the build jobs only attach files to it. A re-run finds
+# the tag and the release already there and leaves both alone. Creating the
+# release up front also sidesteps tauri-action creating it with
+# `target_commitish`, which GitHub refuses ("Resource not accessible by
+# integration") when the default branch has since moved past that commit
+# with a change under .github/workflows/.
 #
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
 #   Windows .msi / .exe
@@ -27,15 +36,23 @@
 name: Release
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v; package.json, tauri.conf.json and Cargo.toml must already say it"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+env:
+  VERSION: ${{ inputs.version }}
+  TAG: v${{ inputs.version }}
+
 jobs:
   version:
-    name: Tag matches the app version
+    name: Version, tag and release
     runs-on: ubuntu-22.04
     outputs:
       has_apple_cert: ${{ steps.secrets.outputs.has_apple_cert }}
@@ -43,8 +60,36 @@ jobs:
       has_android_key: ${{ steps.secrets.outputs.has_android_key }}
     steps:
       - uses: actions/checkout@v4
-      - name: Compare tag with package.json, tauri.conf.json and Cargo.toml
-        run: node scripts/release.mjs --check "${GITHUB_REF_NAME#v}"
+      - name: Compare the requested version with package.json, tauri.conf.json and Cargo.toml
+        run: |
+          case "$VERSION" in
+            v*) echo "::error::Give the version without the v: ${VERSION#v}"; exit 1 ;;
+          esac
+          node scripts/release.mjs --check "$VERSION"
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "::warning::Releasing from $GITHUB_REF_NAME rather than main."
+          fi
+
+      # The tag is created here rather than pushed from the developer's machine
+      # (see the note at the top). A re-run finds it already in place; a tag
+      # that exists but points elsewhere means the version was reused, which
+      # is an error rather than something to silently move.
+      - name: Tag the commit
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            git fetch --quiet origin "refs/tags/$TAG:refs/tags/$TAG"
+            tagged=$(git rev-parse "$TAG^{commit}")
+            if [ "$tagged" != "$GITHUB_SHA" ]; then
+              echo "::error::$TAG already exists and points at ${tagged:0:7}, not at this commit (${GITHUB_SHA:0:7}). Bump the version rather than reuse it."
+              exit 1
+            fi
+            echo "$TAG already points at this commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Synesis $TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/$TAG"
 
       # Create the release before any build starts (see the note at the top).
       # A re-run finds the release already there and leaves it alone.
@@ -52,15 +97,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Release $GITHUB_REF_NAME already exists."
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists."
             exit 0
           fi
           prerelease=""
-          case "$GITHUB_REF_NAME" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
             --verify-tag $prerelease \
-            --title "Synesis $GITHUB_REF_NAME" \
+            --title "Synesis $TAG" \
             --notes "Installers for macOS, Windows, Linux and Android. See the assets below."
 
       # Which signing material is available. The macOS and iOS answers are
@@ -91,15 +136,19 @@ jobs:
           - name: macOS Apple Silicon
             os: macos-latest
             args: --target aarch64-apple-darwin
+            cache: macos-arm64
           - name: macOS Intel
             os: macos-latest
             args: --target x86_64-apple-darwin
+            cache: macos-x64
           - name: Windows
             os: windows-latest
             args: ""
+            cache: windows-x64
           - name: Linux
             os: ubuntu-22.04
             args: ""
+            cache: linux-x64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -120,9 +169,16 @@ jobs:
         with:
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
+      # `key` keeps the two macOS entries apart: they run on the same runner
+      # image and would otherwise compute the same cache key, so only one of
+      # them could ever save, and the other would restore a target/ built for
+      # the wrong architecture. `cache-on-failure` keeps the dependency build
+      # from a failed run, so the fix-up run after it is not cold again.
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          key: ${{ matrix.cache }}
+          cache-on-failure: true
 
       - run: npm ci --no-audit --no-fund
 
@@ -159,10 +215,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "Synesis ${{ github.ref_name }}"
+          tagName: ${{ env.TAG }}
+          releaseName: "Synesis ${{ env.TAG }}"
           releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(inputs.version, '-') }}
           args: ${{ matrix.args }}
 
   android:
@@ -186,13 +242,17 @@ jobs:
         with:
           packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.3.11579264"
 
+      # 64-bit ARM only. Every phone sold since about 2017 is arm64, Google
+      # Play has required 64-bit since 2019, and each extra target is another
+      # full Rust build with LTO (armv7 and x86_64 used to triple this job).
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+          targets: aarch64-linux-android
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          cache-on-failure: true
 
       - run: npm ci --no-audit --no-fund
 
@@ -208,7 +268,15 @@ jobs:
       - name: Build the APK
         env:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
-        run: npm run tauri -- android build --apk --target aarch64 --target armv7 --target x86_64
+        run: npm run tauri -- android build --apk --target aarch64
+
+      # Without --split-per-abi Tauri builds the "universal" flavor whatever
+      # the target list, but the glob does not depend on that.
+      - name: Locate the APK
+        run: |
+          APK=$(find src-tauri/gen/android/app/build/outputs/apk -path '*/release/*.apk' | head -1)
+          [ -n "$APK" ] || { echo "::error::No release APK under src-tauri/gen/android/app/build/outputs/apk"; exit 1; }
+          echo "APK=$APK" >> "$GITHUB_ENV"
 
       - name: Sign the APK (when ANDROID_* secrets are set)
         if: needs.version.outputs.has_android_key == 'true'
@@ -219,7 +287,6 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           echo "$ANDROID_KEYSTORE" | base64 -d > /tmp/release.keystore
-          APK=$(ls src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk | head -1)
           "$ANDROID_SDK_ROOT/build-tools/34.0.0/zipalign" -p 4 "$APK" /tmp/aligned.apk
           "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" sign --ks /tmp/release.keystore \
             --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" --ks-key-alias "$ANDROID_KEY_ALIAS" \
@@ -228,13 +295,13 @@ jobs:
       - name: Rename the APK
         run: |
           mkdir -p out
-          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/*.apk "out/Synesis_${GITHUB_REF_NAME#v}_android.apk"
+          cp "$APK" "out/Synesis_${VERSION}_android.apk"
 
       # Android refuses to install an unsigned package, so publishing one is
       # worse than failing: the release looks complete and nobody can use it.
       - name: Refuse to publish an unsigned APK
         run: |
-          APK="out/Synesis_${GITHUB_REF_NAME#v}_android.apk"
+          APK="out/Synesis_${VERSION}_android.apk"
           if ! "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" verify --print-certs "$APK"; then
             echo "::error::$APK carries no signature, so no device can install it." \
               "Set ANDROID_KEYSTORE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and" \
@@ -245,7 +312,7 @@ jobs:
       - name: Upload to the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
           files: out/*.apk
 
   ios:
@@ -268,6 +335,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: ". -> target"
+          cache-on-failure: true
 
       - run: npm ci --no-audit --no-fund
 
@@ -349,10 +417,10 @@ jobs:
       - name: Rename the IPA
         run: |
           mkdir -p out
-          cp src-tauri/gen/apple/build/arm64/*.ipa "out/Synesis_${GITHUB_REF_NAME#v}_ios.ipa"
+          cp src-tauri/gen/apple/build/arm64/*.ipa "out/Synesis_${VERSION}_ios.ipa"
 
       - name: Upload to the release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ env.TAG }}
           files: out/*.ipa

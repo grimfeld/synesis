@@ -33,13 +33,13 @@ Pair devices with a QR code / pairing code (Settings → Sync): paired devices s
 
 ## Releasing
 
-Pushing a `vX.Y.Z` tag runs [.github/workflows/release.yml](.github/workflows/release.yml): it builds macOS (Apple Silicon and Intel), Windows, Linux and Android, and attaches the installers to a GitHub Release named after the tag. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.
+[.github/workflows/release.yml](.github/workflows/release.yml) is started by hand on `main` (`gh workflow run` or the Actions tab) with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.
 
 ```sh
-npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; tags v0.2.0; pushes
+npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; pushes; starts the workflow
 ```
 
-The workflow refuses a tag whose version differs from those files. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run check` (typecheck + `cargo check --workspace`) so a commit that does not compile is refused.
+The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run check` (typecheck + `cargo check --workspace`) so a commit that does not compile is refused.
 
 ## Licence
 
