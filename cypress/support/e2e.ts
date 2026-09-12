@@ -1,5 +1,5 @@
 /// <reference types="cypress" />
-import { forceReload } from "./commands";
+import "./commands";
 
 // Each spec gets a fresh copy of the demo vault opened through the engine's
 // dev bridge; the vault that was open before the spec is reopened afterwards.
@@ -17,12 +17,6 @@ before(() => {
     Cypress.env("vault", dir);
     cy.bridge("open_vault", { path: dir });
   });
-});
-
-// Tests share one page load per spec (see cy.openApp); after a failure the
-// page may be in any state, so the next test reloads it.
-afterEach(function () {
-  if (this.currentTest?.state === "failed") forceReload();
 });
 
 after(() => {

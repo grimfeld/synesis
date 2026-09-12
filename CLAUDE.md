@@ -22,7 +22,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 - `npm run icons:mobile` — after `tauri android init` / `tauri ios init`, copy the app icons from `src-tauri/icons/{android,ios}` into the generated project (the templates ship Tauri's default icon). The release workflow does this.
 - `npm run typecheck` — typecheck the UI.
 - `npm run test:unit` — Vitest unit tests for pure TypeScript in `src/lib` (`src/**/*.test.ts`, jsdom, ~1s). Put logic that needs no engine here rather than in Cypress.
-- `npm run test:e2e` — Cypress UI end-to-end suite. Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge and reopens your vault afterwards. The page is loaded once per spec and `cy.openApp()` resets it in place between tests (`testIsolation: false`), so a test must leave no modal open that Escape cannot close. Run one spec while iterating: `npx cypress run --spec cypress/e2e/editor.cy.ts`. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
+- `npm run test:e2e` — Cypress UI end-to-end suite. Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge and reopens your vault afterwards. Each test reloads the page through `cy.openApp()`; that reload is cheap (measured: an in-place reset via the palette was slower), the time goes into the tests' own UI steps. Run one spec while iterating: `npx cypress run --spec cypress/e2e/editor.cy.ts`. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
 
 ## UI smoke testing without the Tauri window
 

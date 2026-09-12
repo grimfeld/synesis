@@ -5,11 +5,7 @@ declare global {
     interface Chainable {
       /** Call an engine command through the dev bridge (Node side, no CORS). */
       bridge<T = unknown>(cmd: string, args?: Record<string, unknown>): Chainable<T>;
-      /**
-       * Open the app on Home with the seeded vault loaded. The first call in a
-       * spec loads the page; later calls reset it in place (close overlays, go
-       * Home) instead of reloading, which is what made the suite slow.
-       */
+      /** Open the app on Home with the seeded vault loaded. */
       openApp(): Chainable<void>;
       /** Open the Command Palette (Ctrl/⌘K) and type a query. */
       palette(query: string): Chainable<JQuery<HTMLElement>>;
@@ -33,28 +29,9 @@ Cypress.Commands.add("bridge", (cmd, args = {}) =>
   cy.request({ method: "POST", url: `${bridge}/invoke/${cmd}`, body: args, headers: { "content-type": "application/json" } }).then((r) => r.body),
 );
 
-// Whether the page under test is loaded and healthy. Cleared per spec (this
-// module is re-evaluated for every spec) and after a failed test, so the next
-// test starts from a fresh page load rather than from whatever state the
-// failure left behind. Requires `testIsolation: false` (cypress.config.ts).
-let booted = false;
-export const forceReload = () => {
-  booted = false;
-};
-
 Cypress.Commands.add("openApp", () => {
-  if (!booted) {
-    booted = true;
-    cy.visit("/");
-    cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
-    return;
-  }
-  // Close whatever the previous test left open (dialog, palette, menu, sheet,
-  // autocomplete), then go Home through the palette: it works on every
-  // viewport, unlike the sidebar nav which is a sheet on phones.
-  cy.get("body").type("{esc}{esc}");
-  cy.runCommand("Go to Home");
-  cy.get("[data-testid=home-recent]").should("exist");
+  cy.visit("/");
+  cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
 });
 
 Cypress.Commands.add("palette", (query) => {
