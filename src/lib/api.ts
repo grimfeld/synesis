@@ -279,9 +279,36 @@ export interface Settings {
   recent: string[];
   graph_level: GraphLevel | null;
   sync_method: SyncMethod | null;
+  relay_url: string | null;
+  background_sync: boolean;
 }
 
-export type SyncMethod = "icloud" | "syncthing" | "provider" | "none";
+export interface PairingMember {
+  node: number[];
+  device_id: string;
+  name: string;
+  platform: string;
+}
+
+export interface PairingStatus {
+  node: string;
+  relay: string | null;
+  connected: string[];
+  pending: PairingMember[];
+  members: PairingMember[];
+  joining: boolean;
+}
+
+export type PairingEvent =
+  | { kind: "join_request"; node: string; member: PairingMember }
+  | { kind: "approved" }
+  | { kind: "denied" }
+  | { kind: "peer"; node: string; connected: boolean }
+  | { kind: "synced"; files: number }
+  | { kind: "membership" }
+  | { kind: "error"; message: string };
+
+export type SyncMethod = "pairing" | "icloud" | "syncthing" | "provider" | "none";
 
 export interface DeviceInfo {
   id: string;
@@ -326,6 +353,16 @@ export const api = {
   setSyncMethod: (method: SyncMethod | null) => invoke<void>("set_sync_method", { method }),
   syncStatus: () => invoke<DeviceInfo[]>("sync_status"),
   syncLocations: () => invoke<SyncLocations>("sync_locations"),
+  pairingStatus: () => invoke<PairingStatus | null>("pairing_status"),
+  pairingInvite: () => invoke<{ code: string }>("pairing_invite"),
+  pairingRevokeInvite: () => invoke<{ code: string }>("pairing_revoke_invite"),
+  pairingJoin: (code: string, path: string) => invoke<PairingStatus>("pairing_join", { code, path }),
+  pairingApprove: (node: string, allow: boolean) => invoke<boolean>("pairing_approve", { node, allow }),
+  pairingRemove: (node: string) => invoke<void>("pairing_remove", { node }),
+  pairingStop: () => invoke<void>("pairing_stop"),
+  setRelay: (url: string | null) => invoke<void>("set_relay", { url }),
+  setBackgroundSync: (enabled: boolean) => invoke<void>("set_background_sync", { enabled }),
+  onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> => listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
   setGraphLevel: (level: GraphLevel) =>
     invoke<void>("set_graph_level", { level }),
   openVault: (path?: string) =>

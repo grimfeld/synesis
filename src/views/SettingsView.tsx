@@ -11,6 +11,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
+import { Input } from "@/components/ui/input";
+import { PairingPanel } from "@/components/Pairing";
 
 export function SettingsView() {
   const s = useStore();
@@ -27,6 +30,12 @@ export function SettingsView() {
   }, [s.info?.root, s.changeTick]);
   const method = s.settings?.sync_method ?? null;
   const ago = (ms: number) => (ms ? new Date(ms).toLocaleString() : "—");
+  const [relay, setRelay] = useState(s.settings?.relay_url ?? "");
+  useEffect(() => setRelay(s.settings?.relay_url ?? ""), [s.settings?.relay_url]);
+  const saveRelay = async () => {
+    await api.setRelay(relay.trim() || null);
+    s.attachVault().catch(() => {});
+  };
   return (
     <div className="flex h-full flex-col">
       <ViewHeader title={t.views.settings} icon={<Settings />} />
@@ -68,7 +77,32 @@ export function SettingsView() {
               <CardTitle>{t.sync.title}</CardTitle>
               <CardDescription>{method && method !== "none" ? t.sync.method_is(t.sync.methods[method]) : t.sync.method_none}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-3">
+            <CardContent className="grid gap-4">
+              <div>
+                <div className="mb-2 text-sm font-medium">{t.pairing.title}</div>
+                <PairingPanel compact />
+              </div>
+              <div className="grid gap-2 border-t pt-4">
+                <label className="flex items-center justify-between gap-3 text-sm">
+                  <span>
+                    <span className="block font-medium">{t.pairing.background}</span>
+                    <span className="block text-xs text-muted-foreground">{t.pairing.background_hint}</span>
+                  </span>
+                  <Switch checked={s.settings?.background_sync ?? true} onCheckedChange={(v) => api.setBackgroundSync(v).then(() => s.attachVault().catch(() => {}))} data-testid="background-sync" />
+                </label>
+                <div>
+                  <div className="mb-1 text-xs text-muted-foreground">{t.pairing.relay}</div>
+                  <div className="flex gap-2">
+                    <Input value={relay} onChange={(e) => setRelay(e.target.value)} placeholder={t.pairing.relay_placeholder} className="font-mono text-xs" data-testid="relay-url" />
+                    <Button variant="outline" onClick={saveRelay} disabled={(s.settings?.relay_url ?? "") === relay.trim()}>
+                      {t.save}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+              {devices.length > 0 && (
+                <div className="mb-1 text-sm font-medium">{t.sync.folder_devices}</div>
+              )}
               {devices.length > 0 && (
                 <ul className="divide-y rounded-md border text-sm">
                   {devices.map((d) => (

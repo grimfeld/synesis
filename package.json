@@ -15,7 +15,8 @@
     "test:e2e:open": "cypress open --e2e",
     "prepare": "husky",
     "check": "npm run typecheck && cargo check --workspace",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "icons:mobile": "node scripts/sync-mobile-icons.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
@@ -28,6 +29,7 @@
     "@fontsource-variable/geist": "^5.3.0",
     "@lezer/highlight": "^1.2.0",
     "@tauri-apps/api": "^2",
+    "@tauri-apps/plugin-barcode-scanner": "^2.4.6",
     "@tauri-apps/plugin-dialog": "^2",
     "@tauri-apps/plugin-global-shortcut": "^2",
     "@tauri-apps/plugin-opener": "^2",
@@ -37,6 +39,7 @@
     "d3-force": "^3.0.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.44.0",
+    "qrcode": "^1.5.4",
     "radix-ui": "^1.6.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -49,6 +52,7 @@
     "@types/d3-force": "^3.0.10",
     "@types/leaflet": "^1.9.12",
     "@types/node": "^26.5.0",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.3.0",

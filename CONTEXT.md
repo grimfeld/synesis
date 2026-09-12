@@ -108,6 +108,14 @@ _Avoid_: Library, workspace, database
 One installation of the app on one machine or phone. Each Device writes its own sync snapshots into the Vault and reads the others'; merging happens on the Device, never in the cloud.
 _Avoid_: Client, node, peer
 
+**Pairing**:
+Making two Devices trust each other for one Vault by scanning or pasting an Invite, then approving the newcomer on an already paired Device. Done once per Device per Vault; afterwards the Devices sync directly whenever both are online.
+_Avoid_: Linking, connecting, registering
+
+**Invite**:
+The QR code or short text code a paired Device shows so another Device can request to join a Vault. Valid until revoked; joining still needs approval.
+_Avoid_: Ticket, token, key
+
 ### Things the user does in the app
 
 **Home**:

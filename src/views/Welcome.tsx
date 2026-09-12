@@ -10,13 +10,16 @@ import { locationsFor, type DeviceKind, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { SyncSetup } from "@/components/SyncSetup";
+import { JoinPairing, JoinWaiting } from "@/components/Pairing";
+import { usePairing } from "@/lib/pairing";
+import type { PairingStatus } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 
 type Step = 1 | 2 | 3 | 4;
 
-function joinPath(home: string, name: string) {
+function joinPathIn(home: string, name: string) {
   const sep = home.includes("\\") ? "\\" : "/";
   return home.replace(/[\\/]+$/, "") + sep + name;
 }
@@ -31,7 +34,20 @@ export function Welcome() {
   const [path, setPath] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [joinPath, setJoinPath] = useState("");
+  const [joinStatus, setJoinStatus] = useState<PairingStatus | null>(null);
+  const joining = joinStatus !== null;
+  const pairing = usePairing(joining);
   const recent = s.settings?.recent ?? [];
+  // Joined and approved: the engine has the vault open; adopt it.
+  useEffect(() => {
+    if (joining && pairing.lastEvent?.kind === "approved") s.attachVault().catch(console.error);
+    if (joining && pairing.lastEvent?.kind === "denied") {
+      setJoinStatus(null);
+      setError(t.pairing.denied);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pairing.lastEvent, joining]);
 
   useEffect(() => {
     api.syncLocations().then(setLocations).catch(console.error);
@@ -41,9 +57,12 @@ export function Welcome() {
   const suggested = useMemo(() => {
     if (!locations) return "";
     const inMethod = method ? locationsFor(method, locations.locations).find((l) => l.exists) : undefined;
-    return inMethod?.suggested ?? joinPath(locations.home, "Synesis");
+    return inMethod?.suggested ?? joinPathIn(locations.home, "Synesis");
   }, [locations, method]);
   useEffect(() => setPath(suggested), [suggested]);
+  useEffect(() => {
+    if (locations) setJoinPath((p) => p || joinPathIn(locations.home, "Synesis"));
+  }, [locations]);
 
   const found = locations?.found ?? [];
 
@@ -128,13 +147,19 @@ export function Welcome() {
                 <h2 className="text-xl font-semibold">{t.wizard.sync_title}</h2>
                 <p className="mt-1 text-sm text-muted-foreground">{t.wizard.sync_body}</p>
               </div>
-              <SyncSetup
-                locations={locations}
-                onChange={(m, d) => {
-                  setMethod(m);
-                  setDevices(d);
-                }}
-              />
+              {joining ? (
+                <JoinWaiting status={pairing.status ?? joinStatus} />
+              ) : (
+                <SyncSetup
+                  locations={locations}
+                  pairing={<JoinPairing platform={locations?.platform ?? ""} path={joinPath} onPath={setJoinPath} onJoined={setJoinStatus} />}
+                  onChange={(m, d) => {
+                    setMethod(m);
+                    setDevices(d);
+                  }}
+                />
+              )}
+              {error && !joining && <p className="text-sm text-destructive">{error}</p>}
             </section>
           )}
 
@@ -228,7 +253,7 @@ export function Welcome() {
             <ArrowRight />
           </Button>
         )}
-        {step === 2 && (
+        {step === 2 && !joining && (
           <>
             {!method && (
               <Button variant="ghost" onClick={() => setStep(3)} data-testid="wizard-skip">

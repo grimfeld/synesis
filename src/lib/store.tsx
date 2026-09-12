@@ -49,6 +49,7 @@ export type Dialog =
   | { kind: "search"; query?: string }
   | { kind: "goto-passage" }
   | { kind: "sync" }
+  | { kind: "pairing-request"; node: string; name: string; platform: string }
   | { kind: "create-link"; target: string }
   | {
       kind: "version";
@@ -86,6 +87,8 @@ interface Store {
   panelOpen: boolean;
   sourceMode: boolean;
   openVault: (path?: string) => Promise<void>;
+  /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
+  attachVault: () => Promise<void>;
   closeVault: () => Promise<void>;
   refresh: () => Promise<void>;
   navigate: (v: View) => void;
@@ -214,6 +217,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     },
     [refresh],
   );
+
+  const attachVault = useCallback(async () => {
+    const [i, settings, books] = await Promise.all([api.vaultInfo(), api.getSettings(), api.books()]);
+    setView({ kind: "home" });
+    setHistory({ back: [], forward: [] });
+    setSettings(settings);
+    setBooks(books);
+    await refresh();
+    setInfo(i);
+  }, [refresh]);
 
   const closeVault = useCallback(async () => {
     await api.closeVault();
@@ -375,6 +388,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     panelOpen,
     sourceMode,
     openVault,
+    attachVault,
     closeVault,
     refresh,
     navigate,

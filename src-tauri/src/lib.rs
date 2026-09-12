@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(debug_assertions)]
 mod devbridge;
+mod pairing;
 mod watch;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -34,6 +35,16 @@ pub struct Settings {
     /// How this Device keeps the vault folder in sync: "icloud", "syncthing", "provider", "none".
     #[serde(default)]
     pub sync_method: Option<String>,
+    /// Custom Iroh relay URL for Pairing; None = Iroh's public relays.
+    #[serde(default)]
+    pub relay_url: Option<String>,
+    /// Desktop: keep syncing from the tray when the window is closed.
+    #[serde(default = "default_true")]
+    pub background_sync: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 pub struct AppState {
@@ -41,6 +52,8 @@ pub struct AppState {
     settings: Mutex<Settings>,
     settings_path: PathBuf,
     watcher: Mutex<Option<watch::Watcher>>,
+    p2p: Mutex<Option<std::sync::Arc<engine::p2p::Node>>>,
+    quitting: std::sync::atomic::AtomicBool,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -205,12 +218,8 @@ fn set_graph_level(state: State<AppState>, level: GraphLevel) -> CmdResult<()> {
     state.save_settings()
 }
 
-#[tauri::command]
-fn open_vault(
-    app: AppHandle,
-    state: State<AppState>,
-    path: Option<String>,
-) -> CmdResult<VaultInfo> {
+/// Open (or create) the vault folder at `path`, or the last one from settings.
+pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<String>) -> CmdResult<VaultInfo> {
     let lang = state.settings.lock().map_err(err)?.lang;
     let path = match path.or_else(|| {
         state
@@ -253,6 +262,14 @@ fn open_vault(
     state.save_settings()?;
     *state.watcher.lock().map_err(err)? = watch::Watcher::start(app.clone(), root).ok();
     app.emit("vault:opened", &info).ok();
+    Ok(info)
+}
+
+#[tauri::command]
+fn open_vault(app: AppHandle, state: State<AppState>, path: Option<String>) -> CmdResult<VaultInfo> {
+    tauri::async_runtime::block_on(pairing::stop(&state));
+    let info = do_open_vault(app.clone(), &state, path)?;
+    pairing::autostart(app);
     Ok(info)
 }
 
@@ -344,6 +361,7 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
 
 #[tauri::command]
 fn close_vault(state: State<AppState>) -> CmdResult<()> {
+    tauri::async_runtime::block_on(pairing::stop(&state));
     *state.watcher.lock().map_err(err)? = None;
     *state.vault.lock().map_err(err)? = None;
     state.settings.lock().map_err(err)?.vault_path = None;
@@ -372,10 +390,16 @@ fn get_document(state: State<AppState>, id: String) -> CmdResult<DocumentPayload
 
 #[tauri::command]
 fn save_document(state: State<AppState>, id: String, text: String) -> CmdResult<DocumentPayload> {
+    let r = (|| {
     state.with_vault_mut(|v| {
         let view = v.write(&id, &text)?;
         Ok(to_payload(v, view))
     })
+    })();
+    if r.is_ok() {
+        pairing::notify(&state);
+    }
+    r
 }
 
 #[tauri::command]
@@ -411,7 +435,13 @@ fn rename_document(
 
 #[tauri::command]
 fn delete_document(state: State<AppState>, id: String) -> CmdResult<()> {
+    let r = (|| {
     state.with_vault_mut(|v| v.delete(&id))
+    })();
+    if r.is_ok() {
+        pairing::notify(&state);
+    }
+    r
 }
 
 #[tauri::command]
@@ -826,7 +856,21 @@ pub fn run() {
             })
             .build(),
     );
+    #[cfg(mobile)]
+    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
+        .on_window_event(|window, event| {
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let state = window.state::<AppState>();
+                if pairing::keep_in_background(&state) {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+            }
+            #[cfg(not(desktop))]
+            let _ = (window, event);
+        })
         .setup(|app| {
             let sp = settings_path(app.handle());
             let settings = load_settings(&sp);
@@ -835,7 +879,12 @@ pub fn run() {
                 settings: Mutex::new(settings),
                 settings_path: sp,
                 watcher: Mutex::new(None),
+                p2p: Mutex::new(None),
+                quitting: std::sync::atomic::AtomicBool::new(false),
             });
+            #[cfg(desktop)]
+            pairing::setup_tray(app.handle())?;
+            pairing::autostart(app.handle().clone());
             #[cfg(desktop)]
             {
                 use tauri_plugin_global_shortcut::GlobalShortcutExt;
@@ -850,6 +899,15 @@ pub fn run() {
             set_language,
             set_graph_level,
             set_sync_method,
+            pairing::pairing_status,
+            pairing::pairing_invite,
+            pairing::pairing_revoke_invite,
+            pairing::pairing_join,
+            pairing::pairing_approve,
+            pairing::pairing_remove,
+            pairing::pairing_stop,
+            pairing::set_relay,
+            pairing::set_background_sync,
             sync_status,
             sync_locations,
             open_vault,

@@ -68,6 +68,7 @@ import L from "leaflet";
 import { diffLines, diffStats } from "@/lib/diff";
 import { Field } from "./Field";
 import { SyncSetup } from "./SyncSetup";
+import { PairingPanel } from "./Pairing";
 import { TypeDot } from "./DocLink";
 
 export function Dialogs() {
@@ -94,6 +95,8 @@ export function Dialogs() {
       return <GotoPassage onClose={close} />;
     case "sync":
       return <SyncDialog onClose={close} />;
+    case "pairing-request":
+      return <PairingRequest node={d.node} name={d.name} platform={d.platform} onClose={close} />;
     case "create-link":
       return <CreateLink target={d.target} onClose={close} />;
     case "delete":
@@ -1137,9 +1140,32 @@ function SyncDialog({ onClose }: { onClose: () => void }) {
           <DialogTitle>{t.sync.title}</DialogTitle>
           <DialogDescription>{t.sync.dialog_body}</DialogDescription>
         </DialogHeader>
-        <SyncSetup locations={locations} onChange={(m) => m && m !== s.settings?.sync_method && s.setSyncMethod(m)} />
+        <SyncSetup locations={locations} pairing={<PairingPanel />} foldersOpen={!!s.settings?.sync_method && s.settings.sync_method !== "pairing" && s.settings.sync_method !== "none"} onChange={(m) => m && s.settings?.sync_method !== "pairing" && m !== s.settings?.sync_method && s.setSyncMethod(m)} />
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** "Allow <device> to join?" raised by a pairing join request. */
+function PairingRequest({ node, name, platform, onClose }: { node: string; name: string; platform: string; onClose: () => void }) {
+  const t = useT();
+  const decide = async (allow: boolean) => {
+    await api.pairingApprove(node, allow).catch(console.error);
+    onClose();
+  };
+  return (
+    <AlertDialog open onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent data-testid="pairing-request">
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t.pairing.wants_to_join(name || t.sync.unknown_device)}</AlertDialogTitle>
+          <AlertDialogDescription>{t.pairing.request_body(platform)}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel onClick={() => decide(false)}>{t.pairing.deny}</AlertDialogCancel>
+          <AlertDialogAction onClick={() => decide(true)}>{t.pairing.allow}</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

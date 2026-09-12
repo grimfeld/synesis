@@ -11,6 +11,7 @@ pub mod parser;
 pub mod properties;
 pub mod scripture;
 pub mod sync;
+pub mod p2p;
 pub mod templates;
 pub mod vault;
 pub mod versification;

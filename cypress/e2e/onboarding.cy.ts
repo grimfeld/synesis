@@ -10,7 +10,11 @@ describe("Onboarding wizard", () => {
   it("explains the vault, then asks which devices you use", () => {
     cy.get("[data-testid=wizard-step-1]").should("contain", "A vault is a folder").and("contain", "Verses become links");
     cy.get("[data-testid=wizard-next]").click();
-    cy.get("[data-testid=wizard-step-2]").should("contain", "Which devices");
+    cy.get("[data-testid=wizard-step-2]").should("contain", "Pair your devices");
+    cy.get("[data-testid=pairing-join-go]").should("be.disabled");
+    cy.get("[data-testid=pairing-join-code]").type("synesis:notreallyacode");
+    cy.get("[data-testid=pairing-join-go]").should("be.enabled");
+    cy.get("[data-testid=sync-folders-toggle]").click();
     cy.get("[data-testid=sync-devices] [data-state=on]").should("have.length", 1);
     cy.get("[data-testid=sync-recommendation]").should("contain", "One device");
     cy.get("[data-testid=wizard-skip]").should("exist");
@@ -18,6 +22,7 @@ describe("Onboarding wizard", () => {
 
   it("recommends Syncthing with Android, iCloud for Apple-only, and refuses iOS + Android", () => {
     cy.get("[data-testid=wizard-next]").click();
+    cy.get("[data-testid=sync-folders-toggle]").click();
     cy.get("[data-testid=device-android]").click();
     cy.get("[data-testid=method-syncthing]").should("have.attr", "aria-pressed", "true");
     cy.get("[data-testid=sync-tutorial]").should("contain", "Syncthing").and("contain", "Check that it works");
@@ -39,6 +44,7 @@ describe("Onboarding wizard", () => {
     cy.bridge("set_language", { lang: "fr" });
     cy.visit("/");
     cy.get("[data-testid=wizard-next]").click();
+    cy.get("[data-testid=sync-folders-toggle]").click();
     cy.get("[data-testid=device-android]").click();
     cy.get("[data-testid=sync-tutorial]").should("contain", "Vérifier que ça marche");
     cy.bridge("set_language", { lang: "en" });
@@ -69,7 +75,8 @@ describe("Onboarding wizard", () => {
     cy.get("[data-testid=settings-sync]").should("contain", "does not sync");
     cy.get("[data-testid=sync-device]").should("have.length", 1).and("contain", "this device");
     cy.get("[data-testid=settings-sync-setup]").click();
-    cy.get("[data-testid=sync-dialog] [data-testid=sync-devices]").should("exist");
+    cy.get("[data-testid=sync-dialog] [data-testid=sync-pairing]").should("exist");
+    cy.get("[data-testid=sync-dialog] [data-testid=sync-folders-toggle]").click();
     cy.get("[data-testid=sync-dialog] [data-testid=device-android]").click();
     cy.get("[data-testid=sync-dialog] [data-testid=sync-tutorial]").should("contain", "Syncthing");
     cy.get("body").type("{esc}");

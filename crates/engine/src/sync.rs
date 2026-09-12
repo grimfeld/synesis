@@ -51,6 +51,12 @@ pub struct FoundVault {
     pub devices: Vec<DeviceInfo>,
 }
 
+/// This Device as other Devices see it: (name, platform).
+pub fn this_device() -> (String, String) {
+    let c = this_device_card();
+    (c.name, c.platform)
+}
+
 fn this_device_card() -> DeviceCard {
     let name = hostname::get().ok().and_then(|h| h.into_string().ok()).filter(|s| !s.trim().is_empty()).unwrap_or_else(|| "device".into());
     DeviceCard { name, platform: std::env::consts::OS.to_string() }

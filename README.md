@@ -27,6 +27,10 @@ npm run tauri dev     # desktop app: Vite on :1420, Tauri window, dev bridge on 
 cargo test -p engine  # engine tests
 ```
 
+## Sync
+
+Pair devices with a QR code / pairing code (Settings → Sync): paired devices sync directly over [Iroh](https://iroh.computer) whenever both are online, no account, no server storing data (ADR 0008). Alternatively put the vault in a folder you already sync (iCloud Drive, Syncthing, OneDrive / Google Drive / Dropbox); the wizard's tutorials live in `docs/sync/`. Both can be combined.
+
 ## Releasing
 
 Pushing a `vX.Y.Z` tag runs [.github/workflows/release.yml](.github/workflows/release.yml): it builds macOS (Apple Silicon and Intel), Windows, Linux and Android, and attaches the installers to a GitHub Release named after the tag. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.

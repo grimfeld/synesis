@@ -44,11 +44,21 @@ function Shell() {
 
   useEffect(() => {
     let un: (() => void) | undefined;
+    let unPair: (() => void) | undefined;
+    api.onQuickCapture(() => s.setDialog({ kind: "quick" })).then((u) => (un = u));
     api
-      .onQuickCapture(() => s.setDialog({ kind: "quick" }))
-      .then((u) => (un = u));
-    return () => un?.();
+      .onPairingEvent((e) => {
+        if (e.kind === "join_request") s.setDialog({ kind: "pairing-request", node: e.node, name: e.member.name, platform: e.member.platform });
+      })
+      .then((u) => (unPair = u));
+    return () => {
+      un?.();
+      unPair?.();
+    };
   }, [s]);
+
+  // Dev/test hook: lets the Cypress suite raise dialogs the engine would (join requests).
+  if (import.meta.env.DEV) (window as unknown as { __synesis_setDialog?: unknown }).__synesis_setDialog = s.setDialog;
 
   if (!s.info) return <Welcome />;
 
