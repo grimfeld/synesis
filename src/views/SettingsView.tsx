@@ -29,6 +29,7 @@ export function SettingsView() {
     api.syncStatus().then(setDevices).catch(() => setDevices([]));
   }, [s.info?.root, s.changeTick]);
   const method = s.settings?.sync_method ?? null;
+  const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
   const ago = (ms: number) => (ms ? new Date(ms).toLocaleString() : "—");
   const [relay, setRelay] = useState(s.settings?.relay_url ?? "");
   useEffect(() => setRelay(s.settings?.relay_url ?? ""), [s.settings?.relay_url]);
@@ -64,12 +65,14 @@ export function SettingsView() {
             </CardHeader>
             <CardContent className="grid gap-3">
               <code className="rounded-md bg-muted px-2 py-1.5 text-xs break-all">{s.info?.root}</code>
-              <div>
-                <Button variant="outline" onClick={change}>
-                  <FolderOpen />
-                  {t.change_vault}
-                </Button>
-              </div>
+              {!mobile && (
+                <div>
+                  <Button variant="outline" onClick={change}>
+                    <FolderOpen />
+                    {t.change_vault}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
           <Card data-testid="settings-sync">

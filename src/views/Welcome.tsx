@@ -197,9 +197,11 @@ export function Welcome() {
                 <p className="mb-2 text-xs text-muted-foreground">{t.wizard.create_body}</p>
                 <div className="flex gap-2">
                   <Input value={path} onChange={(e) => setPath(e.target.value)} data-testid="vault-path" className="font-mono text-xs" />
-                  <Button variant="outline" onClick={choose} title={t.wizard.choose}>
-                    <FolderOpen />
-                  </Button>
+                  {locations?.can_pick_folder !== false && (
+                    <Button variant="outline" onClick={choose} title={t.wizard.choose}>
+                      <FolderOpen />
+                    </Button>
+                  )}
                 </div>
                 {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
                 <div className="mt-3 flex gap-2">

@@ -333,6 +333,7 @@ export interface SyncLocation {
 export interface SyncLocations {
   platform: string;
   home: string;
+  can_pick_folder: boolean;
   locations: SyncLocation[];
   found: FoundVault[];
 }

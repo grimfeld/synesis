@@ -299,7 +299,11 @@ pub struct SyncLocation {
 #[derive(Serialize)]
 pub struct SyncLocations {
     pub platform: String,
+    /// Where new vaults go by default: the user's home on desktop, the app's
+    /// private storage on mobile (no permissions, mirrored by Pairing).
     pub home: String,
+    /// Desktop only: mobile has no folder picker and no user-writable home.
+    pub can_pick_folder: bool,
     pub locations: Vec<SyncLocation>,
     /// Vaults already present in those folders (synced from another Device).
     pub found: Vec<engine::sync::FoundVault>,
@@ -308,8 +312,13 @@ pub struct SyncLocations {
 /// Where the free sync tools keep their folders on this Device, and any vault already in them.
 #[tauri::command]
 fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocations> {
-    let home = app.path().home_dir().map_err(err)?;
     let platform = std::env::consts::OS.to_string();
+    let mobile = matches!(platform.as_str(), "android" | "ios");
+    let home = if mobile {
+        app.path().document_dir().or_else(|_| app.path().app_data_dir()).map_err(err)?.join("Synesis vaults")
+    } else {
+        app.path().home_dir().map_err(err)?
+    };
     let env_dir = |k: &str| std::env::var(k).ok().map(PathBuf::from);
     let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
     match platform.as_str() {
@@ -356,7 +365,7 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
         .into_iter()
         .map(|(method, root)| SyncLocation { method: method.into(), exists: root.is_dir(), suggested: root.join("Synesis").to_string_lossy().to_string(), root: root.to_string_lossy().to_string() })
         .collect();
-    Ok(SyncLocations { platform, home: home.to_string_lossy().to_string(), locations, found })
+    Ok(SyncLocations { platform, home: home.to_string_lossy().to_string(), can_pick_folder: !mobile, locations, found })
 }
 
 #[tauri::command]

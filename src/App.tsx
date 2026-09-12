@@ -91,10 +91,10 @@ function Shell() {
     <SidebarProvider
       open={s.sidebarOpen}
       onOpenChange={s.setSidebarOpen}
-      className="h-svh min-h-0 overflow-hidden"
+      className="h-full min-h-0 overflow-hidden"
     >
       <AppSidebar />
-      <SidebarInset className="h-svh min-h-0 overflow-hidden">
+      <SidebarInset className="h-full min-h-0 overflow-hidden">
         {main}
       </SidebarInset>
       <Dialogs />

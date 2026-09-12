@@ -172,9 +172,9 @@ jobs:
           NDK_HOME: ${{ env.ANDROID_SDK_ROOT }}/ndk/26.3.11579264
         run: npm run tauri -- android init --ci
 
-      # `android init` ships Tauri's default icon; put ours in.
-      - name: Copy the app icons into the Android project
-        run: npm run icons:mobile
+      # `android init` ships Tauri's default icon and an edge-to-edge activity; fix both.
+      - name: Adjust the generated Android project (icons, window insets, keyboard)
+        run: npm run android:post-init
 
       - name: Build the APK
         env:

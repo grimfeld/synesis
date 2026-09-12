@@ -16,7 +16,8 @@
     "prepare": "husky",
     "check": "npm run typecheck && cargo check --workspace",
     "release": "node scripts/release.mjs",
-    "icons:mobile": "node scripts/sync-mobile-icons.mjs"
+    "icons:mobile": "node scripts/sync-mobile-icons.mjs",
+    "android:post-init": "node scripts/sync-mobile-icons.mjs && node scripts/android-post-init.mjs"
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.18.0",
