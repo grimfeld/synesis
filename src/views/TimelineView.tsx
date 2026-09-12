@@ -26,11 +26,21 @@ import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
 
-const GUTTER = 150;
+const GUTTER_WIDE = 150;
+const GUTTER_NARROW = 84; // a phone cannot spare 150px of lane labels
 const RIGHT_PAD = 24;
 const AXIS_H = 36;
 const LANE_H = 34;
 const LABEL_MAX_SPAN = 2600; // years visible above which mark labels hide
+
+/** Capturing a pointer the browser does not know about throws; the drag works without it. */
+function capture(el: Element, id: number) {
+  try {
+    el.setPointerCapture(id);
+  } catch {
+    /* synthetic pointer, or already released */
+  }
+}
 
 interface Mark {
   key: string;
@@ -187,6 +197,9 @@ export function TimelineView() {
   const [width, setWidth] = useState(900);
   const [range, setRange] = useState<[number, number] | null>(null);
   const drag = useRef<{ x: number; from: number; to: number } | null>(null);
+  // Live touch points, so a second finger turns the drag into a pinch.
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ dist: number; from: number; to: number } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -230,10 +243,11 @@ export function TimelineView() {
     return [lo - pad, hi + pad];
   }, [lanes]);
   const [from, to] = range ?? extent;
+  const GUTTER = width < 520 ? GUTTER_NARROW : GUTTER_WIDE;
   const plotW = Math.max(200, width - GUTTER - RIGHT_PAD);
   const x = useCallback(
     (y: number) => GUTTER + ((y - from) / (to - from)) * plotW,
-    [from, to, plotW],
+    [from, to, plotW, GUTTER],
   );
   const yearAt = (px: number) => from + ((px - GUTTER) / plotW) * (to - from);
 
@@ -256,19 +270,52 @@ export function TimelineView() {
     const factor = Math.exp(e.ctrlKey ? e.deltaY * 0.01 : e.deltaY * 0.0015);
     zoom(factor, px >= GUTTER ? yearAt(px) : undefined);
   };
+  /** The plot x of a pointer, and the two-finger midpoint / spread when pinching. */
+  const spread = () => {
+    const [a, b] = [...touches.current.values()];
+    return { dist: Math.hypot(a.x - b.x, a.y - b.y), mid: (a.x + b.x) / 2 };
+  };
   const onPointerDown = (e: ReactPointerEvent<SVGSVGElement>) => {
-    if (e.button !== 0) return;
-    drag.current = { x: e.clientX, from, to };
-    e.currentTarget.setPointerCapture(e.pointerId);
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    capture(e.currentTarget, e.pointerId);
+    if (touches.current.size === 2) {
+      drag.current = null;
+      pinch.current = { dist: spread().dist, from, to };
+    } else {
+      pinch.current = null;
+      drag.current = { x: e.clientX, from, to };
+    }
   };
   const onPointerMove = (e: ReactPointerEvent<SVGSVGElement>) => {
+    if (touches.current.has(e.pointerId))
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = pinch.current;
+    if (p && touches.current.size === 2) {
+      const { dist, mid } = spread();
+      if (dist < 1) return;
+      const span = Math.min(
+        Math.max((p.to - p.from) * (p.dist / dist), 1),
+        (extent[1] - extent[0]) * 4,
+      );
+      const rect = e.currentTarget.getBoundingClientRect();
+      const px = Math.max(mid - rect.left, GUTTER);
+      const center = p.from + ((px - GUTTER) / plotW) * (p.to - p.from);
+      const left = center - ((center - p.from) * span) / (p.to - p.from);
+      setRange([left, left + span]);
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     const dy = ((e.clientX - d.x) / plotW) * (d.to - d.from);
     setRange([d.from - dy, d.to - dy]);
   };
-  const onPointerUp = () => {
-    drag.current = null;
+  const onPointerUp = (e: ReactPointerEvent<SVGSVGElement>) => {
+    touches.current.delete(e.pointerId);
+    pinch.current = null;
+    // The finger still down keeps panning from where it now is.
+    const [rest] = [...touches.current.values()];
+    drag.current = rest ? { x: rest.x, from, to } : null;
   };
 
   const step = niceStep(to - from);
@@ -330,7 +377,7 @@ export function TimelineView() {
           <svg
             width={Math.max(width, 320)}
             height={height}
-            className="block cursor-grab select-none active:cursor-grabbing"
+            className="block touch-pan-y cursor-grab select-none active:cursor-grabbing"
             data-from={Math.round(from)}
             data-to={Math.round(to)}
             onWheel={onWheel}
@@ -392,7 +439,7 @@ export function TimelineView() {
                     />
                   )}
                   <text
-                    x={GUTTER - 12}
+                    x={GUTTER - 8}
                     y={mid + 4}
                     textAnchor="end"
                     className={
@@ -402,9 +449,12 @@ export function TimelineView() {
                     }
                     onClick={() => lane.doc && s.openDoc(lane.doc.id)}
                   >
-                    {lane.title.length > 22
-                      ? lane.title.slice(0, 21) + "…"
-                      : lane.title}
+                    {(() => {
+                      const max = GUTTER === GUTTER_NARROW ? 11 : 22;
+                      return lane.title.length > max
+                        ? lane.title.slice(0, max - 1) + "…"
+                        : lane.title;
+                    })()}
                   </text>
                   <g clipPath="url(#tl-plot)">
                     {lane.marks.map((m) => {

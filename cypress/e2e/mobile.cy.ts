@@ -24,6 +24,24 @@ describe("Mobile sidebar", () => {
     cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
   });
 
+  it("shows the side panel as a sheet that can be closed again", () => {
+    openSheet();
+    cy.get("[data-testid=doc-item]").contains("Endurance in trials").click();
+    // On a phone the panel would leave no room for the editor, so it starts closed.
+    cy.get("[data-testid=right-panel]").should("not.exist");
+
+    cy.get("button[aria-label='Toggle side panel']").click();
+    cy.get("[data-testid=right-panel]").should("be.visible");
+    cy.get("[data-slot=sheet-content] [data-slot=sheet-close]").click();
+    cy.get("[data-testid=right-panel]").should("not.exist");
+
+    // Tapping outside it closes it too.
+    cy.get("button[aria-label='Toggle side panel']").click();
+    cy.get("[data-testid=right-panel]").should("be.visible");
+    cy.get("[data-slot=sheet-overlay]").click("left", { force: true });
+    cy.get("[data-testid=right-panel]").should("not.exist");
+  });
+
   it("stays above the map so pages can still be switched", () => {
     openSheet();
     cy.get("[data-testid=nav-map]").click();

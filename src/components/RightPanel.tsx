@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronRight, ExternalLink, Trash2 } from "lucide-react";
+import { cn } from "cn";
 import {
   api,
   fmString,
@@ -50,6 +51,8 @@ import { PanelTitle } from "./Field";
 
 interface Props {
   doc: DocumentPayload;
+  /** Inside the mobile Sheet the panel fills it instead of being a fixed column. */
+  inSheet?: boolean;
   fm: string;
   onFmChange: (fm: string) => void;
   detected: DetectedRange[];
@@ -61,6 +64,7 @@ interface Props {
 
 export function RightPanel({
   doc,
+  inSheet,
   fm,
   onFmChange,
   detected,
@@ -104,7 +108,10 @@ export function RightPanel({
   return (
     <aside
       data-testid="right-panel"
-      className="thin-scroll flex w-80 shrink-0 flex-col overflow-y-auto border-l bg-sidebar text-sidebar-foreground"
+      className={cn(
+        "thin-scroll flex flex-col overflow-y-auto bg-sidebar text-sidebar-foreground",
+        inSheet ? "h-full w-full" : "w-80 shrink-0 border-l",
+      )}
     >
       <Properties doc={doc} fm={fm} onFmChange={onFmChange} />
       {type === "composition" && (

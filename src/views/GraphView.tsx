@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   forceCenter,
   forceCollide,
@@ -30,6 +30,15 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+
+/** Capturing a pointer the browser does not know about throws; the drag works without it. */
+function capture(el: Element, id: number) {
+  try {
+    el.setPointerCapture(id);
+  } catch {
+    /* synthetic pointer, or already released */
+  }
+}
 
 type N = GraphNode & SimulationNodeDatum & { r: number };
 type E = SimulationLinkDatum<N>;
@@ -75,6 +84,14 @@ export function GraphView() {
   const edgesRef = useRef<E[]>([]);
   const view = useRef({ x: 0, y: 0, k: 1 });
   const hover = useRef<N | null>(null);
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  /** Pinch anchor: finger spread, the screen midpoint, and the world point under it. */
+  const pinch = useRef<{
+    dist: number;
+    k: number;
+    wx: number;
+    wy: number;
+  } | null>(null);
   const drag = useRef<{
     node: N | null;
     panning: boolean;
@@ -146,15 +163,40 @@ export function GraphView() {
         forceCollide<N>((d) => d.r + 4),
       )
       .alpha(1)
-      .on("tick", draw);
+      .on("tick", schedule);
     return () => {
       sim.current?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const cssVar = (name: string) =>
-    getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // getComputedStyle costs a style flush; calling it per node per frame is what
+  // makes the graph stutter. Resolve every colour once, and again on theme change.
+  const palette = useRef<Record<string, string>>({});
+  const readPalette = useCallback(() => {
+    const cs = getComputedStyle(document.documentElement);
+    const out: Record<string, string> = {};
+    for (const name of [
+      ...new Set(Object.values(COLORS)),
+      "--foreground",
+      "--muted-foreground",
+      "--background",
+      "--font-sans",
+    ])
+      out[name] = cs.getPropertyValue(name).trim();
+    palette.current = out;
+  }, []);
+  const cssVar = (name: string) => palette.current[name] ?? "";
+
+  const frame = useRef(0);
+  /** Coalesce redraws onto one animation frame; d3 ticks faster than the display. */
+  function schedule() {
+    if (frame.current) return;
+    frame.current = requestAnimationFrame(() => {
+      frame.current = 0;
+      draw();
+    });
+  }
 
   function draw() {
     const c = canvas.current;
@@ -224,12 +266,37 @@ export function GraphView() {
     ctx.globalAlpha = 1;
   }
 
+  // The canvas backing store follows its CSS box; without this a rotation or a
+  // keyboard opening leaves the last frame stretched, and hit-testing with it.
   useEffect(() => {
-    draw();
+    const c = canvas.current;
+    if (!c) return;
+    const ro = new ResizeObserver(() => schedule());
+    ro.observe(c);
+    return () => ro.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    readPalette();
+    const ob = new MutationObserver(() => {
+      readPalette();
+      schedule();
+    });
+    ob.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class", "style", "data-theme"],
+    });
+    return () => ob.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readPalette]);
+
+  useEffect(() => {
+    schedule();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
-  const toWorld = (e: React.MouseEvent) => {
+  const toWorld = (e: { clientX: number; clientY: number }) => {
     const r = canvas.current!.getBoundingClientRect();
     const { x, y, k } = view.current;
     return { x: (e.clientX - r.left - x) / k, y: (e.clientY - r.top - y) / k };
@@ -247,7 +314,41 @@ export function GraphView() {
     return best;
   };
 
-  const onDown = (e: React.MouseEvent) => {
+  /** Finger spread, screen midpoint and the world point under it, right now. */
+  const pinchState = () => {
+    const [a, b] = [...touches.current.values()];
+    if (!a || !b) return null;
+    const r = canvas.current!.getBoundingClientRect();
+    const mx = (a.x + b.x) / 2 - r.left;
+    const my = (a.y + b.y) / 2 - r.top;
+    const v = view.current;
+    return {
+      dist: Math.hypot(a.x - b.x, a.y - b.y),
+      k: v.k,
+      mx,
+      my,
+      wx: (mx - v.x) / v.k,
+      wy: (my - v.y) / v.k,
+    };
+  };
+
+  const onDown = (e: React.PointerEvent) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (canvas.current) capture(canvas.current, e.pointerId);
+    if (touches.current.size === 2) {
+      // A second finger turns the gesture into a pinch: drop the drag.
+      const d = drag.current;
+      if (d.node) {
+        d.node.fx = null;
+        d.node.fy = null;
+        sim.current?.alphaTarget(0);
+      }
+      drag.current = { node: null, panning: false, lx: 0, ly: 0, moved: true };
+      pinch.current = pinchState();
+      return;
+    }
+    pinch.current = null;
     const p = toWorld(e);
     const n = nodeAt(p);
     drag.current = {
@@ -263,7 +364,22 @@ export function GraphView() {
       sim.current?.alphaTarget(0.3).restart();
     }
   };
-  const onMove = (e: React.MouseEvent) => {
+  const onMove = (e: React.PointerEvent) => {
+    if (touches.current.has(e.pointerId))
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p0 = pinch.current;
+    if (p0 && touches.current.size === 2) {
+      const now = pinchState();
+      if (!now || now.dist < 1 || p0.dist < 1) return;
+      const v = view.current;
+      const nk = Math.max(0.2, Math.min(5, p0.k * (now.dist / p0.dist)));
+      // Keep the world point that was under the midpoint pinned to it.
+      v.x = now.mx - p0.wx * nk;
+      v.y = now.my - p0.wy * nk;
+      v.k = nk;
+      schedule();
+      return;
+    }
     const d = drag.current;
     if (d.node) {
       const p = toWorld(e);
@@ -276,23 +392,32 @@ export function GraphView() {
       d.lx = e.clientX;
       d.ly = e.clientY;
       d.moved = true;
-      draw();
-    } else {
+      schedule();
+    } else if (e.pointerType === "mouse") {
       const n = nodeAt(toWorld(e));
       if (n !== hover.current) {
         hover.current = n;
         canvas.current!.style.cursor = n ? "pointer" : "grab";
-        draw();
+        schedule();
       }
     }
   };
-  const onUp = () => {
+  const onUp = (e?: React.PointerEvent) => {
+    if (e) touches.current.delete(e.pointerId);
+    else touches.current.clear();
+    if (touches.current.size < 2) pinch.current = null;
+    if (touches.current.size > 0) return;
     const d = drag.current;
     if (d.node) {
       d.node.fx = null;
       d.node.fy = null;
       sim.current?.alphaTarget(0);
       if (!d.moved) openNode(d.node);
+    }
+    // A touch leaves no pointer behind: drop the highlight so it does not stick.
+    if (e && e.pointerType !== "mouse" && hover.current) {
+      hover.current = null;
+      schedule();
     }
     drag.current = { node: null, panning: false, lx: 0, ly: 0, moved: false };
   };
@@ -306,7 +431,7 @@ export function GraphView() {
     v.x = mx - ((mx - v.x) * nk) / v.k;
     v.y = my - ((my - v.y) * nk) / v.k;
     v.k = nk;
-    draw();
+    schedule();
   };
   const openNode = (n: N) => {
     if (n.doc_id) return s.openDoc(n.doc_id);
@@ -385,11 +510,18 @@ export function GraphView() {
         data-testid="graph-canvas"
         ref={canvas}
         className="min-h-0 flex-1"
-        style={{ cursor: "grab", width: "100%", height: "100%" }}
-        onMouseDown={onDown}
-        onMouseMove={onMove}
-        onMouseUp={onUp}
-        onMouseLeave={onUp}
+        style={{
+          cursor: "grab",
+          width: "100%",
+          height: "100%",
+          // The browser must not steal the drag for scrolling or its own zoom.
+          touchAction: "none",
+        }}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+        onPointerCancel={onUp}
+        onPointerLeave={(e) => e.pointerType === "mouse" && onUp(e)}
         onWheel={onWheel}
       />
     </div>

@@ -1,6 +1,6 @@
 // Writing page: Note, Clipping, Composition. Title and tags above the editor,
 // properties and backlinks in the right panel.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,13 +29,29 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export function DocView({ id }: { id: string }) {
   const s = useStore();
   const t = useT();
   const d = useDocument(id);
+  const isMobile = useIsMobile();
   const [hover, setHover] = useState<HoverState | null>(null);
   const [detected, setDetected] = useState<DetectedRange[]>([]);
+
+  // A phone has no room for a column beside the editor: the panel is a sheet
+  // there, and it starts closed so the toggle is the only way in and out.
+  useEffect(() => {
+    if (isMobile) s.setPanelOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
 
   const env = useMemo<EditorEnv>(
     () => ({
@@ -184,15 +200,39 @@ export function DocView({ id }: { id: string }) {
           </div>
         </div>
       </div>
-      {s.panelOpen && (
-        <RightPanel
-          doc={doc}
-          fm={d.fm}
-          onFmChange={d.onFmChange}
-          detected={detected}
-          onRestore={d.replaceText}
-          flush={d.flush}
-        />
+      {isMobile ? (
+        <Sheet open={s.panelOpen} onOpenChange={s.setPanelOpen}>
+          <SheetContent
+            side="right"
+            // pt leaves the close button its own row above the first section.
+            className="w-[86vw] gap-0 p-0 pt-10 sm:max-w-sm"
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>{t.toggle_panel}</SheetTitle>
+              <SheetDescription>{t.toggle_panel}</SheetDescription>
+            </SheetHeader>
+            <RightPanel
+              doc={doc}
+              inSheet
+              fm={d.fm}
+              onFmChange={d.onFmChange}
+              detected={detected}
+              onRestore={d.replaceText}
+              flush={d.flush}
+            />
+          </SheetContent>
+        </Sheet>
+      ) : (
+        s.panelOpen && (
+          <RightPanel
+            doc={doc}
+            fm={d.fm}
+            onFmChange={d.onFmChange}
+            detected={detected}
+            onRestore={d.replaceText}
+            flush={d.flush}
+          />
+        )
       )}
       {hover && (
         <HoverCard
