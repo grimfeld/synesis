@@ -9,29 +9,47 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import { CalendarRange, Maximize2, Plus, ZoomIn, ZoomOut } from "lucide-react";
+import { CalendarRange, Maximize2, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
 import {
   api,
-  type BibleDate,
   type DatedProperty,
-  type DocSummary,
-  type DocType,
+  type DocTag,
   type EventLink,
 } from "@/lib/api";
+import {
+  activeCount,
+  buildLanes,
+  cullToView,
+  extentOf,
+  filterRows,
+  formatYear,
+  niceStep,
+  placeMarks,
+  propertyNames,
+  resolveLabels,
+  type Lane,
+  type Placed,
+} from "@/lib/timeline";
+import { TimelineFilters } from "@/components/TimelineFilters";
+import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
+import { TypeDot } from "@/components/DocLink";
 
 const GUTTER_WIDE = 150;
 const GUTTER_NARROW = 84; // a phone cannot spare 150px of lane labels
 const RIGHT_PAD = 24;
 const AXIS_H = 36;
 const LANE_H = 34;
-const LABEL_MAX_SPAN = 2600; // years visible above which mark labels hide
+
+/** Roughly how wide an 11px label draws, without measuring the SVG text. */
+const labelWidth = (label: string) => label.length * 5.7;
 
 /** Capturing a pointer the browser does not know about throws; the drag works without it. */
 function capture(el: Element, id: number) {
@@ -42,150 +60,61 @@ function capture(el: Element, id: number) {
   }
 }
 
-interface Mark {
-  key: string;
-  doc: DocSummary;
-  /** Property name for a point, "span" for a bar, the Event title on a Subject lane. */
-  label: string;
-  text: string;
-  from: number;
-  to: number | null;
-  approx: boolean;
-  type: DocType;
-}
-
-interface Lane {
-  id: string;
-  title: string;
-  type: DocType;
-  doc: DocSummary | null;
-  first: number;
-  marks: Mark[];
-}
-
-export function yearOf(d: BibleDate): number {
-  const m = d.month ? (d.month - 1) / 12 : 0;
-  const day = d.day ? (d.day - 1) / 365 : 0;
-  return d.year + m + day;
-}
-
-/** The year as people say it: astronomical 0 is 1 BCE. */
-export function formatYear(y: number, t: { bce: string; ce: string }): string {
-  const r = Math.round(y);
-  return r <= 0 ? `${1 - r} ${t.bce}` : `${r} ${t.ce}`;
-}
-
-const SPAN_PAIRS: [string, string][] = [
-  ["start", "end"],
-  ["born", "died"],
-];
-
-export function buildLanes(
-  rows: DatedProperty[],
-  links: EventLink[],
-  eventsTitle: string,
-): Lane[] {
-  const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
-  for (const r of rows) {
-    if (!r.date) continue;
-    const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
-    g.dates.push(r);
-    byDoc.set(r.doc.id, g);
-  }
-  const marksFor = (
-    doc: DocSummary,
-    dates: DatedProperty[],
-    label: (name: string) => string,
-  ): Mark[] => {
-    const named = new Map(dates.map((d) => [d.name, d]));
-    const out: Mark[] = [];
-    const used = new Set<string>();
-    for (const [a, b] of SPAN_PAIRS) {
-      const da = named.get(a);
-      const db = named.get(b);
-      if (da?.date && db?.date) {
-        out.push({
-          key: `${doc.id}:${a}-${b}`,
-          doc,
-          label: label("span"),
-          text: `${da.text} – ${db.text}`,
-          from: yearOf(da.date),
-          to: yearOf(db.date),
-          approx: da.date.approx || db.date.approx,
-          type: doc.type,
-        });
-        used.add(a);
-        used.add(b);
-      }
-    }
-    for (const d of dates) {
-      if (used.has(d.name) || !d.date) continue;
-      out.push({
-        key: `${doc.id}:${d.name}`,
-        doc,
-        label: label(d.name),
-        text: d.text,
-        from: yearOf(d.date),
-        to: null,
-        approx: d.date.approx,
-        type: doc.type,
-      });
-    }
-    return out;
-  };
-  const events: Lane = {
-    id: "events",
-    title: eventsTitle,
-    type: "event",
-    doc: null,
-    first: Infinity,
-    marks: [],
-  };
-  const subjects: Lane[] = [];
-  const eventMarks = new Map<string, Mark>();
-  for (const { doc, dates } of byDoc.values()) {
-    if (doc.type === "event") {
-      // An Event is one mark: its span, or its start alone.
-      const ms = marksFor(doc, dates, () => doc.title);
-      const m =
-        ms.find((x) => x.to != null) ??
-        ms.find((x) => x.key.endsWith(":start")) ??
-        ms[0];
-      if (!m) continue;
-      const mark = { ...m, label: doc.title };
-      events.marks.push(mark);
-      events.first = Math.min(events.first, mark.from);
-      eventMarks.set(doc.id, mark);
-    } else {
-      const marks = marksFor(doc, dates, (name) =>
-        name === "span" ? doc.title : name,
-      );
-      if (marks.length === 0) continue;
-      subjects.push({
-        id: doc.id,
-        title: doc.title,
-        type: doc.type,
-        doc,
-        first: Math.min(...marks.map((m) => m.from)),
-        marks,
-      });
-    }
-  }
-  // Events also sit on the lanes of the Subjects they name.
-  for (const l of links) {
-    const lane = subjects.find((x) => x.id === l.subject);
-    const mark = eventMarks.get(l.event);
-    if (lane && mark)
-      lane.marks.push({ ...mark, key: `${lane.id}:${mark.key}` });
-  }
-  subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
-  return [...(events.marks.length ? [events] : []), ...subjects];
-}
-
-function niceStep(span: number): number {
-  const steps = [10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
-  for (const s of steps) if (span / s >= 5) return s;
-  return 1;
+/** The members of a Cluster, listed where the pointer met it (PLAN §16.7). */
+function ClusterCard({
+  state,
+  onZoom,
+  onClose,
+}: {
+  state: { p: Placed; x: number; y: number };
+  onZoom: () => void;
+  onClose: () => void;
+}) {
+  const s = useStore();
+  const t = useT();
+  const left = Math.max(8, Math.min(state.x - 100, window.innerWidth - 232));
+  const top = Math.min(state.y + 10, window.innerHeight - 200);
+  return (
+    <div
+      data-testid="tl-cluster-card"
+      className="fixed z-50 w-56 rounded-xl border bg-popover p-2 text-popover-foreground shadow-lg"
+      style={{ left, top }}
+      onPointerLeave={onClose}
+    >
+      <ul className="thin-scroll max-h-40 overflow-auto">
+        {state.p.marks.map((m) => (
+          <li key={m.key}>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded px-1.5 py-1 text-left text-xs hover:bg-accent"
+              onClick={() => {
+                onClose();
+                s.openDoc(m.doc.id);
+              }}
+            >
+              <TypeDot type={m.type} />
+              <span className="truncate">{m.label}</span>
+              <span className="ml-auto shrink-0 tabular-nums text-muted-foreground">
+                {m.text}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Button
+        size="sm"
+        variant="ghost"
+        className="mt-1 h-7 w-full text-xs"
+        onClick={() => {
+          onClose();
+          onZoom();
+        }}
+      >
+        <ZoomIn />
+        {t.zoom_to_these}
+      </Button>
+    </div>
+  );
 }
 
 export function TimelineView() {
@@ -194,6 +123,7 @@ export function TimelineView() {
   const host = useRef<HTMLDivElement>(null);
   const [rows, setRows] = useState<DatedProperty[]>([]);
   const [links, setLinks] = useState<EventLink[]>([]);
+  const [docTags, setDocTags] = useState<DocTag[]>([]);
   const [width, setWidth] = useState(900);
   const [range, setRange] = useState<[number, number] | null>(null);
   const drag = useRef<{ x: number; from: number; to: number } | null>(null);
@@ -203,11 +133,12 @@ export function TimelineView() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([api.timeline(), api.eventLinks()])
-      .then(([r, l]) => {
+    Promise.all([api.timeline(), api.eventLinks(), api.timelineTags()])
+      .then(([r, l, tg]) => {
         if (!alive) return;
         setRows(r);
         setLinks(l);
+        setDocTags(tg);
       })
       .catch(console.error);
     return () => {
@@ -224,24 +155,22 @@ export function TimelineView() {
     return () => ro.disconnect();
   }, []);
 
-  const lanes = useMemo(
+  const f = s.timelineFilters;
+  const tagsByDoc = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const dt of docTags) m.set(dt.doc, [...(m.get(dt.doc) ?? []), dt.tag]);
+    return m;
+  }, [docTags]);
+  const allLanes = useMemo(
     () => buildLanes(rows, links, t.events),
     [rows, links, t.events],
   );
-  const extent = useMemo<[number, number]>(() => {
-    const ys = lanes.flatMap((l) =>
-      l.marks.flatMap((m) => [m.from, m.to ?? m.from]),
-    );
-    if (ys.length === 0) return [-2000, 100];
-    let lo = Math.min(...ys);
-    let hi = Math.max(...ys);
-    if (hi - lo < 10) {
-      lo -= 5;
-      hi += 5;
-    }
-    const pad = (hi - lo) * 0.06;
-    return [lo - pad, hi + pad];
-  }, [lanes]);
+  const matched = useMemo(
+    () => buildLanes(filterRows(rows, f, tagsByDoc), links, t.events),
+    [rows, f, tagsByDoc, links, t.events],
+  );
+  // The extent ignores the filters, so narrowing them does not move the view.
+  const extent = useMemo(() => extentOf(allLanes), [allLanes]);
   const [from, to] = range ?? extent;
   const GUTTER = width < 520 ? GUTTER_NARROW : GUTTER_WIDE;
   const plotW = Math.max(200, width - GUTTER - RIGHT_PAD);
@@ -318,11 +247,48 @@ export function TimelineView() {
     drag.current = rest ? { x: rest.x, from, to } : null;
   };
 
+  // Cluster members shown on hover, or on tap where there is no hover.
+  const [card, setCard] = useState<{ p: Placed; x: number; y: number } | null>(
+    null,
+  );
+  const placedFor = useCallback(
+    (lane: Lane) =>
+      resolveLabels(placeMarks(lane.marks, x), labelWidth, GUTTER + plotW),
+    [x, GUTTER, plotW],
+  );
+  const showCard = (p: Placed, cx: number, cy: number) =>
+    setCard(p.marks.length > 1 ? { p, x: cx, y: cy } : null);
+  /** Zoom to a Cluster's own extent, which splits it unless the Dates are identical. */
+  const zoomToCluster = useCallback(
+    (p: Placed) => {
+      const ys = p.marks.map((m) => m.from);
+      const lo = Math.min(...ys);
+      const hi = Math.max(...ys);
+      const span = Math.max((hi - lo) * 3, 1);
+      const mid = (lo + hi) / 2;
+      setRange([mid - span / 2, mid + span / 2]);
+    },
+    [],
+  );
+
+  // The cull comes last, so it narrows what the other filters already matched.
+  const lanes = useMemo(
+    () => (f.inView ? cullToView(matched, from, to) : matched),
+    [matched, f.inView, from, to],
+  );
+  const filtered = activeCount(f) > 0;
+  const tagChips = useMemo(
+    () => [...new Set(docTags.map((d) => d.tag))],
+    [docTags],
+  );
+  const propChips = useMemo(() => propertyNames(rows), [rows]);
+
   const step = niceStep(to - from);
   const ticks: number[] = [];
   for (let y = Math.ceil(from / step) * step; y <= to; y += step) ticks.push(y);
-  const showLabels = to - from <= LABEL_MAX_SPAN;
-  const height = AXIS_H + lanes.length * LANE_H + 8;
+  // A floor of three Lanes' worth, so an empty result still leaves a plot the
+  // user can pan and zoom back to where the Lanes are.
+  const height = AXIS_H + Math.max(lanes.length, 3) * LANE_H + 8;
   const eraLabels = { bce: t.bce, ce: t.ce };
 
   return (
@@ -332,6 +298,25 @@ export function TimelineView() {
           {lanes.length === 0 ? t.no_timeline : t.timeline_hint}
         </span>
         <div className="ml-auto flex items-center gap-1">
+          <div className="relative hidden lg:block">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              data-testid="tl-search"
+              value={f.search}
+              onChange={(e) =>
+                s.setTimelineFilters({ ...f, search: e.currentTarget.value })
+              }
+              placeholder={t.tl_filter_search}
+              className="h-8 w-40 pl-7 text-xs"
+            />
+          </div>
+          <TimelineFilters
+            filters={f}
+            onChange={s.setTimelineFilters}
+            tags={tagChips}
+            props={propChips}
+            typeLabel={(ty) => t.types_plural[ty] ?? ty}
+          />
           <Button
             size="icon-sm"
             variant="outline"
@@ -369,10 +354,12 @@ export function TimelineView() {
       <div
         ref={host}
         data-testid="timeline"
-        className="thin-scroll min-h-0 flex-1 overflow-auto"
+        className="thin-scroll relative min-h-0 flex-1 overflow-auto"
       >
-        {lanes.length === 0 ? (
-          <p className="p-8 text-sm text-muted-foreground">{t.no_timeline}</p>
+        {allLanes.length === 0 ? (
+          <p data-testid="tl-empty" className="p-8 text-sm text-muted-foreground">
+            {t.no_timeline}
+          </p>
         ) : (
           <svg
             width={Math.max(width, 320)}
@@ -457,42 +444,68 @@ export function TimelineView() {
                     })()}
                   </text>
                   <g clipPath="url(#tl-plot)">
-                    {lane.marks.map((m) => {
-                      const x1 = x(m.from);
-                      const x2 =
-                        m.to != null ? Math.max(x(m.to), x1 + 3) : null;
+                    {placedFor(lane).map((p) => {
+                      const [m] = p.marks;
+                      const cluster = p.marks.length > 1;
                       const color = `var(--c-${m.type === "other" ? "note" : m.type})`;
                       const onLane =
                         m.type === "event" && lane.type !== "event";
+                      // A point over a span rides above the bar rather than on it.
+                      const cy = mid - (p.overSpan ? 7 : 0);
+                      const open = (e: ReactMouseEvent) => {
+                        e.stopPropagation();
+                        if (cluster) zoomToCluster(p);
+                        else s.openDoc(m.doc.id);
+                      };
                       return (
                         <g
-                          key={m.key}
-                          data-testid="tl-mark"
-                          data-doc={m.doc.id}
+                          key={p.key}
+                          data-testid={cluster ? "tl-cluster" : "tl-mark"}
+                          data-doc={cluster ? undefined : m.doc.id}
+                          data-count={cluster ? p.marks.length : undefined}
                           data-approx={m.approx ? "true" : "false"}
                           className="cursor-pointer"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            s.openDoc(m.doc.id);
-                          }}
-                          opacity={m.approx ? 0.55 : 1}
+                          onClick={open}
+                          onPointerEnter={(e) =>
+                            showCard(p, e.clientX, e.clientY)
+                          }
+                          opacity={m.approx && !cluster ? 0.55 : 1}
                         >
-                          <title>{`${m.label} · ${m.text}`}</title>
-                          {x2 != null ? (
+                          {!cluster && <title>{`${m.label} · ${m.text}`}</title>}
+                          {p.x2 != null ? (
                             <rect
-                              x={x1}
+                              x={p.x}
                               y={mid - (onLane ? 4 : 7)}
-                              width={x2 - x1}
+                              width={p.x2 - p.x}
                               height={onLane ? 8 : 14}
                               rx={4}
                               fill={color}
                               strokeDasharray={m.approx ? "3 3" : undefined}
                               stroke={m.approx ? color : "none"}
                             />
+                          ) : cluster ? (
+                            <>
+                              <circle
+                                cx={p.x}
+                                cy={cy}
+                                r={9}
+                                fill="var(--background)"
+                                stroke={color}
+                                strokeWidth={2}
+                              />
+                              <text
+                                x={p.x}
+                                y={cy + 3.5}
+                                textAnchor="middle"
+                                className="fill-foreground text-[10px] font-semibold tabular-nums"
+                              >
+                                {p.marks.length}
+                              </text>
+                            </>
                           ) : (
                             <circle
-                              cx={x1}
-                              cy={mid}
+                              cx={p.x}
+                              cy={cy}
                               r={onLane ? 4 : 6}
                               fill={onLane ? "var(--background)" : color}
                               stroke={color}
@@ -500,13 +513,13 @@ export function TimelineView() {
                               strokeDasharray={m.approx ? "2 2" : undefined}
                             />
                           )}
-                          {showLabels && !onLane && (
+                          {p.label != null && !cluster && !onLane && (
                             <text
-                              x={(x2 ?? x1) + 8}
+                              x={(p.x2 ?? p.x) + 8}
                               y={mid + 4}
-                              className="fill-foreground text-[11px]"
+                              className="pointer-events-none fill-foreground text-[11px]"
                             >
-                              {m.label}
+                              {p.label}
                             </text>
                           )}
                         </g>
@@ -518,7 +531,43 @@ export function TimelineView() {
             })}
           </svg>
         )}
+        {allLanes.length > 0 && lanes.length === 0 && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/3 flex flex-col items-center gap-3 px-8 text-center">
+            <p
+              data-testid="tl-empty"
+              className="text-sm text-muted-foreground"
+            >
+              {filtered ? t.tl_filtered_empty : t.tl_filter_in_view}
+            </p>
+            {filtered && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="pointer-events-auto"
+                data-testid="tl-empty-clear"
+                onClick={() =>
+                  s.setTimelineFilters({
+                    ...f,
+                    hiddenTypes: [],
+                    tags: [],
+                    props: [],
+                    search: "",
+                  })
+                }
+              >
+                {t.tl_filter_clear}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
+      {card && (
+        <ClusterCard
+          state={card}
+          onZoom={() => zoomToCluster(card.p)}
+          onClose={() => setCard(null)}
+        />
+      )}
     </div>
   );
 }

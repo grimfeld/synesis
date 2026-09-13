@@ -113,6 +113,13 @@ pub struct EventLink {
     pub subject: String,
 }
 
+/// One Tag carried by a dated document: the Timeline's Tag filter (PLAN §16).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DocTag {
+    pub doc: String,
+    pub tag: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
     pub doc: DocSummary,
@@ -1050,6 +1057,21 @@ impl Index {
         Ok(out)
     }
 
+    /// Every (document, Tag) pair over documents carrying a parsed Date: the
+    /// Timeline's Tag filter only ever offers Tags that can match a Lane.
+    pub fn timeline_tags(&self) -> Result<Vec<DocTag>> {
+        let mut st = self.conn.prepare(
+            "SELECT t.doc_id, MIN(t.tag) FROM tags t              WHERE t.doc_id IN (SELECT doc_id FROM dates WHERE year IS NOT NULL)              GROUP BY t.doc_id, t.norm ORDER BY t.norm, t.doc_id",
+        )?;
+        let rows = st.query_map([], |r| {
+            Ok(DocTag {
+                doc: r.get(0)?,
+                tag: r.get(1)?,
+            })
+        })?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
     /// Events whose `place` or `characters` Property names this document.
     pub fn events_naming(&self, id: &str) -> Result<Vec<DocSummary>> {
         let doc = match self.get(id)? {
@@ -1334,6 +1356,60 @@ mod tests {
             .unwrap();
         }
         idx
+    }
+
+    #[test]
+    fn timeline_tags_covers_dated_documents_only() {
+        let idx = idx_with(&[
+            (
+                "d",
+                "Characters/David.md",
+                "---
+type: character
+born: c. 1107 BCE
+tags: [kings, Kings]
+---
+",
+            ),
+            (
+                "p",
+                "Characters/Paul.md",
+                "---
+type: character
+born: 5 CE
+tags: [apostles]
+---
+",
+            ),
+            // Tagged, but carries no Date: never a Lane, so never a chip.
+            (
+                "m",
+                "Characters/Moses.md",
+                "---
+type: character
+tags: [prophets]
+---
+",
+            ),
+            // Dated, but its Date does not parse, so it is off the Timeline too.
+            (
+                "f",
+                "Events/Flood.md",
+                "---
+type: event
+start: not a date
+tags: [judgment]
+---
+",
+            ),
+        ]);
+        let tags = idx.timeline_tags().unwrap();
+        let pairs: Vec<(&str, &str)> = tags
+            .iter()
+            .map(|x| (x.doc.as_str(), x.tag.as_str()))
+            .collect();
+        // Two spellings of one Tag group by norm into a single pair, as `tags()` does.
+        assert_eq!(pairs, vec![("p", "apostles"), ("d", "Kings")]);
     }
 
     #[test]

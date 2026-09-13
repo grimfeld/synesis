@@ -204,6 +204,12 @@ export interface EventLink {
   subject: string;
 }
 
+/** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §16). */
+export interface DocTag {
+  doc: string;
+  tag: string;
+}
+
 /** A hit in the bundled Bible-place gazetteer (OpenBible.info, CC BY 4.0). */
 export interface GazetteerHit {
   name: string;
@@ -281,6 +287,8 @@ export interface Settings {
   sync_method: SyncMethod | null;
   relay_url: string | null;
   background_sync: boolean;
+  timeline_hidden_types: DocType[];
+  timeline_in_view: boolean;
 }
 
 export interface PairingMember {
@@ -367,6 +375,8 @@ export const api = {
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> => listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
   setGraphLevel: (level: GraphLevel) =>
     invoke<void>("set_graph_level", { level }),
+  setTimelineFilters: (hiddenTypes: DocType[], inView: boolean) =>
+    invoke<void>("set_timeline_filters", { hiddenTypes, inView }),
   openVault: (path?: string) =>
     invoke<VaultInfo>("open_vault", { path: path ?? null }),
   closeVault: () => invoke<void>("close_vault"),
@@ -434,6 +444,7 @@ export const api = {
   timeline: () => invoke<DatedProperty[]>("timeline"),
   eventsNaming: (id: string) => invoke<DocSummary[]>("events_naming", { id }),
   eventLinks: () => invoke<EventLink[]>("event_links"),
+  timelineTags: () => invoke<DocTag[]>("timeline_tags"),
   versions: (id: string) => invoke<Version[]>("versions", { id }),
   saveVersion: (id: string, label: string) =>
     invoke<Version>("save_version", { id, label }),

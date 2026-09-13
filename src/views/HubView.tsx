@@ -41,6 +41,7 @@ import { IconButton } from "@/components/IconButton";
 import { PanelTitle } from "@/components/Field";
 import { Backlinks, Properties } from "@/components/RightPanel";
 import { DocLink } from "@/components/DocLink";
+import { MiniTimeline } from "@/components/MiniTimeline";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -472,6 +473,10 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
   const isEvent = doc.summary.type === "event";
   const [dates, setDates] = useState<DatedProperty[]>([]);
   const [events, setEvents] = useState<DocSummary[]>([]);
+  // The mini-timeline needs each Event's own Dates, which `eventsNaming` omits.
+  const [eventDates, setEventDates] = useState<
+    { doc: DocSummary; dates: DatedProperty[] }[]
+  >([]);
   useEffect(() => {
     let alive = true;
     api
@@ -481,15 +486,32 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
     if (!isEvent)
       api
         .eventsNaming(id)
-        .then((x) => alive && setEvents(x))
+        .then(async (x) => {
+          if (!alive) return;
+          setEvents(x);
+          const withDates = await Promise.all(
+            x.map(async (e) => ({ doc: e, dates: await api.datesOf(e.id) })),
+          );
+          if (alive) setEventDates(withDates);
+        })
         .catch(console.error);
     return () => {
       alive = false;
     };
   }, [id, isEvent, s.changeTick, doc.summary.mtime]);
   if (dates.length === 0 && (isEvent || events.length === 0)) return null;
+  const anyParsed =
+    dates.some((d) => d.date) ||
+    eventDates.some((e) => e.dates.some((d) => d.date));
   return (
     <section data-testid="hub-dates" className="space-y-4">
+      {anyParsed && (
+        <MiniTimeline
+          doc={doc.summary}
+          dates={dates}
+          events={eventDates}
+        />
+      )}
       {dates.length > 0 && (
         <div>
           <PanelTitle className="mb-3">{t.dates}</PanelTitle>
