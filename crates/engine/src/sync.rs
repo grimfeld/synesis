@@ -426,66 +426,91 @@ impl Sync {
         if !self.known(id) {
             return None;
         }
-        let doc = self.doc(id);
-        let m = match doc.get_map(CANVAS).get_value() {
-            LoroValue::Map(m) => m,
-            _ => return None,
-        };
-        if m.is_empty() {
-            return None;
-        }
-        let str_at = |key: &str| match m.get(key) {
-            Some(LoroValue::String(s)) => Some(s.to_string()),
-            _ => None,
-        };
-        // The order key is the z-index; ids it does not name are appended in
-        // map order so a node added by another Device is never dropped.
-        let order: Vec<String> = str_at(CANVAS_ORDER)
-            .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
-            .unwrap_or_default();
-        let mut nodes: Vec<canvas::Node> = Vec::new();
-        let mut edges: Vec<canvas::Edge> = Vec::new();
-        let mut seen: Vec<String> = Vec::new();
-        let push = |key: &str, nodes: &mut Vec<canvas::Node>, edges: &mut Vec<canvas::Edge>| {
-            let Some(raw) = (match m.get(key) {
-                Some(LoroValue::String(s)) => Some(s.to_string()),
-                _ => None,
-            }) else {
-                return;
-            };
-            if let Some(eid) = key.strip_prefix(EDGE_PREFIX) {
-                if let Ok(mut e) = serde_json::from_str::<canvas::Edge>(&raw) {
-                    e.id = eid.to_string();
-                    edges.push(e);
-                }
-            } else if let Ok(mut n) = serde_json::from_str::<canvas::Node>(&raw) {
-                n.id = key.to_string();
-                nodes.push(n);
-            }
-        };
-        for key in &order {
-            if m.contains_key(key.as_str()) {
-                push(key, &mut nodes, &mut edges);
-                seen.push(key.clone());
-            }
-        }
-        for key in m.keys() {
-            if key == CANVAS_ORDER || key == CANVAS_EXTRA || seen.contains(key) {
-                continue;
-            }
-            push(key, &mut nodes, &mut edges);
-        }
-        let extra: serde_json::Map<String, serde_json::Value> = str_at(CANVAS_EXTRA)
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
-        // Bookkeeping keys alone are not a Board: a Composition whose every
-        // node was deleted has none, the same as one that never had one.
-        if nodes.is_empty() && edges.is_empty() && extra.is_empty() {
-            return None;
-        }
-        Some(Canvas { nodes, edges, extra })
+        canvas_in(self.doc(id))
     }
 
+    /// The Board at a frontier (a Version's or a history point's), so a
+    /// Version covers the talk and its Board as one moment (PLAN §16.17).
+    pub fn canvas_at(&mut self, id: &str, frontier_hex: &str) -> Result<Option<Canvas>> {
+        if !self.known(id) {
+            return Ok(None);
+        }
+        let bytes = hex::decode(frontier_hex).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let f = Frontiers::decode(&bytes).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let doc = self.doc(id);
+        doc.commit();
+        let old = doc
+            .fork_at(&f)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        Ok(canvas_in(&old))
+    }
+}
+
+/// Read a Board out of a Loro document's `canvas` map.
+///
+/// Free-standing so it can read a fork as easily as the live document, which
+/// is what makes a Board recoverable at a Version's frontier.
+fn canvas_in(doc: &LoroDoc) -> Option<Canvas> {
+    let m = match doc.get_map(CANVAS).get_value() {
+        LoroValue::Map(m) => m,
+        _ => return None,
+    };
+    if m.is_empty() {
+        return None;
+    }
+    let str_at = |key: &str| match m.get(key) {
+        Some(LoroValue::String(s)) => Some(s.to_string()),
+        _ => None,
+    };
+    // The order key is the z-index; ids it does not name are appended in
+    // map order so a node added by another Device is never dropped.
+    let order: Vec<String> = str_at(CANVAS_ORDER)
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default();
+    let mut nodes: Vec<canvas::Node> = Vec::new();
+    let mut edges: Vec<canvas::Edge> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let push = |key: &str, nodes: &mut Vec<canvas::Node>, edges: &mut Vec<canvas::Edge>| {
+        let Some(raw) = (match m.get(key) {
+            Some(LoroValue::String(s)) => Some(s.to_string()),
+            _ => None,
+        }) else {
+            return;
+        };
+        if let Some(eid) = key.strip_prefix(EDGE_PREFIX) {
+            if let Ok(mut e) = serde_json::from_str::<canvas::Edge>(&raw) {
+                e.id = eid.to_string();
+                edges.push(e);
+            }
+        } else if let Ok(mut n) = serde_json::from_str::<canvas::Node>(&raw) {
+            n.id = key.to_string();
+            nodes.push(n);
+        }
+    };
+    for key in &order {
+        if m.contains_key(key.as_str()) {
+            push(key, &mut nodes, &mut edges);
+            seen.push(key.clone());
+        }
+    }
+    for key in m.keys() {
+        if key == CANVAS_ORDER || key == CANVAS_EXTRA || seen.contains(key) {
+            continue;
+        }
+        push(key, &mut nodes, &mut edges);
+    }
+    let extra: serde_json::Map<String, serde_json::Value> = str_at(CANVAS_EXTRA)
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    // Bookkeeping keys alone are not a Board: a Composition whose every
+    // node was deleted has none, the same as one that never had one.
+    if nodes.is_empty() && edges.is_empty() && extra.is_empty() {
+        return None;
+    }
+    Some(Canvas { nodes, edges, extra })
+}
+
+impl Sync {
     /// Fold a Board into the CRDT, node by node.
     ///
     /// This is the structural reconcile the plan requires for external edits

@@ -1,0 +1,95 @@
+{
+  "nodes": [
+    {
+      "id": "a1b2c3d4e5f60001",
+      "type": "group",
+      "label": "Opening",
+      "x": -420,
+      "y": -320,
+      "width": 800,
+      "height": 260,
+      "color": "5"
+    },
+    {
+      "id": "a1b2c3d4e5f60002",
+      "type": "text",
+      "text": "Trials feel like the opposite of joy.\nStart where the audience already is.",
+      "x": -380,
+      "y": -250,
+      "width": 300,
+      "height": 120
+    },
+    {
+      "id": "a1b2c3d4e5f60003",
+      "type": "file",
+      "file": "Clippings/endurance is steadfastness.md",
+      "x": 20,
+      "y": -250,
+      "width": 320,
+      "height": 140
+    },
+    {
+      "id": "a1b2c3d4e5f60004",
+      "type": "group",
+      "label": "Body",
+      "x": -420,
+      "y": -20,
+      "width": 800,
+      "height": 300,
+      "color": "4"
+    },
+    {
+      "id": "a1b2c3d4e5f60005",
+      "type": "file",
+      "file": "Notes/endurance in trials.md",
+      "x": -380,
+      "y": 50,
+      "width": 320,
+      "height": 140
+    },
+    {
+      "id": "a1b2c3d4e5f60006",
+      "type": "text",
+      "text": "Who ran before us — Paul, and Heb 12:1-3.",
+      "x": 20,
+      "y": 50,
+      "width": 300,
+      "height": 100
+    },
+    {
+      "id": "a1b2c3d4e5f60007",
+      "type": "text",
+      "text": "Close on Ro 15:5: God supplies what he asks for.",
+      "x": -180,
+      "y": 340,
+      "width": 320,
+      "height": 100,
+      "color": "3"
+    }
+  ],
+  "edges": [
+    {
+      "id": "a1b2c3d4e5f6e001",
+      "fromNode": "a1b2c3d4e5f60002",
+      "fromSide": "right",
+      "toNode": "a1b2c3d4e5f60003",
+      "toSide": "left",
+      "label": "because"
+    },
+    {
+      "id": "a1b2c3d4e5f6e002",
+      "fromNode": "a1b2c3d4e5f60005",
+      "fromSide": "right",
+      "toNode": "a1b2c3d4e5f60006",
+      "toSide": "left"
+    },
+    {
+      "id": "a1b2c3d4e5f6e003",
+      "fromNode": "a1b2c3d4e5f60006",
+      "fromSide": "bottom",
+      "toNode": "a1b2c3d4e5f60007",
+      "toSide": "top",
+      "label": "leads to"
+    }
+  ]
+}

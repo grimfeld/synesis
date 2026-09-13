@@ -2,6 +2,7 @@
 //! (ADR 0004), keeps the vault open in app state, watches the folder for
 //! external edits and forwards changes to the UI as events.
 
+use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::index::{
     Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph, GraphLevel,
@@ -697,6 +698,51 @@ fn candidates(state: State<AppState>, id: String) -> CmdResult<Vec<Candidate>> {
     state.with_vault(|v| v.candidates(&id))
 }
 
+/// A Composition's Board, or null when it has none yet (ADR 0009).
+#[tauri::command]
+fn get_board(state: State<AppState>, id: String) -> CmdResult<Option<Canvas>> {
+    state.with_vault_mut(|v| v.read_board(&id))
+}
+
+#[tauri::command]
+fn save_board(state: State<AppState>, id: String, board: Canvas) -> CmdResult<()> {
+    let r = state.with_vault_mut(|v| v.write_board(&id, &board));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// A Composition's Board as it stood at a Version's frontier.
+#[tauri::command]
+fn board_at(state: State<AppState>, id: String, frontier: String) -> CmdResult<Option<Canvas>> {
+    state.with_vault_mut(|v| v.board_at(&id, &frontier))
+}
+
+/// Write an exported Board to a path the user picked.
+///
+/// The UI renders the SVG and rasterises the PNG, since it owns the styling;
+/// the engine only puts bytes on disk, because the UI never touches files
+/// (ADR 0004). `data` is base64 for PNG and plain text for SVG.
+#[tauri::command]
+fn export_board(path: String, data: String, base64: bool) -> CmdResult<()> {
+    use base64::Engine as _;
+    let bytes = if base64 {
+        base64::engine::general_purpose::STANDARD
+            .decode(data.as_bytes())
+            .map_err(|e| e.to_string())?
+    } else {
+        data.into_bytes()
+    };
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+/// Compositions whose Board references this document.
+#[tauri::command]
+fn boards_referencing(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
+    state.with_vault(|v| v.boards_referencing(&id))
+}
+
 #[tauri::command]
 fn source_trail(state: State<AppState>, id: String) -> CmdResult<Vec<TrailEntry>> {
     state.with_vault(|v| v.source_trail(&id))
@@ -970,6 +1016,11 @@ pub fn run() {
             text_at,
             history,
             candidates,
+            get_board,
+            save_board,
+            boards_referencing,
+            board_at,
+            export_board,
             source_trail,
             source_children,
             unresolved_links,

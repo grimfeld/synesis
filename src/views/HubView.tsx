@@ -39,7 +39,7 @@ import { TypeDot } from "@/components/DocLink";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { PanelTitle } from "@/components/Field";
-import { Backlinks, Properties } from "@/components/RightPanel";
+import { Backlinks, Properties, Section } from "@/components/RightPanel";
 import { DocLink } from "@/components/DocLink";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,7 @@ export function HubView({ id }: { id: string }) {
   const d = useDocument(id);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
+  const [boards, setBoards] = useState<DocSummary[]>([]);
   const doc = d.doc;
 
   useEffect(() => {
@@ -60,6 +61,12 @@ export function HubView({ id }: { id: string }) {
     api
       .backlinks(id)
       .then((b) => alive && setBacklinks(b))
+      .catch(console.error);
+    // Material placed on a Board is visible from the document's side too, so
+    // twelve Notes on a Board are not a one-way mirror (PLAN §16.6).
+    api
+      .boardsReferencing(id)
+      .then((b) => alive && setBoards(b))
       .catch(console.error);
     return () => {
       alive = false;
@@ -293,6 +300,33 @@ export function HubView({ id }: { id: string }) {
           />
           <div className="mt-8 space-y-8">
             <TypeSection doc={doc} book={book} title={title} />
+            {boards.length > 0 && (
+              <Section
+                title={t.boards}
+                count={boards.length}
+                hint={t.boards_hint}
+              >
+                <ul className="space-y-0.5" data-testid="hub-boards">
+                  {boards.map((b) => (
+                    <li key={b.id}>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
+                        onClick={() => {
+                          s.setDocTab("board");
+                          s.openDoc(b.id);
+                        }}
+                      >
+                        <TypeDot type={b.type} />
+                        <span className="min-w-0 flex-1 truncate">
+                          {b.title}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </Section>
+            )}
             <Backlinks items={backlinks} subject={type !== "source"} inline />
             <About
               doc={doc}

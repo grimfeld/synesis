@@ -361,3 +361,106 @@ fn an_empty_board_writes_no_file() {
     assert!(!root.join(engine::canvas::board_path(&doc.summary.path)).exists());
     assert!(a.read_board(&id).unwrap().is_none());
 }
+
+/// Renaming a document rewrites the `file` nodes of every Board that pointed
+/// at it, and a Composition's own Board follows it (PLAN §16.13).
+#[test]
+fn renaming_follows_boards() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+
+    let note = a
+        .create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
+        .unwrap();
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let (note_id, comp_id) = (note.summary.id.clone(), comp.summary.id.clone());
+
+    let mut board = Canvas::default();
+    let mut n = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+    n.file = Some(note.summary.path.clone());
+    board.nodes.push(n);
+    a.write_board(&comp_id, &board).unwrap();
+
+    // The Note is on the Board, and the Composition is findable from the Note.
+    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+
+    // Rename the Note: the node must follow it, not dangle.
+    let renamed = a.rename(&note_id, "Steadfastness").unwrap();
+    assert_ne!(renamed.summary.path, note.summary.path);
+    let after = a.read_board(&comp_id).unwrap().unwrap();
+    assert_eq!(
+        after.node("n1").unwrap().file.as_deref(),
+        Some(renamed.summary.path.as_str()),
+        "board node left pointing at the old path"
+    );
+    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+
+    // Rename the Composition: its own Board file moves with it.
+    let moved = a.rename(&comp_id, "Talk on endurance").unwrap();
+    assert!(
+        root.join(engine::canvas::board_path(&moved.summary.path)).exists(),
+        "board file did not follow its Composition"
+    );
+    assert!(!root.join(engine::canvas::board_path(&comp.summary.path)).exists());
+    assert_eq!(a.read_board(&comp_id).unwrap().unwrap().nodes.len(), 1);
+}
+
+/// A document deleted out from under a Board leaves its node in place, to be
+/// rendered as missing. Never silently remove what the user placed.
+#[test]
+fn deleting_a_target_leaves_the_node_as_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+
+    let note = a
+        .create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
+        .unwrap();
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let comp_id = comp.summary.id.clone();
+
+    let mut board = Canvas::default();
+    let mut n = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+    n.file = Some(note.summary.path.clone());
+    board.nodes.push(n);
+    a.write_board(&comp_id, &board).unwrap();
+
+    a.delete(&note.summary.id).unwrap();
+
+    let after = a.read_board(&comp_id).unwrap().unwrap();
+    assert_eq!(after.nodes.len(), 1, "node removed when its target was deleted");
+    assert_eq!(
+        after.node("n1").unwrap().file.as_deref(),
+        Some(note.summary.path.as_str())
+    );
+    // The ref itself is gone from the index: it names no document any more.
+    assert!(a.boards_referencing(&note.summary.id).unwrap().is_empty());
+}
+
+/// Deleting a Composition takes its Board with it.
+#[test]
+fn deleting_a_composition_removes_its_board() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    a.write_board(&comp.summary.id, &board).unwrap();
+    let file = root.join(engine::canvas::board_path(&comp.summary.path));
+    assert!(file.exists());
+
+    a.delete(&comp.summary.id).unwrap();
+    assert!(!file.exists(), "board outlived its Composition");
+}

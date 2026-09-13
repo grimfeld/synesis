@@ -223,12 +223,20 @@ impl End {
 
 /// A whole Board. Both top-level keys are optional in the spec, so an empty
 /// canvas is a legal one.
-#[derive(Debug, Clone, Default, PartialEq)]
+///
+/// The serde shape is the on-disk shape, so what crosses the IPC boundary to
+/// the UI is the same JSON the vault holds. `parse` is still the reader for
+/// files, because it is forgiving about what the spec leaves loose (floats for
+/// coordinates, optionals of the wrong type) in ways a derive cannot be.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Canvas {
+    #[serde(default)]
     pub nodes: Vec<Node>,
+    #[serde(default)]
     pub edges: Vec<Edge>,
     /// Root-level keys the spec does not define, kept for the same reason as
     /// `Node::extra`.
+    #[serde(flatten)]
     pub extra: Map<String, Value>,
 }
 
