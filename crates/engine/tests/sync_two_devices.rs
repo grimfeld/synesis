@@ -464,3 +464,50 @@ fn deleting_a_composition_removes_its_board() {
     a.delete(&comp.summary.id).unwrap();
     assert!(!file.exists(), "board outlived its Composition");
 }
+
+/// Opening a Vault whose index was written before Boards existed. This is the
+/// upgrade path a user takes on installing a new release, and it reaches the
+/// schema through `Vault::open` rather than `Index::open` alone.
+#[test]
+fn a_vault_indexed_by_an_older_build_still_opens() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    let data = tmp.path().join("data");
+    fs::create_dir_all(&root).unwrap();
+
+    // A vault with one Note, indexed by the current build.
+    {
+        let mut v = open(&root, &data);
+        v.create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
+            .unwrap();
+    }
+
+    // Rewrite `links` the way a pre-Boards build had it: no `kind` column.
+    let index = engine::vault::local_dir_for(&data, &root).join("index.sqlite");
+    {
+        let conn = rusqlite::Connection::open(&index).unwrap();
+        conn.execute_batch(
+            "DROP INDEX IF EXISTS links_kind;
+             CREATE TABLE links_old(from_id TEXT NOT NULL, target TEXT NOT NULL, norm TEXT NOT NULL,
+               alias TEXT, embed INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,
+               property TEXT);
+             INSERT INTO links_old SELECT from_id, target, norm, alias, embed, start, end, property FROM links;
+             DROP TABLE links;
+             ALTER TABLE links_old RENAME TO links;",
+        )
+        .unwrap();
+    }
+
+    // The upgrade: opening it must migrate rather than fail.
+    let mut v = open(&root, &data);
+    assert!(!v.list(None).unwrap().is_empty(), "vault came back empty");
+
+    // And Boards work on it afterwards.
+    let comp = v
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    v.write_board(&comp.summary.id, &board).unwrap();
+    assert_eq!(v.read_board(&comp.summary.id).unwrap().unwrap().nodes.len(), 1);
+}

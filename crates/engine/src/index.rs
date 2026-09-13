@@ -205,7 +205,8 @@ CREATE INDEX IF NOT EXISTS aliases_doc ON aliases(doc_id);
 CREATE TABLE IF NOT EXISTS links(from_id TEXT NOT NULL, target TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT, embed INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, property TEXT, kind TEXT NOT NULL DEFAULT 'prose');
 CREATE INDEX IF NOT EXISTS links_norm ON links(norm);
 CREATE INDEX IF NOT EXISTS links_from ON links(from_id);
-CREATE INDEX IF NOT EXISTS links_kind ON links(kind);
+-- links_kind is created by `migrate`, not here: this batch runs before it, and
+-- on an existing database the column does not exist yet.
 CREATE TABLE IF NOT EXISTS tags(doc_id TEXT NOT NULL, tag TEXT NOT NULL, norm TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, in_frontmatter INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS tags_norm ON tags(norm);
 CREATE INDEX IF NOT EXISTS tags_doc ON tags(doc_id);
@@ -231,11 +232,11 @@ fn migrate(conn: &Connection) -> Result<()> {
         .prepare("SELECT 1 FROM pragma_table_info('links') WHERE name = 'kind'")?
         .exists([])?;
     if !has_kind {
-        conn.execute_batch(
-            "ALTER TABLE links ADD COLUMN kind TEXT NOT NULL DEFAULT 'prose';
-             CREATE INDEX IF NOT EXISTS links_kind ON links(kind);",
-        )?;
+        conn.execute_batch("ALTER TABLE links ADD COLUMN kind TEXT NOT NULL DEFAULT 'prose'")?;
     }
+    // After the column exists either way: a fresh database gets it from the
+    // schema, an old one from the ALTER above.
+    conn.execute_batch("CREATE INDEX IF NOT EXISTS links_kind ON links(kind)")?;
     Ok(())
 }
 
@@ -1673,6 +1674,48 @@ Body",
         assert_eq!(boards.len(), 1);
         assert_eq!(boards[0].id, "comp");
         assert!(idx.boards_referencing("n2").unwrap().is_empty());
+    }
+
+    /// Opening an index written before Boards existed must migrate it rather
+    /// than fail. Every other test builds a fresh database, which is how a
+    /// `CREATE INDEX` on a column older databases lack reached a release.
+    #[test]
+    fn an_index_predating_boards_opens_and_migrates() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        // The `links` table exactly as a pre-Boards build wrote it: no `kind`.
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE links(from_id TEXT NOT NULL, target TEXT NOT NULL, norm TEXT NOT NULL,
+                   alias TEXT, embed INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL,
+                   property TEXT);
+                 INSERT INTO links(from_id, target, norm, alias, embed, start, end, property)
+                   VALUES('a', 'Notes/b.md', 'b', NULL, 0, 0, 0, NULL);",
+            )
+            .unwrap();
+        }
+
+        let idx = Index::open(&path).unwrap();
+
+        // The column arrived, the index on it exists, and the row that was
+        // already there counts as prose rather than being lost or reclassified.
+        let kind: String = idx
+            .conn
+            .query_row("SELECT kind FROM links WHERE from_id = 'a'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(kind, "prose");
+        let has_index: bool = idx
+            .conn
+            .prepare("SELECT 1 FROM sqlite_master WHERE type='index' AND name='links_kind'")
+            .unwrap()
+            .exists([])
+            .unwrap();
+        assert!(has_index, "links_kind index not created");
+
+        // And opening it again is a no-op rather than a second migration.
+        drop(idx);
+        assert!(Index::open(&path).is_ok());
     }
 
     #[test]
