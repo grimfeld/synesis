@@ -135,8 +135,12 @@ Marks that fall too close together to draw apart, shown as one mark carrying how
 _Avoid_: Group, bundle, stack
 
 **Candidate**:
-A document that shares a Tag or a Passage with a Composition and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used.
+A document that shares a Tag or a Passage with a Composition and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used. Placing it on the Composition's Board does not: the Board is where nothing is committed yet, so a Candidate there is marked as on the Board and stays a Candidate.
 _Avoid_: Suggestion, related, recommendation
+
+**Board**:
+A spatial arrangement of the material for one Composition: the writer's own bubbles, documents from the Vault, and labelled groups, laid out by hand. Where a talk is thought out before it is written. Every Composition may have one, stored beside it as a JSON Canvas file that Obsidian opens as a canvas of its own.
+_Avoid_: Canvas (that is the file format on disk), Mind map, Map (that is the Places view), Whiteboard
 
 **Command**:
 A named action the user can run from the Command Palette ("New Clipping", "Toggle Source mode", "Go to Graph"). Commands may also have a keyboard shortcut; the shortcut is a way to run the command, not a separate thing.

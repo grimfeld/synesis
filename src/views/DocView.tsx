@@ -18,6 +18,7 @@ import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
+import { BoardView } from "@/views/BoardView";
 import type { EditorEnv } from "@/editor/decorations";
 import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
@@ -45,6 +46,13 @@ export function DocView({ id }: { id: string }) {
   const isMobile = useIsMobile();
   const [hover, setHover] = useState<HoverState | null>(null);
   const [detected, setDetected] = useState<DetectedRange[]>([]);
+
+  // A Board belongs to the Composition it is paired with, so moving to another
+  // document — including through back and forward — starts on the text.
+  useEffect(() => {
+    s.setDocTab("talk");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   // A phone has no room for a column beside the editor: the panel is a sheet
   // there, and it starts closed so the toggle is the only way in and out.
@@ -89,6 +97,9 @@ export function DocView({ id }: { id: string }) {
       </div>
     );
   const sum = doc.summary;
+  // Only a Composition has a Board, so a stale tab from a previous document
+  // can never hide a Note's text.
+  const showBoard = s.docTab === "board" && sum.type === "composition";
 
   return (
     <div className="flex h-full min-h-0 flex-1">
@@ -139,23 +150,54 @@ export function DocView({ id }: { id: string }) {
               ""
             )}
           </span>
-          <IconButton
-            label={s.sourceMode ? t.live_preview : t.source_mode}
-            shortcut={formatShortcut("Mod+E").join("")}
-            aria-pressed={s.sourceMode}
-            className={cn(s.sourceMode && "bg-accent text-accent-foreground")}
-            onClick={() => s.setSourceMode(!s.sourceMode)}
-          >
-            <Code />
-          </IconButton>
-          <IconButton
-            label={t.toggle_panel}
-            aria-pressed={s.panelOpen}
-            className={cn(s.panelOpen && "bg-accent text-accent-foreground")}
-            onClick={() => s.setPanelOpen(!s.panelOpen)}
-          >
-            <PanelRight />
-          </IconButton>
+          {sum.type === "composition" && (
+            <div
+              className="mr-1 flex items-center rounded-md border p-0.5"
+              role="tablist"
+              aria-label={t.board}
+            >
+              {(["talk", "board"] as const).map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={s.docTab === tab}
+                  data-testid={`tab-${tab}`}
+                  className={cn(
+                    "rounded px-2 py-0.5 text-xs transition-colors",
+                    s.docTab === tab
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => s.setDocTab(tab)}
+                >
+                  {tab === "talk" ? t.board_tab_talk : t.board_tab_board}
+                </button>
+              ))}
+            </div>
+          )}
+          {/* Both act on the editor, which the Board replaces. */}
+          {!showBoard && (
+            <>
+              <IconButton
+                label={s.sourceMode ? t.live_preview : t.source_mode}
+                shortcut={formatShortcut("Mod+E").join("")}
+                aria-pressed={s.sourceMode}
+                className={cn(s.sourceMode && "bg-accent text-accent-foreground")}
+                onClick={() => s.setSourceMode(!s.sourceMode)}
+              >
+                <Code />
+              </IconButton>
+              <IconButton
+                label={t.toggle_panel}
+                aria-pressed={s.panelOpen}
+                className={cn(s.panelOpen && "bg-accent text-accent-foreground")}
+                onClick={() => s.setPanelOpen(!s.panelOpen)}
+              >
+                <PanelRight />
+              </IconButton>
+            </>
+          )}
           <IconButton
             label={t.delete}
             className="text-muted-foreground hover:text-destructive"
@@ -175,6 +217,9 @@ export function DocView({ id }: { id: string }) {
             </AlertAction>
           </Alert>
         )}
+        {showBoard ? (
+          <BoardView id={id} docs={s.docs} />
+        ) : (
         <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
           <DocHeader
             doc={doc}
@@ -199,8 +244,9 @@ export function DocView({ id }: { id: string }) {
             />
           </div>
         </div>
+        )}
       </div>
-      {isMobile ? (
+      {showBoard ? null : isMobile ? (
         <Sheet open={s.panelOpen} onOpenChange={s.setPanelOpen}>
           <SheetContent
             side="right"

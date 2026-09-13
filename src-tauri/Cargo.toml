@@ -14,6 +14,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 engine = { path = "../crates/engine" }
 tauri = { version = "2", features = ["tray-icon"] }
+base64 = "0.22"
 tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }

@@ -21,6 +21,7 @@ import {
   type SyncLocations,
   type NameEntry,
 } from "@/lib/api";
+import { diffBoards, type BoardChange } from "@/lib/board";
 import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { NameIndex } from "@/lib/names";
@@ -134,6 +135,8 @@ function VersionDialog({
   const [old, setOld] = useState<string | null>(null);
   const [current, setCurrent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [boardOps, setBoardOps] = useState<BoardChange[]>([]);
+  const [tab, setTab] = useState<"text" | "board">("text");
   useEffect(() => {
     let alive = true;
     Promise.all([api.textAt(id, frontier), api.getDocument(id)])
@@ -143,6 +146,11 @@ function VersionDialog({
         setCurrent(c.text);
       })
       .catch((e) => alive && setError(String(e)));
+    // A Version covers the talk and its Board together, so the diff shows both
+    // and restoring is never a surprise (PLAN §17.17).
+    Promise.all([api.boardAt(id, frontier), api.getBoard(id)])
+      .then(([o, c]) => alive && setBoardOps(diffBoards(o, c)))
+      .catch(console.error);
     return () => {
       alive = false;
     };
@@ -161,7 +169,54 @@ function VersionDialog({
     >
       <div data-testid="version-dialog" className="grid gap-2">
         {error && <div className="text-sm text-destructive">{error}</div>}
-        {old != null && current != null && (
+        {boardOps.length > 0 && (
+          <div className="flex items-center rounded-md border p-0.5 justify-self-start">
+            {(["text", "board"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                data-testid={`version-tab-${k}`}
+                className={cn(
+                  "rounded px-2 py-0.5 text-xs transition-colors",
+                  tab === k
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setTab(k)}
+              >
+                {k === "text" ? t.board_tab_talk : t.board}
+              </button>
+            ))}
+          </div>
+        )}
+        {tab === "board" ? (
+          <ul
+            className="thin-scroll max-h-[50vh] overflow-auto rounded-lg border bg-muted/30 p-2 text-xs"
+            data-testid="version-board-diff"
+          >
+            {boardOps.map((o) => (
+              <li key={o.id} className="flex items-baseline gap-2 px-1 py-0.5">
+                <span
+                  className={cn(
+                    "w-16 shrink-0 text-[10px] uppercase",
+                    o.kind === "added" && "text-emerald-600 dark:text-emerald-400",
+                    o.kind === "removed" && "text-rose-600 dark:text-rose-400",
+                    (o.kind === "moved" || o.kind === "changed") &&
+                      "text-muted-foreground",
+                  )}
+                >
+                  {t.board_diff[o.kind]}
+                </span>
+                <span className="min-w-0 flex-1 truncate">
+                  {o.label || t.board_note_empty}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          old != null && current != null && (
           <>
             <div
               className="text-xs text-muted-foreground tabular-nums"
@@ -194,6 +249,12 @@ function VersionDialog({
               ))}
             </pre>
           </>
+          )
+        )}
+        {boardOps.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {t.version_restores_board}
+          </p>
         )}
       </div>
       <DialogFooter>

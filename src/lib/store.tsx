@@ -87,10 +87,15 @@ interface Store {
   sidebarOpen: boolean;
   panelOpen: boolean;
   sourceMode: boolean;
-  /** The Timeline's filters (PLAN §16.5): here, not in the view, so that a
+  /** The Timeline's filters (PLAN §17.5): here, not in the view, so that a
    *  round-trip to a Hub and back does not lose them. */
   timelineFilters: Filters;
   setTimelineFilters: (f: Filters) => void;
+  /**
+   * Which face of a Composition is showing. Store state rather than a route,
+   * so the later split pane can show both at once (PLAN §17.9).
+   */
+  docTab: "talk" | "board";
   openVault: (path?: string) => Promise<void>;
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
@@ -120,6 +125,7 @@ interface Store {
   setSidebarOpen: (b: boolean) => void;
   setPanelOpen: (b: boolean) => void;
   setSourceMode: (b: boolean) => void;
+  setDocTab: (tab: "talk" | "board") => void;
   /** Declare or change a Property name's type, vault-wide. */
   setPropertyType: (name: string, t: PropertyType) => Promise<void>;
 }
@@ -183,6 +189,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     useState<Filters>(NO_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
   const [sourceMode, setSourceModeState] = useState(readSourceMode);
+  // A Board belongs to the Composition being read, so opening another
+  // document starts on its text rather than on the Board of the last one.
+  const [docTab, setDocTab] = useState<"talk" | "board">("talk");
   const viewRef = useRef(view);
   viewRef.current = view;
   const booted = useRef(false);
@@ -421,6 +430,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     timelineFilters,
     panelOpen,
     sourceMode,
+    docTab,
     openVault,
     attachVault,
     closeVault,
@@ -440,6 +450,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setTimelineFilters,
     setPanelOpen,
     setSourceMode,
+    setDocTab,
     setPropertyType,
   };
   return (

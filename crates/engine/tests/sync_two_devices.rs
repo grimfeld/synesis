@@ -1,5 +1,6 @@
 //! Two devices sharing one folder (what a cloud-synced vault looks like once
 //! the provider has copied everything). Each device has its own data dir.
+use engine::canvas::{Canvas, Node, NodeKind};
 use engine::document::DocType;
 use engine::scripture::Lang;
 use engine::Vault;
@@ -219,4 +220,247 @@ Shepherd.",
     // The edit reached B's history and therefore A after a sync.
     a.apply_remote().unwrap();
     assert_eq!(a.read(&id).unwrap().text, v2);
+}
+
+/// Two Devices drag two different nodes of the same Board while offline.
+/// Both drags must survive: this is the whole reason a Board is a node-keyed
+/// map rather than text (ADR 0009).
+#[test]
+fn concurrent_drags_of_different_nodes_both_win() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut a = open(&root, &da);
+    let doc = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let id = doc.summary.id.clone();
+
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board.nodes.push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
+    a.write_board(&id, &board).unwrap();
+
+    // B comes online and sees the Board.
+    let mut b = open(&root, &db);
+    let on_b = b.read_board(&id).unwrap().unwrap();
+    assert_eq!(on_b.nodes.len(), 2);
+
+    // Offline: A drags n1 down, B drags n2 up. B's file write clobbers A's.
+    let mut ba = a.read_board(&id).unwrap().unwrap();
+    ba.nodes[0].y = 500;
+    a.write_board(&id, &ba).unwrap();
+
+    let mut bb = b.read_board(&id).unwrap().unwrap();
+    bb.nodes[1].y = -500;
+    b.write_board(&id, &bb).unwrap();
+
+    a.apply_remote().unwrap();
+    b.apply_remote().unwrap();
+
+    let merged = a.read_board(&id).unwrap().unwrap();
+    assert_eq!(merged.node("n1").unwrap().y, 500, "A's drag lost");
+    assert_eq!(merged.node("n2").unwrap().y, -500, "B's drag lost");
+
+    // And the two Devices agree.
+    let merged_b = b.read_board(&id).unwrap().unwrap();
+    assert_eq!(merged.node("n1").unwrap().y, merged_b.node("n1").unwrap().y);
+    assert_eq!(merged.node("n2").unwrap().y, merged_b.node("n2").unwrap().y);
+}
+
+/// A Board edited in Obsidian is folded in structurally, and the fields
+/// Synesis does not understand survive (PLAN §17.8, §17.14).
+#[test]
+fn an_external_edit_folds_in_and_keeps_unknown_fields() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let doc = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let id = doc.summary.id.clone();
+
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    a.write_board(&id, &board).unwrap();
+
+    // Obsidian adds a node carrying a key this app knows nothing about.
+    let file = root.join(engine::canvas::board_path(&doc.summary.path));
+    let raw = fs::read_to_string(&file).unwrap();
+    let mut parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    parsed["nodes"].as_array_mut().unwrap().push(serde_json::json!({
+        "id": "n2", "type": "text", "text": "added in Obsidian",
+        "x": 300, "y": 0, "width": 200, "height": 100,
+        "styleAttributes": {"shape": "diamond"}
+    }));
+    fs::write(&file, serde_json::to_string_pretty(&parsed).unwrap()).unwrap();
+
+    let board = a.read_board(&id).unwrap().unwrap();
+    assert_eq!(board.nodes.len(), 2, "external node not folded in");
+    let n2 = board.node("n2").unwrap();
+    assert_eq!(n2.text.as_deref(), Some("added in Obsidian"));
+    assert_eq!(n2.extra["styleAttributes"]["shape"], "diamond");
+
+    // Saving from Synesis must not destroy the key it never understood.
+    a.write_board(&id, &board).unwrap();
+    let after = fs::read_to_string(&file).unwrap();
+    assert!(after.contains("diamond"), "unknown field destroyed on save");
+}
+
+/// A node deleted on one Device is deleted everywhere, rather than coming
+/// back from the other Device's copy of the map.
+#[test]
+fn a_deleted_node_stays_deleted_after_sync() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut a = open(&root, &da);
+    let doc = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let id = doc.summary.id.clone();
+
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board.nodes.push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
+    a.write_board(&id, &board).unwrap();
+
+    let mut b = open(&root, &db);
+    assert_eq!(b.read_board(&id).unwrap().unwrap().nodes.len(), 2);
+
+    let mut ba = a.read_board(&id).unwrap().unwrap();
+    ba.nodes.retain(|n| n.id != "n2");
+    a.write_board(&id, &ba).unwrap();
+
+    b.apply_remote().unwrap();
+    let on_b = b.read_board(&id).unwrap().unwrap();
+    assert_eq!(on_b.nodes.len(), 1, "deleted node came back");
+    assert!(on_b.node("n2").is_none());
+}
+
+/// A Composition that never got a Board writes no `.canvas` file: opening the
+/// Board tab must not litter the vault.
+#[test]
+fn an_empty_board_writes_no_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let doc = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let id = doc.summary.id.clone();
+
+    assert!(a.read_board(&id).unwrap().is_none());
+    a.write_board(&id, &Canvas::default()).unwrap();
+    assert!(!root.join(engine::canvas::board_path(&doc.summary.path)).exists());
+    assert!(a.read_board(&id).unwrap().is_none());
+}
+
+/// Renaming a document rewrites the `file` nodes of every Board that pointed
+/// at it, and a Composition's own Board follows it (PLAN §16.13).
+#[test]
+fn renaming_follows_boards() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+
+    let note = a
+        .create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
+        .unwrap();
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let (note_id, comp_id) = (note.summary.id.clone(), comp.summary.id.clone());
+
+    let mut board = Canvas::default();
+    let mut n = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+    n.file = Some(note.summary.path.clone());
+    board.nodes.push(n);
+    a.write_board(&comp_id, &board).unwrap();
+
+    // The Note is on the Board, and the Composition is findable from the Note.
+    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+
+    // Rename the Note: the node must follow it, not dangle.
+    let renamed = a.rename(&note_id, "Steadfastness").unwrap();
+    assert_ne!(renamed.summary.path, note.summary.path);
+    let after = a.read_board(&comp_id).unwrap().unwrap();
+    assert_eq!(
+        after.node("n1").unwrap().file.as_deref(),
+        Some(renamed.summary.path.as_str()),
+        "board node left pointing at the old path"
+    );
+    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+
+    // Rename the Composition: its own Board file moves with it.
+    let moved = a.rename(&comp_id, "Talk on endurance").unwrap();
+    assert!(
+        root.join(engine::canvas::board_path(&moved.summary.path)).exists(),
+        "board file did not follow its Composition"
+    );
+    assert!(!root.join(engine::canvas::board_path(&comp.summary.path)).exists());
+    assert_eq!(a.read_board(&comp_id).unwrap().unwrap().nodes.len(), 1);
+}
+
+/// A document deleted out from under a Board leaves its node in place, to be
+/// rendered as missing. Never silently remove what the user placed.
+#[test]
+fn deleting_a_target_leaves_the_node_as_missing() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+
+    let note = a
+        .create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
+        .unwrap();
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+    let comp_id = comp.summary.id.clone();
+
+    let mut board = Canvas::default();
+    let mut n = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+    n.file = Some(note.summary.path.clone());
+    board.nodes.push(n);
+    a.write_board(&comp_id, &board).unwrap();
+
+    a.delete(&note.summary.id).unwrap();
+
+    let after = a.read_board(&comp_id).unwrap().unwrap();
+    assert_eq!(after.nodes.len(), 1, "node removed when its target was deleted");
+    assert_eq!(
+        after.node("n1").unwrap().file.as_deref(),
+        Some(note.summary.path.as_str())
+    );
+    // The ref itself is gone from the index: it names no document any more.
+    assert!(a.boards_referencing(&note.summary.id).unwrap().is_empty());
+}
+
+/// Deleting a Composition takes its Board with it.
+#[test]
+fn deleting_a_composition_removes_its_board() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap();
+
+    let mut board = Canvas::default();
+    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    a.write_board(&comp.summary.id, &board).unwrap();
+    let file = root.join(engine::canvas::board_path(&comp.summary.path));
+    assert!(file.exists());
+
+    a.delete(&comp.summary.id).unwrap();
+    assert!(!file.exists(), "board outlived its Composition");
 }

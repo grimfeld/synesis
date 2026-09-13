@@ -113,7 +113,7 @@ pub struct EventLink {
     pub subject: String,
 }
 
-/// One Tag carried by a dated document: the Timeline's Tag filter (PLAN §16).
+/// One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocTag {
     pub doc: String,
@@ -129,6 +129,9 @@ pub struct Candidate {
     /// The Composition already Mentions this document (inline link, Embed or
     /// Tag naming it), so it is used material rather than a Candidate.
     pub used: bool,
+    /// The document sits on the Composition's Board. A third state between
+    /// unused and used: placed, but not yet committed to the talk (PLAN §17.6).
+    pub on_board: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -196,9 +199,13 @@ CREATE INDEX IF NOT EXISTS documents_scripture ON documents(book, chapter, verse
 CREATE TABLE IF NOT EXISTS aliases(doc_id TEXT NOT NULL, alias TEXT NOT NULL, norm TEXT NOT NULL);
 CREATE INDEX IF NOT EXISTS aliases_norm ON aliases(norm);
 CREATE INDEX IF NOT EXISTS aliases_doc ON aliases(doc_id);
-CREATE TABLE IF NOT EXISTS links(from_id TEXT NOT NULL, target TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT, embed INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, property TEXT);
+-- `kind` separates prose links from Board refs (PLAN §17.6): a document
+-- dragged onto a Composition's Board is referenced but not used, so
+-- `candidates` counts prose only.
+CREATE TABLE IF NOT EXISTS links(from_id TEXT NOT NULL, target TEXT NOT NULL, norm TEXT NOT NULL, alias TEXT, embed INTEGER NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, property TEXT, kind TEXT NOT NULL DEFAULT 'prose');
 CREATE INDEX IF NOT EXISTS links_norm ON links(norm);
 CREATE INDEX IF NOT EXISTS links_from ON links(from_id);
+CREATE INDEX IF NOT EXISTS links_kind ON links(kind);
 CREATE TABLE IF NOT EXISTS tags(doc_id TEXT NOT NULL, tag TEXT NOT NULL, norm TEXT NOT NULL, start INTEGER NOT NULL, end INTEGER NOT NULL, in_frontmatter INTEGER NOT NULL);
 CREATE INDEX IF NOT EXISTS tags_norm ON tags(norm);
 CREATE INDEX IF NOT EXISTS tags_doc ON tags(doc_id);
@@ -212,6 +219,25 @@ CREATE INDEX IF NOT EXISTS dates_doc ON dates(doc_id);
 CREATE INDEX IF NOT EXISTS dates_sort ON dates(sort_key);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');
 "#;
+
+/// Bring an index written by an older build up to the current schema.
+///
+/// `CREATE TABLE IF NOT EXISTS` leaves an existing table alone, so a column
+/// added to `links` never reaches a database that predates it. The index is
+/// derived state and could be rebuilt from the vault, but a silent re-scan of
+/// every file on launch is worse than one `ALTER TABLE`.
+fn migrate(conn: &Connection) -> Result<()> {
+    let has_kind = conn
+        .prepare("SELECT 1 FROM pragma_table_info('links') WHERE name = 'kind'")?
+        .exists([])?;
+    if !has_kind {
+        conn.execute_batch(
+            "ALTER TABLE links ADD COLUMN kind TEXT NOT NULL DEFAULT 'prose';
+             CREATE INDEX IF NOT EXISTS links_kind ON links(kind);",
+        )?;
+    }
+    Ok(())
+}
 
 fn row_summary(r: &Row) -> rusqlite::Result<DocSummary> {
     Ok(DocSummary {
@@ -270,12 +296,14 @@ impl Index {
     pub fn open(path: &Path) -> Result<Index> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Index { conn })
     }
 
     pub fn in_memory() -> Result<Index> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Index { conn })
     }
 
@@ -317,7 +345,9 @@ impl Index {
             for t in ["aliases", "tags", "mentions", "dates"] {
                 tx.execute(&format!("DELETE FROM {t} WHERE doc_id = ?1"), [&victim])?;
             }
-            tx.execute("DELETE FROM links WHERE from_id = ?1", [&victim])?;
+            // Board refs come from the `.canvas`, not this file, so they are
+            // not this re-index's to clear (PLAN §17.6).
+            tx.execute("DELETE FROM links WHERE from_id = ?1 AND kind = 'prose'", [&victim])?;
             tx.execute("DELETE FROM docs_fts WHERE id = ?1", [&victim])?;
             tx.execute("DELETE FROM documents WHERE id = ?1", [&victim])?;
         }
@@ -1129,12 +1159,17 @@ impl Index {
                 e.1.push(s);
             }
         }
-        // Names the Composition itself points at: link targets (inline and Embed) and Tags.
+        // Names the Composition itself points at in its prose: link targets
+        // (inline and Embed) and Tags. Board refs are deliberately excluded —
+        // material on the Board is placed, not used (PLAN §17.6).
         let mut linked: HashSet<String> = HashSet::new();
-        let mut st = self.conn.prepare("SELECT norm FROM links WHERE from_id = ?1 UNION SELECT norm FROM tags WHERE doc_id = ?1")?;
+        let mut st = self.conn.prepare(
+            "SELECT norm FROM links WHERE from_id = ?1 AND kind = 'prose' UNION SELECT norm FROM tags WHERE doc_id = ?1",
+        )?;
         for r in st.query_map([id], |r| r.get::<_, String>(0))? {
             linked.insert(r?);
         }
+        let on_board: HashSet<String> = self.board_targets(id)?.into_iter().collect();
         let mut out = Vec::new();
         for (doc_id, (tags, passages)) in by_doc {
             if let Some(doc) = self.get(&doc_id)? {
@@ -1142,6 +1177,7 @@ impl Index {
                     continue;
                 }
                 let used = self.names_of(&doc)?.iter().any(|n| linked.contains(n));
+                let placed = on_board.contains(&doc.id);
                 let score = (tags.len() * 2 + passages.len()) as u32;
                 out.push(Candidate {
                     doc,
@@ -1149,17 +1185,72 @@ impl Index {
                     shared_passages: passages,
                     score,
                     used,
+                    on_board: placed,
                 });
             }
         }
+        // Untouched material first, then what is on the Board, then what the
+        // prose already uses: the order in which the writer still has a
+        // decision to make about each.
         out.sort_by(|a, b| {
             a.used
                 .cmp(&b.used)
+                .then(a.on_board.cmp(&b.on_board))
                 .then(b.score.cmp(&a.score))
                 .then(a.doc.title.cmp(&b.doc.title))
         });
         out.truncate(limit);
         Ok(out)
+    }
+
+    /// Replace a Composition's Board refs: the documents its Board's `file`
+    /// nodes point at (PLAN §17.6).
+    ///
+    /// Targets are vault-relative paths, since that is what JSON Canvas
+    /// stores; a path naming no document is skipped rather than recorded, so a
+    /// node left dangling by a delete never becomes a phantom backlink. The
+    /// node itself stays on the Board, rendered as missing (PLAN §17.13).
+    pub fn set_board_refs(&mut self, id: &str, targets: &[String]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute(
+            "DELETE FROM links WHERE from_id = ?1 AND kind = 'board'",
+            [id],
+        )?;
+        for t in targets {
+            let doc: Option<String> = tx
+                .query_row("SELECT id FROM documents WHERE path = ?1", [t], |r| r.get(0))
+                .optional()?;
+            let Some(doc_id) = doc else { continue };
+            tx.execute(
+                "INSERT INTO links(from_id, target, norm, alias, embed, start, end, property, kind)
+                 VALUES(?1, ?2, ?3, NULL, 0, 0, 0, NULL, 'board')",
+                params![id, doc_id, norm(&doc_id)],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Document ids on a Composition's Board.
+    pub fn board_targets(&self, id: &str) -> Result<Vec<String>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT target FROM links WHERE from_id = ?1 AND kind = 'board'")?;
+        let rows = st.query_map([id], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Compositions whose Board references this document — the "Boards" line
+    /// on a Hub, so material placed on a Board is visible from both ends.
+    pub fn boards_referencing(&self, id: &str) -> Result<Vec<DocSummary>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d
+             JOIN links l ON l.from_id = d.id
+             WHERE l.target = ?1 AND l.kind = 'board'
+             GROUP BY d.id ORDER BY d.title"
+        ))?;
+        let rows = st.query_map([id], row_summary)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// Child Sources of a Source (via the `parent` property), recursively.
@@ -1538,6 +1629,82 @@ tags: [judgment]
         assert_eq!(ids, vec!["c1", "n"]);
         assert_eq!(c[1].shared_passages, vec!["Romans 5:3-5"]);
         assert!(c.iter().all(|x| !x.used));
+    }
+
+    #[test]
+    fn board_refs_are_not_prose_links() {
+        // Placing material on a Board marks it as on the Board, and leaves it
+        // a Candidate: the Board is where nothing is committed (PLAN §17.6).
+        let mut idx = idx_with(&[
+            ("n1", "Notes/Steadfast.md", "---
+tags: [endurance]
+---
+On endurance"),
+            ("n2", "Notes/Patience.md", "---
+tags: [endurance]
+---
+On patience"),
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---
+type: composition
+tags: [endurance]
+---
+Body",
+            ),
+        ]);
+        idx.set_board_refs("comp", &["Notes/Steadfast.md".into()])
+            .unwrap();
+
+        let c = idx.candidates("comp", Lang::En, 10).unwrap();
+        let steadfast = c.iter().find(|x| x.doc.id == "n1").unwrap();
+        let patience = c.iter().find(|x| x.doc.id == "n2").unwrap();
+        assert!(steadfast.on_board, "board ref not reported");
+        assert!(!steadfast.used, "board ref wrongly counted as used");
+        assert!(!patience.on_board);
+        assert!(!patience.used);
+        // Untouched material sorts before what is already on the Board.
+        let order: Vec<&str> = c.iter().map(|x| x.doc.id.as_str()).collect();
+        assert_eq!(order, vec!["n2", "n1"]);
+
+        // And the Composition is findable from the document's side.
+        let boards = idx.boards_referencing("n1").unwrap();
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].id, "comp");
+        assert!(idx.boards_referencing("n2").unwrap().is_empty());
+    }
+
+    #[test]
+    fn board_refs_survive_a_reindex_and_replace_cleanly() {
+        let mut idx = idx_with(&[
+            ("n1", "Notes/A.md", "A"),
+            ("n2", "Notes/B.md", "B"),
+            ("comp", "Compositions/Talk.md", "---
+type: composition
+---
+Body"),
+        ]);
+        idx.set_board_refs("comp", &["Notes/A.md".into()]).unwrap();
+
+        // Re-indexing the Composition's markdown must not drop refs that came
+        // from the `.canvas` beside it.
+        let text = "---
+type: composition
+---
+Body edited";
+        let parsed = document::parse("Compositions/Talk.md", text);
+        idx.upsert("comp", "Compositions/Talk.md", 2, text, &parsed, &[])
+            .unwrap();
+        assert_eq!(idx.board_targets("comp").unwrap(), vec!["n1".to_string()]);
+
+        // Setting refs replaces the previous set rather than adding to it.
+        idx.set_board_refs("comp", &["Notes/B.md".into()]).unwrap();
+        assert_eq!(idx.board_targets("comp").unwrap(), vec!["n2".to_string()]);
+
+        // A path naming no document is skipped, never a phantom backlink.
+        idx.set_board_refs("comp", &["Notes/gone.md".into()]).unwrap();
+        assert!(idx.board_targets("comp").unwrap().is_empty());
     }
 
     #[test]

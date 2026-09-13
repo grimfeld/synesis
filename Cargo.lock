@@ -5996,6 +5996,7 @@ dependencies = [
 name = "synesis"
 version = "0.0.5-2"
 dependencies = [
+ "base64 0.22.1",
  "engine",
  "hex",
  "notify",

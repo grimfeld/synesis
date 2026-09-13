@@ -576,7 +576,10 @@ export function Candidates({
 }) {
   const t = useT();
   const live = detected.length;
-  const unused = items.filter((c) => !c.used);
+  // Three states, not two: material on the Board is placed but not committed,
+  // so it stays a Candidate and is marked rather than moved away (PLAN §17.6).
+  const unused = items.filter((c) => !c.used && !c.on_board);
+  const placed = items.filter((c) => !c.used && c.on_board);
   const used = items.filter((c) => c.used);
   return (
     <>
@@ -594,6 +597,17 @@ export function Candidates({
           <CandidateList items={unused} />
         )}
       </Section>
+      {placed.length > 0 && (
+        <Section
+          title={t.on_board}
+          count={placed.length}
+          hint={t.on_board_hint}
+          defaultOpen={false}
+        >
+          <div data-testid="on-board" />
+          <CandidateList items={placed} />
+        </Section>
+      )}
       {used.length > 0 && (
         <Section
           title={t.used_material}

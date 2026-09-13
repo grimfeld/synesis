@@ -12,6 +12,7 @@
 //! Per-device state (device id, local snapshots, import manifest) lives in the
 //! app data directory, never inside the vault.
 
+use crate::canvas::{self, Canvas};
 use crate::Result;
 use loro::{ExportMode, Frontiers, LoroDoc, LoroValue, UpdateOptions, ValueOrContainer, ID};
 use serde::{Deserialize, Serialize};
@@ -207,6 +208,17 @@ pub struct HistoryPoint {
 
 const VERSIONS: &str = "versions";
 
+/// The Composition's Board (ADR 0009), a map keyed by node and edge id so two
+/// Devices moving two different nodes both win. Edge keys are prefixed to keep
+/// them from colliding with node ids, which the spec does not forbid sharing.
+const CANVAS: &str = "canvas";
+const EDGE_PREFIX: &str = "e:";
+/// The order nodes were read in, which is their z-index. Held as one key
+/// because reordering is a whole-Board act, not a per-node one.
+const CANVAS_ORDER: &str = "#order";
+/// Root-level keys of the canvas file that the spec does not define.
+const CANVAS_EXTRA: &str = "#extra";
+
 #[derive(Default, Serialize, Deserialize)]
 struct Manifest {
     /// "<device>/<file>" -> (mtime ms, len)
@@ -401,6 +413,181 @@ impl Sync {
 
     fn known(&self, id: &str) -> bool {
         self.docs.contains_key(id) || self.local_snapshot_path(id).exists()
+    }
+
+    /// The Board this device's CRDT currently holds for a Composition.
+    ///
+    /// Stored as a map keyed by node and edge id rather than as text: two
+    /// Devices dragging two different nodes touch two different keys and both
+    /// win, where a text CRDT over JSON would interleave into an invalid file
+    /// (ADR 0009). Two Devices dragging the *same* node fall to Loro's per-key
+    /// last-writer-wins, which is the right answer for a coordinate.
+    pub fn canvas_of(&mut self, id: &str) -> Option<Canvas> {
+        if !self.known(id) {
+            return None;
+        }
+        canvas_in(self.doc(id))
+    }
+
+    /// The Board at a frontier (a Version's or a history point's), so a
+    /// Version covers the talk and its Board as one moment (PLAN §17.17).
+    pub fn canvas_at(&mut self, id: &str, frontier_hex: &str) -> Result<Option<Canvas>> {
+        if !self.known(id) {
+            return Ok(None);
+        }
+        let bytes = hex::decode(frontier_hex).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let f = Frontiers::decode(&bytes).map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        let doc = self.doc(id);
+        doc.commit();
+        let old = doc
+            .fork_at(&f)
+            .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+        Ok(canvas_in(&old))
+    }
+}
+
+/// Read a Board out of a Loro document's `canvas` map.
+///
+/// Free-standing so it can read a fork as easily as the live document, which
+/// is what makes a Board recoverable at a Version's frontier.
+fn canvas_in(doc: &LoroDoc) -> Option<Canvas> {
+    let m = match doc.get_map(CANVAS).get_value() {
+        LoroValue::Map(m) => m,
+        _ => return None,
+    };
+    if m.is_empty() {
+        return None;
+    }
+    let str_at = |key: &str| match m.get(key) {
+        Some(LoroValue::String(s)) => Some(s.to_string()),
+        _ => None,
+    };
+    // The order key is the z-index; ids it does not name are appended in
+    // map order so a node added by another Device is never dropped.
+    let order: Vec<String> = str_at(CANVAS_ORDER)
+        .and_then(|s| serde_json::from_str::<Vec<String>>(&s).ok())
+        .unwrap_or_default();
+    let mut nodes: Vec<canvas::Node> = Vec::new();
+    let mut edges: Vec<canvas::Edge> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
+    let push = |key: &str, nodes: &mut Vec<canvas::Node>, edges: &mut Vec<canvas::Edge>| {
+        let Some(raw) = (match m.get(key) {
+            Some(LoroValue::String(s)) => Some(s.to_string()),
+            _ => None,
+        }) else {
+            return;
+        };
+        if let Some(eid) = key.strip_prefix(EDGE_PREFIX) {
+            if let Ok(mut e) = serde_json::from_str::<canvas::Edge>(&raw) {
+                e.id = eid.to_string();
+                edges.push(e);
+            }
+        } else if let Ok(mut n) = serde_json::from_str::<canvas::Node>(&raw) {
+            n.id = key.to_string();
+            nodes.push(n);
+        }
+    };
+    for key in &order {
+        if m.contains_key(key.as_str()) {
+            push(key, &mut nodes, &mut edges);
+            seen.push(key.clone());
+        }
+    }
+    for key in m.keys() {
+        if key == CANVAS_ORDER || key == CANVAS_EXTRA || seen.contains(key) {
+            continue;
+        }
+        push(key, &mut nodes, &mut edges);
+    }
+    let extra: serde_json::Map<String, serde_json::Value> = str_at(CANVAS_EXTRA)
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    // Bookkeeping keys alone are not a Board: a Composition whose every
+    // node was deleted has none, the same as one that never had one.
+    if nodes.is_empty() && edges.is_empty() && extra.is_empty() {
+        return None;
+    }
+    Some(Canvas { nodes, edges, extra })
+}
+
+impl Sync {
+    /// Fold a Board into the CRDT, node by node.
+    ///
+    /// This is the structural reconcile the plan requires for external edits
+    /// (PLAN §17.14): whatever the source — this app's editor or Obsidian
+    /// writing the `.canvas` file — the incoming Board is diffed against the
+    /// map and only genuine differences are written, so an untouched node
+    /// records no operation and a concurrent remote edit to it survives.
+    /// Returns whether anything changed.
+    pub fn record_canvas(&mut self, id: &str, canvas: &Canvas) -> Result<bool> {
+        let doc = self.doc(id);
+        let map = doc.get_map(CANVAS);
+        let current = match map.get_value() {
+            LoroValue::Map(m) => m,
+            _ => Default::default(),
+        };
+        let at = |key: &str| match current.get(key) {
+            Some(LoroValue::String(s)) => Some(s.to_string()),
+            _ => None,
+        };
+        let mut changed = false;
+        let mut wanted: Vec<String> = Vec::new();
+
+        for n in &canvas.nodes {
+            let key = n.id.clone();
+            let json = serde_json::to_string(n)?;
+            if at(&key).as_deref() != Some(json.as_str()) {
+                map.insert(&key, json)
+                    .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+                changed = true;
+            }
+            wanted.push(key);
+        }
+        for e in &canvas.edges {
+            let key = format!("{EDGE_PREFIX}{}", e.id);
+            let json = serde_json::to_string(e)?;
+            if at(&key).as_deref() != Some(json.as_str()) {
+                map.insert(&key, json)
+                    .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+                changed = true;
+            }
+            wanted.push(key);
+        }
+        // A key the incoming Board no longer carries was deleted on this
+        // Device. Deleting it here is what lets the deletion reach the others.
+        for key in current.keys() {
+            if key == CANVAS_ORDER || key == CANVAS_EXTRA || wanted.contains(key) {
+                continue;
+            }
+            map.delete(key)
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            changed = true;
+        }
+
+        let order = serde_json::to_string(
+            &canvas.nodes.iter().map(|n| n.id.clone()).collect::<Vec<_>>(),
+        )?;
+        // Recording an empty Board into a map that holds nothing must leave it
+        // empty: a Composition whose Board tab was merely opened has no Board,
+        // and writing the order key alone would make `canvas_of` claim one.
+        let empty_noop = canvas.is_empty() && current.is_empty();
+        if !empty_noop && at(CANVAS_ORDER).as_deref() != Some(order.as_str()) {
+            map.insert(CANVAS_ORDER, order)
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            changed = true;
+        }
+        let extra = serde_json::to_string(&canvas.extra)?;
+        let extra_absent = canvas.extra.is_empty() && at(CANVAS_EXTRA).is_none();
+        if !extra_absent && at(CANVAS_EXTRA).as_deref() != Some(extra.as_str()) {
+            map.insert(CANVAS_EXTRA, extra)
+                .map_err(|e| crate::Error::Invalid(e.to_string()))?;
+            changed = true;
+        }
+
+        if changed {
+            self.persist(id, true)?;
+        }
+        Ok(changed)
     }
 
     /// Named Versions of a document, newest first.

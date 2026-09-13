@@ -15,6 +15,7 @@ import {
   House,
   LayoutGrid,
   MapPin,
+  Network,
   PenLine,
   RefreshCw,
   Search,
@@ -154,6 +155,21 @@ export function useCommands(): Command[] {
           s.openDoc(notes[Math.floor(Math.random() * notes.length)].id);
       },
     });
+    // The Board of the Composition being read. Named "Board" per the glossary,
+    // with "mind map" in the keywords so the palette finds it either way.
+    if (s.view.kind === "doc") {
+      const doc = s.docsById.get(s.view.id);
+      if (doc?.type === "composition") {
+        list.push({
+          id: "doc.board",
+          title: s.docTab === "board" ? t.board_tab_talk : t.board,
+          group: "navigate",
+          icon: Network,
+          keywords: "board mind map canvas talk outline",
+          run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
+        });
+      }
+    }
     // ---- editor
     if (hasEditor) {
       list.push({

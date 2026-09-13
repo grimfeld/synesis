@@ -204,7 +204,7 @@ export interface EventLink {
   subject: string;
 }
 
-/** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §16). */
+/** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17). */
 export interface DocTag {
   doc: string;
   tag: string;
@@ -244,6 +244,51 @@ export interface Candidate {
   score: number;
   /** The Composition already Mentions this document (link, Embed or Tag). */
   used: boolean;
+  /** The document sits on the Composition's Board: placed, not yet committed. */
+  on_board: boolean;
+}
+
+/** A node on a Board. JSON Canvas 1.0 (ADR 0009). */
+export interface CanvasNode {
+  id: string;
+  type: "text" | "file" | "group";
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  color?: string;
+  /** `text` nodes: the bubble's markdown. */
+  text?: string;
+  /** `file` nodes: the vault-relative path of the document. */
+  file?: string;
+  /** `file` nodes: a heading or block within it, always starting with `#`. */
+  subpath?: string;
+  /** `group` nodes: the label on the box. */
+  label?: string;
+  /**
+   * Fields this app does not understand, written by Obsidian or one of its
+   * plugins. Carried through untouched: a key we drop is a key we destroy.
+   */
+  [extra: string]: unknown;
+}
+
+export interface CanvasEdge {
+  id: string;
+  fromNode: string;
+  fromSide?: "top" | "right" | "bottom" | "left";
+  fromEnd?: "none" | "arrow";
+  toNode: string;
+  toSide?: "top" | "right" | "bottom" | "left";
+  toEnd?: "none" | "arrow";
+  color?: string;
+  label?: string;
+  [extra: string]: unknown;
+}
+
+export interface Board {
+  nodes: CanvasNode[];
+  edges: CanvasEdge[];
+  [extra: string]: unknown;
 }
 
 export interface TrailEntry {
@@ -456,6 +501,15 @@ export const api = {
   gazetteer: (query: string, limit = 8) =>
     invoke<GazetteerHit[]>("gazetteer", { query, limit }),
   candidates: (id: string) => invoke<Candidate[]>("candidates", { id }),
+  getBoard: (id: string) => invoke<Board | null>("get_board", { id }),
+  saveBoard: (id: string, board: Board) =>
+    invoke<void>("save_board", { id, board }),
+  boardsReferencing: (id: string) =>
+    invoke<DocSummary[]>("boards_referencing", { id }),
+  boardAt: (id: string, frontier: string) =>
+    invoke<Board | null>("board_at", { id, frontier }),
+  exportBoard: (path: string, data: string, base64: boolean) =>
+    invoke<void>("export_board", { path, data, base64 }),
   sourceTrail: (id: string) => invoke<TrailEntry[]>("source_trail", { id }),
   sourceChildren: (id: string) =>
     invoke<DocSummary[]>("source_children", { id }),

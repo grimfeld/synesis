@@ -140,8 +140,9 @@ describe("Editor (Writing page)", () => {
   it("shows candidate material on a Composition", () => {
     cy.openDoc("Talk on endurance");
     cy.get("[data-testid=right-panel]").should("contain", "Candidate material");
+    // Material the Composition neither uses nor keeps on its Board.
     cy.get("[data-testid=right-panel] [data-testid=candidates]")
       .parent()
-      .should("contain", "Endurance in trials");
+      .should("contain", "Undeserved kindness in Romans");
   });
 });

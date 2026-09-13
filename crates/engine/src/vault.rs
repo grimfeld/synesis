@@ -1,6 +1,7 @@
 //! The Vault: a folder of markdown files plus the index that describes it.
 //! All file access in the app goes through here (ADR 0004).
 
+use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
     self, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
@@ -192,6 +193,12 @@ impl Vault {
         self.sync_mut()?.delete_version(id, key)
     }
 
+    /// The Board at a Version's or history point's frontier, so a Version
+    /// covers the talk and its Board as one moment (PLAN §17.17).
+    pub fn board_at(&mut self, id: &str, frontier: &str) -> Result<Option<Canvas>> {
+        self.sync_mut()?.canvas_at(id, frontier)
+    }
+
     /// The document's full text at a Version's or history point's frontier.
     pub fn text_at(&mut self, id: &str, frontier: &str) -> Result<String> {
         self.sync_mut()?.text_at(id, frontier)
@@ -354,7 +361,34 @@ impl Vault {
                 self.index.remove_path(&path)?;
             }
         }
+        self.index_boards()?;
         Ok(changed)
+    }
+
+    /// Record the Board refs of every Composition that has a Board.
+    ///
+    /// Runs after the file walk rather than inside it: a `file` node names a
+    /// path, and a path only resolves once the document it names has been
+    /// indexed. Without this a Board's refs would appear only after the user
+    /// happened to open it, so material sitting on a Board would show as
+    /// untouched Candidate material until then.
+    fn index_boards(&mut self) -> Result<()> {
+        for comp in self.index.list(Some(DocType::Composition))? {
+            let rel = canvas::board_path(&comp.path);
+            let abs = self.abs(&rel);
+            if !abs.exists() {
+                continue;
+            }
+            let Ok(text) = fs::read_to_string(&abs) else { continue };
+            // A canvas this app cannot parse is left alone rather than
+            // reported: it is the user's file, and the Board view will say so.
+            let Ok(board) = Canvas::parse(&text) else { continue };
+            if let Some(sync) = self.sync.as_mut() {
+                sync.record_canvas(&comp.id, &board)?;
+            }
+            self.record_board_refs(&comp.id, &board)?;
+        }
+        Ok(())
     }
 
     /// Parse one file into the index, assigning an id if it has none and
@@ -464,6 +498,82 @@ impl Vault {
         self.read(id)
     }
 
+    /// The Board of a Composition, or `None` when it has none yet.
+    ///
+    /// A Board has no id of its own: it is the `.canvas` beside the
+    /// Composition's `.md` (ADR 0009). The file on disk wins over the CRDT the
+    /// same way a document's text does — it may have been edited in Obsidian
+    /// since this Device last looked — so reading folds the file in first.
+    pub fn read_board(&mut self, id: &str) -> Result<Option<Canvas>> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let rel = canvas::board_path(&summary.path);
+        let abs = self.abs(&rel);
+        if !abs.exists() {
+            // No file: the CRDT may still hold a Board another Device made,
+            // not yet materialised here.
+            return Ok(self.sync.as_mut().and_then(|s| s.canvas_of(id)));
+        }
+        let parsed = Canvas::parse(&fs::read_to_string(&abs)?)?;
+        let board = if let Some(sync) = self.sync.as_mut() {
+            // Structural reconcile (PLAN §17.14): diff the file against the
+            // map node by node, so an untouched node records no operation and
+            // a concurrent remote edit to it survives.
+            sync.record_canvas(id, &parsed)?;
+            match sync.canvas_of(id) {
+                Some(merged) => {
+                    if merged != parsed {
+                        write_atomic(&abs, &merged.to_json())?;
+                    }
+                    merged
+                }
+                None => parsed,
+            }
+        } else {
+            parsed
+        };
+        // An edit made elsewhere — Obsidian, or another Device — changes what
+        // the Board references, so the refs are recorded on read as well as on
+        // write.
+        self.record_board_refs(id, &board)?;
+        Ok(Some(board))
+    }
+
+    /// Record which documents a Board references, so they show as on the Board
+    /// rather than as untouched Candidates (PLAN §17.6).
+    fn record_board_refs(&mut self, id: &str, board: &Canvas) -> Result<()> {
+        let targets: Vec<String> = board.targets().into_iter().map(str::to_string).collect();
+        self.index.set_board_refs(id, &targets)
+    }
+
+    /// Replace a Composition's Board, writing the `.canvas` file and folding
+    /// it into the CRDT. An empty Board writes no file: a Composition that was
+    /// only ever opened should not litter the vault with empty canvases.
+    pub fn write_board(&mut self, id: &str, board: &Canvas) -> Result<()> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let rel = canvas::board_path(&summary.path);
+        let abs = self.abs(&rel);
+        if let Some(sync) = self.sync.as_mut() {
+            sync.record_canvas(id, board)?;
+        }
+        self.record_board_refs(id, board)?;
+        if board.is_empty() && !abs.exists() {
+            return Ok(());
+        }
+        write_atomic(&abs, &board.to_json())?;
+        Ok(())
+    }
+
+    /// Compositions whose Board references this document.
+    pub fn boards_referencing(&self, id: &str) -> Result<Vec<DocSummary>> {
+        self.index.boards_referencing(id)
+    }
+
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
     /// `keep` is the document's own path, so renaming a file to a different
     /// casing of itself is not a clash (case-insensitive file systems would
@@ -551,6 +661,15 @@ impl Vault {
         let new_rel = self.unique_path(&folder, &new_title, Some(&summary.path));
         if new_rel != summary.path {
             fs::rename(self.abs(&summary.path), self.abs(&new_rel))?;
+            // A Board is identified by its pairing, so it moves with the
+            // Composition or it stops being that Composition's (ADR 0009).
+            let (old_board, new_board) = (
+                self.abs(&canvas::board_path(&summary.path)),
+                self.abs(&canvas::board_path(&new_rel)),
+            );
+            if old_board.exists() {
+                fs::rename(&old_board, &new_board)?;
+            }
             self.index.remove_path(&summary.path)?;
         }
         // The file stem is lowercase; keep the typed capitalisation in `title` when it differs.
@@ -590,7 +709,27 @@ impl Vault {
                 self.index_file(&bl.doc.path)?;
             }
         }
+        if new_rel != summary.path {
+            self.rewrite_boards(id, &summary.path, &new_rel)?;
+        }
         self.read(id)
+    }
+
+    /// Point every Board that referenced `from` at `to`.
+    ///
+    /// JSON Canvas stores a path, not an id, so a rename breaks a `file` node
+    /// unless the paths are rewritten (PLAN §17.13). The document is named by
+    /// id rather than by its old path, which no longer resolves once the
+    /// rename has re-indexed it. Boards are found through the index rather
+    /// than by scanning the vault, so this costs one query.
+    fn rewrite_boards(&mut self, id: &str, from: &str, to: &str) -> Result<()> {
+        for comp in self.index.boards_referencing(id)? {
+            let Some(mut board) = self.read_board(&comp.id)? else { continue };
+            if board.rewrite_path(from, to) {
+                self.write_board(&comp.id, &board)?;
+            }
+        }
+        Ok(())
     }
 
     pub fn delete(&mut self, id: &str) -> Result<()> {
@@ -601,6 +740,13 @@ impl Vault {
         let p = self.abs(&summary.path);
         if p.exists() {
             fs::remove_file(p)?;
+        }
+        // The Board belongs to the Composition, so it goes too. Nodes on
+        // *other* Boards that pointed here are left alone and render as
+        // missing: never silently remove what the user placed (PLAN §17.13).
+        let board = self.abs(&canvas::board_path(&summary.path));
+        if board.exists() {
+            fs::remove_file(board)?;
         }
         if let Some(sync) = self.sync.as_mut() {
             sync.record_delete(id)?;
