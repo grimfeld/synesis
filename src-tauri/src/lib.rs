@@ -4,7 +4,8 @@
 
 use engine::document::DocType;
 use engine::index::{
-    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph, GraphLevel,
+    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
+    GraphLevel,
     SearchHit, TrailEntry, UnresolvedLink,
 };
 use engine::properties::{PropertySchema, PropertyType};
@@ -41,6 +42,12 @@ pub struct Settings {
     /// Desktop: keep syncing from the tray when the window is closed.
     #[serde(default = "default_true")]
     pub background_sync: bool,
+    /// Timeline: Subject types hidden from the Lanes (PLAN §16).
+    #[serde(default)]
+    pub timeline_hidden_types: Vec<String>,
+    /// Timeline: draw only the Lanes the current zoom covers.
+    #[serde(default = "default_true")]
+    pub timeline_in_view: bool,
 }
 
 fn default_true() -> bool {
@@ -215,6 +222,23 @@ fn set_language(state: State<AppState>, lang: Lang) -> CmdResult<()> {
 #[tauri::command]
 fn set_graph_level(state: State<AppState>, level: GraphLevel) -> CmdResult<()> {
     state.settings.lock().map_err(err)?.graph_level = Some(level);
+    state.save_settings()
+}
+
+/// The Timeline filters that outlive a session (PLAN §16.5): the Tag, Property
+/// and search filters stay in memory, since a Tag renamed in the Vault would
+/// otherwise hide every Lane with nothing on screen to say why.
+#[tauri::command]
+fn set_timeline_filters(
+    state: State<AppState>,
+    hidden_types: Vec<String>,
+    in_view: bool,
+) -> CmdResult<()> {
+    {
+        let mut st = state.settings.lock().map_err(err)?;
+        st.timeline_hidden_types = hidden_types;
+        st.timeline_in_view = in_view;
+    }
     state.save_settings()
 }
 
@@ -693,6 +717,11 @@ fn event_links(state: State<AppState>) -> CmdResult<Vec<EventLink>> {
 }
 
 #[tauri::command]
+fn timeline_tags(state: State<AppState>) -> CmdResult<Vec<DocTag>> {
+    state.with_vault(|v| v.timeline_tags())
+}
+
+#[tauri::command]
 fn candidates(state: State<AppState>, id: String) -> CmdResult<Vec<Candidate>> {
     state.with_vault(|v| v.candidates(&id))
 }
@@ -919,6 +948,7 @@ pub fn run() {
             get_settings,
             set_language,
             set_graph_level,
+            set_timeline_filters,
             set_sync_method,
             pairing::pairing_status,
             pairing::pairing_invite,
@@ -963,6 +993,7 @@ pub fn run() {
             timeline,
             events_naming,
             event_links,
+            timeline_tags,
             gazetteer,
             versions,
             save_version,

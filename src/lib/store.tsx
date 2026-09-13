@@ -27,6 +27,7 @@ import {
   type TagCount,
   type VaultInfo,
 } from "./api";
+import { NO_FILTERS, type Filters } from "./timeline";
 
 export type View =
   | { kind: "home" }
@@ -86,6 +87,10 @@ interface Store {
   sidebarOpen: boolean;
   panelOpen: boolean;
   sourceMode: boolean;
+  /** The Timeline's filters (PLAN §16.5): here, not in the view, so that a
+   *  round-trip to a Hub and back does not lose them. */
+  timelineFilters: Filters;
+  setTimelineFilters: (f: Filters) => void;
   openVault: (path?: string) => Promise<void>;
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
@@ -174,6 +179,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<ChangedPayload | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 900);
+  const [timelineFilters, setTimelineFiltersState] =
+    useState<Filters>(NO_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
   const [sourceMode, setSourceModeState] = useState(readSourceMode);
   const viewRef = useRef(view);
@@ -358,6 +365,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSettings(await api.getSettings());
   }, []);
 
+  // The type chips and the viewport cull are preferences, so they come back from
+  // settings; the Tag, Property and search filters deliberately start empty.
+  // Seeded once, not on every settings change: a later refresh carries the value
+  // this session started with and would undo the filter the user just set.
+  const seededFilters = useRef(false);
+  useEffect(() => {
+    if (!settings || seededFilters.current) return;
+    seededFilters.current = true;
+    setTimelineFiltersState((f) => ({
+      ...f,
+      hiddenTypes: settings.timeline_hidden_types ?? [],
+      inView: settings.timeline_in_view ?? true,
+    }));
+  }, [settings]);
+
+  const setTimelineFilters = useCallback((f: Filters) => {
+    setTimelineFiltersState((prev) => {
+      if (
+        prev.inView !== f.inView ||
+        prev.hiddenTypes.join() !== f.hiddenTypes.join()
+      )
+        api.setTimelineFilters(f.hiddenTypes, f.inView).catch(console.error);
+      return f;
+    });
+  }, []);
+
   const setSourceMode = useCallback((b: boolean) => {
     setSourceModeState(b);
     try {
@@ -385,6 +418,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     changeTick,
     lastChange,
     sidebarOpen,
+    timelineFilters,
     panelOpen,
     sourceMode,
     openVault,
@@ -403,6 +437,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setLang,
     setSyncMethod,
     setSidebarOpen,
+    setTimelineFilters,
     setPanelOpen,
     setSourceMode,
     setPropertyType,
