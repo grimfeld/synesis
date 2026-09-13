@@ -2,6 +2,7 @@
 //! the SQLite index and the Vault itself. Everything that is not UI lives here
 //! (see docs/adr/0004-rust-engine-react-ui.md).
 
+pub mod canvas;
 pub mod dates;
 pub mod document;
 pub mod gazetteer;

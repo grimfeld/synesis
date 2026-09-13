@@ -226,3 +226,56 @@ Syncthing was judged too involved for most users. Decided: a built-in peer-to-pe
 - Per-Device pairing covering all Vaults.
 - Same-network-only sync without relays.
 - Key rotation on removal (later).
+
+## 16. Boards: a mind map per Composition (grilling session, 2026-09-13)
+
+People preparing talks want to arrange their material spatially before writing prose. New vocabulary in [CONTEXT.md](../CONTEXT.md): **Board**. Disk format is [JSON Canvas 1.0](https://jsoncanvas.org/spec/1.0/), the open spec Obsidian uses for `.canvas` files (ADR 0009).
+
+### Decided
+
+1. **A Board is a free-form canvas**, not an outline mirror of the Composition's headings and not a filtered Graph. The job is the thinking done *before* there is prose, so it needs its own surface and its own state.
+2. **JSON Canvas**, one file per Composition: `Compositions/talk on endurance.canvas` beside `talk on endurance.md`. The deciding argument is the fallback-client promise (ADR 0003): every other storage option shows coordinate soup or nothing in Obsidian, while a `.canvas` opens there as a working canvas. The format also gives `file` nodes a `subpath` (`#Heading`, `#^block`), which is a Clipping or a Note section on the Board without inventing anything.
+3. **One Board per Composition, paired by path.** Boards are not a document type: JSON Canvas has no root metadata slot, so a canvas cannot carry the ULID every other file does (§3), and a standalone Map type would fall back to identity-by-path — the exact problem the frontmatter `id` exists to avoid (§11). Pairing sidesteps identity altogether.
+4. **Merged as a Loro map inside the Composition's existing `LoroDoc`**, a `canvas` container beside `body` and `meta`. Node-id-keyed, so two Devices dragging two different nodes both win; concurrent edits to the *same* node fall to per-key LWW, which is right for a coordinate. One snapshot, one delete path, one Version covering talk and Board together. A text CRDT over JSON would interleave into invalid files; last-writer-wins over the whole file would drop a Device's work and break the conflict-free non-negotiable (§2).
+5. **Node types: `text`, `file`, `group`.** No `link` nodes — an external URL is a Source. `group` earns its place because labelled sections are what turn a scatter of ideas into a talk.
+6. **Board refs are indexed apart from prose links**, via a `kind` column on `links`. `candidates` filters to prose only, so dragging a Candidate onto the Board does not mark it used — §14.7 defines used as committed to the talk, and the Board is where nothing is committed yet. The Candidates panel gains an "on the board" state between unused and used, and a referenced document's Hub gains a "Boards" line, so material placed on a Board is visible from both ends.
+7. **Editing**: pan, zoom, create / drag / select / delete / edit nodes, draw edges, create groups, multi-select with marquee, edge labels, colors, resize. No auto-layout: arrangement by hand is the entire point. No group auto-move: JSON Canvas has no parent field, membership is geometric only, so a group is an honest visual backdrop.
+8. **Preserve unknown fields.** Hard requirement, not a nicety. The spec is silent on unknown keys and Obsidian round-trips them, so anything Synesis parses and does not keep is destroyed the moment the user touches the Board here. Keep the raw JSON per node.
+9. **UI is a tab on the Composition** ("Talk" / "Board"). A tab is discoverable where a third editor mode behind a shortcut is not, and Live Preview / Source are two views of one text (§12.2) while a Board is different content in a different file. The Board sizes from its container and the tab lives in the store rather than the route, so the later split pane (talk left, Board right) is not foreclosed.
+10. **Material arrives** three ways: palette search on the canvas, a Candidates drawer on the Board, and a button on the Candidates panel. The drawer is what makes this Synesis rather than a generic canvas — the app already knows which material shares Tags and Passages with this talk.
+11. **Typed `[[links]]` in a `text` node are ordinary Mentions; dragged `file` nodes are Board refs.** A known rough edge, accepted: the alternative is markdown meaning different things in different files. What you typed is a claim, what you dragged is a reference.
+12. **`file` nodes render as card plus excerpt** — a Clipping shows its quote rather than its made-up title, a Note its first line, a Hub its type and mention count, and a `subpath` node that section. No live embeds: a renderer per node will not survive a forty-node Board, and body text is unreadable at the zoom where a Board is useful.
+13. **Rename rewrites paths** in every Board referencing the document, engine-side in `rename_document`. **Delete keeps the node**, rendered as missing — never silently remove something the user placed by hand, and a hole in a spatial layout is worse than a missing list row. Precedent: `unresolved_links` surfaces broken references rather than hiding them.
+14. **External edits reconcile structurally**: parse the JSON, diff node by node against the map, apply. The watcher learns `.canvas`. Folding outside edits is mandatory (ADR 0003), and wholesale replace would reintroduce through Obsidian exactly the loss the map CRDT exists to prevent.
+15. **Mobile is view plus light edit**: pan, zoom, tap to open a node's document, long-press to move one. No edge-drawing (fiddly by finger in every app that has tried it), no groups, no marquee. Preparing a talk is a desk activity; reviewing a Board before speaking is a phone one.
+16. **Fit-all on open, no viewport persistence.** A Board's shape is the point and fit-all shows it. The Timeline persists its range because that range is a query; a Board's viewport is not.
+17. **Versions cover text and Board together**, and the diff view gains a Board tab listing nodes added, removed and moved. Restore restores both, said plainly in the confirmation. A Version is a moment (§14.8); restoring half of one is not.
+18. **Export** is a Command producing SVG and PNG of the Board's extent. The renderer is SVG anyway (the `TimelineView` precedent), so this is cheap. Not PDF — that belongs to the later Composition export (§8), and a Board is not a page.
+
+### Build order
+
+Each step ships with engine tests, a Cypress spec, and demo-vault content that exercises it.
+
+1. **Engine: canvas model and the Loro map.** Parse and serialise JSON Canvas, preserve unknown fields, add the `canvas` container to the Composition's doc, structural reconcile. Rust tests including two Devices dragging different nodes concurrently and an Obsidian-style external edit folded in.
+2. **Engine: indexing.** `kind` on `links`, Board refs recorded, `candidates` filtered to prose, `boards_referencing(id)`, path rewrite in `rename_document`.
+3. **UI: the Board tab and canvas.** Render, pan / zoom, table-stakes editing. `src/lib/board.ts` takes the geometry — hit-testing, marquee, fit-all — as Vitest territory, mirroring the `src/lib/timeline.ts` precedent.
+4. **UI: material.** Candidates drawer, palette insert, Candidates-panel button, card-plus-excerpt rendering.
+5. **Editing extras.** Multi-select and marquee, edge labels, colors, resize, groups.
+6. **Mobile.** The view-plus-light-edit gesture model; `cypress/e2e/touch.cy.ts`.
+7. **Versions Board diff and export.**
+
+Demo vault: "Talk on endurance" gains a Board exercising every node type — a few `text` bubbles for its points, `file` nodes pointing at the existing Clipping and a Note, one labelled `group`, one labelled edge.
+
+### Declined
+
+- **Outline mirror** (the Composition's heading tree drawn as a radial map) and **scoped Graph** (GraphView filtered to one Composition's neighbourhood): both are views of existing data, and neither is the pre-writing surface the feature is for.
+- **Standalone Map documents** in a `Maps/` folder: no place for a ULID in the format.
+- **Sidecar JSON under `.bible-study/`** and **coordinates in the Composition's frontmatter**: both invisible or ugly in the fallback client.
+- **Last-writer-wins on the whole file**, and **a separate `LoroDoc` for the canvas** (splits Versions).
+- **`link` nodes**, **auto-layout**, **group auto-move**, **live embeds in nodes**, **full mobile editing**, **viewport persistence**, **PDF export**.
+
+### Open
+
+- Whether a Board can exist before its Composition does. Currently no: name the talk first.
+- Nested groups.
+- Whether `text` node markdown gets Passage detection like other bodies.

@@ -1,6 +1,7 @@
 //! The Vault: a folder of markdown files plus the index that describes it.
 //! All file access in the app goes through here (ADR 0004).
 
+use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
     self, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, EventLink, Graph,
@@ -457,6 +458,60 @@ impl Vault {
         write_atomic(&self.abs(&summary.path), &text)?;
         self.index_file(&summary.path)?;
         self.read(id)
+    }
+
+    /// The Board of a Composition, or `None` when it has none yet.
+    ///
+    /// A Board has no id of its own: it is the `.canvas` beside the
+    /// Composition's `.md` (ADR 0009). The file on disk wins over the CRDT the
+    /// same way a document's text does — it may have been edited in Obsidian
+    /// since this Device last looked — so reading folds the file in first.
+    pub fn read_board(&mut self, id: &str) -> Result<Option<Canvas>> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let rel = canvas::board_path(&summary.path);
+        let abs = self.abs(&rel);
+        if !abs.exists() {
+            // No file: the CRDT may still hold a Board another Device made,
+            // not yet materialised here.
+            return Ok(self.sync.as_mut().and_then(|s| s.canvas_of(id)));
+        }
+        let parsed = Canvas::parse(&fs::read_to_string(&abs)?)?;
+        if let Some(sync) = self.sync.as_mut() {
+            // Structural reconcile (PLAN §16.14): diff the file against the
+            // map node by node, so an untouched node records no operation and
+            // a concurrent remote edit to it survives.
+            sync.record_canvas(id, &parsed)?;
+            if let Some(merged) = sync.canvas_of(id) {
+                if merged != parsed {
+                    write_atomic(&abs, &merged.to_json())?;
+                }
+                return Ok(Some(merged));
+            }
+        }
+        Ok(Some(parsed))
+    }
+
+    /// Replace a Composition's Board, writing the `.canvas` file and folding
+    /// it into the CRDT. An empty Board writes no file: a Composition that was
+    /// only ever opened should not litter the vault with empty canvases.
+    pub fn write_board(&mut self, id: &str, board: &Canvas) -> Result<()> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let rel = canvas::board_path(&summary.path);
+        let abs = self.abs(&rel);
+        if let Some(sync) = self.sync.as_mut() {
+            sync.record_canvas(id, board)?;
+        }
+        if board.is_empty() && !abs.exists() {
+            return Ok(());
+        }
+        write_atomic(&abs, &board.to_json())?;
+        Ok(())
     }
 
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
