@@ -1,20 +1,27 @@
 // Hub page: a Source or a Subject. The page gathers what points at it; the
 // markdown body is an optional "About" at the bottom.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleAlert,
   ExternalLink,
+  FilePlus,
+  ImagePlus,
   MapPin,
   PenLine,
+  Plus,
   RefreshCw,
   Trash2,
+  X,
 } from "lucide-react";
 import { cn } from "cn";
 import {
@@ -24,29 +31,44 @@ import {
   type DatedProperty,
   type DocSummary,
   type DocumentPayload,
+  type Journey,
   type TrailEntry,
+  type UnlinkedMentions as UnlinkedMentionsData,
   type VerseCount,
+  LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
-import { formatShortcut } from "@/lib/keys";
+import { formatShortcut, shortcut } from "@/lib/keys";
+import { childKindFor } from "@/lib/library";
+import { quoteBody } from "@/lib/clippingBody";
 import { setField, splitFrontmatter } from "@/lib/frontmatter";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
+import { stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
-import { TypeDot } from "@/components/DocLink";
+import { EventDate, TypeDot } from "@/components/DocLink";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { PanelTitle } from "@/components/Field";
-import { Backlinks, Properties, Section } from "@/components/RightPanel";
+import {
+  Backlinks,
+  Properties,
+  Section,
+  UnlinkedMentions,
+} from "@/components/RightPanel";
+import { Cover } from "@/components/Cover";
 import { DocLink } from "@/components/DocLink";
+import { Input } from "@/components/ui/input";
 import { MiniTimeline } from "@/components/MiniTimeline";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Kbd } from "@/components/ui/kbd";
+import { Textarea } from "@/components/ui/textarea";
 
 export function HubView({ id }: { id: string }) {
   const s = useStore();
@@ -54,14 +76,29 @@ export function HubView({ id }: { id: string }) {
   const d = useDocument(id);
   const [hover, setHover] = useState<HoverState | null>(null);
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
+  const [unlinked, setUnlinked] = useState<UnlinkedMentionsData>({
+    items: [],
+    total: 0,
+  });
   const [boards, setBoards] = useState<DocSummary[]>([]);
   const doc = d.doc;
+
+  // Linking rewrites another document, so both lists are refetched together:
+  // what leaves one joins the other.
+  const reload = useCallback(() => {
+    api.backlinks(id).then(setBacklinks).catch(console.error);
+    api.unlinkedMentions(id).then(setUnlinked).catch(console.error);
+  }, [id]);
 
   useEffect(() => {
     let alive = true;
     api
       .backlinks(id)
       .then((b) => alive && setBacklinks(b))
+      .catch(console.error);
+    api
+      .unlinkedMentions(id)
+      .then((u) => alive && setUnlinked(u))
       .catch(console.error);
     // Material placed on a Board is visible from the document's side too, so
     // twelve Notes on a Board are not a one-way mirror (PLAN §17.6).
@@ -236,6 +273,26 @@ export function HubView({ id }: { id: string }) {
         )}
         {type === "source" && (
           <IconButton
+            label={t.add_child_to(sum.title)}
+            onClick={() =>
+              s.setDialog({
+                kind: "new",
+                type: "source",
+                // The parent is settled by standing on its page, so the
+                // dialog opens with it filled and the kind it usually holds.
+                fields: {
+                  parent: sum.title,
+                  parent_id: sum.id,
+                  kind: childKindFor(fmString(doc.frontmatter.kind)),
+                },
+              })
+            }
+          >
+            <Plus />
+          </IconButton>
+        )}
+        {type === "source" && (
+          <IconButton
             label={t.new_clipping_from}
             onClick={() =>
               s.setDialog({
@@ -246,6 +303,20 @@ export function HubView({ id }: { id: string }) {
             }
           >
             <PenLine />
+          </IconButton>
+        )}
+        {type === "source" && (
+          <IconButton
+            label={t.new_note_from}
+            onClick={() =>
+              s.setDialog({
+                kind: "new",
+                type: "note",
+                fields: { source: sum.title, source_id: sum.id },
+              })
+            }
+          >
+            <FilePlus />
           </IconButton>
         )}
         {type === "place" && (
@@ -300,7 +371,13 @@ export function HubView({ id }: { id: string }) {
             onFmChange={d.onFmChange}
           />
           <div className="mt-8 space-y-8">
-            <TypeSection doc={doc} book={book} title={title} />
+            <TypeSection
+              doc={doc}
+              book={book}
+              title={title}
+              fm={d.fm}
+              onFmChange={d.onFmChange}
+            />
             {boards.length > 0 && (
               <Section
                 title={t.boards}
@@ -329,10 +406,20 @@ export function HubView({ id }: { id: string }) {
               </Section>
             )}
             <Backlinks items={backlinks} subject={type !== "source"} inline />
+            {/* Adjacent to Backlinks: the same question asked the other way
+                round, and the two lists never hold the same document. */}
+            {doc && LINKABLE_TARGET_TYPES.includes(type) && (
+              <UnlinkedMentions
+                target={doc.summary}
+                data={unlinked}
+                onChanged={reload}
+                inline
+              />
+            )}
             <About
               doc={doc}
               body={d.body}
-              onBodyChange={d.onBodyChange}
+              onBodyChange={d.setBodyText}
               env={env}
               names={d.names}
               title={title}
@@ -346,6 +433,98 @@ export function HubView({ id }: { id: string }) {
           excludeId={id}
           onClose={() => setHover(null)}
         />
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Source's Cover on its own Hub, and the place to change it (ADR 0012).
+ *
+ * Copying happens here and now rather than being staged, because the Source
+ * already exists: its title is settled, so the picture can be named after it
+ * straight away. Only the New dialog has to wait.
+ */
+function SourceCover({
+  doc,
+  fm,
+  onFmChange,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+}) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const cover = fmString(doc.frontmatter.cover);
+
+  const choose = async () => {
+    const picked = await openFileDialog({
+      multiple: false,
+      filters: [
+        { name: "Image", extensions: ["jpg", "jpeg", "png", "gif", "webp"] },
+      ],
+    });
+    if (typeof picked !== "string") return;
+    setBusy(true);
+    try {
+      const rel = await api.attachImage(doc.summary.title, picked);
+      onFmChange(setField(fm, "cover", rel));
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div data-testid="hub-cover" className="w-full md:w-40">
+      <button
+        type="button"
+        data-testid="hub-cover-choose"
+        className="group relative block w-full rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        aria-label={t.cover_choose}
+        title={t.cover_choose}
+        disabled={busy}
+        onClick={choose}
+      >
+        <Cover
+          entry={{
+            id: doc.summary.id,
+            title: doc.summary.title,
+            kind: fmString(doc.frontmatter.kind),
+            cover,
+            date: fmString(doc.frontmatter.date),
+            parent_id: null,
+            child_count: 0,
+          }}
+        />
+        <span className="absolute inset-0 flex items-center justify-center rounded-md bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
+          <ImagePlus className="size-5 text-white" />
+        </span>
+      </button>
+      {/^https?:\/\//i.test(cover) && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="mt-2 w-full"
+          data-testid="hub-cover-save-copy"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const rel = await api.saveRemoteCover(doc.summary.title, cover);
+              onFmChange(setField(fm, "cover", rel));
+            } catch (e) {
+              console.error(e);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {t.cover_save_copy}
+        </Button>
       )}
     </div>
   );
@@ -413,6 +592,11 @@ function HubHeader({
           </div>
         )}
       </div>
+      {type === "source" && (
+        // The same slot a Place uses for its mini-map: a Source's Cover is
+        // what identifies it at a glance, in the Library and here (ADR 0012).
+        <SourceCover doc={doc} fm={fm} onFmChange={onFmChange} />
+      )}
       {isPlace && (
         <button
           data-testid="hub-map"
@@ -475,10 +659,14 @@ function TypeSection({
   doc,
   book,
   title,
+  fm,
+  onFmChange,
 }: {
   doc: DocumentPayload;
   book?: { number: number; name: string; chapters: number[] };
   title: string;
+  fm: string;
+  onFmChange: (fm: string) => void;
 }) {
   switch (doc.summary.type) {
     case "source":
@@ -489,6 +677,13 @@ function TypeSection({
       return book ? (
         <ScriptureSection doc={doc} book={book} title={title} />
       ) : null;
+    case "journey":
+      return (
+        <>
+          <JourneySection doc={doc} fm={fm} onFmChange={onFmChange} />
+          <DatesSection doc={doc} />
+        </>
+      );
     case "event":
     case "character":
     case "place":
@@ -497,6 +692,167 @@ function TypeSection({
     default:
       return null;
   }
+}
+
+/** The list a `places` Property holds, whatever shape YAML gave it. */
+function stopList(v: unknown): string[] {
+  if (Array.isArray(v)) return v.map((x) => String(x));
+  if (typeof v === "string" && v.trim()) return [v];
+  return [];
+}
+
+/** The document a `[[wikilink]]` names, or the text itself when it is bare. */
+function linkTarget(raw: string): string {
+  const m = raw.match(/^\s*\[\[([^\]|]+)(?:\|[^\]]*)?\]\]\s*$/);
+  return (m ? m[1] : raw).trim();
+}
+
+/**
+ * A Journey's Stops in travel order (PLAN §19.11): reorder, remove, and add
+ * from the Vault's Places. The order of this list is the route, so it is
+ * edited here rather than through the plain `list` widget, which cannot
+ * reorder — and getting the order wrong on a first pass is certain.
+ */
+function JourneySection({
+  doc,
+  fm,
+  onFmChange,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+}) {
+  const s = useStore();
+  const t = useT();
+  const [journey, setJourney] = useState<Journey | null>(null);
+  const id = doc.summary.id;
+
+  useEffect(() => {
+    api
+      .journeys()
+      .then((js) => setJourney(js.find((j) => j.doc.id === id) ?? null))
+      .catch(console.error);
+  }, [id, s.changeTick, doc.summary.mtime]);
+
+  const stops = journey?.stops ?? [];
+  const cannot = stops.filter((x) => x.status !== "ok").length;
+
+  // Written the way every other list Property is (ChipsRow): through the
+  // frontmatter text, so one edit path serves the app and Obsidian alike.
+  const write = (next: string[]) =>
+    onFmChange(setField(fm, "places", next.length ? next : null));
+  const move = (from: number, to: number) => {
+    if (to < 0 || to >= stops.length) return;
+    const raw = stopList(doc.frontmatter.places);
+    const next = [...raw];
+    const [x] = next.splice(from, 1);
+    next.splice(to, 0, x);
+    write(next);
+  };
+  const remove = (i: number) => {
+    const next = stopList(doc.frontmatter.places).filter((_, n) => n !== i);
+    write(next);
+  };
+
+  const why = (status: string) =>
+    status === "no_coords"
+      ? t.journey_stop_no_coords
+      : status === "unresolved"
+        ? t.journey_stop_unresolved
+        : status === "not_a_place"
+          ? t.journey_stop_not_a_place
+          : "";
+
+  return (
+    <section
+      data-testid="journey-stops"
+      className="rounded-2xl border bg-card p-6 shadow-xs"
+    >
+      <h2 className="mb-1 text-sm font-semibold">{t.journey_stops}</h2>
+      <p className="mb-3 text-xs text-muted-foreground">
+        {t.journey_stops_hint}
+      </p>
+      {cannot > 0 && (
+        <p
+          data-testid="journey-undrawable"
+          className="mb-3 text-xs text-muted-foreground"
+        >
+          {t.journey_undrawable(cannot)}
+        </p>
+      )}
+      {stops.length === 0 ? (
+        <p className="text-xs text-muted-foreground">{t.no_journey_stops}</p>
+      ) : (
+        <ol className="flex flex-col gap-1">
+          {stops.map((stop, i) => (
+            <li
+              key={`${stop.target}-${i}`}
+              data-testid="journey-stop"
+              data-status={stop.status}
+              className="flex min-w-0 items-center gap-2 rounded-lg border px-2 py-1.5"
+            >
+              <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">
+                {i + 1}
+              </span>
+              <button
+                type="button"
+                className="min-w-0 flex-1 truncate text-left text-sm hover:underline underline-offset-2"
+                onClick={() => s.openLink(linkTarget(stop.target))}
+              >
+                {stop.doc?.title ?? linkTarget(stop.target)}
+              </button>
+              {stop.status !== "ok" && (
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {why(stop.status)}
+                </span>
+              )}
+              <div className="flex shrink-0 items-center gap-0.5">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t.journey_move_up}
+                  disabled={i === 0}
+                  onClick={() => move(i, i - 1)}
+                >
+                  <ChevronUp />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t.journey_move_down}
+                  disabled={i === stops.length - 1}
+                  onClick={() => move(i, i + 1)}
+                >
+                  <ChevronDown />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label={t.journey_remove_stop}
+                  onClick={() => remove(i)}
+                >
+                  <X />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <Button
+        size="sm"
+        variant="outline"
+        className="mt-3"
+        data-testid="journey-show-on-map"
+        onClick={() => {
+          s.setMapFilters({ ...s.mapFilters, journeys: [id] });
+          s.navigate({ kind: "map" });
+        }}
+      >
+        <MapPin />
+        {t.show_on_map}
+      </Button>
+    </section>
+  );
 }
 
 /** Dates on a Subject (ADR 0005) and, for anything but an Event, the Events naming it. */
@@ -540,11 +896,7 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
   return (
     <section data-testid="hub-dates" className="space-y-4">
       {anyParsed && (
-        <MiniTimeline
-          doc={doc.summary}
-          dates={dates}
-          events={eventDates}
-        />
+        <MiniTimeline doc={doc.summary} dates={dates} events={eventDates} />
       )}
       {dates.length > 0 && (
         <div>
@@ -595,17 +947,251 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
   );
 }
 
+/**
+ * Add parts to a Source without leaving its page (ADR 0012).
+ *
+ * Title only: the parent, and the kind a parent of this kind usually holds,
+ * are inherited, so adding a dozen chapters is a dozen keystrokes and an
+ * Enter each rather than a dozen trips through the dialog. The field keeps
+ * focus between them.
+ *
+ * Pasting several lines creates them all, behind a confirm — a contents page
+ * is usually something you can copy, and creating twelve files is not
+ * something to do silently.
+ */
+function AddChildren({
+  parent,
+  parentKind,
+}: {
+  parent: DocSummary;
+  parentKind: string;
+}) {
+  const s = useStore();
+  const t = useT();
+  const [value, setValue] = useState("");
+  const [pending, setPending] = useState<string[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const kind = childKindFor(parentKind);
+
+  const create = async (titles: string[]) => {
+    setBusy(true);
+    try {
+      for (const title of titles) {
+        await s.createDoc(
+          "source",
+          title,
+          { kind, parent: `[[${parent.title}]]` },
+          "",
+          // Stay on the parent: the point of the row is to add a dozen parts
+          // without leaving the page, and opening each one defeats it.
+          false,
+        );
+      }
+      setValue("");
+      setPending(null);
+    } finally {
+      setBusy(false);
+      // After re-enabling, not before: a disabled input cannot take focus, and
+      // keeping it is what makes a run of a dozen parts one keystroke each.
+      requestAnimationFrame(() => input.current?.focus());
+    }
+  };
+
+  if (pending) {
+    return (
+      <div
+        data-testid="add-children-confirm"
+        className="flex flex-wrap items-center gap-2 rounded-md border border-dashed p-2 text-sm"
+      >
+        <span className="min-w-0 flex-1">
+          {t.add_many_confirm(pending.length)}
+        </span>
+        <Button size="sm" disabled={busy} onClick={() => create(pending)}>
+          {t.create}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => setPending(null)}>
+          {t.cancel}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <Input
+      ref={input}
+      data-testid="add-child-input"
+      className="h-8 text-sm"
+      value={value}
+      disabled={busy}
+      placeholder={t.add_child_placeholder}
+      onChange={(e) => setValue(e.target.value)}
+      onPaste={(e) => {
+        const lines = e.clipboardData
+          .getData("text")
+          .split(/\r?\n/)
+          .map((l) => l.trim())
+          .filter(Boolean);
+        // One line is an ordinary paste; a list is a batch worth confirming.
+        if (lines.length < 2) return;
+        e.preventDefault();
+        setPending(lines);
+      }}
+      onKeyDown={(e) => {
+        if (e.key !== "Enter") return;
+        e.preventDefault();
+        const title = value.trim();
+        if (title) create([title]);
+      }}
+    />
+  );
+}
+
+/**
+ * Keep a Clipping or write a Note without leaving the Source.
+ *
+ * The Source is settled by standing on its page, so it is shown rather than
+ * picked — the fast path should not re-ask a question navigating here already
+ * answered. The full dialog in the header is where a Clipping goes to a
+ * different Source, or carries a URL and a Cover.
+ */
+function SourceCapture({ source }: { source: DocSummary }) {
+  const s = useStore();
+  const t = useT();
+  const [type, setType] = useState<"clipping" | "note">("clipping");
+  const [text, setText] = useState("");
+  const [locator, setLocator] = useState("");
+  const [title, setTitle] = useState("");
+  const [busy, setBusy] = useState(false);
+  const area = useRef<HTMLTextAreaElement>(null);
+  const clipping = type === "clipping";
+
+  const submit = async () => {
+    if (!text.trim() || busy) return;
+    setBusy(true);
+    try {
+      const fields: Record<string, string> = {
+        source: `[[${source.title}]]`,
+      };
+      if (clipping && locator.trim()) fields.locator = locator.trim();
+      await s.createDoc(
+        type,
+        // A Clipping has no title: the engine names the file from the
+        // Citation in these fields (ADR 0013).
+        clipping ? "" : title.trim() || stamp(),
+        fields,
+        clipping ? quoteBody(text) : text.trim() + "\n",
+        // Stay on the Source: capturing five passages from one chapter is the
+        // point, and opening each one defeats it.
+        false,
+      );
+      setText("");
+      setLocator("");
+      setTitle("");
+    } finally {
+      setBusy(false);
+      // After re-enabling, not before: a disabled textarea cannot take focus.
+      requestAnimationFrame(() => area.current?.focus());
+    }
+  };
+
+  return (
+    <section
+      data-testid="hub-capture"
+      className={cn(
+        "mb-6 rounded-lg border-l-2 bg-card p-3",
+        clipping ? "border-l-type-clipping" : "border-l-type-note",
+      )}
+    >
+      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex gap-1">
+          {(["clipping", "note"] as const).map((k) => (
+            <Button
+              key={k}
+              size="sm"
+              variant={type === k ? "default" : "ghost"}
+              className="h-auto min-h-7 px-2 text-xs whitespace-normal"
+              data-testid={`capture-as-${k}`}
+              aria-pressed={type === k}
+              onClick={() => setType(k)}
+            >
+              <TypeDot type={k} />
+              {t.types[k]}
+            </Button>
+          ))}
+        </div>
+        <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+          {t.capture_from(source.title)}
+        </span>
+      </div>
+      <Textarea
+        ref={area}
+        rows={3}
+        data-testid="capture-text"
+        className="font-prose text-[15px]"
+        placeholder={
+          clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
+        }
+        value={text}
+        disabled={busy}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
+        }}
+      />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <Input
+          data-testid={clipping ? "capture-locator" : "capture-title"}
+          className="h-8 min-w-0 flex-1 text-sm"
+          placeholder={clipping ? t.locator : t.capture_note_title}
+          value={clipping ? locator : title}
+          disabled={busy}
+          onChange={(e) =>
+            clipping ? setLocator(e.target.value) : setTitle(e.target.value)
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <Button
+          size="sm"
+          data-testid="capture-submit"
+          className="h-8"
+          disabled={!text.trim() || busy}
+          onClick={submit}
+        >
+          {t.create}
+          <Kbd className="bg-primary-foreground/20 text-primary-foreground">
+            {shortcut("↵")}
+          </Kbd>
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 function SourceSection({ doc }: { doc: DocumentPayload }) {
   const s = useStore();
   const t = useT();
   const id = doc.summary.id;
+  // The kind a new part defaults to depends on what this Source is: a book
+  // holds chapters, a periodical issues.
+  const sourceKind = String(doc.frontmatter.kind ?? "");
   const [trail, setTrail] = useState<TrailEntry[]>([]);
+  const [clippings, setClippings] = useState<TrailEntry[]>([]);
   const [children, setChildren] = useState<DocSummary[]>([]);
   useEffect(() => {
     let alive = true;
     api
       .sourceTrail(id)
       .then((x) => alive && setTrail(x))
+      .catch(console.error);
+    api
+      .clippings(id)
+      .then((x) => alive && setClippings(x))
       .catch(console.error);
     api
       .sourceChildren(id)
@@ -615,10 +1201,13 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
       alive = false;
     };
   }, [id, s.changeTick, doc.summary.mtime]);
-  // Group under the child Source each entry came from; the parent's own entries first.
+  // Group under the child Source each entry came from; the parent's own
+  // entries first. Clippings are left out: they have their own section above,
+  // because a Clipping belongs to its Source in a way that a Note merely
+  // citing it does not (ADR 0013).
   const groups = useMemo(() => {
     const m = new Map<string, { source: DocSummary; items: TrailEntry[] }>();
-    for (const e of trail) {
+    for (const e of trail.filter((e) => e.doc.type !== "clipping")) {
       const g = m.get(e.source.id) ?? { source: e.source, items: [] };
       g.items.push(e);
       m.set(e.source.id, g);
@@ -628,11 +1217,38 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
     return [...(own ? [own] : []), ...m.values()];
   }, [trail, id]);
   return (
-    <section data-testid="hub-trail">
-      <PanelTitle className="mb-3">{t.reading_trail}</PanelTitle>
-      {trail.length === 0 && children.length === 0 ? (
-        <Empty text={t.no_trail} />
-      ) : (
+    <>
+      <SourceCapture source={doc.summary} />
+      {clippings.length > 0 && (
+        <section data-testid="hub-clippings" className="mb-6">
+          <PanelTitle className="mb-3">{t.types_plural.clipping}</PanelTitle>
+          <ul className="space-y-2">
+            {clippings.map((e) => (
+              <li key={e.doc.id}>
+                <button
+                  type="button"
+                  data-testid="hub-clipping"
+                  className="flex w-full min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
+                  onClick={() => s.openDoc(e.doc.id)}
+                >
+                  <span className="w-16 shrink-0 truncate pt-0.5 text-xs text-muted-foreground tabular-nums">
+                    {e.locator ?? "—"}
+                  </span>
+                  {/* The quote is the point; a Clipping has no title. */}
+                  <span className="min-w-0 flex-1 font-prose text-sm leading-relaxed break-words">
+                    {e.doc.label}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      <section data-testid="hub-trail">
+        <PanelTitle className="mb-3">{t.reading_trail}</PanelTitle>
+        {groups.length === 0 && children.length === 0 && (
+          <Empty text={t.no_trail} />
+        )}
         <div className="space-y-4">
           {groups.map((g) => (
             <div key={g.source.id}>
@@ -659,7 +1275,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                       </span>
                       <TypeDot type={e.doc.type} />
                       <span className="min-w-0 flex-1 truncate">
-                        {e.doc.title}
+                        {e.doc.label}
                       </span>
                     </button>
                   </li>
@@ -667,23 +1283,24 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
               </ul>
             </div>
           ))}
-          {children.length > 0 && (
-            <div>
-              <div className="mb-1 text-xs font-semibold text-muted-foreground">
-                {t.child_sources}
-              </div>
-              <ul className="space-y-0.5">
-                {children.map((c) => (
-                  <li key={c.id}>
-                    <DocLink doc={c} />
-                  </li>
-                ))}
-              </ul>
+          <div>
+            <div className="mb-1 text-xs font-semibold text-muted-foreground">
+              {t.child_sources}
             </div>
-          )}
+            <ul className="space-y-0.5">
+              {children.map((c) => (
+                <li key={c.id}>
+                  <DocLink doc={c} />
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2">
+              <AddChildren parent={doc.summary} parentKind={sourceKind} />
+            </div>
+          </div>
         </div>
-      )}
-    </section>
+      </section>
+    </>
   );
 }
 
@@ -808,8 +1425,9 @@ function MentionList({ items }: { items: Backlink[] }) {
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={b.doc.type} />
               <span className="min-w-0 flex-1 truncate font-medium">
-                {b.doc.title}
+                {b.doc.label}
               </span>
+              <EventDate doc={b.doc} />
               {b.via && (
                 <span className="shrink-0 text-xs text-muted-foreground">
                   {t.via} {b.via}

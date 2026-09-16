@@ -1,28 +1,41 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, ExternalLink, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, Link2, Trash2 } from "lucide-react";
 import { cn } from "cn";
 import {
   api,
   fmString,
   linkTarget,
   type Backlink,
+  type BacklinkKind,
   type Candidate,
   type DetectedRange,
   type DocSummary,
   type DocumentPayload,
   type HistoryPoint,
+  type Linkable,
   type PropertyType,
   type Version,
   type TrailEntry,
+  type UnlinkedMention,
+  type UnlinkedMentions as UnlinkedMentionsData,
   PROPERTY_TYPES,
   RESERVED_PROPERTIES,
   CREATABLE_TYPES,
   SUBJECT_TYPES,
+  WRITING_TYPES,
   unpackVerse,
 } from "@/lib/api";
+import {
+  groupBacklinks,
+  viaSummary,
+  type BacklinkGroup,
+} from "@/lib/backlinks";
 import { setField } from "@/lib/frontmatter";
+import { resolve } from "@/lib/findOccurrence";
+import { linkText } from "@/lib/linkText";
 import { useStore } from "@/lib/store";
-import { useT } from "@/i18n";
+import { useFormat, useT } from "@/i18n";
+import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +46,7 @@ import {
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -46,7 +60,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { DocLink, TypeDot } from "./DocLink";
+import { DocLink, EventDate, TypeDot } from "./DocLink";
 import { PanelTitle } from "./Field";
 
 interface Props {
@@ -56,6 +70,11 @@ interface Props {
   fm: string;
   onFmChange: (fm: string) => void;
   detected: DetectedRange[];
+  /** The body being edited, and a way to write back into it, for Linkables. */
+  body?: string;
+  onBodyChange?: (text: string) => void;
+  /** Put the cursor on one occurrence so the writer can read it in context. */
+  onReveal?: (from: number, to: number) => void;
   /** Replace the page's text with a restored Version. */
   onRestore?: (text: string) => void;
   /** Save pending edits before a Version is named. */
@@ -68,16 +87,22 @@ export function RightPanel({
   fm,
   onFmChange,
   detected,
+  body,
+  onBodyChange,
+  onReveal,
   onRestore,
   flush,
 }: Props) {
   const s = useStore();
+  const t = useT();
   const id = doc.summary.id;
   const [backlinks, setBacklinks] = useState<Backlink[]>([]);
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [trail, setTrail] = useState<TrailEntry[]>([]);
   const [children, setChildren] = useState<DocSummary[]>([]);
+  const [linkables, setLinkables] = useState<Linkable[]>([]);
   const type = doc.summary.type;
+  const writing = WRITING_TYPES.includes(type);
 
   useEffect(() => {
     let alive = true;
@@ -105,6 +130,33 @@ export function RightPanel({
     };
   }, [id, type, s.changeTick, doc.summary.mtime]);
 
+  // What the editor holds, which is not quite what is on disk: CodeMirror
+  // normalises every line ending to "\n" when it loads a document. A file
+  // written on Windows is CRLF, so offsets measured against the file are one
+  // character per preceding line ahead of the same text in the editor — which
+  // put the selection a few characters off and the insert on the wrong words.
+  // Everything here works in the editor's own text, so the offsets the engine
+  // returns are the offsets the editor understands.
+  const editorBody = useMemo(() => body?.replace(/\r\n/g, "\n"), [body]);
+
+  // Linkables follow the text, so they are debounced and stale-guarded the way
+  // Passage detection is: the answer is thrown away if the text moved on while
+  // the engine was working.
+  useEffect(() => {
+    if (!writing || editorBody == null) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      api
+        .linkables(id, editorBody)
+        .then((l) => alive && setLinkables(l))
+        .catch(console.error);
+    }, 180);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [id, writing, editorBody, s.changeTick]);
+
   return (
     <aside
       data-testid="right-panel"
@@ -114,6 +166,30 @@ export function RightPanel({
       )}
     >
       <Properties doc={doc} fm={fm} onFmChange={onFmChange} />
+      {writing && editorBody != null && onBodyChange && (
+        <Linkables
+          items={linkables}
+          // Both actions resolve the position the same way, so the words the
+          // label selects are always the words the icon would link. Reading
+          // the offset raw in one place and re-finding it in the other is how
+          // they came to disagree by a few characters.
+          onReveal={(l) => {
+            const at = resolve(editorBody, l);
+            if (at == null) return void toast(t.link_moved);
+            onReveal?.(at, at + l.matched.length);
+          }}
+          onLink={(l, target) => {
+            const at = resolve(editorBody, l);
+            if (at == null) return void toast(t.link_moved);
+            const link = linkText(target, l.matched, l.ambiguous.length > 1);
+            onBodyChange(
+              editorBody.slice(0, at) +
+                link +
+                editorBody.slice(at + l.matched.length),
+            );
+          }}
+        />
+      )}
       {type === "composition" && (
         <Candidates items={candidates} detected={detected} />
       )}
@@ -464,8 +540,9 @@ function BacklinkItem({ b }: { b: Backlink }) {
         <div className="flex items-center gap-2 text-sm">
           <TypeDot type={b.doc.type} />
           <span className="min-w-0 flex-1 truncate font-medium">
-            {b.doc.title}
+            {b.doc.label}
           </span>
+          <EventDate doc={b.doc} />
           {label && (
             <Badge
               variant="outline"
@@ -485,6 +562,111 @@ function BacklinkItem({ b }: { b: Backlink }) {
   );
 }
 
+/**
+ * One document that Mentions this page, however many times it does so.
+ *
+ * The row opens the document, as it always has. A document that Mentions the
+ * page more than once also gets a chevron, which reveals the occurrences —
+ * each with its own excerpt and marker, exactly as the list showed them when
+ * every occurrence was a row of its own. The chevron is a sibling of the main
+ * button rather than a child: a button inside a button is invalid markup, and
+ * the Linkables rows already pair a label button with an icon button this way.
+ */
+function BacklinkGroupItem({ g }: { g: BacklinkGroup }) {
+  const s = useStore();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const many = g.items.length > 1;
+  const { shown, more } = viaSummary(g.via);
+  return (
+    <li data-testid="backlink-row">
+      <div className="flex items-start gap-1">
+        <button
+          type="button"
+          className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+          onClick={() => s.openDoc(g.first.doc.id)}
+        >
+          <div className="flex items-center gap-2 text-sm">
+            <TypeDot type={g.first.doc.type} />
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {g.first.doc.label}
+            </span>
+            <EventDate doc={g.first.doc} />
+            {many && (
+              <span
+                data-testid="backlink-count"
+                className="shrink-0 text-[10px] text-muted-foreground tabular-nums"
+              >
+                {t.backlink_mentions(g.items.length)}
+              </span>
+            )}
+          </div>
+          {(g.kinds.length > 0 || shown.length > 0) && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-1 pl-4">
+              {g.kinds.map((k) => (
+                <Badge
+                  key={k}
+                  variant="outline"
+                  className="h-4 shrink-0 px-1 text-[10px] font-normal text-muted-foreground"
+                >
+                  {kindMarker(k, g.first.property)}
+                </Badge>
+              ))}
+              {shown.length > 0 && (
+                <Badge
+                  variant="outline"
+                  className="h-4 min-w-0 px-1 text-[10px] font-normal text-muted-foreground"
+                >
+                  <span className="truncate">
+                    {t.via} {shown.join(", ")}
+                    {more > 0 ? ` ${t.via_more(more)}` : ""}
+                    {g.inferred ? ` · ${t.inferred}` : ""}
+                  </span>
+                </Badge>
+              )}
+            </div>
+          )}
+          {g.first.excerpt && (
+            <div className="mt-0.5 line-clamp-2 pl-4 text-xs text-muted-foreground">
+              {g.first.excerpt}
+            </div>
+          )}
+        </button>
+        {many && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="mt-1 shrink-0"
+            aria-label={open ? t.backlink_collapse : t.backlink_expand}
+            aria-expanded={open}
+            data-testid="backlink-expand"
+            onClick={() => setOpen((x) => !x)}
+          >
+            <ChevronRight
+              className={cn("transition-transform", open && "rotate-90")}
+            />
+          </Button>
+        )}
+      </div>
+      {open && (
+        <ul className="ml-4 border-l pl-1" data-testid="backlink-occurrences">
+          {g.items.map((b, i) => (
+            <BacklinkItem key={i} b={b} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+/** The marker for one kind, without the `via` label a Mention carries. */
+function kindMarker(kind: BacklinkKind, property: string | null): string {
+  if (kind === "tag") return "#";
+  if (kind === "property") return property ?? "";
+  if (kind === "embed") return "![[ ]]";
+  return "";
+}
+
 export function Backlinks({
   items,
   subject,
@@ -496,15 +678,20 @@ export function Backlinks({
 }) {
   const s = useStore();
   const t = useT();
+  // One row per document (ADR-free, but see CONTEXT.md "Backlink"): the engine
+  // still returns one row per Mention, and the panel collapses them here.
+  const rows = useMemo(() => groupBacklinks(items), [items]);
   const groups = useMemo(() => {
-    if (!subject) return [{ label: null as string | null, items }];
-    const byBook = new Map<number, Backlink[]>();
-    const other: Backlink[] = [];
-    for (const b of items) {
-      if (b.doc.first_verse == null) other.push(b);
+    if (!subject) return [{ label: null as string | null, items: rows }];
+    const byBook = new Map<number, BacklinkGroup[]>();
+    const other: BacklinkGroup[] = [];
+    // `first_verse` belongs to the document, so every Mention a document makes
+    // falls in the same Book and a grouped row has exactly one.
+    for (const g of rows) {
+      if (g.first.doc.first_verse == null) other.push(g);
       else {
-        const bk = unpackVerse(b.doc.first_verse).book;
-        byBook.set(bk, [...(byBook.get(bk) ?? []), b]);
+        const bk = unpackVerse(g.first.doc.first_verse).book;
+        byBook.set(bk, [...(byBook.get(bk) ?? []), g]);
       }
     }
     const out = [...byBook.entries()]
@@ -512,14 +699,15 @@ export function Backlinks({
       .map(([bk, its]) => ({
         label: s.books.find((x) => x.number === bk)?.name ?? String(bk),
         items: its.sort(
-          (a, b) => (a.doc.first_verse ?? 0) - (b.doc.first_verse ?? 0),
+          (a, b) =>
+            (a.first.doc.first_verse ?? 0) - (b.first.doc.first_verse ?? 0),
         ),
       }));
     if (other.length) out.push({ label: t.other_docs, items: other });
     return out;
-  }, [items, subject, s.books, t.other_docs]);
+  }, [rows, subject, s.books, t.other_docs]);
   const content =
-    items.length === 0 ? (
+    rows.length === 0 ? (
       <div className="text-xs text-muted-foreground">{t.no_backlinks}</div>
     ) : (
       groups.map((g, i) => (
@@ -530,8 +718,8 @@ export function Backlinks({
             </div>
           )}
           <ul className="space-y-0.5">
-            {g.items.map((b, j) => (
-              <BacklinkItem key={j} b={b} />
+            {g.items.map((row, j) => (
+              <BacklinkGroupItem key={j} g={row} />
             ))}
           </ul>
         </div>
@@ -542,13 +730,11 @@ export function Backlinks({
       <section data-testid="backlinks">
         <PanelTitle className="mb-3">
           {t.backlinks}
-          {items.length > 0 && (
-            <span className="ml-2 font-normal tabular-nums">
-              {items.length}
-            </span>
+          {rows.length > 0 && (
+            <span className="ml-2 font-normal tabular-nums">{rows.length}</span>
           )}
         </PanelTitle>
-        {subject && items.length > 0 && (
+        {subject && rows.length > 0 && (
           <p className="mb-2 text-xs text-muted-foreground">{t.book_order}</p>
         )}
         {content}
@@ -558,12 +744,289 @@ export function Backlinks({
     <div data-testid="backlinks">
       <Section
         title={t.backlinks}
-        count={items.length}
-        hint={subject && items.length ? t.book_order : undefined}
+        count={rows.length}
+        hint={subject && rows.length ? t.book_order : undefined}
       >
         {content}
       </Section>
     </div>
+  );
+}
+
+/**
+ * Documents that write this Hub's name without linking it (ADR 0011).
+ *
+ * Rendered where Backlinks are: `inline` in a Hub's pane, since a Hub does not
+ * use the right panel. The two sections are adjacent on purpose — they are the
+ * same question asked twice — and their contents never overlap, because a
+ * document that already links is a Backlink and nothing else.
+ */
+export function UnlinkedMentions({
+  target,
+  data,
+  inline,
+  onChanged,
+}: {
+  target: DocSummary;
+  data: UnlinkedMentionsData;
+  inline?: boolean;
+  /**
+   * Refetch after a write. The vault watcher also fires, but it arrives as a
+   * Tauri event, which does not exist when the UI runs in a plain browser
+   * against the dev bridge — so the list refreshes from the call it just made
+   * rather than waiting for news of its own edit.
+   */
+  onChanged: () => void;
+}) {
+  const s = useStore();
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const { items, total } = data;
+
+  // One document may write the name several times; each occurrence is its own
+  // row, but "Link all" takes only the first in each, because repeating a link
+  // every paragraph is bad writing rather than a gap.
+  const firstPerDoc = useMemo(() => {
+    const seen = new Set<string>();
+    return items.filter((m) =>
+      seen.has(m.doc.id) ? false : (seen.add(m.doc.id), true),
+    );
+  }, [items]);
+
+  const link = async (list: UnlinkedMention[]) => {
+    if (busy || list.length === 0) return;
+    setBusy(true);
+    try {
+      const r = await api.linkMentions(
+        target.id,
+        list.map((m) => ({
+          docId: m.doc.id,
+          start: m.start,
+          end: m.end,
+          matched: m.matched,
+        })),
+      );
+      const msg = [
+        t.linked_toast(r.linked.length),
+        r.skipped.length ? t.linked_skipped(r.skipped.length) : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      toast(msg, {
+        action: r.linked.length
+          ? {
+              label: t.undo,
+              onClick: () => {
+                api
+                  .undoLinkMentions(r.linked.map((e) => [e.id, e.before]))
+                  .then(() => {
+                    toast(t.undone);
+                    onChanged();
+                  })
+                  .catch(console.error);
+              },
+            }
+          : undefined,
+      });
+      onChanged();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmAll = () =>
+    s.setDialog({
+      kind: "confirm",
+      title: t.link_all_title(firstPerDoc.length),
+      body: t.link_all_body,
+      items: firstPerDoc.map((m) => m.doc.title),
+      confirmLabel: t.link_all,
+      onConfirm: () => link(firstPerDoc),
+    });
+
+  const content = (
+    <>
+      {firstPerDoc.length > 1 && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mb-2 min-h-7 w-full"
+          disabled={busy}
+          onClick={confirmAll}
+          data-testid="link-all"
+        >
+          {t.link_all}
+        </Button>
+      )}
+      {items.length === 0 ? (
+        <div className="text-xs text-muted-foreground">
+          {t.no_unlinked_mentions}
+        </div>
+      ) : (
+        <ul className="space-y-0.5">
+          {items.map((m, i) => (
+            <li key={i} className="flex items-start gap-1">
+              <button
+                type="button"
+                className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                onClick={() => s.openDoc(m.doc.id)}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  <TypeDot type={m.doc.type} />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {m.doc.label}
+                  </span>
+                </div>
+                <div className="mt-0.5 line-clamp-2 pl-4 text-xs text-muted-foreground">
+                  {m.excerpt}
+                </div>
+              </button>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                className="mt-1 shrink-0 text-muted-foreground hover:text-link"
+                disabled={busy}
+                aria-label={`${t.link_mention}: ${m.doc.label}`}
+                onClick={() => link([m])}
+              >
+                <Link2 />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {total > items.length && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t.unlinked_more(total)}
+        </p>
+      )}
+    </>
+  );
+
+  if (inline)
+    return (
+      <section data-testid="unlinked-mentions">
+        <PanelTitle className="mb-3">
+          {t.unlinked_mentions}
+          {total > 0 && (
+            <span className="ml-2 font-normal tabular-nums">{total}</span>
+          )}
+        </PanelTitle>
+        <p className="mb-2 text-xs text-muted-foreground">
+          {t.unlinked_mentions_hint}
+        </p>
+        {content}
+      </section>
+    );
+  return (
+    <div data-testid="unlinked-mentions">
+      <Section
+        title={t.unlinked_mentions}
+        count={total}
+        hint={t.unlinked_mentions_hint}
+      >
+        {content}
+      </Section>
+    </div>
+  );
+}
+
+/**
+ * Names in the document being written that could become Mentions.
+ *
+ * One row per target, not per occurrence: the decision is "should this
+ * document link to Barnabas", asked once. Clicking the row selects the
+ * occurrence in the editor; the icon inserts the link there, through the
+ * editor's own dispatch so the user's undo works normally.
+ */
+export function Linkables({
+  items,
+  onLink,
+  onReveal,
+}: {
+  items: Linkable[];
+  onLink: (l: Linkable, target: DocSummary) => void;
+  onReveal: (l: Linkable) => void;
+}) {
+  const t = useT();
+  return (
+    <Section title={t.linkables} count={items.length} hint={t.linkables_hint}>
+      <div data-testid="linkables" />
+      {items.length === 0 ? (
+        <div className="text-xs text-muted-foreground">{t.no_linkables}</div>
+      ) : (
+        <ul className="space-y-0.5">
+          {items.map((l) => (
+            <li key={l.doc.id} className="flex items-start gap-1">
+              <button
+                type="button"
+                className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+                onClick={() => onReveal(l)}
+              >
+                <div className="flex items-center gap-2 text-sm">
+                  <TypeDot type={l.doc.type} />
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {l.doc.label}
+                  </span>
+                  {l.count > 1 && (
+                    <span className="shrink-0 text-[10px] text-muted-foreground tabular-nums">
+                      {t.linkable_count(l.count)}
+                    </span>
+                  )}
+                </div>
+                {l.matched !== l.doc.title && (
+                  <div className="mt-0.5 truncate pl-4 text-xs text-muted-foreground">
+                    “{l.matched}”
+                  </div>
+                )}
+              </button>
+              {/* An ambiguous title is never resolved on the user's behalf. */}
+              {l.ambiguous.length > 1 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    {/* Marked, because a click here opens a menu rather than
+                        linking: without the mark it reads as a button that
+                        did nothing. */}
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="mt-1 shrink-0 text-amber-600 hover:text-link"
+                      aria-label={`${t.link_mention}: ${l.doc.label} (${t.ambiguous_pick})`}
+                      title={t.ambiguous_pick}
+                    >
+                      <Link2 />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>{t.ambiguous_pick}</DropdownMenuLabel>
+                    {l.ambiguous.map((d) => (
+                      <DropdownMenuItem
+                        key={d.id}
+                        onSelect={() => onLink(l, d)}
+                      >
+                        {d.path}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="mt-1 shrink-0 text-muted-foreground hover:text-link"
+                  aria-label={`${t.link_mention}: ${l.doc.label}`}
+                  onClick={() => onLink(l, l.doc)}
+                >
+                  <Link2 />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }
 
@@ -637,8 +1100,9 @@ function CandidateList({ items }: { items: Candidate[] }) {
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={c.doc.type} />
               <span className="min-w-0 flex-1 truncate font-medium">
-                {c.doc.title}
+                {c.doc.label}
               </span>
+              <EventDate doc={c.doc} />
             </div>
             <div className="mt-0.5 flex flex-wrap gap-1 pl-4">
               {c.shared_tags.map((x) => (
@@ -681,6 +1145,7 @@ function Versions({
 }) {
   const s = useStore();
   const t = useT();
+  const fmt = useFormat();
   const [versions, setVersions] = useState<Version[]>([]);
   const [history, setHistory] = useState<HistoryPoint[] | null>(null);
   const [label, setLabel] = useState("");
@@ -702,7 +1167,7 @@ function Versions({
   }, [id, mtime]);
   const open = (frontier: string, title: string) =>
     s.setDialog({ kind: "version", id, frontier, label: title, onRestore });
-  const when = (ms: number) => new Date(ms).toLocaleString();
+  const when = (ms: number) => fmt.dateTime(ms);
   return (
     <Section title={t.versions} count={versions.length} hint={t.versions_hint}>
       <div data-testid="versions" />
@@ -864,7 +1329,7 @@ export function SourceTrail({
                     {e.locator ?? "—"}
                   </span>
                   <TypeDot type={e.doc.type} />
-                  <span className="min-w-0 flex-1 truncate">{e.doc.title}</span>
+                  <span className="min-w-0 flex-1 truncate">{e.doc.label}</span>
                   {e.source.id !== trail[0]?.source.id && (
                     <span className="ml-1 truncate text-xs text-muted-foreground">
                       {e.source.title}

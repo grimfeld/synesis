@@ -1,11 +1,37 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { MapPin, Plus } from "lucide-react";
-import { api, type DocSummary } from "@/lib/api";
+import { MapPin, Plus, Search } from "lucide-react";
+import {
+  api,
+  type DocSummary,
+  type Journey,
+  type PlaceFact,
+} from "@/lib/api";
+import {
+  activeCount,
+  bezierLeg,
+  filterPlaces,
+  placeBooks,
+  placeTags,
+  routePoints,
+  routeToken,
+  type PlaceFacts,
+  type RoutePoint,
+} from "@/lib/map";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
+import { MapFilters } from "@/components/MapFilters";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+
+/** Read a CSS custom property, so routes follow the theme like every colour. */
+function cssVar(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return v || fallback;
+}
 
 export function MapView() {
   const s = useStore();
@@ -14,6 +40,8 @@ export function MapView() {
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
   const [places, setPlaces] = useState<DocSummary[]>([]);
+  const [rawFacts, setRawFacts] = useState<PlaceFact[]>([]);
+  const [journeys, setJourneys] = useState<Journey[]>([]);
   // Opening a Place must not re-run the marker effect: the store object changes
   // on every update, and a re-run would refit the view under the reader.
   const openDoc = useRef(s.openDoc);
@@ -23,7 +51,83 @@ export function MapView() {
 
   useEffect(() => {
     api.places().then(setPlaces).catch(console.error);
+    api.placeFacts().then(setRawFacts).catch(console.error);
+    api.journeys().then(setJourneys).catch(console.error);
   }, [s.changeTick, s.docs]);
+
+  // The engine returns one row per Place; the filters want lookups by id.
+  const facts: PlaceFacts = useMemo(() => {
+    const f: PlaceFacts = {
+      tags: new Map(),
+      books: new Map(),
+      mentions: new Map(),
+    };
+    for (const r of rawFacts) {
+      f.tags.set(r.doc, r.tags);
+      f.books.set(r.doc, r.books);
+      f.mentions.set(r.doc, r.mentions);
+    }
+    return f;
+  }, [rawFacts]);
+
+  const mf = s.mapFilters;
+  const filteredPlaces = useMemo(
+    () => filterPlaces(places, mf, facts),
+    [places, mf, facts],
+  );
+
+  // The Journeys being drawn, in the order their chips were offered, so a
+  // Journey keeps its colour as others are switched on and off.
+  const drawn = useMemo(
+    () => journeys.filter((j) => mf.journeys.includes(j.doc.id)),
+    [journeys, mf.journeys],
+  );
+  const routes = useMemo(
+    () =>
+      drawn.map((j, i) => ({
+        id: j.doc.id,
+        title: j.doc.title,
+        color: routeToken(journeys.findIndex((x) => x.doc.id === j.doc.id) || i),
+        points: routePoints(j.stops),
+      })),
+    [drawn, journeys],
+  );
+
+  // A Journey that is on shows every Stop it can draw, whatever the other
+  // filters say (PLAN §19.7): the filters ask "which Places am I browsing?",
+  // a route chip asks "draw me this".
+  const shown = useMemo(() => {
+    const byId = new Map(filteredPlaces.map((p) => [p.id, p]));
+    for (const r of routes)
+      for (const pt of r.points) {
+        if (byId.has(pt.id)) continue;
+        const p = places.find((x) => x.id === pt.id);
+        if (p) byId.set(p.id, p);
+      }
+    return [...byId.values()];
+  }, [filteredPlaces, routes, places]);
+
+  // Stops belong to a route, so they wear its colour rather than the Place one.
+  const routeColorOf = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const r of routes) for (const pt of r.points) m.set(pt.id, r.color);
+    return m;
+  }, [routes]);
+  const numbersOf = useMemo(() => {
+    const m = new Map<string, number[]>();
+    for (const r of routes)
+      for (const pt of r.points)
+        m.set(pt.id, [...(m.get(pt.id) ?? []), pt.n]);
+    return m;
+  }, [routes]);
+
+  const tagChips = useMemo(() => placeTags(places, facts), [places, facts]);
+  const bookChips = useMemo(() => placeBooks(places, facts), [places, facts]);
+  const journeyChips = useMemo(
+    () => journeys.map((j) => ({ id: j.doc.id, title: j.doc.title })),
+    [journeys],
+  );
+  const filtered = activeCount(mf) > 0;
 
   useEffect(() => {
     if (!host.current || map.current) return;
@@ -52,12 +156,50 @@ export function MapView() {
     const g = layer.current;
     if (!m || !g) return;
     g.clearLayers();
-    const color = getComputedStyle(document.documentElement).getPropertyValue("--c-place").trim() || "#c04f6b";
+    const placeColor = cssVar("--c-place", "#c04f6b");
     const pts: L.LatLngTuple[] = [];
-    for (const p of places) {
+
+    // Routes first, so markers sit on top of their own lines.
+    for (const r of routes) {
+      const color = cssVar(r.color, placeColor);
+      for (let i = 0; i + 1 < r.points.length; i++) {
+        const leg = bezierLeg(r.points[i].at, r.points[i + 1].at);
+        L.polyline(leg, {
+          color,
+          weight: 2.5,
+          opacity: 0.85,
+          className: "map-route",
+        })
+          .bindTooltip(r.title, { sticky: true })
+          .addTo(g);
+        // An arrowhead near the end of the leg, for direction at a glance.
+        const a = leg[Math.floor(leg.length * 0.6)];
+        const b = leg[Math.floor(leg.length * 0.6) + 1];
+        if (a && b) {
+          const angle = (Math.atan2(b[0] - a[0], b[1] - a[1]) * 180) / Math.PI;
+          L.marker(a, {
+            interactive: false,
+            icon: L.divIcon({
+              className: "map-arrow",
+              html: `<span style="--a:${-angle}deg;--c:${color}"></span>`,
+              iconSize: [10, 10],
+            }),
+          }).addTo(g);
+        }
+      }
+    }
+
+    for (const p of shown) {
       if (p.lat == null || p.lon == null) continue;
+      const color = routeColorOf.has(p.id)
+        ? cssVar(routeColorOf.get(p.id)!, placeColor)
+        : placeColor;
       const mk = L.circleMarker([p.lat, p.lon], { radius: 7, color, fillColor: color, fillOpacity: 0.85, weight: 1.5 }).addTo(g);
-      mk.bindTooltip(p.title, { permanent: true, direction: "right", offset: [8, 0], className: "map-label" });
+      // Numbered when a route passes through: the number is the Stop's position
+      // in the whole route, and a Place visited twice carries both (§19.10).
+      const ns = numbersOf.get(p.id);
+      const label = ns ? `${ns.join(" · ")} ${p.title}` : p.title;
+      mk.bindTooltip(label, { permanent: true, direction: "right", offset: [8, 0], className: "map-label" });
       mk.on("click", () => openDoc.current(p.id));
       pts.push([p.lat, p.lon]);
     }
@@ -66,18 +208,72 @@ export function MapView() {
       fitted.current = key;
       m.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 9 });
     }
-  }, [places]);
+  }, [shown, routes, routeColorOf, numbersOf]);
 
   return (
     <div className="flex h-full flex-col">
       <ViewHeader title={t.views.map} icon={<MapPin />}>
         <span className="hidden truncate text-xs text-muted-foreground md:inline">{places.length === 0 ? t.no_places : t.map_hint}</span>
-        <Button size="sm" variant="outline" className="ml-auto" onClick={() => s.setDialog({ kind: "new", type: "place" })}>
-          <Plus />
-          {t.types.place}
-        </Button>
+        <div className="ml-auto flex items-center gap-1">
+          <div className="relative hidden lg:block">
+            <Search className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              data-testid="map-search"
+              value={mf.search}
+              onChange={(e) =>
+                s.setMapFilters({ ...mf, search: e.currentTarget.value })
+              }
+              placeholder={t.map_filter_search}
+              className="h-8 w-40 pl-7 text-xs"
+            />
+          </div>
+          <MapFilters
+            filters={mf}
+            onChange={s.setMapFilters}
+            tags={tagChips}
+            books={bookChips}
+            journeys={journeyChips}
+            bookName={(n) =>
+              s.books.find((b) => b.number === n)?.name ?? String(n)
+            }
+          />
+          <Button size="sm" variant="outline" onClick={() => s.setDialog({ kind: "new", type: "place" })}>
+            <Plus />
+            {t.types.place}
+          </Button>
+        </div>
       </ViewHeader>
-      <div data-testid="map" ref={host} className="min-h-0 flex-1" />
+      <div className="relative min-h-0 flex-1">
+        <div data-testid="map" ref={host} className="size-full" />
+        {places.length > 0 && shown.length === 0 && (
+          <div className="pointer-events-none absolute inset-x-0 top-1/3 z-[1000] flex flex-col items-center gap-3 px-8 text-center">
+            <p data-testid="map-empty" className="text-sm text-muted-foreground">
+              {t.map_filtered_empty}
+            </p>
+            {filtered && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="pointer-events-auto"
+                data-testid="map-empty-clear"
+                onClick={() =>
+                  s.setMapFilters({
+                    ...mf,
+                    tags: [],
+                    books: [],
+                    search: "",
+                    mentionedOnly: false,
+                  })
+                }
+              >
+                {t.tl_filter_clear}
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+export type { RoutePoint };

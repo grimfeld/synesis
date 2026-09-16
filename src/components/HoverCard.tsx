@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TypeDot } from "./DocLink";
+import { EventDate, TypeDot } from "./DocLink";
 
 export type HoverState = { kind: "passage"; passages: PassageInfo[]; x: number; y: number } | { kind: "link"; target: string; x: number; y: number };
 
@@ -102,7 +102,8 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
                 >
                   <div className="flex items-center gap-2">
                     <TypeDot type={b.doc.type} />
-                    <span className="truncate font-medium">{b.doc.title}</span>
+                    <span className="truncate font-medium">{b.doc.label}</span>
+                    <EventDate doc={b.doc} />
                     {b.via && (
                       <span className="ml-auto shrink-0 text-xs text-muted-foreground">
                         {t.via} {b.via}
@@ -167,7 +168,8 @@ function LinkCard({ target, onClose }: { target: string; onClose: () => void }) 
         }}
       >
         <TypeDot type={doc.type} />
-        <span className="truncate">{doc.title}</span>
+        <span className="truncate">{doc.label}</span>
+        <EventDate doc={doc} className="font-normal" />
       </button>
       <div className="mb-2 pl-4 text-xs text-muted-foreground">{t.types[doc.type]}</div>
       <div className="font-prose whitespace-pre-wrap text-[13px] leading-relaxed">{preview || <span className="text-muted-foreground">—</span>}</div>

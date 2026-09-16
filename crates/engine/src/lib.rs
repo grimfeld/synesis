@@ -2,9 +2,11 @@
 //! the SQLite index and the Vault itself. Everything that is not UI lives here
 //! (see docs/adr/0004-rust-engine-react-ui.md).
 
+pub mod attachments;
 pub mod canvas;
 pub mod dates;
 pub mod document;
+pub mod excerpt;
 pub mod gazetteer;
 pub mod index;
 pub mod names;
@@ -14,6 +16,7 @@ pub mod scripture;
 pub mod sync;
 pub mod p2p;
 pub mod templates;
+pub mod unlinked;
 pub mod vault;
 pub mod versification;
 

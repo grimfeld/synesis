@@ -56,6 +56,12 @@ interface Props {
   sourceMode?: boolean;
   /** Short bottom padding and full width, for an editor embedded in a page (Hub "About"). */
   compact?: boolean;
+  /**
+   * Called once with a function that selects and scrolls to a range, so a
+   * panel can put the cursor on what it is listing. Offsets are UTF-16 over
+   * the editor's own text.
+   */
+  onReady?: (select: (from: number, to: number) => void) => void;
 }
 
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
@@ -78,6 +84,7 @@ export function Editor({
   autofocus,
   sourceMode = false,
   compact = false,
+  onReady,
 }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -217,6 +224,17 @@ export function Editor({
     tagsRef.current = tags;
     viewRef.current?.dispatch({ effects: namesChanged.of(null) });
   }, [names, tags]);
+
+  useEffect(() => {
+    onReady?.((from, to) => {
+      const v = viewRef.current;
+      if (!v) return;
+      const max = v.state.doc.length;
+      if (from > max || to > max) return;
+      v.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+      v.focus();
+    });
+  }, [onReady]);
 
   return <div ref={host} />;
 }

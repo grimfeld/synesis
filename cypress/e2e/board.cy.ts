@@ -20,7 +20,8 @@ describe("Board", () => {
     // Every node type from the demo file.
     cy.get("[data-testid=board-canvas]").within(() => {
       cy.contains("Trials feel like the opposite of joy.").should("exist");
-      cy.contains("Endurance is steadfastness").should("exist");
+      // The Clipping's card: its own words, since it has no title (ADR 0013).
+      cy.contains("Endurance is not merely putting up").should("exist");
       cy.contains("Opening").should("exist");
       cy.contains("because").should("exist");
     });
@@ -107,6 +108,106 @@ describe("Board", () => {
     cy.contains("[data-testid=board-canvas] div", "Doomed").click();
     cy.get("body").type("{del}");
     cy.get("[data-testid=board-canvas]").should("not.contain", "Doomed");
+  });
+
+  it("shows an imported card's text, not just its type", () => {
+    // The whole point of the Board excerpt (PLAN §17.12): before this, a
+    // `file` card showed its title and the bare word "Clipping".
+    openBoard("Talk on endurance");
+    cy.get("[data-testid=board-canvas]").within(() => {
+      // The Clipping shows its quote.
+      cy.contains("Endurance is not merely putting up with a trial").should(
+        "exist",
+      );
+      // The Note shows its first line, not the heading repeating its title.
+      cy.contains("consider it all joy").should("exist");
+      // A subpath node shows that section, and says which section it is.
+      cy.contains("Ro 5:3-5 links tribulation").should("exist");
+      cy.contains("#Cross-references").should("exist");
+    });
+    // The type label gives way to the text it would otherwise crowd out.
+    cy.contains("[data-testid=board-canvas] span", /^Clipping$/).should(
+      "not.exist",
+    );
+  });
+
+  it("exports the cards' text, even from reading mode", () => {
+    // In reading mode a `file` card is a button, and the export used to strip
+    // every button — which emptied every imported card in the SVG.
+    openBoard("Talk on endurance");
+    cy.get("[data-testid=board-mode]").click();
+    cy.window().then(async (win) => {
+      const mod = await win.eval("import('/src/lib/boardExport.ts')");
+      const svg = mod.boardToSvg(
+        win.document.querySelector("[data-testid=board-canvas]"),
+        { nodes: [], edges: [] },
+      );
+      expect(svg, "the Clipping's quote").to.contain("remaining steadfast");
+      expect(svg, "the Note's opening").to.contain("consider it all joy");
+    });
+  });
+
+  it("arranges by default: a card drags instead of opening", () => {
+    openBoard("Talk on endurance");
+    // The demo Board carries a `file` node pointing at this Note.
+    const card = () =>
+      cy.contains("[data-testid=board-canvas] div", "Endurance in trials");
+
+    card().then(($el) => {
+      const before = $el[0].getBoundingClientRect();
+      const x = before.left + 20;
+      const y = before.top + 20;
+      // A press on the card, then a drag past the slop and a release. Move and
+      // release go to the host, which is where the canvas listens for them.
+      const opts = { pointerId: 1, isPrimary: true, button: 0, force: true };
+      card().trigger("pointerdown", { ...opts, clientX: x, clientY: y });
+      cy.get("[data-testid=board-canvas]")
+        .trigger("pointermove", { ...opts, clientX: x + 140, clientY: y + 90 })
+        .trigger("pointerup", { ...opts, clientX: x + 140, clientY: y + 90 });
+
+      // It moved, and it did not navigate away from the Board.
+      cy.get("[data-testid=board-canvas]").should("exist");
+      card().should(($after) => {
+        const r = $after[0].getBoundingClientRect();
+        expect(Math.round(r.left), "card did not move").to.not.equal(
+          Math.round(before.left),
+        );
+      });
+    });
+  });
+
+  it("opens a card's document in reading mode", () => {
+    openBoard("Talk on endurance");
+    cy.get("[data-testid=board-mode]").click();
+    cy.contains("[data-testid=board-canvas] div", "Endurance in trials").click();
+    // Navigated to the Note, so the Board is gone and its text is on screen.
+    cy.get("[data-testid=board-canvas]").should("not.exist");
+    cy.get(".cm-content", { timeout: 10000 }).should("contain", "Endurance");
+  });
+
+  it("puts the editing tools away while reading", () => {
+    openBoard("Talk on endurance");
+    cy.get("[aria-label='Add note']").should("exist");
+    cy.get("[data-testid=board-drawer]").should("exist");
+
+    cy.get("[data-testid=board-mode]").click();
+    cy.get("[data-testid=board-mode]").should("have.attr", "aria-pressed", "true");
+    cy.get("[aria-label='Add note']").should("not.exist");
+    cy.get("[data-testid=board-drawer]").should("not.exist");
+
+    // And back: arranging restores them.
+    cy.get("[data-testid=board-mode]").click();
+    cy.get("[data-testid=board-mode]").should("have.attr", "aria-pressed", "false");
+    cy.get("[aria-label='Add note']").should("exist");
+  });
+
+  it("does not delete with the keyboard while reading", () => {
+    openBoard("Talk on endurance");
+    // Select a node, then switch to reading: the selection goes with it.
+    cy.contains("[data-testid=board-canvas] div", "Trials feel like").click();
+    cy.get("[data-testid=board-mode]").click();
+    cy.get("body").type("{del}");
+    cy.get("[data-testid=board-canvas]").should("contain", "Trials feel like");
   });
 
   it("keeps fields it does not understand through an edit", () => {

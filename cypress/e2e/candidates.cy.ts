@@ -18,16 +18,17 @@ describe("Candidates", () => {
     cy.get("[data-testid=right-panel] [data-testid=on-board]")
       .parent()
       .should("contain", "Endurance in trials");
-    // The Clipping is embedded (![[Endurance is steadfastness]]): used, not a Candidate.
+    // The Clipping is embedded: used, not a Candidate. It shows its own
+    // words, having no title (ADR 0013).
     cy.get("[data-testid=right-panel] [data-testid=candidates]")
       .parent()
-      .should("not.contain", "Endurance is steadfastness");
+      .should("not.contain", "Endurance is not merely putting up");
     cy.get("[data-testid=right-panel]")
       .contains("Used in this Composition")
       .click();
     cy.get("[data-testid=right-panel] [data-testid=used-material]")
       .parent()
-      .should("contain", "Endurance is steadfastness");
+      .should("contain", "Endurance is not merely putting up");
   });
 
   it("Home counts only unused Candidates", () => {

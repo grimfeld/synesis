@@ -60,9 +60,11 @@ impl PropertyType {
 /// Names every vault knows, whether or not the schema file mentions them.
 pub const BUILTIN: &[(&str, PropertyType)] = &[
     ("aliases", PropertyType::List),
-    ("author", PropertyType::Text),
     ("born", PropertyType::Date),
     ("characters", PropertyType::List),
+    // A URL, a vault-relative path, or empty for a Cover the app draws
+    // (ADR 0012). Text either way: the path is a reference, not a Link.
+    ("cover", PropertyType::Text),
     ("created", PropertyType::Calendar),
     ("date", PropertyType::Calendar),
     ("died", PropertyType::Date),
@@ -75,6 +77,7 @@ pub const BUILTIN: &[(&str, PropertyType)] = &[
     ("occasion", PropertyType::Text),
     ("parent", PropertyType::Link),
     ("place", PropertyType::Link),
+    ("places", PropertyType::List),
     ("source", PropertyType::Link),
     ("start", PropertyType::Date),
     ("url", PropertyType::Text),

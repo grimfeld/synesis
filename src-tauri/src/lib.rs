@@ -5,9 +5,9 @@
 use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::index::{
-    Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
-    GraphLevel,
-    SearchHit, TrailEntry, UnresolvedLink,
+    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
+    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, Linkable, PlaceFact, SearchHit,
+    TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use engine::properties::{PropertySchema, PropertyType};
 use engine::scripture::{Lang, Passage};
@@ -15,6 +15,7 @@ use engine::sync::{HistoryPoint, Version};
 use engine::vault::{DocumentView, VaultInfo, HIDDEN_DIR};
 use engine::{parser, Vault};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -49,6 +50,12 @@ pub struct Settings {
     /// Timeline: draw only the Lanes the current zoom covers.
     #[serde(default = "default_true")]
     pub timeline_in_view: bool,
+    /// Map: Book numbers a Place must be mentioned in (PLAN §19.13).
+    #[serde(default)]
+    pub map_books: Vec<u8>,
+    /// Map: hide Places nothing mentions.
+    #[serde(default)]
+    pub map_mentioned_only: bool,
 }
 
 fn default_true() -> bool {
@@ -243,6 +250,23 @@ fn set_timeline_filters(
     state.save_settings()
 }
 
+/// The Map filters that persist (PLAN §19.13). Tag chips and the search stay
+/// session-only: a Tag renamed in the Vault would otherwise silently hide
+/// everything with no way to see why.
+#[tauri::command]
+fn set_map_filters(
+    state: State<AppState>,
+    books: Vec<u8>,
+    mentioned_only: bool,
+) -> CmdResult<()> {
+    {
+        let mut st = state.settings.lock().map_err(err)?;
+        st.map_books = books;
+        st.map_mentioned_only = mentioned_only;
+    }
+    state.save_settings()
+}
+
 /// Open (or create) the vault folder at `path`, or the last one from settings.
 pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<String>) -> CmdResult<VaultInfo> {
     let lang = state.settings.lock().map_err(err)?.lang;
@@ -270,6 +294,10 @@ pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<Strin
         "Characters",
         "Concepts",
         "Events",
+        "Journeys",
+        // Pictures the vault owns (ADR 0012). Referenced by `cover`, never
+        // indexed: the scanner still reads `.md` only.
+        "Attachments",
     ] {
         std::fs::create_dir_all(root.join(folder)).map_err(err)?;
     }
@@ -542,6 +570,104 @@ fn backlinks(state: State<AppState>, id: String) -> CmdResult<Vec<Backlink>> {
     state.with_vault(|v| v.backlinks(&id))
 }
 
+/// Documents that write this Hub's name without linking it (ADR 0011).
+#[tauri::command]
+fn unlinked_mentions(state: State<AppState>, id: String) -> CmdResult<UnlinkedMentions> {
+    state.with_vault(|v| v.unlinked_mentions(&id))
+}
+
+/// Names in the text being written that could become Mentions.
+///
+/// Takes the live editor body rather than an id: what the writer is looking at
+/// has usually not been saved yet, and the caller splices into this exact
+/// string, so the offsets come back measured against it — in UTF-16, which is
+/// what the editor counts in.
+///
+/// The body is passed without frontmatter, which is also why a Property
+/// holding a name is never offered as prose.
+#[tauri::command]
+fn linkables(state: State<AppState>, id: String, text: String) -> CmdResult<Vec<Linkable>> {
+    let mut out = state.with_vault(|v| v.linkables(&id, &text))?;
+    for l in &mut out {
+        l.start = parser::byte_to_utf16(&text, l.start);
+        l.end = parser::byte_to_utf16(&text, l.end);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+fn ambiguous_titles(state: State<AppState>) -> CmdResult<Vec<AmbiguousTitle>> {
+    state.with_vault(|v| v.ambiguous_titles())
+}
+
+/// What one linking edit restored, so a batch can be undone.
+#[derive(serde::Serialize)]
+struct LinkedEdit {
+    id: String,
+    /// The document's text before the edit.
+    before: String,
+}
+
+/// The outcome of linking one or more Unlinked mentions.
+#[derive(serde::Serialize)]
+struct LinkResult {
+    /// Documents actually rewritten, with the text to restore on undo.
+    linked: Vec<LinkedEdit>,
+    /// Documents skipped because the file had changed since it was indexed.
+    skipped: Vec<String>,
+}
+
+/// One Unlinked mention to link, as the panel lists it.
+#[derive(serde::Deserialize)]
+struct MentionRef {
+    doc_id: String,
+    start: usize,
+    end: usize,
+    /// The matched text, checked against the file before anything is written.
+    matched: String,
+}
+
+/// Link some Unlinked mentions of `target_id`.
+///
+/// One call whether the user clicked a single row or "Link all": a batch that
+/// hits a stale offset skips that document and carries on rather than aborting
+/// half-done, and reports what it skipped (ADR 0011).
+#[tauri::command]
+fn link_mentions(
+    state: State<AppState>,
+    target_id: String,
+    mentions: Vec<MentionRef>,
+) -> CmdResult<LinkResult> {
+    let r = state.with_vault_mut(|v| {
+        let mut linked = Vec::new();
+        let mut skipped = Vec::new();
+        for m in &mentions {
+            match v.link_mention(&m.doc_id, m.start, m.end, &m.matched, &target_id) {
+                Ok(before) => linked.push(LinkedEdit {
+                    id: m.doc_id.clone(),
+                    before,
+                }),
+                Err(_) => skipped.push(m.doc_id.clone()),
+            }
+        }
+        Ok(LinkResult { linked, skipped })
+    });
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Put back the text of documents a batch of links rewrote.
+#[tauri::command]
+fn undo_link_mentions(state: State<AppState>, texts: Vec<(String, String)>) -> CmdResult<()> {
+    let r = state.with_vault_mut(|v| v.restore_texts(&texts));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
 #[tauri::command]
 fn verse_mentions(
     state: State<AppState>,
@@ -654,6 +780,16 @@ fn places(state: State<AppState>) -> CmdResult<Vec<DocSummary>> {
 }
 
 #[tauri::command]
+fn place_facts(state: State<AppState>) -> CmdResult<Vec<PlaceFact>> {
+    state.with_vault(|v| v.place_facts())
+}
+
+#[tauri::command]
+fn journeys(state: State<AppState>) -> CmdResult<Vec<Journey>> {
+    state.with_vault(|v| v.journeys())
+}
+
+#[tauri::command]
 fn property_schema(state: State<AppState>) -> CmdResult<PropertySchema> {
     state.with_vault(|v| Ok(v.property_schema().clone()))
 }
@@ -742,6 +878,27 @@ fn save_board(state: State<AppState>, id: String, board: Canvas) -> CmdResult<()
     r
 }
 
+/// One `file` node's identity: which document, and which part of it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct BoardRef {
+    pub path: String,
+    pub subpath: Option<String>,
+}
+
+/// The text each Board card shows for its document (PLAN §17.12).
+///
+/// One call per Board rather than one per card: a Board is read as a whole,
+/// and forty cards must not mean forty round trips.
+#[tauri::command]
+fn board_excerpts(
+    state: State<AppState>,
+    refs: Vec<BoardRef>,
+) -> CmdResult<HashMap<String, BoardExcerpt>> {
+    let pairs: Vec<(String, Option<String>)> =
+        refs.into_iter().map(|r| (r.path, r.subpath)).collect();
+    state.with_vault(|v| v.board_excerpts(&pairs))
+}
+
 /// A Composition's Board as it stood at a Version's frontier.
 #[tauri::command]
 fn board_at(state: State<AppState>, id: String, frontier: String) -> CmdResult<Option<Canvas>> {
@@ -778,6 +935,16 @@ fn source_trail(state: State<AppState>, id: String) -> CmdResult<Vec<TrailEntry>
 }
 
 #[tauri::command]
+fn clippings(state: State<AppState>, source_id: Option<String>) -> CmdResult<Vec<TrailEntry>> {
+    state.with_vault(|v| v.clippings(source_id.as_deref()))
+}
+
+#[tauri::command]
+fn tags_of(state: State<AppState>, ids: Vec<String>) -> CmdResult<HashMap<String, Vec<String>>> {
+    state.with_vault(|v| v.tags_of(&ids))
+}
+
+#[tauri::command]
 fn source_children(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
     state.with_vault(|v| v.source_children(&id))
 }
@@ -785,6 +952,152 @@ fn source_children(state: State<AppState>, id: String) -> CmdResult<Vec<DocSumma
 #[tauri::command]
 fn unresolved_links(state: State<AppState>) -> CmdResult<Vec<UnresolvedLink>> {
     state.with_vault(|v| v.unresolved())
+}
+
+/// Every Source, with what the Library needs to draw a Shelf of Covers.
+#[tauri::command]
+fn library(state: State<AppState>) -> CmdResult<Vec<LibraryEntry>> {
+    state.with_vault(|v| v.library())
+}
+
+/// Shrink a picture to a Cover and encode it, or hand back the original bytes
+/// when it is already small enough and in a format we serve (ADR 0012).
+fn to_cover(bytes: &[u8], ext: &str) -> Result<(Vec<u8>, String), String> {
+    let img = image::load_from_memory(bytes).map_err(|e| format!("not an image: {e}"))?;
+    let (w, h) = (img.width(), img.height());
+    // Re-encode as PNG or JPEG only: a resized GIF loses its animation and a
+    // WebP would need an encoder we do not ship, so the output format is not
+    // always the input's.
+    let keep_jpeg = matches!(ext, "jpg" | "jpeg");
+    match engine::attachments::target_size(w, h, engine::attachments::MAX_EDGE) {
+        None if keep_jpeg || ext == "png" => Ok((bytes.to_vec(), ext.to_string())),
+        size => {
+            let img = match size {
+                Some((tw, th)) => img.resize(tw, th, image::imageops::FilterType::Lanczos3),
+                None => img,
+            };
+            let mut out = std::io::Cursor::new(Vec::new());
+            let (fmt, ext) = if keep_jpeg {
+                (image::ImageFormat::Jpeg, "jpg")
+            } else {
+                (image::ImageFormat::Png, "png")
+            };
+            // JPEG has no alpha; flatten rather than fail on a transparent source.
+            let img = if fmt == image::ImageFormat::Jpeg {
+                image::DynamicImage::ImageRgb8(img.to_rgb8())
+            } else {
+                img
+            };
+            img.write_to(&mut out, fmt).map_err(err)?;
+            Ok((out.into_inner(), ext.to_string()))
+        }
+    }
+}
+
+/// Copy a picture into `Attachments/`, downscaled, and return its
+/// vault-relative path for the Source's `cover` property.
+///
+/// Copied rather than linked: a vault that points outside itself breaks on
+/// sync and breaks in Obsidian (ADR 0012).
+#[tauri::command]
+fn attach_image(state: State<AppState>, title: String, path: String) -> CmdResult<String> {
+    let ext = std::path::Path::new(&path)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    if title.trim().is_empty() {
+        // Checked before the file is read: the title is what names the
+        // picture, so without one there is nothing to write (ADR 0012).
+        return Err("a Cover needs the Source's title to be named after".into());
+    }
+    if !engine::attachments::is_supported(&path) {
+        return Err(format!("not a picture we can store: {path}"));
+    }
+    let bytes = std::fs::read(&path).map_err(err)?;
+    let (bytes, ext) = to_cover(&bytes, &ext)?;
+    state.with_vault(|v| {
+        let root = v.root().to_path_buf();
+        let rel = engine::attachments::unique_path(&root, &title, &ext)?;
+        let abs = root.join(&rel);
+        if let Some(dir) = abs.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&abs, &bytes)?;
+        Ok(rel)
+    })
+}
+
+/// Download a remote Cover into `Attachments/` and return its vault-relative
+/// path, so a picture that would rot when the site reorganises becomes one the
+/// vault owns. Always the user's explicit choice, never a side effect of
+/// fetching metadata (ADR 0012).
+#[tauri::command]
+async fn save_remote_cover(
+    app: tauri::AppHandle,
+    title: String,
+    url: String,
+) -> CmdResult<String> {
+    if title.trim().is_empty() {
+        return Err("a Cover needs the Source's title to be named after".into());
+    }
+    let client = reqwest::Client::builder()
+        .user_agent("Synesis/0.1 (+https://github.com/grimfeld/synesis)")
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(err)?;
+    let res = client.get(&url).send().await.map_err(err)?;
+    let ext = res
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|t| match t.split(';').next()?.trim() {
+            "image/jpeg" => Some("jpg"),
+            "image/png" => Some("png"),
+            "image/gif" => Some("gif"),
+            "image/webp" => Some("webp"),
+            _ => None,
+        })
+        // Fall back to the URL's own extension when the server is unhelpful.
+        .or_else(|| {
+            let path = url.split(['?', '#']).next()?;
+            ["jpg", "jpeg", "png", "gif", "webp"]
+                .into_iter()
+                .find(|e| path.to_ascii_lowercase().ends_with(&format!(".{e}")))
+        })
+        .ok_or_else(|| format!("not a picture: {url}"))?
+        .to_string();
+    let bytes = res.bytes().await.map_err(err)?;
+    let (bytes, ext) = to_cover(&bytes, &ext)?;
+    let state = app.state::<AppState>();
+    state.with_vault(|v| {
+        let root = v.root().to_path_buf();
+        let rel = engine::attachments::unique_path(&root, &title, &ext)?;
+        let abs = root.join(&rel);
+        if let Some(dir) = abs.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        std::fs::write(&abs, &bytes)?;
+        Ok(rel)
+    })
+}
+
+/// Read a stored picture back as a data URL.
+///
+/// The UI never touches files (ADR 0004), and Tauri's asset protocol does not
+/// exist on the development bridge where every Cypress spec runs, so a Cover
+/// that only rendered through it would be one no test ever sees (ADR 0012).
+#[tauri::command]
+fn read_attachment(state: State<AppState>, path: String) -> CmdResult<String> {
+    use base64::Engine as _;
+    let media = engine::attachments::media_type(&path)
+        .ok_or_else(|| format!("not an image: {path}"))?;
+    let bytes = state.with_vault(|v| {
+        let abs = engine::attachments::safe_relative(v.root(), &path)?;
+        Ok(std::fs::read(abs)?)
+    })?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    Ok(format!("data:{media};base64,{b64}"))
 }
 
 #[tauri::command]
@@ -835,7 +1148,9 @@ fn books(state: State<AppState>) -> CmdResult<Vec<BookMeta>> {
 pub struct UrlMeta {
     pub url: String,
     pub title: Option<String>,
-    pub author: Option<String>,
+    /// `og:image`, offered as a remote Cover (ADR 0012). Often a site logo
+    /// rather than real cover art, so it is a suggestion, not an answer.
+    pub image: Option<String>,
     pub site: Option<String>,
     pub date: Option<String>,
     pub description: Option<String>,
@@ -886,7 +1201,7 @@ async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
         .ok()
         .and_then(|re| re.captures(&html).map(|c| html_unescape(c[1].trim())));
     let title = meta_content(&html, "og:title").or(title_tag);
-    let author = meta_content(&html, "author").or_else(|| meta_content(&html, "article:author"));
+    let image = meta_content(&html, "og:image").or_else(|| meta_content(&html, "twitter:image"));
     let site = meta_content(&html, "og:site_name").or_else(|| {
         url.split('/')
             .nth(2)
@@ -901,7 +1216,7 @@ async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
     Ok(UrlMeta {
         url,
         title,
-        author,
+        image,
         site,
         date,
         description,
@@ -1022,6 +1337,11 @@ pub fn run() {
             resolve_many,
             names,
             backlinks,
+            unlinked_mentions,
+            linkables,
+            ambiguous_titles,
+            link_mentions,
+            undo_link_mentions,
             verse_mentions,
             scripture_page,
             ensure_scripture_page,
@@ -1033,6 +1353,9 @@ pub fn run() {
             tags,
             tagged_documents,
             places,
+            place_facts,
+            journeys,
+            set_map_filters,
             property_schema,
             set_property_type,
             dates_of,
@@ -1049,11 +1372,18 @@ pub fn run() {
             candidates,
             get_board,
             save_board,
+            board_excerpts,
             boards_referencing,
             board_at,
             export_board,
             source_trail,
+            clippings,
+            tags_of,
             source_children,
+            library,
+            attach_image,
+            save_remote_cover,
+            read_attachment,
             unresolved_links,
             find_source_by_url,
             detect_passages,

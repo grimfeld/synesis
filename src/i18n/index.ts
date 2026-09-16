@@ -12,3 +12,16 @@ export function useT(): Dict {
 export function useLang(): Lang {
   return useContext(LangContext);
 }
+
+/**
+ * Dates and numbers follow the app language, not the operating system's: a
+ * French vault on an English machine still reads 14/09/2026.
+ */
+export function useFormat() {
+  const lang = useLang();
+  return {
+    dateTime: (ms: number) => new Date(ms).toLocaleString(lang),
+    date: (ms: number) => new Date(ms).toLocaleDateString(lang),
+    number: (n: number) => n.toLocaleString(lang),
+  };
+}

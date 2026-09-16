@@ -41,9 +41,9 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
         }
         DocType::Source => {
             f.push(("kind", Value::String("article".into())));
-            f.push(("author", Value::String(String::new())));
             f.push(("url", Value::String(String::new())));
             f.push(("date", Value::String(String::new())));
+            f.push(("cover", Value::String(String::new())));
             f.push(("parent", Value::String(String::new())));
         }
         DocType::Place => {
@@ -57,6 +57,14 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
             f.push(("start", Value::String(String::new())));
             f.push(("end", Value::String(String::new())));
             f.push(("place", Value::String(String::new())));
+            f.push(("characters", Value::Array(vec![])));
+        }
+        // A Journey is an Event's template with `place` widened to an ordered
+        // `places` list: the route is the order of that list (ADR 0010).
+        DocType::Journey => {
+            f.push(("start", Value::String(String::new())));
+            f.push(("end", Value::String(String::new())));
+            f.push(("places", Value::Array(vec![])));
             f.push(("characters", Value::Array(vec![])));
         }
         _ => {}

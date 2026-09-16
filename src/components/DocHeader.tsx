@@ -16,13 +16,25 @@ interface Props {
   onRename: (title: string) => Promise<void>;
   fm: string;
   onFmChange: (fm: string) => void;
+  /**
+   * Shown in place of the title heading, for a Clipping: it has none, and its
+   * Citation is what identifies it (ADR 0013). The words themselves are in the
+   * editor below, so repeating them here would say the same thing twice.
+   */
+  citation?: string;
 }
 
 /** Title heading and Tags row above the body of a Writing page. */
-export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange }: Props) {
+export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange, citation }: Props) {
   return (
     <div className="mx-auto w-full max-w-[720px] px-8 pt-8">
-      <TitleEditor title={title} readOnly={readOnlyTitle} onRename={onRename} />
+      {citation !== undefined ? (
+        <p className="font-prose text-sm text-muted-foreground" data-testid="doc-citation">
+          {citation}
+        </p>
+      ) : (
+        <TitleEditor title={title} readOnly={readOnlyTitle} onRename={onRename} />
+      )}
       <TagsRow doc={doc} fm={fm} onFmChange={onFmChange} />
     </div>
   );
@@ -44,6 +56,7 @@ export function TitleEditor({ title, readOnly, onRename, className }: { title: s
   if (readOnly) return <h1 className={cls}>{title}</h1>;
   return (
     <input
+      data-testid="doc-title"
       className={cn(cls, "rounded-md placeholder:text-muted-foreground/50 focus:bg-accent/40")}
       value={value}
       placeholder={t.title_placeholder}

@@ -1,7 +1,6 @@
 ---
 id: 01M26CD0D8K68TXRZETRWBXJC4
 type: clipping
-title: "Endurance is steadfastness"
 created: "2026-08-05T20:10:00"
 source: "[[Keep Enduring with Joy]]"
 locator: "par. 12"

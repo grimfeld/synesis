@@ -475,12 +475,24 @@ fn a_vault_indexed_by_an_older_build_still_opens() {
     let data = tmp.path().join("data");
     fs::create_dir_all(&root).unwrap();
 
-    // A vault with one Note, indexed by the current build.
-    {
+    // A vault with one Note and one Clipping, indexed by the current build.
+    let clipping_id = {
         let mut v = open(&root, &data);
         v.create(DocType::Note, "Steadfast", &Map::new(), "On endurance.")
             .unwrap();
-    }
+        let mut fields = Map::new();
+        fields.insert("source".into(), "[[The Watchtower]]".into());
+        fields.insert("locator".into(), "par. 12".into());
+        v.create(
+            DocType::Clipping,
+            "",
+            &fields,
+            "> Endurance is remaining steadfast.",
+        )
+        .unwrap()
+        .summary
+        .id
+    };
 
     // Rewrite `links` the way a pre-Boards build had it: no `kind` column.
     let index = engine::vault::local_dir_for(&data, &root).join("index.sqlite");
@@ -496,11 +508,21 @@ fn a_vault_indexed_by_an_older_build_still_opens() {
              ALTER TABLE links_old RENAME TO links;",
         )
         .unwrap();
+        // And drop `documents.label`, the way a build before ADR 0013 had it.
+        conn.execute_batch("ALTER TABLE documents DROP COLUMN label")
+            .unwrap();
     }
 
     // The upgrade: opening it must migrate rather than fail.
     let mut v = open(&root, &data);
     assert!(!v.list(None).unwrap().is_empty(), "vault came back empty");
+    // The backfill: a Note labels itself with its title, a Clipping with its
+    // own words, without re-reading a single file (ADR 0013).
+    let labelled = v.list(None).unwrap();
+    let note = labelled.iter().find(|d| d.title == "Steadfast").unwrap();
+    assert_eq!(note.label, "Steadfast");
+    let clip = labelled.iter().find(|d| d.id == clipping_id).unwrap();
+    assert_eq!(clip.label, "Endurance is remaining steadfast.");
 
     // And Boards work on it afterwards.
     let comp = v

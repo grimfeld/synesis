@@ -170,7 +170,7 @@ function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
       >
         <span className="flex items-center gap-2 text-sm font-medium">
           <PenLine className="size-4 shrink-0 text-type-composition" />
-          <span className="truncate">{doc.title}</span>
+          <span className="truncate">{doc.label}</span>
         </span>
         <span className="text-xs text-muted-foreground">
           {t.edited_ago(when)}

@@ -24,18 +24,24 @@ describe("Views", () => {
     cy.get("[data-testid=graph-counts]").should(($b) =>
       expect(parseInt($b.text(), 10)).to.be.greaterThan(20),
     );
-    cy.get("[data-testid=graph-counts]")
-      .invoke("text")
-      .then((text) => {
-        const [nodes] = text.split("·").map((x) => parseInt(x.trim(), 10));
-        cy.get("[data-slot=toggle-group-item]").contains("Notes").click();
-        cy.get("[data-testid=graph-counts]")
-          .invoke("text")
-          .then((after) => {
-            const [n2] = after.split("·").map((x) => parseInt(x.trim(), 10));
-            expect(n2).to.equal(nodes - 8);
-          });
-      });
+    // How many Notes the demo vault holds is not this test's business: ask
+    // the engine rather than hardcoding a number that every new demo document
+    // invalidates.
+    cy.bridge<{ type: string }[]>("list_documents", {}).then((docs) => {
+      const notes = docs.filter((d) => d.type === "note").length;
+      cy.get("[data-testid=graph-counts]")
+        .invoke("text")
+        .then((text) => {
+          const [nodes] = text.split("·").map((x) => parseInt(x.trim(), 10));
+          cy.get("[data-slot=toggle-group-item]").contains("Notes").click();
+          cy.get("[data-testid=graph-counts]")
+            .invoke("text")
+            .then((after) => {
+              const [n2] = after.split("·").map((x) => parseInt(x.trim(), 10));
+              expect(n2).to.equal(nodes - notes);
+            });
+        });
+    });
   });
 
   it("Map shows every Place with coordinates", () => {

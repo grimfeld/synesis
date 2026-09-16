@@ -1,6 +1,6 @@
 // Writing page: Note, Clipping, Composition. Title and tags above the editor,
 // properties and backlinks in the right panel.
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -11,7 +11,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "cn";
-import { api, type DetectedRange } from "@/lib/api";
+import { api, fmString, type DetectedRange } from "@/lib/api";
 import { splitFrontmatter } from "@/lib/frontmatter";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
@@ -46,6 +46,14 @@ export function DocView({ id }: { id: string }) {
   const isMobile = useIsMobile();
   const [hover, setHover] = useState<HoverState | null>(null);
   const [detected, setDetected] = useState<DetectedRange[]>([]);
+  // Set once by the editor, so a panel row can put the cursor on what it lists.
+  const selectRange = useRef<((from: number, to: number) => void) | null>(null);
+  const onEditorReady = useCallback(
+    (fn: (from: number, to: number) => void) => {
+      selectRange.current = fn;
+    },
+    [],
+  );
 
   // A Board belongs to the Composition it is paired with, so moving to another
   // document — including through back and forward — starts on the text.
@@ -100,6 +108,21 @@ export function DocView({ id }: { id: string }) {
   // Only a Composition has a Board, so a stale tab from a previous document
   // can never hide a Note's text.
   const showBoard = s.docTab === "board" && sum.type === "composition";
+  // A Clipping has no title, so its header is its Citation (ADR 0013): the
+  // Source it names and where within it, read the way it would be said aloud.
+  // The `source` property is a wikilink, and the brackets are not the name.
+  const citation =
+    sum.type === "clipping"
+      ? [
+          fmString(doc.frontmatter.source)
+            .replace(/^\[\[|\]\]$/g, "")
+            .split("|")[0]
+            .trim(),
+          fmString(doc.frontmatter.locator).trim(),
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : undefined;
 
   return (
     <div className="flex h-full min-h-0 flex-1">
@@ -139,6 +162,8 @@ export function DocView({ id }: { id: string }) {
               d.status === "idle" && "opacity-0",
             )}
             aria-live="polite"
+            data-testid="save-status"
+            data-status={d.status}
           >
             {d.status === "saving" ? (
               t.saving
@@ -190,6 +215,7 @@ export function DocView({ id }: { id: string }) {
               </IconButton>
               <IconButton
                 label={t.toggle_panel}
+                data-testid="toggle-panel"
                 aria-pressed={s.panelOpen}
                 className={cn(s.panelOpen && "bg-accent text-accent-foreground")}
                 onClick={() => s.setPanelOpen(!s.panelOpen)}
@@ -225,6 +251,7 @@ export function DocView({ id }: { id: string }) {
             doc={doc}
             title={sum.title}
             readOnlyTitle={false}
+            citation={citation}
             onRename={d.rename}
             fm={d.fm}
             onFmChange={d.onFmChange}
@@ -235,6 +262,7 @@ export function DocView({ id }: { id: string }) {
               revision={d.revision}
               onChange={d.onBodyChange}
               onDetected={setDetected}
+              onReady={onEditorReady}
               env={env}
               names={d.names}
               tags={s.tags}
@@ -263,6 +291,9 @@ export function DocView({ id }: { id: string }) {
               fm={d.fm}
               onFmChange={d.onFmChange}
               detected={detected}
+              body={d.body}
+              onBodyChange={d.setBodyText}
+              onReveal={(from, to) => selectRange.current?.(from, to)}
               onRestore={d.replaceText}
               flush={d.flush}
             />
@@ -275,6 +306,9 @@ export function DocView({ id }: { id: string }) {
             fm={d.fm}
             onFmChange={d.onFmChange}
             detected={detected}
+            body={d.body}
+            onBodyChange={d.setBodyText}
+            onReveal={(from, to) => selectRange.current?.(from, to)}
             onRestore={d.replaceText}
             flush={d.flush}
           />

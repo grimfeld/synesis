@@ -22,6 +22,9 @@ export const TIMELINE_TYPES: DocType[] = [
   "character",
   "place",
   "concept",
+  // A Journey's `start` / `end` make it a dated Subject, so it owns a Lane and
+  // draws as a span like any other (PLAN §19.12).
+  "journey",
 ];
 
 function Chips({

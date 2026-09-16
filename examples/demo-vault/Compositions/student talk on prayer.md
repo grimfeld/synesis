@@ -11,6 +11,6 @@ tags: ["prayer"]
 
 Setting: [[Gethsemane]], Lu 22:39-46.
 
-![[Prayer in Gethsemane]]
+![[jesus, the way chap. 118 2026-08-06 21.00|Jesus, the Way · chap. 118]]
 
 Application: Php 4:6, 7. Ask, then accept.

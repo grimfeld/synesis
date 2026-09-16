@@ -5,10 +5,12 @@ import {
   forceLink,
   forceManyBody,
   forceSimulation,
+  forceX,
+  forceY,
   type SimulationLinkDatum,
   type SimulationNodeDatum,
 } from "d3-force";
-import { Search, Waypoints } from "lucide-react";
+import { Maximize2, Search, Waypoints } from "lucide-react";
 import {
   api,
   type DocType,
@@ -21,6 +23,7 @@ import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -40,6 +43,23 @@ function capture(el: Element, id: number) {
   }
 }
 
+/** Same nodes, same edges, same labels — a redraw, not a new layout. */
+function sameGraph(a: Graph, b: Graph) {
+  if (a.nodes.length !== b.nodes.length || a.edges.length !== b.edges.length)
+    return false;
+  for (let i = 0; i < a.nodes.length; i++) {
+    const x = a.nodes[i],
+      y = b.nodes[i];
+    if (x.id !== y.id || x.label !== y.label || x.degree !== y.degree || x.type !== y.type)
+      return false;
+  }
+  for (let i = 0; i < a.edges.length; i++) {
+    if (a.edges[i].source !== b.edges[i].source || a.edges[i].target !== b.edges[i].target)
+      return false;
+  }
+  return true;
+}
+
 type N = GraphNode & SimulationNodeDatum & { r: number };
 type E = SimulationLinkDatum<N>;
 
@@ -55,6 +75,7 @@ const COLORS: Record<DocType, string> = {
   character: "--c-character",
   concept: "--c-concept",
   event: "--c-event",
+  journey: "--c-journey",
   other: "--c-other",
 };
 const FILTERABLE: DocType[] = [
@@ -66,6 +87,7 @@ const FILTERABLE: DocType[] = [
   "character",
   "place",
   "event",
+  "journey",
   "chapter",
 ];
 
@@ -83,6 +105,10 @@ export function GraphView() {
   const nodesRef = useRef<N[]>([]);
   const edgesRef = useRef<E[]>([]);
   const view = useRef({ x: 0, y: 0, k: 1 });
+  /** The first settled layout frames itself; later ones leave the view alone. */
+  const fitted = useRef(false);
+  /** Set by any pan, zoom or drag: the view is the reader's from then on. */
+  const touched = useRef(false);
   const hover = useRef<N | null>(null);
   const touches = useRef(new Map<number, { x: number; y: number }>());
   /** Pinch anchor: finger spread, the screen midpoint, and the world point under it. */
@@ -101,7 +127,15 @@ export function GraphView() {
   }>({ node: null, panning: false, lx: 0, ly: 0, moved: false });
 
   useEffect(() => {
-    api.graph(level).then(setGraph).catch(console.error);
+    api
+      .graph(level)
+      .then((g) =>
+        // Every save in the vault refetches the graph. Keep the object the render
+        // already has when nothing about the shape changed, so the layout is not
+        // thrown away and replayed on each keystroke that reaches disk.
+        setGraph((prev) => (prev && sameGraph(prev, g) ? prev : g)),
+      )
+      .catch(console.error);
     api.setGraphLevel(level).catch(() => {});
   }, [level, s.changeTick, s.docs]);
 
@@ -144,6 +178,7 @@ export function GraphView() {
     }));
     nodesRef.current = nodes;
     edgesRef.current = edges;
+    if (prev.size === 0) fitted.current = false;
     sim.current?.stop();
     const c = canvas.current!;
     const w = c.clientWidth,
@@ -156,14 +191,36 @@ export function GraphView() {
           .distance(40)
           .strength(0.4),
       )
-      .force("charge", forceManyBody().strength(-90))
+      // Repulsion has to stop somewhere: unbounded, the nodes with no edge feel
+      // nothing but the push of every other node and drift off the canvas forever.
+      .force("charge", forceManyBody().strength(-90).distanceMax(320))
       .force("center", forceCenter(w / 2, h / 2))
+      // Gravity back towards the middle. It is what holds the orphans in view once
+      // repulsion has faded with distance, and it lets the layout come to rest.
+      .force("x", forceX<N>(w / 2).strength(0.045))
+      .force("y", forceY<N>(h / 2).strength(0.045))
       .force(
         "collide",
         forceCollide<N>((d) => d.r + 4),
       )
-      .alpha(1)
-      .on("tick", schedule);
+      // Settle in a few seconds and then stay put: a graph that never stops moving
+      // cannot be read, and the canvas would repaint for as long as the view is open.
+      .alphaDecay(0.05)
+      .alphaMin(0.02)
+      .velocityDecay(0.55)
+      // A first layout starts hot; a graph that only gained or lost a few nodes is
+      // nudged instead, so the rest of the picture stays where the reader left it.
+      .alpha(prev.size ? 0.35 : 1)
+      .on("tick", schedule)
+      .on("end", () => {
+        // The first layout lands wherever the forces put it; frame it once so the
+        // graph opens readable instead of somewhere off the side of the canvas.
+        if (!fitted.current && !touched.current) {
+          fitted.current = true;
+          fitView();
+        }
+        schedule();
+      });
     return () => {
       sim.current?.stop();
     };
@@ -251,19 +308,82 @@ export function GraphView() {
         ctx.lineWidth = 1.5 / k;
         ctx.stroke();
       }
-      if (
-        n.r >= 6 ||
-        k > 1.6 ||
-        (hov && (n.id === hov.id || neigh.has(n.id))) ||
-        match
-      ) {
-        ctx.fillStyle = fg;
-        ctx.font = `${Math.max(9, 11 / k)}px ${cssVar("--font-sans") || "sans-serif"}`;
-        ctx.textAlign = "center";
-        ctx.fillText(n.label, n.x!, n.y! + n.r + 11 / k);
-      }
     }
+    drawLabels(ctx, { w, h, k, fg, hov, neigh, q });
     ctx.globalAlpha = 1;
+    ctx.globalAlpha = 1;
+  }
+
+  /** Frame the whole graph in the canvas, with a little room around it. */
+  const fitView = useCallback(() => {
+    touched.current = false;
+    const c = canvas.current;
+    const nodes = nodesRef.current;
+    if (!c || nodes.length === 0) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const n of nodes) {
+      if (n.x == null || n.y == null) continue;
+      x0 = Math.min(x0, n.x - n.r);
+      y0 = Math.min(y0, n.y - n.r);
+      x1 = Math.max(x1, n.x + n.r);
+      y1 = Math.max(y1, n.y + n.r);
+    }
+    if (!Number.isFinite(x0)) return;
+    const w = c.clientWidth, h = c.clientHeight;
+    const pad = 48;
+    const k = Math.max(0.2, Math.min(2, Math.min((w - pad * 2) / Math.max(1, x1 - x0), (h - pad * 2) / Math.max(1, y1 - y0))));
+    view.current = {
+      k,
+      x: w / 2 - ((x0 + x1) / 2) * k,
+      y: h / 2 - ((y0 + y1) / 2) * k,
+    };
+    schedule();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /**
+   * Labels are drawn at a fixed size on screen, so zooming out packs more of them
+   * into the same pixels. Name the most connected nodes first and drop any label
+   * whose box would land on one already drawn: the view thins itself out as it
+   * shrinks, without a label ever sitting on top of another.
+   */
+  function drawLabels(
+    ctx: CanvasRenderingContext2D,
+    o: { w: number; h: number; k: number; fg: string; hov: N | null; neigh: Set<string>; q: string },
+  ) {
+    const { w, h, k, fg, hov, neigh, q } = o;
+    // Text keeps a readable size on screen but is allowed to shrink a little as the
+    // view pulls back, so the names never dwarf the graph they belong to.
+    const size = Math.max(7, Math.min(11, 11 * Math.pow(k, 0.35)));
+    ctx.font = `${size / k}px ${cssVar("--font-sans") || "sans-serif"}`;
+    ctx.textAlign = "center";
+    ctx.fillStyle = fg;
+    const v = view.current;
+    // Everything below is in screen pixels, where "does it overlap" means what the
+    // reader sees rather than what the layout happens to measure at this zoom.
+    const taken: { x0: number; y0: number; x1: number; y1: number }[] = [];
+    const order = [...nodesRef.current].sort((a, b) => b.degree - a.degree);
+    for (const n of order) {
+      const match = q ? n.label.toLowerCase().includes(q) : false;
+      const forced = (hov && (n.id === hov.id || neigh.has(n.id))) || match;
+      // An isolated node names itself only when the view is close enough to read it.
+      if (!forced && n.degree === 0 && k < 1.2) continue;
+      // Far out the dots are a few pixels wide: naming them all buries the shape of
+      // the graph under its own text, so only the hubs keep a name.
+      if (!forced && n.r * k < 3 && n.degree < 4) continue;
+      const sx = n.x! * k + v.x;
+      const sy = (n.y! + n.r) * k + v.y + size;
+      if (!forced && (sx < -80 || sy < -20 || sx > w + 80 || sy > h + 20)) continue;
+      const half = (ctx.measureText(n.label).width * k) / 2;
+      // Padding is what keeps two labels from touching rather than merely not
+      // overlapping; at a glance, touching reads as one unreadable run of text.
+      const box = { x0: sx - half - 5, y0: sy - size - 3, x1: sx + half + 5, y1: sy + 5 };
+      if (!forced && taken.some((t) => box.x0 < t.x1 && box.x1 > t.x0 && box.y0 < t.y1 && box.y1 > t.y0)) continue;
+      taken.push(box);
+      const dim = (hov && n.id !== hov.id && !neigh.has(n.id)) || (q && !match);
+      ctx.globalAlpha = forced ? 1 : dim ? 0.3 : 1;
+      ctx.fillText(n.label, n.x!, n.y! + n.r + size / k);
+    }
   }
 
   // The canvas backing store follows its CSS box; without this a rotation or a
@@ -372,6 +492,7 @@ export function GraphView() {
       const now = pinchState();
       if (!now || now.dist < 1 || p0.dist < 1) return;
       const v = view.current;
+      touched.current = true;
       const nk = Math.max(0.2, Math.min(5, p0.k * (now.dist / p0.dist)));
       // Keep the world point that was under the midpoint pinned to it.
       v.x = now.mx - p0.wx * nk;
@@ -387,6 +508,7 @@ export function GraphView() {
       d.node.fy = p.y;
       d.moved = true;
     } else if (d.panning) {
+      touched.current = true;
       view.current.x += e.clientX - d.lx;
       view.current.y += e.clientY - d.ly;
       d.lx = e.clientX;
@@ -422,6 +544,7 @@ export function GraphView() {
     drag.current = { node: null, panning: false, lx: 0, ly: 0, moved: false };
   };
   const onWheel = (e: React.WheelEvent) => {
+    touched.current = true;
     const r = canvas.current!.getBoundingClientRect();
     const mx = e.clientX - r.left,
       my = e.clientY - r.top;
@@ -498,6 +621,16 @@ export function GraphView() {
             </ToggleGroupItem>
           ))}
         </ToggleGroup>
+        <Button
+          size="icon-sm"
+          variant="outline"
+          className="ml-1"
+          aria-label={t.zoom_fit}
+          data-testid="graph-fit"
+          onClick={fitView}
+        >
+          <Maximize2 />
+        </Button>
         <Badge
           data-testid="graph-counts"
           variant="secondary"

@@ -95,14 +95,28 @@ function inlineStyles(source: Element, clone: Element) {
   }
 }
 
-/** Remove the handles and overlays that only make sense while editing. */
+/**
+ * Remove the handles and overlays that only make sense while editing.
+ *
+ * The test is whether an element *holds* content, not what it is. A `file`
+ * card in reading mode is a `<button data-board-ui>` wrapping its title and
+ * excerpt: dropping it by either rule would export the Board with every
+ * imported card blank. Such an element is unwrapped — the control goes, the
+ * words stay — while the toolbar, edge handles and resize grips, which wrap
+ * nothing, are removed outright.
+ */
 function stripInteractive(svg: SVGSVGElement) {
-  svg.querySelectorAll("[data-board-ui]").forEach((el) => {
-    // Edge labels are content; the toolbar and handles are not.
-    if (el.tagName === "foreignObject" && el.querySelector("span")) return;
+  const strip = (el: Element) => {
+    // Edge labels and node cards are content, whatever tag carries them.
+    if (el.querySelector("span")) {
+      if (el.tagName === "foreignObject") return;
+      el.replaceWith(...Array.from(el.childNodes));
+      return;
+    }
     el.remove();
-  });
-  svg.querySelectorAll("button").forEach((el) => el.remove());
+  };
+  svg.querySelectorAll("[data-board-ui]").forEach(strip);
+  svg.querySelectorAll("button").forEach(strip);
 }
 
 function escapeAttr(v: string): string {

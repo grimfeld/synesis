@@ -4,10 +4,12 @@ describe("Sidebar", () => {
   it("groups documents by type with counts", () => {
     cy.get("[data-testid=group-note]")
       .should("contain", "Notes")
-      .and("contain", "8");
-    cy.get("[data-testid=group-clipping]").should("contain", "4");
+      .and("contain", "9");
+    // A Clipping belongs to its Source, not to a folder of its own, so it has
+    // no group here (ADR 0013).
+    cy.get("[data-testid=group-clipping]").should("not.exist");
     cy.get("[data-testid=group-source]").should("contain", "7");
-    cy.get("[data-testid=group-place]").should("contain", "11");
+    cy.get("[data-testid=group-place]").should("contain", "13");
     cy.get("[data-testid=group-character]").should("contain", "11");
     cy.get("[data-testid=group-event]").should("contain", "19");
   });

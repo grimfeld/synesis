@@ -22,11 +22,12 @@ pub enum DocType {
     Character,
     Concept,
     Event,
+    Journey,
     Other,
 }
 
 impl DocType {
-    pub const ALL: [DocType; 11] = [
+    pub const ALL: [DocType; 12] = [
         DocType::Note,
         DocType::Clipping,
         DocType::Composition,
@@ -38,6 +39,7 @@ impl DocType {
         DocType::Character,
         DocType::Concept,
         DocType::Event,
+        DocType::Journey,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -53,6 +55,7 @@ impl DocType {
             DocType::Character => "character",
             DocType::Concept => "concept",
             DocType::Event => "event",
+            DocType::Journey => "journey",
             DocType::Other => "other",
         }
     }
@@ -70,6 +73,7 @@ impl DocType {
             "character" => DocType::Character,
             "concept" => DocType::Concept,
             "event" => DocType::Event,
+            "journey" => DocType::Journey,
             _ => return None,
         })
     }
@@ -86,6 +90,7 @@ impl DocType {
             DocType::Character => "Characters",
             DocType::Concept => "Concepts",
             DocType::Event => "Events",
+            DocType::Journey => "Journeys",
             DocType::Other => "",
         }
     }
@@ -100,6 +105,7 @@ impl DocType {
             "Characters" => DocType::Character,
             "Concepts" => DocType::Concept,
             "Events" => DocType::Event,
+            "Journeys" => DocType::Journey,
             _ => return None,
         })
     }
@@ -112,8 +118,24 @@ impl DocType {
         self.is_scripture()
             || matches!(
                 self,
-                DocType::Place | DocType::Character | DocType::Concept | DocType::Event
+                DocType::Place
+                    | DocType::Character
+                    | DocType::Concept
+                    | DocType::Event
+                    | DocType::Journey
             )
+    }
+
+    /// Whether this type's name may be matched in prose: the Topical Subjects
+    /// and Sources (ADR 0011).
+    ///
+    /// One rule read in two directions. These are the documents that gather
+    /// Unlinked mentions on their Hub, and exactly the documents that can turn
+    /// up as a Linkable while writing. Scripture is absent on purpose: a
+    /// Passage is already a Mention, and the Book "John" shares its name with
+    /// a Character.
+    pub fn is_linkable_target(self) -> bool {
+        self.is_subject() && !self.is_scripture() || self == DocType::Source
     }
 }
 
@@ -312,14 +334,16 @@ pub fn set_frontmatter_field(text: &str, key: &str, value: Option<&str>) -> Stri
     )
 }
 
-fn zones(text: &str) -> Vec<(usize, usize)> {
+/// Byte ranges that no match may touch: code fences, inline code and URLs.
+pub fn zones(text: &str) -> Vec<(usize, usize)> {
     SKIP_RE
         .find_iter(text)
         .map(|m| (m.start(), m.end()))
         .collect()
 }
 
-fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
+/// Whether `start..end` overlaps any of `zones`.
+pub fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
     zones.iter().any(|&(a, b)| start < b && end > a)
 }
 

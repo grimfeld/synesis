@@ -10,6 +10,8 @@ import { HubView } from "./views/HubView";
 import { TimelineView } from "./views/TimelineView";
 import { HUB_TYPES } from "./lib/api";
 import { GraphView } from "./views/GraphView";
+import { LibraryView } from "./views/LibraryView";
+import { ClippingsView } from "./views/ClippingsView";
 import { HomeView } from "./views/HomeView";
 import { MapView } from "./views/MapView";
 import { CoverageView } from "./views/CoverageView";
@@ -18,6 +20,7 @@ import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
+import { Toaster } from "sonner";
 
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
@@ -76,6 +79,10 @@ function Shell() {
       }
       case "graph":
         return <GraphView />;
+      case "library":
+        return <LibraryView />;
+      case "clippings":
+        return <ClippingsView />;
       case "map":
         return <MapView />;
       case "timeline":
@@ -99,6 +106,16 @@ function Shell() {
       </SidebarInset>
       <Dialogs />
       <Shortcuts />
+      <Toaster
+        position="bottom-right"
+        toastOptions={{
+          classNames: {
+            toast:
+              "bg-popover text-popover-foreground border border-border shadow-md",
+            actionButton: "bg-primary text-primary-foreground",
+          },
+        }}
+      />
     </SidebarProvider>
   );
 }

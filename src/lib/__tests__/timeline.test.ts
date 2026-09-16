@@ -20,6 +20,7 @@ function doc(id: string, title: string, type: DocType = "character"): DocSummary
     id,
     path: `${title}.md`,
     title,
+    label: title,
     type,
     mtime: 0,
     book: null,
@@ -28,6 +29,8 @@ function doc(id: string, title: string, type: DocType = "character"): DocSummary
     lat: null,
     lon: null,
     first_verse: null,
+    start: null,
+    end: null,
   };
 }
 

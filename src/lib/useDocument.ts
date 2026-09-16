@@ -95,10 +95,31 @@ export function useDocument(id: string) {
   const onBodyChange = useCallback(
     (text: string) => {
       latest.current.body = text;
+      // State as well as the ref: panels read the text through `body`, so
+      // keeping it only in the ref left them looking at the document as it was
+      // loaded. The editor is uncontrolled — its resync effect early-returns
+      // when the text already matches — so this costs a React render, not a
+      // CodeMirror dispatch.
+      setBody(text);
       dirty.current = true;
       schedule();
     },
     [schedule],
+  );
+
+  /**
+   * A write that came from outside the editor (linking a Linkable).
+   *
+   * The editor only resyncs on a `revision` bump, so a panel that rewrites the
+   * body has to ask for one; typing must not, or every keystroke would
+   * round-trip through CodeMirror.
+   */
+  const setBodyText = useCallback(
+    (text: string) => {
+      onBodyChange(text);
+      setRevision((r) => r + 1);
+    },
+    [onBodyChange],
   );
 
   /** Frontmatter edits (type, tags, properties) are visible at once, so they save now. */
@@ -169,6 +190,7 @@ export function useDocument(id: string) {
     names,
     load,
     onBodyChange,
+    setBodyText,
     onFmChange,
     rename,
     replaceText,

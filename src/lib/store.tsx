@@ -28,11 +28,14 @@ import {
   type VaultInfo,
 } from "./api";
 import { NO_FILTERS, type Filters } from "./timeline";
+import { NO_MAP_FILTERS, type MapFilters } from "./map";
 
 export type View =
   | { kind: "home" }
   | { kind: "doc"; id: string }
   | { kind: "graph" }
+  | { kind: "library" }
+  | { kind: "clippings" }
   | { kind: "map" }
   | { kind: "coverage" }
   | { kind: "timeline" }
@@ -64,7 +67,17 @@ export type Dialog =
       id: string;
       onPick: (lat: number, lon: number, modernName: string | null) => void;
     }
-  | { kind: "delete"; id: string };
+  | { kind: "delete"; id: string }
+  /** A multi-document write the user should see the extent of before it runs. */
+  | {
+      kind: "confirm";
+      title: string;
+      body: string;
+      /** Named so the blast radius is visible, not just counted. */
+      items: string[];
+      confirmLabel: string;
+      onConfirm: () => void;
+    };
 
 const SOURCE_MODE_KEY = "synesis.sourceMode";
 
@@ -91,6 +104,8 @@ interface Store {
    *  round-trip to a Hub and back does not lose them. */
   timelineFilters: Filters;
   setTimelineFilters: (f: Filters) => void;
+  mapFilters: MapFilters;
+  setMapFilters: (f: MapFilters) => void;
   /**
    * Which face of a Composition is showing. Store state rather than a route,
    * so the later split pane can show both at once (PLAN §17.9).
@@ -133,9 +148,9 @@ interface Store {
 const BUILTIN_SCHEMA: PropertySchema = {
   types: {
     aliases: "list",
-    author: "text",
     born: "date",
     characters: "list",
+    cover: "text",
     created: "calendar",
     date: "calendar",
     died: "date",
@@ -148,6 +163,7 @@ const BUILTIN_SCHEMA: PropertySchema = {
     occasion: "text",
     parent: "link",
     place: "link",
+    places: "list",
     source: "link",
     start: "date",
     url: "text",
@@ -187,6 +203,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 900);
   const [timelineFilters, setTimelineFiltersState] =
     useState<Filters>(NO_FILTERS);
+  const [mapFilters, setMapFiltersState] =
+    useState<MapFilters>(NO_MAP_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
   const [sourceMode, setSourceModeState] = useState(readSourceMode);
   // A Board belongs to the Composition being read, so opening another
@@ -356,6 +374,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     ) => {
       const d = await api.createDocument(type, title, fields, body);
       await refresh();
+      // A new document changes what other pages show — a parent Source's
+      // Contains list, a reading trail, the Library — and none of those are
+      // derived from `docs`, so they need telling.
+      setChangeTick((n) => n + 1);
       if (open) openDoc(d.summary.id);
       return d;
     },
@@ -387,6 +409,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       hiddenTypes: settings.timeline_hidden_types ?? [],
       inView: settings.timeline_in_view ?? true,
     }));
+    // The Map splits the same way (PLAN §19.13): Books and mentioned-ness are
+    // preferences, Tag chips and the search start empty.
+    setMapFiltersState((f) => ({
+      ...f,
+      books: settings.map_books ?? [],
+      mentionedOnly: settings.map_mentioned_only ?? false,
+    }));
   }, [settings]);
 
   const setTimelineFilters = useCallback((f: Filters) => {
@@ -396,6 +425,17 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         prev.hiddenTypes.join() !== f.hiddenTypes.join()
       )
         api.setTimelineFilters(f.hiddenTypes, f.inView).catch(console.error);
+      return f;
+    });
+  }, []);
+
+  const setMapFilters = useCallback((f: MapFilters) => {
+    setMapFiltersState((prev) => {
+      if (
+        prev.mentionedOnly !== f.mentionedOnly ||
+        prev.books.join() !== f.books.join()
+      )
+        api.setMapFilters(f.books, f.mentionedOnly).catch(console.error);
       return f;
     });
   }, []);
@@ -428,6 +468,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lastChange,
     sidebarOpen,
     timelineFilters,
+    mapFilters,
     panelOpen,
     sourceMode,
     docTab,
@@ -448,6 +489,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSyncMethod,
     setSidebarOpen,
     setTimelineFilters,
+    setMapFilters,
     setPanelOpen,
     setSourceMode,
     setDocTab,

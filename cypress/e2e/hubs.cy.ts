@@ -8,11 +8,14 @@ describe("Hub pages", () => {
     cy.get("[data-testid=hub-header]").should("contain", "Source");
     cy.get("[data-testid=hub-header] input[value=periodical]").should("exist");
     cy.get("button[aria-label='Open link']").should("exist");
-    cy.get("[data-testid=hub-trail]").within(() => {
-      // The article's clipping rolls up to the periodical, grouped under the article.
-      cy.contains("Keep Enduring with Joy");
-      cy.contains("Endurance is steadfastness");
+    // A Clipping has its own section, showing its words rather than a title
+    // it does not have (ADR 0013).
+    cy.get("[data-testid=hub-clippings]").within(() => {
+      cy.contains("Endurance is not merely putting up");
       cy.contains("par. 12");
+    });
+    cy.get("[data-testid=hub-trail]").within(() => {
+      // The reading trail keeps everything else that cites the periodical.
       cy.contains("Contains");
       cy.contains("The Watchtower 2024-03");
     });
@@ -84,6 +87,25 @@ describe("Hub pages", () => {
       .should("equal", "Paul");
   });
 
+  it("Place hub: a document that Mentions it twice is one row, expandable", () => {
+    // "Paul's second missionary journey" lists [[Antioch]] twice in its
+    // `places` property — out and back. That is one Backlink, not two, and the
+    // occurrences are still reachable behind the chevron.
+    cy.openDoc("Antioch");
+    cy.get("[data-testid=backlinks] [data-testid=backlink-row]")
+      .filter(':contains("second missionary journey")')
+      .should("have.length", 1)
+      .as("row");
+    cy.get("@row")
+      .find("[data-testid=backlink-count]")
+      .should("contain", "2 mentions");
+    cy.get("@row").find("[data-testid=backlink-occurrences]").should("not.exist");
+    cy.get("@row").find("[data-testid=backlink-expand]").click();
+    cy.get("@row")
+      .find("[data-testid=backlink-occurrences] li")
+      .should("have.length", 2);
+  });
+
   it("Concept hub: tag and link backlinks", () => {
     cy.openDoc("Endurance");
     cy.hubTitle("Endurance");
@@ -92,7 +114,7 @@ describe("Hub pages", () => {
       .and("contain", "perseverance");
     cy.get("[data-testid=backlinks]")
       .should("contain", "Talk on endurance")
-      .and("contain", "Endurance is steadfastness");
+      .and("contain", "Endurance is not merely putting up");
   });
 
   it("Place hub: mini-map and jump to the Map view", () => {

@@ -56,6 +56,22 @@
   --c-character: #d0651e;
   --c-concept: #4f5bd5;
   --c-event: #7a8b12;
+  --c-journey: #1f7a8c;
+  /* Route palette, cycled by index (PLAN §19.10) */
+  --c-route-1: #1f7a8c;
+  --c-route-2: #b3541e;
+  --c-route-3: #6a4c93;
+  --c-route-4: #1b7f4b;
+  --c-route-5: #a8326e;
+  /* Generated Cover spines, cycled by Source id (ADR 0012). Unlike the route
+     palette these are fills behind white text, so they stay deep in both
+     themes rather than lightening for the dark one. */
+  --c-cover-1: #2f4858;
+  --c-cover-2: #6b3f2a;
+  --c-cover-3: #3d3a6b;
+  --c-cover-4: #2b5e46;
+  --c-cover-5: #6b2f47;
+  --c-cover-6: #59502c;
   --c-other: #6b7280;
   /* editor decorations */
   --passage: #5a7d3a;
@@ -108,6 +124,20 @@
   --c-character: #f0a060;
   --c-concept: #9aa4f0;
   --c-event: #c5d45a;
+  --c-journey: #5cc4d8;
+  --c-route-1: #5cc4d8;
+  --c-route-2: #f0a05a;
+  --c-route-3: #b9a0e8;
+  --c-route-4: #6ad39a;
+  --c-route-5: #f086bc;
+  /* Lifted just enough to sit above the dark background; still deep enough to
+     carry white title text (ADR 0012). */
+  --c-cover-1: #3c5a6e;
+  --c-cover-2: #7e4e34;
+  --c-cover-3: #4b4782;
+  --c-cover-4: #357356;
+  --c-cover-5: #7e3a56;
+  --c-cover-6: #6c6237;
   --c-other: #9aa0a8;
   --passage: #9ec27a;
   --passage-inferred: #7f9b66;
@@ -160,6 +190,18 @@
   --color-type-character: var(--c-character);
   --color-type-concept: var(--c-concept);
   --color-type-event: var(--c-event);
+  --color-type-journey: var(--c-journey);
+  --color-route-1: var(--c-route-1);
+  --color-route-2: var(--c-route-2);
+  --color-route-3: var(--c-route-3);
+  --color-route-4: var(--c-route-4);
+  --color-route-5: var(--c-route-5);
+  --color-cover-1: var(--c-cover-1);
+  --color-cover-2: var(--c-cover-2);
+  --color-cover-3: var(--c-cover-3);
+  --color-cover-4: var(--c-cover-4);
+  --color-cover-5: var(--c-cover-5);
+  --color-cover-6: var(--c-cover-6);
   --color-type-other: var(--c-other);
   --color-passage: var(--passage);
   --color-link: var(--link);
@@ -250,6 +292,11 @@
 .leaflet-popup-tip { background: var(--popover); }
 .leaflet-tooltip.map-label { background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; padding: 2px 6px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
 .leaflet-tooltip.map-label::before { display: none; }
+/* Routes (PLAN §19.10): the arrowhead is a rotated triangle on the leg, so
+   direction reads at a glance without hunting for the Stop numbers. */
+.map-route { pointer-events: stroke; }
+.map-arrow { background: none; border: none; }
+.map-arrow span { display: block; width: 0; height: 0; transform: rotate(var(--a, 0deg)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid var(--c, currentColor); }
 .dark .leaflet-tile { filter: brightness(.7) contrast(1.05) saturate(.8); }
 .leaflet-bar a { background: var(--popover); color: var(--popover-foreground); border-bottom-color: var(--border); }
 .leaflet-bar a:hover { background: var(--accent); }

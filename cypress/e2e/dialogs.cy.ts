@@ -44,13 +44,19 @@ describe("Dialogs", () => {
     cy.get(
       "[data-testid=new-doc-form] input[placeholder*='Existing Source']",
     ).type("Brand new source");
+    // The Source does not exist yet, so creating it is an explicit choice
+    // rather than a consequence of typing (ADR 0012).
+    cy.get("[data-testid=picker-create]").click();
     cy.get("[data-testid=new-doc-form] input[placeholder^='par. 12']").type(
       "p. 3",
     );
-    cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
-    cy.get("input[aria-label=Title]")
-      .invoke("val")
-      .should("match", /^Brand new source – A line worth keeping/);
+    cy.get("[data-testid=submit-doc]").click();
+    // A Clipping has no title: no field to fill in the dialog, none to edit on
+    // the page, and its Citation in place of the heading (ADR 0013).
+    cy.get("[data-testid=doc-title]").should("not.exist");
+    cy.get("[data-testid=doc-citation]")
+      .should("contain", "Brand new source")
+      .and("contain", "p. 3");
     cy.get(
       "[data-testid=right-panel] input[value='[[Brand new source]]']",
     ).should("exist");

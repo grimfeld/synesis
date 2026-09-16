@@ -4,9 +4,9 @@ type: source
 title: "Insight: Ephesus"
 created: "2026-08-02T10:05:00"
 kind: "chapter"
-author: ""
 url: "https://wol.jw.org/en/wol/d/r1/lp-e/1200001363"
 date: "1988"
+cover: ""
 parent: "[[Insight on the Scriptures]]"
 ---
 

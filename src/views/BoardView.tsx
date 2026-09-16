@@ -14,10 +14,12 @@ import {
 } from "react";
 import {
   Download,
+  Eye,
   Group,
   Link2,
   Maximize,
   Palette,
+  Pencil,
   Plus,
   Trash2,
   ZoomIn,
@@ -25,7 +27,13 @@ import {
 } from "lucide-react";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { cn } from "cn";
-import { api, type Board, type CanvasNode, type DocSummary } from "@/lib/api";
+import {
+  api,
+  type Board,
+  type BoardExcerpt,
+  type CanvasNode,
+  type DocSummary,
+} from "@/lib/api";
 import {
   DEFAULT_NODE,
   edgeMidpoint,
@@ -52,6 +60,11 @@ import { boardToSvg, svgToPng } from "@/lib/boardExport";
 import { BoardDrawer } from "@/components/BoardDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 /** The six JSON Canvas presets. The spec leaves their actual colours to us. */
 const PRESETS = ["1", "2", "3", "4", "5", "6"] as const;
@@ -67,6 +80,15 @@ const PRESET_HEX: Record<string, string> = {
 function colorOf(c: string | undefined): string | null {
   if (!c) return null;
   return c.startsWith("#") ? c : (PRESET_HEX[c] ?? null);
+}
+
+/**
+ * How a Board excerpt is addressed, matching `board_excerpt_key` in the
+ * engine: a Board may hold both a whole document and one of its sections, and
+ * those two cards do not show the same text.
+ */
+function excerptKey(path: string, subpath: string | undefined): string {
+  return subpath ? `${path}\u0001${subpath}` : path;
 }
 
 /** How far a pointer may travel before a press counts as a drag, not a click. */
@@ -106,6 +128,16 @@ export function BoardView({
   const [view, setView] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Reading or arranging. Arranging is the default because the Board exists to
+  // be laid out; reading is the mode you switch to once it is. In reading mode
+  // a press on a card opens its document and nothing moves.
+  //
+  // This replaces the per-platform rule in PLAN §17.15 (tap opens on touch,
+  // click opens on the desktop): a press that both selects and navigates makes
+  // a card hard to pick up, and a `file` node rendered as a button was ignored
+  // by the canvas entirely, so it could not be dragged at all. One mode answers
+  // both platforms, and touch gets the open gesture the desktop has.
+  const [reading, setReading] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [labelling, setLabelling] = useState<string | null>(null);
   const gesture = useRef<Gesture>({ kind: "none" });
@@ -120,6 +152,40 @@ export function BoardView({
     () => new Map(docs.map((d) => [d.path, d])),
     [docs],
   );
+
+  // The Board excerpts, keyed by node path (PLAN §17.12).
+  const [excerpts, setExcerpts] = useState<Record<string, BoardExcerpt>>({});
+
+  // What the excerpts were fetched for: every referenced path with the mtime
+  // it had. Editing a document *on* the Board changes its mtime and refetches;
+  // editing any other document does not, so a keystroke in an unrelated file
+  // does not recompute forty excerpts.
+  const refsKey = useMemo(() => {
+    if (!board) return "";
+    return board.nodes
+      .filter((n) => n.type === "file" && n.file)
+      .map((n) => `${n.file}\u0000${n.subpath ?? ""}\u0000${byPath.get(n.file!)?.mtime ?? 0}`)
+      .sort()
+      .join("\u0002");
+  }, [board, byPath]);
+
+  useEffect(() => {
+    if (!refsKey) {
+      setExcerpts({});
+      return;
+    }
+    let live = true;
+    const refs = refsKey.split("\u0002").map((entry) => {
+      const [path, subpath] = entry.split("\u0000");
+      return { path, subpath: subpath || null };
+    });
+    api.boardExcerpts(refs).then((got) => {
+      if (live) setExcerpts(got);
+    });
+    return () => {
+      live = false;
+    };
+  }, [refsKey]);
 
   useEffect(() => {
     let live = true;
@@ -270,10 +336,31 @@ export function BoardView({
     const target = e.target as HTMLElement;
     // Let the node editors and the toolbar handle their own presses.
     if (target.closest("[data-board-ui]")) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
+    // Capture keeps a drag alive when the pointer leaves the node it started
+    // on. It throws if the id is not an active pointer, which a synthetic
+    // event has no reason to be, and losing capture is survivable.
+    try {
+      (e.target as Element).setPointerCapture?.(e.pointerId);
+    } catch {
+      /* no capture: the gesture still tracks through the canvas handlers */
+    }
     const [bx, by] = pointerBoard(e);
     const hit = board ? nodeAt(board.nodes, bx, by) : null;
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
+
+    // Reading: every press pans, and releasing without travelling opens
+    // whatever was under it. Nothing is selected, so nothing can be moved,
+    // resized or deleted by accident — the whole point of the mode.
+    if (reading) {
+      gesture.current = {
+        kind: "pan",
+        startX: e.clientX,
+        startY: e.clientY,
+        origin: view,
+      };
+      forceRender((n) => n + 1);
+      return;
+    }
 
     // Holding space, middle-clicking, or dragging empty canvas pans.
     if (!hit) {
@@ -397,12 +484,24 @@ export function BoardView({
       longPress.current = null;
     }
     gesture.current = { kind: "none" };
+    if (reading) {
+      // A press that did not travel is a click, so open what is under it.
+      // Measured in client pixels, like the drag slop everywhere else, so the
+      // threshold means the same thing at every zoom.
+      const still =
+        g.kind === "pan" &&
+        Math.abs(e.clientX - g.startX) < DRAG_SLOP &&
+        Math.abs(e.clientY - g.startY) < DRAG_SLOP;
+      if (still && board) {
+        const [bx, by] = pointerBoard(e);
+        const hit = nodeAt(board.nodes, bx, by);
+        if (hit) openNode(hit);
+      }
+      forceRender((n) => n + 1);
+      return;
+    }
     if (g.kind === "move" && g.moved && board) {
       save(board);
-    } else if (g.kind === "move" && !g.moved && isMobile && board) {
-      // A tap on touch opens the document rather than selecting it.
-      const n = board.nodes.find((x) => g.ids.has(x.id));
-      if (n?.type === "file" && n.file) openNode(n);
     } else if (g.kind === "marquee" && board) {
       const picked = nodesIn(board.nodes, g.rect).map((n) => n.id);
       setSelected((prev) =>
@@ -453,6 +552,17 @@ export function BoardView({
     [byPath, s],
   );
 
+  const toggleReading = useCallback(() => {
+    setReading((r) => {
+      if (!r) {
+        setSelected(new Set());
+        setEditing(null);
+        setLabelling(null);
+      }
+      return !r;
+    });
+  }, []);
+
   const onWheel = (e: React.WheelEvent) => {
     const r = hostRef.current?.getBoundingClientRect();
     const x = e.clientX - (r?.left ?? 0);
@@ -467,7 +577,7 @@ export function BoardView({
   // Keyboard: delete removes the selection, escape clears it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editing || labelling) return;
+      if (editing || labelling || reading) return;
       const el = document.activeElement;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         return;
@@ -488,7 +598,7 @@ export function BoardView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, deleteSelected, board, editing, labelling]);
+  }, [selected, deleteSelected, board, editing, labelling, reading]);
 
   const nodeById = useMemo(
     () => new Map((board?.nodes ?? []).map((n) => [n.id, n])),
@@ -508,7 +618,11 @@ export function BoardView({
         ref={hostRef}
         className={cn(
           "relative min-h-0 flex-1 touch-none overflow-hidden bg-muted/30",
-          g.kind === "pan" ? "cursor-grabbing" : "cursor-default",
+          g.kind === "pan"
+            ? "cursor-grabbing"
+            : reading
+              ? "cursor-grab"
+              : "cursor-default",
         )}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -566,7 +680,7 @@ export function BoardView({
                     y={n.y + 22}
                     className="fill-muted-foreground text-[13px] font-medium"
                     style={colorOf(n.color) ? { fill: colorOf(n.color)! } : undefined}
-                    onDoubleClick={() => setLabelling(n.id)}
+                    onDoubleClick={reading ? undefined : () => setLabelling(n.id)}
                     data-board-ui
                   >
                     {n.label || t.board_group}
@@ -618,6 +732,7 @@ export function BoardView({
                   key={n.id}
                   node={n}
                   doc={n.file ? byPath.get(n.file) : undefined}
+                  excerpt={n.file ? excerpts[excerptKey(n.file, n.subpath)] : undefined}
                   selected={selected.has(n.id)}
                   editing={editing === n.id}
                   onEdit={() => setEditing(n.id)}
@@ -651,6 +766,7 @@ export function BoardView({
                     });
                   }}
                   missing={!!n.file && !byPath.has(n.file)}
+                  reading={reading}
                   t={t}
                   zoom={view.zoom}
                   mobile={isMobile}
@@ -699,13 +815,42 @@ export function BoardView({
           data-board-ui
           className="absolute top-3 left-3 flex flex-wrap items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm"
         >
-          <IconButton
-            label={t.board_add_note}
-            onClick={() => addNode({ type: "text", text: "" })}
-          >
-            <Plus />
-          </IconButton>
-          {!isMobile && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                variant={reading ? "secondary" : "ghost"}
+                aria-pressed={reading}
+                aria-label={reading ? t.board_mode_read : t.board_mode_edit}
+                data-testid="board-mode"
+                className="min-h-8 gap-1.5 px-2"
+                onClick={toggleReading}
+              >
+                {reading ? (
+                  <Eye className="size-4 shrink-0" />
+                ) : (
+                  <Pencil className="size-4 shrink-0" />
+                )}
+                <span className="text-xs">
+                  {reading ? t.board_mode_read : t.board_mode_edit}
+                </span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="max-w-56">
+              {reading ? t.board_mode_read_hint : t.board_mode_edit_hint}
+            </TooltipContent>
+          </Tooltip>
+          <span className="mx-0.5 h-5 w-px bg-border" />
+          {!reading && (
+            <IconButton
+              label={t.board_add_note}
+              onClick={() => addNode({ type: "text", text: "" })}
+            >
+              <Plus />
+            </IconButton>
+          )}
+          {!isMobile && !reading && (
             <IconButton
               label={t.board_add_group}
               onClick={() =>
@@ -754,7 +899,7 @@ export function BoardView({
           </span>
         </div>
 
-        {selected.size > 0 && !isMobile && (
+        {selected.size > 0 && !isMobile && !reading && (
           <div
             data-board-ui
             className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm"
@@ -834,7 +979,7 @@ export function BoardView({
         )}
       </div>
 
-      {!isMobile && (
+      {!isMobile && !reading && (
         <BoardDrawer
           compositionId={id}
           onAdd={addDocument}
@@ -845,13 +990,50 @@ export function BoardView({
   );
 }
 
+/**
+ * The body of a `file` node: a button while reading, an inert div while
+ * arranging. Two elements rather than one button with a disabled handler,
+ * because the canvas decides what a press means by looking for
+ * `data-board-ui` on the target — a button that keeps the attribute stays
+ * undraggable however its `onClick` is set, and one that keeps its role
+ * without the attribute announces itself to a screen reader as something
+ * that does nothing.
+ */
+function FileCard({
+  reading,
+  label,
+  onOpen,
+  children,
+}: {
+  reading: boolean;
+  label: string;
+  onOpen: () => void;
+  children: React.ReactNode;
+}) {
+  const className = "flex size-full flex-col items-start gap-1 text-left";
+  if (!reading) return <div className={className}>{children}</div>;
+  return (
+    <button
+      type="button"
+      data-board-ui
+      aria-label={label}
+      className={cn(className, "cursor-pointer")}
+      onClick={onOpen}
+    >
+      {children}
+    </button>
+  );
+}
+
 /** One `text` or `file` node. */
 function NodeBox({
   node,
   doc,
+  excerpt,
   selected,
   editing,
   missing,
+  reading,
   zoom,
   mobile,
   t,
@@ -863,9 +1045,11 @@ function NodeBox({
 }: {
   node: CanvasNode;
   doc: DocSummary | undefined;
+  excerpt: BoardExcerpt | undefined;
   selected: boolean;
   editing: boolean;
   missing: boolean;
+  reading: boolean;
   zoom: number;
   mobile: boolean;
   t: ReturnType<typeof useT>;
@@ -876,6 +1060,7 @@ function NodeBox({
   onResize: (width: number, height: number) => void;
 }) {
   const accent = colorOf(node.color);
+  const { body, status } = cardText(doc, excerpt, missing, t);
   return (
     <foreignObject
       x={node.x}
@@ -911,7 +1096,7 @@ function NodeBox({
           ) : (
             <div
               className="thin-scroll size-full overflow-y-auto whitespace-pre-wrap break-words"
-              onDoubleClick={onEdit}
+              onDoubleClick={reading ? undefined : onEdit}
             >
               {node.text || (
                 <span className="text-muted-foreground">{t.board_note_empty}</span>
@@ -919,33 +1104,59 @@ function NodeBox({
             </div>
           )
         ) : (
-          <button
-            type="button"
-            data-board-ui
-            className="flex size-full flex-col items-start gap-1 text-left"
-            onClick={mobile ? undefined : onOpen}
+          // A card is a button only while reading. In arranging mode it must
+          // be inert: `data-board-ui` makes the canvas ignore the press, and a
+          // `file` node carrying it could never be dragged or marquee-picked.
+          <FileCard
+            reading={reading}
+            label={doc?.label ?? node.file ?? ""}
+            onOpen={onOpen}
           >
-            <span className="flex w-full items-center gap-1.5">
+            <span className="flex w-full min-w-0 items-baseline gap-1.5">
+              {/* A Clipping's card carries its quote in the body below, and it
+                  has no title to head it with (ADR 0013) — repeating the quote
+                  here, truncated, would say the same thing twice and worse. */}
+              {doc?.type !== "clipping" && (
+                <span
+                  className={cn(
+                    "min-w-0 truncate text-[13px] font-medium",
+                    missing && "text-muted-foreground line-through",
+                  )}
+                >
+                  {doc?.title ?? node.file?.split("/").pop()}
+                </span>
+              )}
+              {/* Which part of the document this is. Kept even when the type
+                  label goes, because a sectioned card is otherwise
+                  indistinguishable from a whole-document one. */}
+              {node.subpath && (
+                <span className="shrink-0 text-[11px] text-muted-foreground">
+                  {node.subpath}
+                </span>
+              )}
+            </span>
+            {/* The excerpt replaces the type label rather than stacking under
+                it: on a 140px card the type is the least valuable row once
+                there is real text to show, and prose usually tells you what
+                kind of document you are looking at. */}
+            {status ? (
               <span
                 className={cn(
-                  "truncate text-[13px] font-medium",
-                  missing && "text-muted-foreground line-through",
+                  "text-[11px]",
+                  missing || excerpt?.subpath_missing
+                    ? "text-muted-foreground/90 italic"
+                    : "text-muted-foreground",
                 )}
               >
-                {doc?.title ?? node.file?.split("/").pop()}
+                {status}
               </span>
-            </span>
-            <span className="text-[11px] text-muted-foreground">
-              {missing
-                ? t.board_missing
-                : (doc && t.types[doc.type]) + (node.subpath ? ` ${node.subpath}` : "")}
-            </span>
-            {!missing && (
+            ) : null}
+            {body && (
               <span className="thin-scroll line-clamp-3 overflow-hidden text-[12px] text-muted-foreground">
-                {excerptFor(doc, node)}
+                {body}
               </span>
             )}
-          </button>
+          </FileCard>
         )}
       </div>
       {selected && !mobile && (
@@ -1007,10 +1218,35 @@ function NodeBox({
  * What a `file` node shows under its title: a Clipping's quote rather than the
  * name the user gave it, a Note's opening line (PLAN §17.12).
  */
-function excerptFor(doc: DocSummary | undefined, node: CanvasNode): string {
-  if (!doc) return "";
-  if (node.subpath) return node.subpath.replace(/^#\^?/, "");
-  return "";
+/**
+ * What the card's two text rows say: `body` is the excerpt, `status` the line
+ * that takes its place when there is no prose to show.
+ *
+ * They swap rather than stack (PLAN §17.12, amended): the type label earns its
+ * place only when the card would otherwise be a bare title.
+ */
+function cardText(
+  doc: DocSummary | undefined,
+  excerpt: BoardExcerpt | undefined,
+  missing: boolean,
+  t: ReturnType<typeof useT>,
+): { body: string; status: string } {
+  if (missing) return { body: "", status: t.board_missing };
+  const type = doc ? t.types[doc.type] : "";
+  // A Subject Hub with nothing to quote falls back to its inbound link count.
+  if (!excerpt?.text) {
+    const n = excerpt?.mentions;
+    return {
+      body: "",
+      status: n != null ? `${type} · ${t.board_mentions(n)}` : type,
+    };
+  }
+  // A subpath that no longer resolves: show the document's opening text, and
+  // say the section is gone rather than passing it off as what was pinned.
+  return {
+    body: excerpt.text,
+    status: excerpt.subpath_missing ? t.board_section_missing : "",
+  };
 }
 
 /** A small prompt for an edge or group label. */

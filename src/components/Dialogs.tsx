@@ -7,7 +7,15 @@ import {
   type ReactNode,
 } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { BookOpenText, ChevronRight, Globe, Plus } from "lucide-react";
+import {
+  BookOpenText,
+  ChevronRight,
+  Download,
+  Globe,
+  ImagePlus,
+  Plus,
+  X,
+} from "lucide-react";
 import { cn } from "cn";
 import {
   api,
@@ -26,6 +34,7 @@ import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
+import { quoteBody } from "@/lib/clippingBody";
 import { useT } from "@/i18n";
 import {
   AlertDialog,
@@ -70,7 +79,7 @@ import { diffLines, diffStats } from "@/lib/diff";
 import { Field } from "./Field";
 import { SyncSetup } from "./SyncSetup";
 import { PairingPanel } from "./Pairing";
-import { TypeDot } from "./DocLink";
+import { EventDate, TypeDot } from "./DocLink";
 
 export function Dialogs() {
   const s = useStore();
@@ -102,6 +111,17 @@ export function Dialogs() {
       return <CreateLink target={d.target} onClose={close} />;
     case "delete":
       return <ConfirmDelete id={d.id} onClose={close} />;
+    case "confirm":
+      return (
+        <ConfirmBatch
+          title={d.title}
+          body={d.body}
+          items={d.items}
+          confirmLabel={d.confirmLabel}
+          onConfirm={d.onConfirm}
+          onClose={close}
+        />
+      );
     case "set-location":
       return <SetLocation id={d.id} onPick={d.onPick} onClose={close} />;
     case "version":
@@ -522,53 +542,254 @@ function TypePicker({
 }
 
 /** Picker over existing documents of some types, with free text fallback. */
+/**
+ * Pick an existing document, or say explicitly that you are creating one.
+ *
+ * Not a free-text box that looks like a picker. The old one wrote whatever was
+ * typed straight into a `[[wikilink]]` and dropped the id of anything picked,
+ * so a typo produced a dangling link and a rename broke a real one. Here every
+ * accepted value is either a document (`doc` is passed, and with it the id) or
+ * a deliberate "Create X" — nothing becomes a link by accident.
+ */
 function DocPicker({
   types,
   value,
   onChange,
+  onCreate,
   placeholder,
+  disabled,
+  testId,
 }: {
   types: DocType[];
   value: string;
   onChange: (v: string, doc?: DocSummary) => void;
+  /** Offered as an explicit row when the typed name matches nothing. */
+  onCreate?: (title: string) => void;
   placeholder?: string;
+  disabled?: boolean;
+  testId?: string;
 }) {
   const s = useStore();
+  const t = useT();
   const list = useMemo(
     () => s.docs.filter((d) => types.includes(d.type)),
     [s.docs, types],
   );
+  // What the user is typing, kept apart from the accepted value: the box may
+  // show a half-typed name that is not yet anybody's title.
+  const [draft, setDraft] = useState(value);
   const [focus, setFocus] = useState(false);
+  useEffect(() => setDraft(value), [value]);
+
+  const q = draft.trim();
   const matches = useMemo(() => {
-    const q = value.trim().toLowerCase();
+    const f = q.toLowerCase();
     return list
-      .filter((d) => !q || d.title.toLowerCase().includes(q))
+      .filter((d) => !f || d.title.toLowerCase().includes(f))
       .slice(0, 8);
-  }, [list, value]);
+  }, [list, q]);
+  const exact = matches.find((d) => d.title.toLowerCase() === q.toLowerCase());
+  const canCreate = !!onCreate && q.length > 0 && !exact;
+
+  const pick = (d: DocSummary) => {
+    setDraft(d.title);
+    setFocus(false);
+    onChange(d.title, d);
+  };
+  const create = () => {
+    if (!canCreate) return;
+    setFocus(false);
+    onCreate!(q);
+  };
+
   return (
     <div className="relative">
       <Input
-        value={value}
+        value={draft}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        data-testid={testId}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          // Typing clears any previous pick: the value is only ever a
+          // document the user chose, never the characters they left behind.
+          if (value) onChange("");
+        }}
         onFocus={() => setFocus(true)}
         onBlur={() => setTimeout(() => setFocus(false), 150)}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          if (matches.length === 1) pick(matches[0]);
+          else if (exact) pick(exact);
+          else create();
+        }}
       />
-      {focus && matches.length > 0 && (
+      {focus && (matches.length > 0 || canCreate) && (
         <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
           {matches.map((d) => (
             <li key={d.id}>
               <button
                 type="button"
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
-                onMouseDown={() => onChange(d.title, d)}
+                onMouseDown={() => pick(d)}
               >
                 <TypeDot type={d.type} />
-                <span className="truncate">{d.title}</span>
+                <span className="truncate">{d.label}</span>
               </button>
             </li>
           ))}
+          {canCreate && (
+            <li>
+              <button
+                type="button"
+                data-testid="picker-create"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                onMouseDown={create}
+              >
+                <Plus className="size-3.5 shrink-0" />
+                <span className="truncate">{t.create_named(q)}</span>
+              </button>
+            </li>
+          )}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * A Source's Cover: a URL, a picture in the vault, or nothing (ADR 0012).
+ *
+ * The URL path is the quick one — `Fetch` fills it from `og:image` — and
+ * "Save a copy" turns it into a picture the vault owns, because a remote Cover
+ * renders only online and rots when the site reorganises. Downloading is
+ * always the user's choice, never a side effect of fetching metadata.
+ */
+function CoverField({
+  title,
+  value,
+  onChange,
+  onStage,
+  staged,
+}: {
+  /** The Source's title, or "" while the user is still typing it. */
+  title: string;
+  value: string;
+  onChange: (v: string) => void;
+  /**
+   * Hold a picture back until the Source is written, when its title is final.
+   * Absent on a Source that already exists, where copying can happen at once.
+   */
+  onStage?: (from: { path?: string; url?: string } | null) => void;
+  staged?: { path?: string; url?: string } | null;
+}) {
+  const t = useT();
+  const [busy, setBusy] = useState(false);
+  const remote = /^https?:\/\//i.test(value.trim());
+  const stored = !!value.trim() && !remote;
+
+  const choose = async () => {
+    const picked = await openDialog({
+      multiple: false,
+      filters: [
+        { name: "Image", extensions: ["jpg", "jpeg", "png", "gif", "webp"] },
+      ],
+    });
+    if (typeof picked !== "string") return;
+    // Staged, not copied: the title decides the file name, and in a New
+    // dialog it is not settled until submit — copying now names the picture
+    // after whatever the box happened to hold (ADR 0012).
+    if (onStage) {
+      onStage({ path: picked });
+      return;
+    }
+    setBusy(true);
+    try {
+      onChange(await api.attachImage(title, picked));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveCopy = async () => {
+    if (onStage) {
+      onStage({ url: value.trim() });
+      return;
+    }
+    setBusy(true);
+    try {
+      onChange(await api.saveRemoteCover(title, value.trim()));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // A staged picture is shown as a pending choice rather than a path that does
+  // not exist yet, so the field never claims the vault holds something it does
+  // not.
+  if (staged) {
+    return (
+      <div className="flex min-w-0 items-center gap-2">
+        <span
+          data-testid="cover-staged"
+          className="min-w-0 flex-1 truncate rounded-md border border-dashed px-3 py-2 text-sm text-muted-foreground"
+        >
+          {t.cover_on_create}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={t.cover_remove}
+          onClick={() => onStage?.(null)}
+        >
+          <X />
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex gap-2">
+      <Input
+        className="min-w-0 flex-1"
+        data-testid="cover-input"
+        value={value}
+        placeholder="https:// · Attachments/…"
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {remote && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={saveCopy}
+          data-testid="cover-save-copy"
+        >
+          <Download />
+          {t.cover_save_copy}
+        </Button>
+      )}
+      {!stored && (
+        <Button
+          type="button"
+          variant="outline"
+          disabled={busy}
+          onClick={choose}
+          data-testid="cover-choose"
+        >
+          <ImagePlus />
+        </Button>
+      )}
+      {!!value.trim() && (
+        <Button
+          type="button"
+          variant="ghost"
+          aria-label={t.cover_remove}
+          onClick={() => onChange("")}
+        >
+          <X />
+        </Button>
       )}
     </div>
   );
@@ -623,6 +844,12 @@ function NewDocument({
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A Cover picked before the Source exists waits here: the file it becomes is
+  // named after the title, which is not settled until submit (ADR 0012).
+  const [stagedCover, setStagedCover] = useState<{
+    path?: string;
+    url?: string;
+  } | null>(null);
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
   const titleRef = useRef<HTMLInputElement>(null);
   useEffect(() => titleRef.current?.focus(), []);
@@ -640,14 +867,14 @@ function NewDocument({
         const m = await api.fetchUrlMetadata(f.url);
         if (type === "source") {
           if (m.title) setTitle(m.title);
-          if (m.author) set("author", m.author);
           if (m.date) set("date", m.date);
-          if (m.site) set("site", m.site);
+          // `og:image` is a suggestion, not an answer: often a site logo, and
+          // remote until the user asks to keep a copy (ADR 0012).
+          if (m.image) set("cover", m.image);
         } else {
           if (m.title) set("source", m.title);
-          if (m.author) set("author", m.author);
           if (m.date) set("date", m.date);
-          if (m.site) set("site", m.site);
+          if (m.image) set("cover", m.image);
           set("source_id", "");
         }
       }
@@ -679,9 +906,9 @@ function NewDocument({
               sourceTitle,
               {
                 kind: f.kind || "article",
-                author: f.author ?? "",
                 url: f.url ?? "",
                 date: f.date ?? "",
+                cover: f.cover ?? "",
               },
               "",
               false,
@@ -691,15 +918,15 @@ function NewDocument({
           fields.source = `[[${sourceTitle}]]`;
         }
         if (f.locator) fields.locator = f.locator;
-        if (!finalTitle)
-          finalTitle =
-            (sourceTitle ? sourceTitle + " – " : "") +
-            (body.trim().slice(0, 48) || stamp());
+        // No title is invented here, and none is sent: the engine names the
+        // file from the Citation in these fields (ADR 0013).
+        finalTitle = "";
       } else if (type === "source") {
         fields.kind = f.kind || "article";
-        if (f.author) fields.author = f.author;
         if (f.url) fields.url = f.url;
         if (f.date) fields.date = f.date;
+        if (f.cover) fields.cover = f.cover;
+        // Only ever a Source the picker resolved, so the link cannot dangle.
         if (f.parent) fields.parent = `[[${f.parent}]]`;
       } else if (type === "place") {
         if (f.lat) fields.lat = Number(f.lat);
@@ -715,8 +942,24 @@ function NewDocument({
         if (f.occasion) fields.occasion = f.occasion;
         if (f.date) fields.date = f.date;
       }
-      if (!finalTitle) finalTitle = type === "note" ? stamp() : t.untitled;
-      await s.createDoc(type, finalTitle, fields, body);
+      if (!finalTitle && type !== "clipping")
+        finalTitle = type === "note" ? stamp() : t.untitled;
+      // Now the title is final, so the picture can be copied in under a name
+      // that identifies it. Before this point there was nothing to name it
+      // after (ADR 0012).
+      if (stagedCover) {
+        fields.cover = stagedCover.path
+          ? await api.attachImage(finalTitle, stagedCover.path)
+          : await api.saveRemoteCover(finalTitle, stagedCover.url!);
+      }
+      // Someone else's words are stored as a blockquote, so the file reads as
+      // a quotation in Obsidian too (ADR 0013, ADR 0003).
+      await s.createDoc(
+        type,
+        finalTitle,
+        fields,
+        type === "clipping" ? quoteBody(body) : body,
+      );
       onClose();
     } catch (err) {
       setError(String(err));
@@ -747,15 +990,9 @@ function NewDocument({
     </Field>
   );
   const sourceMeta = (
-    <div className="grid grid-cols-3 gap-3">
+    <div className="grid grid-cols-2 gap-3">
       <Field label={t.kind}>
         <KindSelect value={f.kind} onChange={(v) => set("kind", v)} />
-      </Field>
-      <Field label={t.author}>
-        <Input
-          value={f.author ?? ""}
-          onChange={(e) => set("author", e.target.value)}
-        />
       </Field>
       <Field label={t.date}>
         <Input
@@ -766,6 +1003,17 @@ function NewDocument({
       </Field>
     </div>
   );
+  const coverField = (
+    <Field label={t.cover}>
+      <CoverField
+        title={title}
+        value={f.cover ?? ""}
+        onChange={(v) => set("cover", v)}
+        staged={stagedCover}
+        onStage={setStagedCover}
+      />
+    </Field>
+  );
 
   return (
     <Shell
@@ -775,17 +1023,20 @@ function NewDocument({
     >
       <form data-testid="new-doc-form" onSubmit={submit} className="grid gap-4">
         <TypePicker value={type} onChange={setType} />
-        <Field label={t.title}>
-          <Input
-            data-testid="new-doc-title"
-            ref={titleRef}
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={
-              type === "clipping" || type === "note" ? "(optional)" : ""
-            }
-          />
-        </Field>
+        {/* A Clipping has no title: naming someone else's words is the user's
+            commentary, not the excerpt, and its file is named by its Citation
+            (ADR 0013). */}
+        {type !== "clipping" && (
+          <Field label={t.title}>
+            <Input
+              data-testid="new-doc-title"
+              ref={titleRef}
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={type === "note" ? "(optional)" : ""}
+            />
+          </Field>
+        )}
         {type === "clipping" && (
           <>
             <Field label={t.clipping_text}>
@@ -801,15 +1052,30 @@ function NewDocument({
             <Field label={t.source}>
               <DocPicker
                 types={["source"]}
+                testId="source-picker"
                 value={f.source ?? ""}
                 onChange={(v, d) => {
-                  set("source", v);
+                  set("source", d ? d.title : v);
                   set("source_id", d?.id ?? "");
+                }}
+                // Creating the Source here is what the dialog is for; the row
+                // only makes it deliberate rather than a consequence of typing.
+                // It is marked `new` so the kind and date fields appear, and
+                // the Source itself is written on submit with them.
+                onCreate={(name) => {
+                  set("source", name);
+                  set("source_id", "");
+                  set("source_new", "1");
                 }}
                 placeholder={t.source_existing + " / " + t.source_new}
               />
             </Field>
-            {!f.source_id && f.source && sourceMeta}
+            {f.source_new === "1" && !f.source_id && f.source && (
+              <>
+                {sourceMeta}
+                {coverField}
+              </>
+            )}
             <Field label={t.locator}>
               <Input
                 value={f.locator ?? ""}
@@ -823,11 +1089,28 @@ function NewDocument({
           <>
             {urlField}
             {sourceMeta}
+            {coverField}
             <Field label={t.parent_source}>
               <DocPicker
                 types={["source"]}
+                testId="parent-picker"
+                // Opened from a Source's own page, the parent is already
+                // settled; leaving it editable invites changing it by accident.
+                disabled={!!fields?.parent_id}
                 value={f.parent ?? ""}
-                onChange={(v) => set("parent", v)}
+                // The title is what the wikilink needs; the id proves the
+                // Source exists, so a typo can never become a parent.
+                onChange={(v, d) => {
+                  set("parent", d ? d.title : v);
+                  set("parent_id", d?.id ?? "");
+                }}
+                onCreate={async (name) => {
+                  const created = await s.createDoc("source", name, {
+                    kind: "book",
+                  });
+                  set("parent", created.summary.title);
+                  set("parent_id", created.summary.id);
+                }}
               />
             </Field>
           </>
@@ -836,8 +1119,19 @@ function NewDocument({
           <Field label={t.source}>
             <DocPicker
               types={["source"]}
+              testId="source-picker"
               value={f.source ?? ""}
-              onChange={(v) => set("source", v)}
+              onChange={(v, d) => {
+                set("source", d ? d.title : v);
+                set("source_id", d?.id ?? "");
+              }}
+              onCreate={async (name) => {
+                const created = await s.createDoc("source", name, {
+                  kind: "article",
+                });
+                set("source", created.summary.title);
+                set("source_id", created.summary.id);
+              }}
               placeholder="(optional)"
             />
           </Field>
@@ -925,7 +1219,7 @@ function NewDocument({
           <Button type="button" variant="outline" onClick={onClose}>
             {t.cancel}
           </Button>
-          <Button type="submit" disabled={busy}>
+          <Button type="submit" data-testid="submit-doc" disabled={busy}>
             {t.create}
           </Button>
         </DialogFooter>
@@ -1128,6 +1422,12 @@ function Palette({
                       >
                         <TypeDot type={n.type} />
                         <span className="truncate font-medium">{n.name}</span>
+                        {(() => {
+                          // Title hits come from the name index, which carries
+                          // no Dates; the summary cache does.
+                          const d = s.docsById.get(n.id);
+                          return d ? <EventDate doc={d} /> : null;
+                        })()}
                         {n.alias && (
                           <span className="text-xs text-muted-foreground">
                             alias
@@ -1148,7 +1448,8 @@ function Palette({
                       >
                         <TypeDot type={h.doc.type} className="mt-1.5" />
                         <span className="min-w-0 flex-1">
-                          <span className="font-medium">{h.doc.title}</span>
+                          <span className="font-medium">{h.doc.label}</span>
+                          <EventDate doc={h.doc} className="ml-2" />
                           {h.snippet && (
                             <span
                               className="ml-2 text-xs text-muted-foreground [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-foreground"
@@ -1304,6 +1605,60 @@ function CreateLink({
         </Button>
       </DialogFooter>
     </Shell>
+  );
+}
+
+/**
+ * A write that touches several documents at once.
+ *
+ * The documents are named, not just counted: this is the one action in the app
+ * that edits files the user is not looking at, so the extent of it is shown
+ * before it runs rather than reported after (ADR 0011).
+ */
+function ConfirmBatch({
+  title,
+  body,
+  items,
+  confirmLabel,
+  onConfirm,
+  onClose,
+}: {
+  title: string;
+  body: string;
+  items: string[];
+  confirmLabel: string;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  const t = useT();
+  return (
+    <AlertDialog open onOpenChange={(o) => !o && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{body}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <ul className="thin-scroll max-h-48 space-y-0.5 overflow-y-auto rounded-md border p-2 text-sm">
+          {items.map((x, i) => (
+            <li key={i} className="truncate">
+              {x}
+            </li>
+          ))}
+        </ul>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+          <AlertDialogAction
+            data-testid="confirm-batch"
+            onClick={() => {
+              onConfirm();
+              onClose();
+            }}
+          >
+            {confirmLabel}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 

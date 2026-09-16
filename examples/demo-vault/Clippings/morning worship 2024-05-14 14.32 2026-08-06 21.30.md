@@ -1,7 +1,6 @@
 ---
 id: 01M26CD0EEXFE0PK4AMKDQEJXE
 type: clipping
-title: "Love is patient"
 created: "2026-08-06T21:30:00"
 source: "[[Morning Worship 2024-05-14]]"
 locator: "14:32"

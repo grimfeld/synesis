@@ -6,15 +6,23 @@ import {
   Hash,
   House,
   LayoutGrid,
+  CopyX,
   Link2Off,
   MapPin,
   Plus,
+  Quote,
   Search,
   Settings,
+  LibraryBig,
   Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
-import { api, type DocSummary, type DocType } from "@/lib/api";
+import {
+  api,
+  type AmbiguousTitle,
+  type DocSummary,
+  type DocType,
+} from "@/lib/api";
 import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -52,9 +60,11 @@ import {
 } from "@/components/ui/tooltip";
 import { TypeDot } from "./DocLink";
 
+// Clipping is absent deliberately: it has no title to list, and it belongs to
+// its Source rather than to a folder of its own (ADR 0013). Clippings are
+// reached from their Source's Hub, the Clippings view, the Graph or search.
 const ORDER: DocType[] = [
   "note",
-  "clipping",
   "composition",
   "source",
   "concept",
@@ -67,6 +77,8 @@ const VIEWS = [
   { kind: "timeline", icon: CalendarRange },
   { kind: "coverage", icon: LayoutGrid },
   { kind: "graph", icon: Waypoints },
+  { kind: "library", icon: LibraryBig },
+  { kind: "clippings", icon: Quote },
   { kind: "map", icon: MapPin },
 ] as const;
 
@@ -195,7 +207,6 @@ function DocumentsTab() {
   const t = useT();
   const [open, setOpen] = useState<Record<string, boolean>>({
     note: true,
-    clipping: false,
     composition: true,
     source: false,
     concept: true,
@@ -248,7 +259,7 @@ function DocumentsTab() {
                     title={d.path}
                   >
                     <TypeDot type={d.type} className="ml-0.5" />
-                    <span>{d.title}</span>
+                    <span>{d.label}</span>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
@@ -264,6 +275,7 @@ function DocumentsTab() {
         activeId={active}
       />
       <Unresolved />
+      <AmbiguousTitles />
     </>
   );
 }
@@ -323,7 +335,7 @@ function TagsTab() {
                           title={d.path}
                         >
                           <TypeDot type={d.type} />
-                          <span>{d.title}</span>
+                          <span>{d.label}</span>
                         </SidebarMenuSubButton>
                       </SidebarMenuSubItem>
                     ))}
@@ -529,6 +541,59 @@ function ScriptureGroup({
             </SidebarMenuItem>
           );
         })}
+      </SidebarMenu>
+    </CollapsibleGroup>
+  );
+}
+
+/**
+ * Titles carried by more than one document.
+ *
+ * `resolve()` sends such a title to the shortest path without saying so, which
+ * is tolerable for a link the user typed and not for one the app offers to
+ * insert (ADR 0011). Listed beside unresolved links because both are ways a
+ * link can go somewhere the writer did not mean.
+ */
+function AmbiguousTitles() {
+  const s = useStore();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState<AmbiguousTitle[] | null>(null);
+  return (
+    <CollapsibleGroup
+      testId="group-ambiguous"
+      open={open}
+      onToggle={() => {
+        setOpen(!open);
+        if (!open) api.ambiguousTitles().then(setItems).catch(console.error);
+      }}
+      label={t.ambiguous_titles}
+      count={items?.length}
+      dot={<CopyX className="size-3.5 text-unresolved" />}
+    >
+      <SidebarMenu>
+        {items?.length === 0 && (
+          <div className="px-2 py-1 text-xs text-muted-foreground">—</div>
+        )}
+        {items?.map((a) => (
+          <SidebarMenuItem key={a.title}>
+            <div className="px-2 pt-1 pl-8 text-xs font-medium">{a.title}</div>
+            {a.docs.map((dd) => (
+              <SidebarMenuButton
+                key={dd.id}
+                data-testid="ambiguous-item"
+                size="sm"
+                className="pl-10"
+                onClick={() => s.openDoc(dd.id)}
+                title={dd.path}
+              >
+                <span className="truncate text-muted-foreground">
+                  {dd.path}
+                </span>
+              </SidebarMenuButton>
+            ))}
+          </SidebarMenuItem>
+        ))}
       </SidebarMenu>
     </CollapsibleGroup>
   );

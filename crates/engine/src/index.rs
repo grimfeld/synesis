@@ -3,8 +3,10 @@
 
 use crate::dates::{BibleDate, Precision};
 use crate::document::{DocType, ParsedDoc};
+use crate::excerpt;
 use crate::names;
 use crate::scripture::{Lang, Passage, VerseId};
+use crate::unlinked;
 use crate::Result;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
@@ -17,6 +19,10 @@ pub struct DocSummary {
     pub id: String,
     pub path: String,
     pub title: String,
+    /// What to show where only one line fits: a Clipping's own words, every
+    /// other type's title (ADR 0013). Never empty, so a caller can render it
+    /// without falling back to `title` itself.
+    pub label: String,
     #[serde(rename = "type")]
     pub doc_type: DocType,
     pub mtime: i64,
@@ -27,6 +33,10 @@ pub struct DocSummary {
     pub lon: Option<f64>,
     /// Earliest Verse this document mentions, for canonical ordering.
     pub first_verse: Option<u32>,
+    /// An Event's `start` Date as written (ADR 0005); `None` on every other type.
+    pub start: Option<String>,
+    /// An Event's `end` Date as written; `None` when absent or on every other type.
+    pub end: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -39,6 +49,35 @@ pub enum BacklinkKind {
     Mention,
 }
 
+/// How a Board excerpt is addressed: the document's path and the part of it
+/// the node names.
+///
+/// Not the path alone. A Board may hold the same document twice — the whole
+/// thing in one card and one of its sections in another — and those two cards
+/// do not show the same text, so a path-keyed map would collapse them into
+/// whichever was written last.
+pub fn board_excerpt_key(path: &str, subpath: Option<&str>) -> String {
+    match subpath {
+        Some(s) if !s.is_empty() => format!("{path}\u{1}{s}"),
+        _ => path.to_string(),
+    }
+}
+
+/// What one Board card shows for its document (PLAN §17.12).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BoardExcerpt {
+    /// The opening body text, plain and capped. Empty when the document has
+    /// no prose to show.
+    pub text: String,
+    /// The node named a `subpath` that no longer resolves. The card shows the
+    /// document's opening text instead and flags it, rather than silently
+    /// showing something other than what was pinned (PLAN §17.13).
+    pub subpath_missing: bool,
+    /// Inbound link count, for a Subject Hub whose body says nothing. `None`
+    /// for every other document, and for a Hub that does have prose.
+    pub mentions: Option<usize>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Backlink {
     pub doc: DocSummary,
@@ -49,6 +88,51 @@ pub struct Backlink {
     pub excerpt: String,
     pub start: usize,
     pub inferred: bool,
+}
+
+/// One place where a document writes another's name without linking it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnlinkedMention {
+    pub doc: DocSummary,
+    /// Byte offsets into the document's **body**, not the whole file.
+    pub start: usize,
+    pub end: usize,
+    /// The text exactly as written, which the inserted link must preserve.
+    pub matched: String,
+    pub excerpt: String,
+}
+
+/// The Unlinked mentions shown for a Hub, and how many there really are.
+///
+/// `total` counts past the cap: a Concept named "Grace" can occur hundreds of
+/// times, and the header should say so even though the list stops at `limit`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UnlinkedMentions {
+    pub items: Vec<UnlinkedMention>,
+    pub total: u32,
+}
+
+/// A name in the document being written that could become a Mention.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Linkable {
+    pub doc: DocSummary,
+    /// How many unlinked occurrences remain; the link is inserted at the
+    /// first. A target already linked anywhere in the document is not offered
+    /// at all, so this never counts down — the row goes after one link.
+    pub count: u32,
+    pub start: usize,
+    pub end: usize,
+    pub matched: String,
+    /// Non-empty when the title is shared by several documents, in which case
+    /// the user picks before anything is written (ADR 0011).
+    pub ambiguous: Vec<DocSummary>,
+}
+
+/// A title carried by more than one document.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AmbiguousTitle {
+    pub title: String,
+    pub docs: Vec<DocSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -120,6 +204,53 @@ pub struct DocTag {
     pub tag: String,
 }
 
+/// Why a Stop cannot be drawn on the Map, or `Ok` when it can (PLAN §19.8).
+/// Every Stop is reported, drawable or not: the polyline skips the ones it
+/// cannot draw, and the Journey's Hub lists them so nothing vanishes silently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopStatus {
+    Ok,
+    /// Resolves to a Place that has no coordinates yet.
+    NoCoords,
+    /// Names a document that does not exist.
+    Unresolved,
+    /// Names a document that exists but is not a Place.
+    NotAPlace,
+}
+
+/// One Stop on a Journey: the Place named at one position in the route, with
+/// whatever the engine could resolve it to.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JourneyStop {
+    /// The link target as written, so an unresolved Stop can still be named.
+    pub target: String,
+    pub doc: Option<DocSummary>,
+    pub status: StopStatus,
+}
+
+/// A Journey and its Stops in travel order (ADR 0010).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Journey {
+    pub doc: DocSummary,
+    pub stops: Vec<JourneyStop>,
+}
+
+/// What the Map's filters need to know about one Place beyond its summary
+/// (PLAN §19.5): its own Tags, the Books it is mentioned in, and how many
+/// documents mention it at all.
+///
+/// A Place carries no Scripture Mention of its own — the `mentions` rows belong
+/// to the documents that cite a Passage. So "Corinth is mentioned in Acts"
+/// means: some document links to Corinth *and* mentions a Passage in Acts.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PlaceFact {
+    pub doc: String,
+    pub tags: Vec<String>,
+    pub books: Vec<u8>,
+    pub mentions: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
     pub doc: DocSummary,
@@ -139,6 +270,29 @@ pub struct TrailEntry {
     pub doc: DocSummary,
     pub source: DocSummary,
     pub locator: Option<String>,
+}
+
+/// One Source as the Library draws it: enough to place it on a Shelf and put a
+/// Cover on it, without a round-trip per card (ADR 0012).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LibraryEntry {
+    pub id: String,
+    pub title: String,
+    /// The `kind` property as written, or empty. Never validated here: the
+    /// vault is hand-editable, so an unknown kind is the UI's problem to
+    /// shelve, not the engine's to reject (ADR 0003).
+    pub kind: String,
+    /// The `cover` property as written: a URL, a vault-relative path, or
+    /// empty for a Cover the app draws.
+    pub cover: String,
+    /// The `date` property as written; loosely formatted by design (ADR 0005).
+    pub date: String,
+    /// The Source this one sits inside, resolved to an id. `None` makes it
+    /// top-level, and only top-level Sources reach a Shelf.
+    pub parent_id: Option<String>,
+    /// How many Sources name this one as their parent; the card's "12
+    /// chapters". Direct children only, not descendants.
+    pub child_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +339,11 @@ CREATE TABLE IF NOT EXISTS documents(
   path TEXT NOT NULL UNIQUE,
   title TEXT NOT NULL,
   title_norm TEXT NOT NULL,
+  -- What to show where only one line fits. A copy of `title` for every type
+  -- but Clipping, which has no title and is known by its own text (ADR 0013).
+  -- Deliberately not `title`: `title_norm` resolves `[[links]]`, and quoted
+  -- prose in there makes link targets match the middle of someone's sentence.
+  label TEXT NOT NULL,
   type TEXT NOT NULL,
   mtime INTEGER NOT NULL,
   frontmatter TEXT NOT NULL,
@@ -237,7 +396,75 @@ fn migrate(conn: &Connection) -> Result<()> {
     // After the column exists either way: a fresh database gets it from the
     // schema, an old one from the ALTER above.
     conn.execute_batch("CREATE INDEX IF NOT EXISTS links_kind ON links(kind)")?;
+    let has_label = conn
+        .prepare("SELECT 1 FROM pragma_table_info('documents') WHERE name = 'label'")?
+        .exists([])?;
+    if !has_label {
+        // Backfilled from `title`, not left empty: a blank label renders as a
+        // blank row. That is already right for every type but Clipping, and a
+        // Clipping's real label needs its body, so those rows are recomputed
+        // below rather than guessed at in SQL.
+        conn.execute_batch(
+            "ALTER TABLE documents ADD COLUMN label TEXT NOT NULL DEFAULT '';
+             UPDATE documents SET label = title WHERE label = ''",
+        )?;
+        let rows: Vec<(String, String, String, i64)> = conn
+            .prepare("SELECT id, title, text, body_offset FROM documents WHERE type = 'clipping'")?
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (id, title, text, body_offset) in rows {
+            let body = &text[(body_offset as usize).min(text.len())..];
+            conn.execute(
+                "UPDATE documents SET label = ?1 WHERE id = ?2",
+                params![label_for(DocType::Clipping, &title, body), id],
+            )?;
+        }
+    }
     Ok(())
+}
+
+/// What a document shows where only one line fits.
+///
+/// A Clipping has no title (ADR 0013), so it is known by its own words: the
+/// same first-meaningful-block rule a Board card uses, which already strips
+/// the `>` a quote is written with. Every other type shows the title its
+/// author chose, because that is what they search by.
+/// How wide a name may be before it crowds the graph it belongs to.
+///
+/// A Clipping's label is a sentence rather than a name (ADR 0013), and the
+/// layout drops any label whose box lands on one already drawn — so an uncapped
+/// quote would not just look wrong, it would silently take the names off its
+/// neighbours. Forty characters is about three times a typical Subject's name,
+/// which is enough to recognise a quote and little enough to draw.
+const GRAPH_LABEL_CHARS: usize = 40;
+
+/// A document's name on the Graph: its label, cut to something drawable.
+fn graph_label(d: &DocSummary) -> String {
+    let label = &d.label;
+    if label.chars().count() <= GRAPH_LABEL_CHARS {
+        return label.clone();
+    }
+    // On a word boundary where there is one close enough, so the cut reads as
+    // an abbreviation rather than a glitch. The ellipsis is drawn here because
+    // canvas text has no `line-clamp` to draw its own.
+    let cut: String = label.chars().take(GRAPH_LABEL_CHARS).collect();
+    let end = cut
+        .rfind(char::is_whitespace)
+        .filter(|i| *i > GRAPH_LABEL_CHARS / 2)
+        .unwrap_or(cut.len());
+    format!("{}…", cut[..end].trim_end())
+}
+
+fn label_for(doc_type: DocType, title: &str, body: &str) -> String {
+    if doc_type != DocType::Clipping {
+        return title.to_string();
+    }
+    let text = crate::excerpt::excerpt(body, title, None).text;
+    if text.trim().is_empty() {
+        title.to_string()
+    } else {
+        text
+    }
 }
 
 fn row_summary(r: &Row) -> rusqlite::Result<DocSummary> {
@@ -245,6 +472,7 @@ fn row_summary(r: &Row) -> rusqlite::Result<DocSummary> {
         id: r.get("id")?,
         path: r.get("path")?,
         title: r.get("title")?,
+        label: r.get("label")?,
         doc_type: DocType::parse(&r.get::<_, String>("type")?).unwrap_or(DocType::Other),
         mtime: r.get("mtime")?,
         book: r.get::<_, Option<i64>>("book")?.map(|x| x as u8),
@@ -253,10 +481,12 @@ fn row_summary(r: &Row) -> rusqlite::Result<DocSummary> {
         lat: r.get("lat")?,
         lon: r.get("lon")?,
         first_verse: r.get::<_, Option<i64>>("first_verse")?.map(|x| x as u32),
+        start: r.get("start_text")?,
+        end: r.get("end_text")?,
     })
 }
 
-const SUMMARY_COLS: &str = "d.id, d.path, d.title, d.type, d.mtime, d.book, d.chapter, d.verse, d.lat, d.lon, (SELECT MIN(verse_id) FROM mentions m WHERE m.doc_id = d.id) AS first_verse";
+const SUMMARY_COLS: &str = "d.id, d.path, d.title, d.label, d.type, d.mtime, d.book, d.chapter, d.verse, d.lat, d.lon, (SELECT MIN(verse_id) FROM mentions m WHERE m.doc_id = d.id) AS first_verse, (SELECT sd.text FROM dates sd WHERE sd.doc_id = d.id AND sd.name = 'start' AND d.type = 'event' LIMIT 1) AS start_text, (SELECT sd.text FROM dates sd WHERE sd.doc_id = d.id AND sd.name = 'end' AND d.type = 'event' LIMIT 1) AS end_text";
 
 fn excerpt_at(text: &str, start: usize) -> String {
     let start = start.min(text.len());
@@ -361,10 +591,15 @@ impl Index {
         } else {
             (None, None)
         };
+        let label = label_for(
+            doc.doc_type,
+            &doc.title,
+            &text[doc.body_offset.min(text.len())..],
+        );
         tx.execute(
-            "INSERT INTO documents(id, path, title, title_norm, type, mtime, frontmatter, text, body_offset, book, chapter, verse, lat, lon)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![id, path, doc.title, norm(&doc.title), doc.doc_type.as_str(), mtime, Value::Object(fm.clone()).to_string(), text, doc.body_offset as i64, book, chapter, verse, lat, lon],
+            "INSERT INTO documents(id, path, title, title_norm, label, type, mtime, frontmatter, text, body_offset, book, chapter, verse, lat, lon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+            params![id, path, doc.title, norm(&doc.title), label, doc.doc_type.as_str(), mtime, Value::Object(fm.clone()).to_string(), text, doc.body_offset as i64, book, chapter, verse, lat, lon],
         )?;
         for a in &doc.aliases {
             tx.execute(
@@ -621,6 +856,86 @@ impl Index {
         (0..n).map(|_| "?").collect::<Vec<_>>().join(",")
     }
 
+    /// The Board excerpt for each of `paths`, keyed by path.
+    ///
+    /// One call per Board rather than one per card: a forty-node Board would
+    /// otherwise make forty round trips and read forty whole documents to show
+    /// a hundred characters each (PLAN §17.12). Body text comes from the FTS
+    /// row that indexing already wrote, so nothing is re-read or re-parsed.
+    ///
+    /// A path that is not in the Vault is simply absent from the result: the
+    /// card already renders that as missing, and it is not this method's job
+    /// to say so twice.
+    ///
+    /// Keyed by [`board_excerpt_key`], not by path: a Board may hold both a
+    /// whole document and one of its sections.
+    pub fn board_excerpts(
+        &self,
+        paths: &[(String, Option<String>)],
+    ) -> Result<HashMap<String, BoardExcerpt>> {
+        let mut out = HashMap::new();
+        let mut st = self.conn.prepare(
+            "SELECT d.id, d.title, d.type, f.body FROM documents d
+             JOIN docs_fts f ON f.id = d.id WHERE d.path = ?1",
+        )?;
+        for (path, subpath) in paths {
+            let row = st
+                .query_row([path], |r| {
+                    Ok((
+                        r.get::<_, String>("id")?,
+                        r.get::<_, String>("title")?,
+                        r.get::<_, String>("type")?,
+                        r.get::<_, String>("body")?,
+                    ))
+                })
+                .optional()?;
+            let (id, title, ty, body) = match row {
+                Some(v) => v,
+                None => continue,
+            };
+            let ex = excerpt::excerpt(&body, &title, subpath.as_deref());
+            // A Subject Hub's substance is what links to it, not its body
+            // (PLAN §17.12). Only a fallback: a Concept page that does open
+            // with a real paragraph shows the paragraph.
+            let is_hub = DocType::parse(&ty).unwrap_or(DocType::Other).is_subject();
+            let mentions = if ex.text.is_empty() && is_hub {
+                Some(self.backlink_count(&id)?)
+            } else {
+                None
+            };
+            out.insert(
+                board_excerpt_key(path, subpath.as_deref()),
+                BoardExcerpt {
+                    text: ex.text,
+                    subpath_missing: ex.subpath_missing,
+                    mentions,
+                },
+            );
+        }
+        Ok(out)
+    }
+
+    /// How many documents point at `id`, under any of its names.
+    fn backlink_count(&self, id: &str) -> Result<usize> {
+        let doc = match self.get(id)? {
+            Some(d) => d,
+            None => return Ok(0),
+        };
+        let names = self.names_of(&doc)?;
+        let ph = Self::placeholders(names.len());
+        let sql = format!(
+            "SELECT COUNT(DISTINCT from_id) FROM links WHERE norm IN ({ph}) AND from_id != ?{}",
+            names.len() + 1
+        );
+        let mut args: Vec<&dyn rusqlite::ToSql> =
+            names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+        args.push(&id);
+        let n: i64 = self
+            .conn
+            .query_row(&sql, args.as_slice(), |r| r.get(0))?;
+        Ok(n as usize)
+    }
+
     /// Everything that points at `id`: links, embeds, property links, tags and
     /// (for Scripture pages) Mentions collapsed to the Passage as written.
     pub fn backlinks(&self, id: &str, lang: Lang) -> Result<Vec<Backlink>> {
@@ -867,7 +1182,7 @@ impl Index {
                     d.id.clone(),
                     GraphNode {
                         id: d.id.clone(),
-                        label: d.title.clone(),
+                        label: graph_label(&d),
                         doc_type: d.doc_type,
                         doc_id: Some(d.id.clone()),
                         degree: 0,
@@ -1103,7 +1418,9 @@ impl Index {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
-    /// Events whose `place` or `characters` Property names this document.
+    /// Events whose `place` or `characters` Property names this document, in
+    /// chronological order of their `start`; Events whose `start` is missing or
+    /// unparseable come last, alphabetically.
     pub fn events_naming(&self, id: &str) -> Result<Vec<DocSummary>> {
         let doc = match self.get(id)? {
             Some(d) => d,
@@ -1112,7 +1429,7 @@ impl Index {
         let names = self.names_of(&doc)?;
         let ph = Self::placeholders(names.len());
         let mut st = self.conn.prepare(&format!(
-            "SELECT DISTINCT {SUMMARY_COLS} FROM links l JOIN documents d ON d.id = l.from_id WHERE d.type = 'event' AND l.property IN ('place', 'characters') AND l.norm IN ({ph}) ORDER BY d.title"
+            "SELECT DISTINCT {SUMMARY_COLS}, (SELECT sk.sort_key FROM dates sk WHERE sk.doc_id = d.id AND sk.name = 'start' LIMIT 1) AS start_sort FROM links l JOIN documents d ON d.id = l.from_id WHERE d.type = 'event' AND l.property IN ('place', 'characters') AND l.norm IN ({ph}) ORDER BY start_sort IS NULL, start_sort, d.title COLLATE NOCASE"
         ))?;
         let args: Vec<&dyn rusqlite::ToSql> =
             names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
@@ -1124,6 +1441,114 @@ impl Index {
         let mut st = self.conn.prepare(&format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'place' AND d.lat IS NOT NULL AND d.lon IS NOT NULL ORDER BY d.title"))?;
         let rows = st.query_map([], row_summary)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every Journey with its Stops in travel order (ADR 0010, PLAN §19.9).
+    ///
+    /// Order comes from the order the `places` Property's links were indexed,
+    /// which is `links.rowid` — the same insertion-order guarantee
+    /// `event_links` relies on. That ordering is load-bearing: rewriting those
+    /// rows in another order would silently reverse a Journey.
+    pub fn journeys(&self) -> Result<Vec<Journey>> {
+        let mut out = Vec::new();
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'journey' ORDER BY d.title"
+        ))?;
+        let docs: Vec<DocSummary> = st
+            .query_map([], row_summary)?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut targets = self.conn.prepare(
+            "SELECT target FROM links WHERE from_id = ?1 AND property = 'places' ORDER BY rowid",
+        )?;
+        for doc in docs {
+            let mut stops = Vec::new();
+            for row in targets.query_map([&doc.id], |r| r.get::<_, String>(0))? {
+                let target = row?;
+                let found = self.resolve(&target)?;
+                let status = match &found {
+                    None => StopStatus::Unresolved,
+                    Some(d) if d.doc_type != DocType::Place => StopStatus::NotAPlace,
+                    Some(d) if d.lat.is_none() || d.lon.is_none() => StopStatus::NoCoords,
+                    Some(_) => StopStatus::Ok,
+                };
+                stops.push(JourneyStop {
+                    target,
+                    doc: found,
+                    status,
+                });
+            }
+            out.push(Journey { doc, stops });
+        }
+        Ok(out)
+    }
+
+    /// Tags, Books and mention counts for every Place, for the Map's filters
+    /// (PLAN §19.5). Places with no facts are returned with empty lists, so the
+    /// UI can tell "nothing mentions this" from "not indexed yet".
+    ///
+    /// Only prose links count towards a mention: material placed on a Board is
+    /// not a claim about a Place (PLAN §17.6), so it must not make a Place look
+    /// written-about.
+    pub fn place_facts(&self) -> Result<Vec<PlaceFact>> {
+        let mut facts: Vec<PlaceFact> = Vec::new();
+        let mut at: HashMap<String, usize> = HashMap::new();
+        let mut st = self
+            .conn
+            .prepare("SELECT d.id FROM documents d WHERE d.type = 'place' ORDER BY d.title")?;
+        for row in st.query_map([], |r| r.get::<_, String>(0))? {
+            let id = row?;
+            at.insert(id.clone(), facts.len());
+            facts.push(PlaceFact {
+                doc: id,
+                tags: Vec::new(),
+                books: Vec::new(),
+                mentions: 0,
+            });
+        }
+
+        // The Place's own Tags, deduplicated by norm the way the Timeline's
+        // chips are, so "Kings" and "kings" offer one chip.
+        let mut st = self.conn.prepare(
+            "SELECT t.doc_id, MIN(t.tag) FROM tags t JOIN documents d ON d.id = t.doc_id \
+             WHERE d.type = 'place' GROUP BY t.doc_id, t.norm ORDER BY t.norm",
+        )?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (doc, tag) = row?;
+            if let Some(&i) = at.get(&doc) {
+                facts[i].tags.push(tag);
+            }
+        }
+
+        // Books reached through the documents that link to the Place, and how
+        // many documents link to it. `norm` is how a link addresses a target,
+        // so the join goes through the Place's own norm and its aliases.
+        let mut st = self.conn.prepare(
+            "SELECT p.id, m.book FROM documents p \
+             JOIN links l ON l.kind = 'prose' AND l.norm IN ( \
+               SELECT p.title_norm UNION SELECT a.norm FROM aliases a WHERE a.doc_id = p.id) \
+             JOIN mentions m ON m.doc_id = l.from_id \
+             WHERE p.type = 'place' GROUP BY p.id, m.book ORDER BY p.id, m.book",
+        )?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (doc, book) = row?;
+            if let Some(&i) = at.get(&doc) {
+                facts[i].books.push(book as u8);
+            }
+        }
+
+        let mut st = self.conn.prepare(
+            "SELECT p.id, COUNT(DISTINCT l.from_id) FROM documents p \
+             JOIN links l ON l.kind = 'prose' AND l.norm IN ( \
+               SELECT p.title_norm UNION SELECT a.norm FROM aliases a WHERE a.doc_id = p.id) \
+             WHERE p.type = 'place' GROUP BY p.id",
+        )?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
+            let (doc, n) = row?;
+            if let Some(&i) = at.get(&doc) {
+                facts[i].mentions = n as u32;
+            }
+        }
+        Ok(facts)
     }
 
     /// Documents sharing Tags or Verses with `id`, for the Composition sidebar.
@@ -1281,7 +1706,74 @@ impl Index {
                 }
             }
         }
-        out.sort_by(|a, b| a.title.cmp(&b.title));
+        // Natural, not lexicographic: chapters and issues are numbered, so
+        // plain `cmp` files "Chapter 10" before "Chapter 2" and a Contains
+        // list of a dozen chapters reads scrambled.
+        out.sort_by(|a, b| natural_cmp(&a.title, &b.title));
+        Ok(out)
+    }
+
+    /// Every Source, with what the Library needs to draw a Shelf of Covers.
+    ///
+    /// One call for the whole view: `DocSummary` carries none of `kind`,
+    /// `cover` or `date` (they live in the frontmatter blob), and a child
+    /// count needs the `links` table, so the alternative is a round-trip per
+    /// Source. Which Shelf an entry lands on is the UI's decision (ADR 0012);
+    /// this only reports what each Source says about itself.
+    pub fn library(&self) -> Result<Vec<LibraryEntry>> {
+        // Resolve every `parent` link once, so a child can name its parent by
+        // id rather than by the title it happened to be written with.
+        let mut st = self
+            .conn
+            .prepare("SELECT from_id, target FROM links WHERE property = 'parent'")?;
+        let rows: Vec<(String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut parent_of: HashMap<String, String> = HashMap::new();
+        let mut child_count: HashMap<String, usize> = HashMap::new();
+        for (from, target) in rows {
+            // An unresolved parent leaves the child parentless on purpose: a
+            // dangling `[[Book]]` means the book is not in the vault, and the
+            // chapter belongs on Unshelved where the user will see it.
+            if let Some(parent) = self.resolve(&target)? {
+                *child_count.entry(parent.id.clone()).or_default() += 1;
+                parent_of.insert(from, parent.id);
+            }
+        }
+
+        let mut st = self
+            .conn
+            .prepare("SELECT id, title, frontmatter FROM documents WHERE type = 'source'")?;
+        let rows: Vec<(String, String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+
+        let mut out: Vec<LibraryEntry> = rows
+            .into_iter()
+            .map(|(id, title, fm)| {
+                let fm: Value = serde_json::from_str(&fm).unwrap_or(Value::Null);
+                // A bare `date: 1988` is a YAML integer, not a string, so a
+                // number is read as written rather than dropped — the same
+                // leniency `source_trail` gives a Locator.
+                let text = |k: &str| match fm.get(k) {
+                    Some(Value::String(s)) => s.trim().to_string(),
+                    Some(Value::Number(n)) => n.to_string(),
+                    _ => String::new(),
+                };
+                LibraryEntry {
+                    child_count: child_count.get(&id).copied().unwrap_or(0),
+                    parent_id: parent_of.get(&id).cloned(),
+                    kind: text("kind"),
+                    cover: text("cover"),
+                    date: text("date"),
+                    id,
+                    title,
+                }
+            })
+            .collect();
+        // Natural, for the same reason the Contains list is: a Shelf of
+        // numbered issues should not read 1, 10, 11, 2.
+        out.sort_by(|a, b| natural_cmp(&a.title, &b.title));
         Ok(out)
     }
 
@@ -1344,6 +1836,102 @@ impl Index {
         Ok(out)
     }
 
+    /// Every Clipping with the Citation it names, newest first.
+    ///
+    /// The Clippings view's one query (ADR 0013). A Clipping's Source is a
+    /// frontmatter link rather than a column, so the join goes through `links`
+    /// on `property = 'source'` — the property, not any mention of the Source,
+    /// because a Clipping names exactly one and that is the one named here.
+    /// `source_id` narrows to one Source *and its descendants*, for its Hub's
+    /// Clippings section: a periodical's page gathers what was kept from its
+    /// articles, the same rolling-up the reading trail does.
+    pub fn clippings(&self, source_id: Option<&str>) -> Result<Vec<TrailEntry>> {
+        // A Clipping cites its Source by name, so the join resolves that name
+        // the way `resolve` does: `links.norm` against the Source's
+        // `title_norm`, plus its aliases.
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, d.frontmatter, s.id AS src_id
+             FROM documents d
+             JOIN links l ON l.from_id = d.id AND l.property = 'source' AND l.kind = 'prose'
+             JOIN documents s ON s.type = 'source'
+               AND (s.title_norm = l.norm
+                    OR EXISTS (SELECT 1 FROM aliases a WHERE a.doc_id = s.id AND a.norm = l.norm))
+             WHERE d.type = 'clipping'
+             ORDER BY d.mtime DESC"
+        ))?;
+        let rows: Vec<(DocSummary, String, String)> = st
+            .query_map([], |r| {
+                Ok((row_summary(r)?, r.get("frontmatter")?, r.get("src_id")?))
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        // A Source's own Clippings plus everything kept from its parts.
+        let wanted: Option<HashSet<String>> = match source_id {
+            Some(id) => {
+                let mut set: HashSet<String> = HashSet::new();
+                set.insert(id.to_string());
+                set.extend(self.source_descendants(id)?.into_iter().map(|d| d.id));
+                Some(set)
+            }
+            None => None,
+        };
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for (doc, fm, sid) in rows {
+            // One row per Clipping: a Source named by both its title and an
+            // alias would otherwise join twice.
+            if !seen.insert(doc.id.clone()) {
+                continue;
+            }
+            if wanted.as_ref().is_some_and(|w| !w.contains(&sid)) {
+                continue;
+            }
+            let source = match self.get(&sid)? {
+                Some(s) => s,
+                None => continue,
+            };
+            let locator = serde_json::from_str::<Value>(&fm)
+                .ok()
+                .and_then(|v| v.get("locator").cloned())
+                .and_then(|v| match v {
+                    Value::String(s) if !s.trim().is_empty() => Some(s),
+                    Value::Number(n) => Some(n.to_string()),
+                    _ => None,
+                });
+            out.push(TrailEntry {
+                doc,
+                source,
+                locator,
+            });
+        }
+        Ok(out)
+    }
+
+    /// The Tags on each of `ids`, for filtering a list the caller already has.
+    pub fn tags_of(&self, ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
+        if ids.is_empty() {
+            return Ok(HashMap::new());
+        }
+        let ph = Self::placeholders(ids.len());
+        let mut st = self.conn.prepare(&format!(
+            "SELECT doc_id, tag FROM tags WHERE doc_id IN ({ph}) ORDER BY doc_id, tag"
+        ))?;
+        let args: Vec<&dyn rusqlite::ToSql> =
+            ids.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+        let rows = st.query_map(args.as_slice(), |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+        })?;
+        let mut out: HashMap<String, Vec<String>> = HashMap::new();
+        for row in rows {
+            let (id, tag) = row?;
+            let list = out.entry(id).or_default();
+            // A Tag written both in the body and in frontmatter is one Tag.
+            if !list.contains(&tag) {
+                list.push(tag);
+            }
+        }
+        Ok(out)
+    }
+
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         let mut st = self
             .conn
@@ -1387,6 +1975,235 @@ impl Index {
             )?
             .map(|v| VerseId(v as u32)))
     }
+
+    /// Documents whose prose writes this document's name without linking it
+    /// (ADR 0011).
+    ///
+    /// FTS narrows the vault to the documents that contain the word at all,
+    /// then each of those is matched properly to find the real offsets: the
+    /// FTS tokeniser is close enough to pick candidates and too loose to be
+    /// trusted for "is this genuinely an unlinked mention".
+    ///
+    /// Documents that already Mention this one are absent entirely, so an
+    /// Unlinked mention and a Backlink are never the same document. Most
+    /// recently edited first, since that is the material being worked on.
+    pub fn unlinked_mentions(&self, id: &str, limit: usize) -> Result<UnlinkedMentions> {
+        let doc = match self.get(id)? {
+            Some(d) => d,
+            None => return Ok(UnlinkedMentions::default()),
+        };
+        if !doc.doc_type.is_linkable_target() {
+            return Ok(UnlinkedMentions::default());
+        }
+        let mut names = vec![doc.title.clone()];
+        names.extend(self.aliases_of(id)?);
+        names.retain(|n| !n.trim().is_empty());
+        if names.is_empty() {
+            return Ok(UnlinkedMentions::default());
+        }
+        // Documents already pointing here are out of scope by definition, and
+        // so is this document itself.
+        let linked = self.linking_docs(&doc)?;
+        let matcher = unlinked::Matcher::new(&names);
+        let mut hits: Vec<(i64, UnlinkedMention)> = Vec::new();
+        let mut total = 0usize;
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, f.body FROM docs_fts f JOIN documents d ON d.id = f.id
+             WHERE docs_fts MATCH ?1 ORDER BY d.mtime DESC"
+        ))?;
+        let query = fts_any_phrase(&names);
+        let rows = st.query_map(params![query], |r| {
+            Ok((row_summary(r)?, r.get::<_, String>("body")?))
+        })?;
+        for row in rows {
+            let (d, body) = row?;
+            if d.id == id || linked.contains(&d.id) {
+                continue;
+            }
+            for occ in matcher.find(&body) {
+                total += 1;
+                if hits.len() < limit {
+                    hits.push((
+                        d.mtime,
+                        UnlinkedMention {
+                            doc: d.clone(),
+                            start: occ.start,
+                            end: occ.end,
+                            matched: occ.matched,
+                            excerpt: excerpt_at(&body, occ.start),
+                        },
+                    ));
+                }
+            }
+        }
+        hits.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then(a.1.doc.title.cmp(&b.1.doc.title))
+                .then(a.1.start.cmp(&b.1.start))
+        });
+        Ok(UnlinkedMentions {
+            items: hits.into_iter().map(|(_, m)| m).collect(),
+            total: total as u32,
+        })
+    }
+
+    /// Ids of every document that already Mentions `doc`, by link, Tag or —
+    /// for Scripture — a detected Passage.
+    fn linking_docs(&self, doc: &DocSummary) -> Result<HashSet<String>> {
+        let names = self.names_of(doc)?;
+        let ph = Self::placeholders(names.len());
+        let args: Vec<&dyn rusqlite::ToSql> =
+            names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
+        let mut out = HashSet::new();
+        for sql in [
+            format!("SELECT from_id FROM links WHERE norm IN ({ph})"),
+            format!("SELECT doc_id FROM tags WHERE norm IN ({ph})"),
+        ] {
+            let mut st = self.conn.prepare(&sql)?;
+            for r in st.query_map(args.as_slice(), |r| r.get::<_, String>(0))? {
+                out.insert(r?);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Names in `body` that match a Topical Subject or Source and are not yet
+    /// Mentions: the Linkable side of ADR 0011.
+    ///
+    /// `body` is the live editor text, which is why this takes a string rather
+    /// than an id: the text being asked about has usually not been saved.
+    /// Grouped one row per target, because the decision the writer is making
+    /// is "should this document link to Barnabas", asked once.
+    pub fn linkables(&self, exclude_id: &str, body: &str, limit: usize) -> Result<Vec<Linkable>> {
+        let targets = self.linkable_targets(exclude_id)?;
+        if targets.is_empty() {
+            return Ok(vec![]);
+        }
+        let names: Vec<&str> = targets.iter().map(|(n, _)| n.as_str()).collect();
+        let matcher = unlinked::Matcher::new(&names);
+        let mut by_doc: HashMap<String, Linkable> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        for occ in matcher.find(body) {
+            let (_, doc) = &targets[occ.name_index];
+            let e = by_doc.entry(doc.id.clone()).or_insert_with(|| {
+                order.push(doc.id.clone());
+                Linkable {
+                    doc: doc.clone(),
+                    count: 0,
+                    start: occ.start,
+                    end: occ.end,
+                    matched: occ.matched.clone(),
+                    ambiguous: vec![],
+                }
+            });
+            e.count += 1;
+        }
+        // A target the writer has already linked anywhere in this document is
+        // done with: the decision "should this document link to Barnabas" was
+        // made, and asking again for every later mention turns one choice into
+        // a chore (ADR 0011). Obsidian's convention is the same — link the
+        // first mention, leave the rest as prose.
+        let mut linked: HashSet<String> = HashSet::new();
+        for t in unlinked::link_targets(body) {
+            if let Some(d) = self.resolve(&t)? {
+                linked.insert(d.id);
+            }
+        }
+        let mut out: Vec<Linkable> = order
+            .into_iter()
+            .filter(|id| !linked.contains(id))
+            .filter_map(|id| by_doc.remove(&id))
+            .collect();
+        out.sort_by(|a, b| a.start.cmp(&b.start));
+        out.truncate(limit);
+        // Only now, for the few rows that survive, ask whether the title is
+        // shared: the app must never pick between two documents of the same
+        // name on the user's behalf.
+        for l in &mut out {
+            let same = self.docs_titled(&l.doc.title)?;
+            if same.len() > 1 {
+                l.ambiguous = same;
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every name that may be offered as a Linkable, paired with its document.
+    /// One row per name, so a document with aliases appears several times.
+    fn linkable_targets(&self, exclude_id: &str) -> Result<Vec<(String, DocSummary)>> {
+        let mut out = Vec::new();
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.id != ?1"
+        ))?;
+        let rows = st.query_map([exclude_id], row_summary)?;
+        for r in rows {
+            let d = r?;
+            if !d.doc_type.is_linkable_target() || d.title.trim().is_empty() {
+                continue;
+            }
+            for name in std::iter::once(d.title.clone()).chain(self.aliases_of(&d.id)?) {
+                if !name.trim().is_empty() {
+                    out.push((name, d.clone()));
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// Every document carrying `title`, for telling an ambiguous name apart.
+    fn docs_titled(&self, title: &str) -> Result<Vec<DocSummary>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.title_norm = ?1 ORDER BY d.path"
+        ))?;
+        let rows = st.query_map([norm(title)], row_summary)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Titles shared by more than one document.
+    ///
+    /// `resolve()` sends such a title to the shortest path and says nothing,
+    /// which is tolerable for a link the user typed and not for one the app
+    /// offers to insert. Surfaced beside unresolved links so the user can fix
+    /// the collision rather than discover it through a wrong link.
+    pub fn ambiguous_titles(&self) -> Result<Vec<AmbiguousTitle>> {
+        let mut st = self.conn.prepare(
+            "SELECT title_norm FROM documents GROUP BY title_norm HAVING COUNT(*) > 1",
+        )?;
+        let norms: Vec<String> = st
+            .query_map([], |r| r.get::<_, String>(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut out = Vec::new();
+        for n in norms {
+            let docs = self.docs_titled(&n)?;
+            if let Some(first) = docs.first() {
+                out.push(AmbiguousTitle {
+                    title: first.title.clone(),
+                    docs,
+                });
+            }
+        }
+        out.sort_by(|a, b| natural_cmp(&a.title, &b.title));
+        Ok(out)
+    }
+}
+
+/// An FTS query matching any of `names`, each as a phrase.
+///
+/// Phrases, not bare terms, so a multi-word name narrows on the whole name
+/// rather than on every document containing either word.
+fn fts_any_phrase(names: &[String]) -> String {
+    names
+        .iter()
+        .map(|n| {
+            let cleaned: String = n
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { ' ' })
+                .collect();
+            format!("\"{}\"", cleaned.split_whitespace().collect::<Vec<_>>().join(" "))
+        })
+        .filter(|q| q.len() > 2)
+        .collect::<Vec<_>>()
+        .join(" OR ")
 }
 
 /// "p. 3" < "p. 12"; "14:32" < "1:02:00" is not handled, but digits sort numerically.
@@ -1433,6 +2250,94 @@ mod tests {
     use super::*;
     use crate::document;
 
+    /// ADR 0013: a Clipping names itself on the Graph with its own words, cut
+    /// to something drawable rather than laid across its neighbours.
+    #[test]
+    fn a_long_label_is_cut_on_a_word_boundary_for_the_graph() {
+        let summary = |label: &str| DocSummary {
+            id: "x".into(),
+            path: "Clippings/x.md".into(),
+            title: "x".into(),
+            label: label.into(),
+            doc_type: DocType::Clipping,
+            mtime: 0,
+            book: None,
+            chapter: None,
+            verse: None,
+            lat: None,
+            lon: None,
+            first_verse: None,
+            start: None,
+            end: None,
+        };
+        // Short enough to draw: left exactly as it is, with no ellipsis.
+        assert_eq!(graph_label(&summary("Endurance")), "Endurance");
+        let long = graph_label(&summary(
+            "Endurance is not merely putting up with a trial; it is remaining steadfast.",
+        ));
+        assert!(long.ends_with('…'), "got {long}");
+        assert!(long.chars().count() <= GRAPH_LABEL_CHARS + 1, "got {long}");
+        // Cut between words, so the tail is not half a word.
+        assert_eq!(long, "Endurance is not merely putting up with…");
+        // A single unbroken run has no boundary to cut on, and is still cut.
+        let unbroken = graph_label(&summary(&"a".repeat(80)));
+        assert_eq!(unbroken.chars().count(), GRAPH_LABEL_CHARS + 1);
+    }
+
+    /// ADR 0013: the Clippings view's one query, and the Source Hub's section.
+    #[test]
+    fn clippings_carry_their_citation_and_narrow_to_one_source() {
+        let idx = idx_with(&[
+            (
+                "s1",
+                "Sources/keep enduring with joy.md",
+                "---\ntype: source\ntitle: Keep Enduring with Joy\nparent: \"[[The Watchtower]]\"\n---\n",
+            ),
+            (
+                "s2",
+                "Sources/the watchtower.md",
+                "---\ntype: source\ntitle: The Watchtower\n---\n",
+            ),
+            (
+                "c1",
+                "Clippings/keep enduring with joy par. 12 2026-08-05 20.10.md",
+                "---\ntype: clipping\nsource: \"[[Keep Enduring with Joy]]\"\nlocator: \"par. 12\"\n---\n> Endurance is remaining steadfast.",
+            ),
+            (
+                "c2",
+                "Clippings/the watchtower p. 3 2026-08-06 09.00.md",
+                "---\ntype: clipping\nsource: \"[[The Watchtower]]\"\n---\n> Another borrowed line.",
+            ),
+            // A Note citing a Source is not a Clipping and never appears here.
+            (
+                "n1",
+                "Notes/on endurance.md",
+                "---\ntype: note\nsource: \"[[Keep Enduring with Joy]]\"\n---\nMy own thinking.",
+            ),
+        ]);
+
+        let all = idx.clippings(None).unwrap();
+        assert_eq!(all.len(), 2, "only Clippings, never the Note");
+        let c1 = all.iter().find(|e| e.doc.id == "c1").unwrap();
+        assert_eq!(c1.source.title, "Keep Enduring with Joy");
+        assert_eq!(c1.locator.as_deref(), Some("par. 12"));
+        // The label is the quote, not the file's Citation-shaped name.
+        assert_eq!(c1.doc.label, "Endurance is remaining steadfast.");
+        // A Locator is optional.
+        let c2 = all.iter().find(|e| e.doc.id == "c2").unwrap();
+        assert_eq!(c2.locator, None);
+
+        let one = idx.clippings(Some("s1")).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].doc.id, "c1");
+
+        // A parent Source gathers what was kept from its parts, the way the
+        // reading trail does: "s2" is the periodical "s1" is an article in.
+        let rolled = idx.clippings(Some("s2")).unwrap();
+        let ids: HashSet<&str> = rolled.iter().map(|e| e.doc.id.as_str()).collect();
+        assert_eq!(ids, HashSet::from(["c1", "c2"]), "the article's Clipping rolls up");
+    }
+
     fn idx_with(docs: &[(&str, &str, &str)]) -> Index {
         let mut idx = Index::in_memory().unwrap();
         for (id, path, text) in docs {
@@ -1448,6 +2353,223 @@ mod tests {
             .unwrap();
         }
         idx
+    }
+
+    /// A Journey whose route exercises every Stop status, plus a Place visited
+    /// twice so the repeat-visit case (ADR 0010) is covered.
+    fn journey_vault() -> Vec<(&'static str, &'static str, &'static str)> {
+        vec![
+            (
+                "a",
+                "Places/antioch.md",
+                "---
+type: place
+title: Antioch
+lat: 36.2
+lon: 36.16
+---
+",
+            ),
+            (
+                "e",
+                "Places/ephesus.md",
+                "---
+type: place
+title: Ephesus
+lat: 37.9391
+lon: 27.3407
+---
+",
+            ),
+            // A Place the user made but never located: real, not drawable.
+            (
+                "d",
+                "Places/derbe.md",
+                "---
+type: place
+title: Derbe
+---
+",
+            ),
+            // Not a Place at all.
+            (
+                "p",
+                "Characters/paul.md",
+                "---
+type: character
+title: Paul
+---
+",
+            ),
+            (
+                "j",
+                "Journeys/second missionary journey.md",
+                "---
+type: journey
+title: Second missionary journey
+start: c. 49 CE
+end: c. 52 CE
+places: [\"[[Antioch]]\", \"[[Derbe]]\", \"[[Ephesus]]\", \"[[Nowhere]]\", \"[[Paul]]\", \"[[Antioch]]\"]
+---
+",
+            ),
+        ]
+    }
+
+    #[test]
+    fn journeys_keep_route_order_and_report_every_stop() {
+        let idx = idx_with(&journey_vault());
+        let journeys = idx.journeys().unwrap();
+        assert_eq!(journeys.len(), 1);
+        let j = &journeys[0];
+        assert_eq!(j.doc.title, "Second missionary journey");
+
+        // Travel order, exactly as written — not alphabetical, not by id.
+        let names: Vec<&str> = j.stops.iter().map(|s| s.target.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["Antioch", "Derbe", "Ephesus", "Nowhere", "Paul", "Antioch"]
+        );
+
+        let statuses: Vec<StopStatus> = j.stops.iter().map(|s| s.status).collect();
+        assert_eq!(
+            statuses,
+            vec![
+                StopStatus::Ok,
+                StopStatus::NoCoords,
+                StopStatus::Ok,
+                StopStatus::Unresolved,
+                StopStatus::NotAPlace,
+                StopStatus::Ok,
+            ]
+        );
+
+        // An unresolved Stop still names what the user wrote.
+        assert!(j.stops[3].doc.is_none());
+        // A Place visited twice is the same document at two positions.
+        assert_eq!(
+            j.stops[0].doc.as_ref().unwrap().id,
+            j.stops[5].doc.as_ref().unwrap().id
+        );
+    }
+
+    #[test]
+    fn journey_route_order_survives_a_reindex() {
+        // The order is `links.rowid`, so re-indexing the Journey (an edit, an
+        // external change, a rebuild) must not reverse or shuffle the route.
+        let docs = journey_vault();
+        let mut idx = idx_with(&docs);
+        let before: Vec<String> = idx.journeys().unwrap()[0]
+            .stops
+            .iter()
+            .map(|s| s.target.clone())
+            .collect();
+
+        let (id, path, text) = docs.iter().find(|(id, _, _)| *id == "j").unwrap();
+        let parsed = document::parse(path, text);
+        idx.upsert(id, path, 2, text, &parsed, &["start", "end"])
+            .unwrap();
+
+        let after: Vec<String> = idx.journeys().unwrap()[0]
+            .stops
+            .iter()
+            .map(|s| s.target.clone())
+            .collect();
+        assert_eq!(before, after, "route order survives a re-index");
+    }
+
+    #[test]
+    fn place_facts_reach_books_through_the_documents_that_link_to_a_place() {
+        let idx = idx_with(&[
+            (
+                "e",
+                "Places/ephesus.md",
+                "---
+type: place
+title: Ephesus
+lat: 37.9391
+lon: 27.3407
+tags: [travel, Travel]
+---
+",
+            ),
+            (
+                "b",
+                "Places/babylon.md",
+                "---
+type: place
+title: Babylon
+lat: 32.5
+lon: 44.4
+---
+",
+            ),
+            // Links to Ephesus and cites Acts 20:31, so Ephesus reaches book 44.
+            (
+                "n1",
+                "Notes/paul at ephesus.md",
+                "---
+type: note
+---
+[[Ephesus]] — Paul spent three years here (Ac 20:31).
+",
+            ),
+            // A second document, citing Revelation 2:1: Ephesus reaches book 66
+            // too, and its mention count rises to two.
+            (
+                "n2",
+                "Notes/letters.md",
+                "---
+type: note
+---
+To the congregation in [[Ephesus]] (Re 2:1).
+",
+            ),
+        ]);
+        let facts = idx.place_facts().unwrap();
+        let by = |id: &str| facts.iter().find(|f| f.doc == id).unwrap().clone();
+
+        let e = by("e");
+        assert_eq!(e.books, vec![44, 66], "Acts and Revelation, through citers");
+        assert_eq!(e.mentions, 2);
+        // Deduplicated by norm: "travel" and "Travel" offer one chip.
+        assert_eq!(e.tags.len(), 1, "tags deduplicated by norm: {:?}", e.tags);
+
+        // A Place nothing links to is still returned, with empty facts, so the
+        // UI can tell it apart from a Place that was never indexed.
+        let b = by("b");
+        assert!(b.books.is_empty());
+        assert_eq!(b.mentions, 0);
+        assert!(b.tags.is_empty());
+    }
+
+    #[test]
+    fn place_facts_ignore_board_refs() {
+        let mut idx = Index::in_memory().unwrap();
+        let place = "---
+type: place
+title: Corinth
+lat: 37.9
+lon: 22.8
+---
+";
+        let parsed = document::parse("Places/corinth.md", place);
+        idx.upsert("c", "Places/corinth.md", 1, place, &parsed, &[])
+            .unwrap();
+        // A Board ref to Corinth, recorded with kind 'board' (PLAN §17.6).
+        idx.conn
+            .execute(
+                "INSERT INTO links(from_id, target, norm, alias, embed, start, end, property, kind) \
+                 VALUES('t', 'Corinth', 'corinth', NULL, 0, 0, 0, NULL, 'board')",
+                [],
+            )
+            .unwrap();
+        let facts = idx.place_facts().unwrap();
+        let c = facts.iter().find(|f| f.doc == "c").unwrap();
+        assert_eq!(
+            c.mentions, 0,
+            "material on a Board is not a claim about a Place"
+        );
     }
 
     #[test]
@@ -1568,6 +2690,37 @@ tags: [judgment]
                 }
             ]
         );
+        // An Event's summary carries its Dates as written, so any list can show
+        // them without a second query; other types carry none.
+        let e = idx.get("e").unwrap().unwrap();
+        assert_eq!(e.start.as_deref(), Some("1513 BCE"));
+        assert_eq!(e.end, None);
+        let f = idx.get("f").unwrap().unwrap();
+        assert_eq!(f.start.as_deref(), Some("2370 BCE"));
+        assert_eq!(f.end.as_deref(), Some("not a date"));
+        let d = idx.get("d").unwrap().unwrap();
+        assert_eq!((d.start, d.end), (None, None));
+    }
+
+    #[test]
+    fn events_naming_is_chronological_with_undated_last() {
+        let idx = idx_with(&[
+            ("m", "Characters/Moses.md", "---\ntype: character\n---\n"),
+            // Alphabetically first, chronologically last.
+            ("a", "Events/Aaron dies.md", "---\ntype: event\ntitle: Aaron dies\nstart: 1473 BCE\ncharacters: [\"[[Moses]]\"]\n---\n"),
+            ("x", "Events/Exodus.md", "---\ntype: event\ntitle: The Exodus\nstart: 1513 BCE\ncharacters: [\"[[Moses]]\"]\n---\n"),
+            ("b", "Events/Burning bush.md", "---\ntype: event\ntitle: Burning bush\nstart: c. 1514 BCE\ncharacters: [\"[[Moses]]\"]\n---\n"),
+            // Unparseable and missing `start` sort last, by title.
+            ("u", "Events/Undated.md", "---\ntype: event\ntitle: Zzz undated\ncharacters: [\"[[Moses]]\"]\n---\n"),
+            ("n", "Events/Not a date.md", "---\ntype: event\ntitle: Not a date\nstart: sometime\ncharacters: [\"[[Moses]]\"]\n---\n"),
+        ]);
+        let ev: Vec<_> = idx
+            .events_naming("m")
+            .unwrap()
+            .into_iter()
+            .map(|x| x.id)
+            .collect();
+        assert_eq!(ev, vec!["b", "x", "a", "n", "u"]);
     }
 
     #[test]
@@ -1630,6 +2783,159 @@ tags: [judgment]
         assert_eq!(ids, vec!["c1", "n"]);
         assert_eq!(c[1].shared_passages, vec!["Romans 5:3-5"]);
         assert!(c.iter().all(|x| !x.used));
+    }
+
+    #[test]
+    fn unlinked_mentions_finds_prose_that_does_not_link() {
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("n1", "Notes/A.md", "The brothers in Antioch sent them on."),
+            ("n2", "Notes/B.md", "They left [[Antioch]] at once."),
+            ("n3", "Notes/C.md", "About Antiochus the king."),
+        ]);
+        let u = idx.unlinked_mentions("p", 50).unwrap();
+        let ids: Vec<_> = u.items.iter().map(|m| m.doc.id.as_str()).collect();
+        // n2 links it already, so it is a Backlink and not an Unlinked
+        // mention; n3 only contains the name inside a longer word.
+        assert_eq!(ids, vec!["n1"]);
+        assert_eq!(u.total, 1);
+        assert_eq!(u.items[0].matched, "Antioch");
+        assert!(u.items[0].excerpt.contains("brothers in Antioch"));
+    }
+
+    #[test]
+    fn a_document_that_links_anywhere_is_never_an_unlinked_mention() {
+        // Exclusion 8 of ADR 0011: the two lists are disjoint, so a second
+        // bare occurrence in a document that already links is not offered.
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("n", "Notes/A.md", "[[Antioch]] grew, and Antioch sent them."),
+        ]);
+        assert_eq!(idx.unlinked_mentions("p", 50).unwrap().total, 0);
+    }
+
+    #[test]
+    fn a_tag_counts_as_linking_too() {
+        let idx = idx_with(&[
+            ("c", "Concepts/Endurance.md", "---\ntype: concept\n---\n"),
+            ("n", "Notes/A.md", "---\ntags: [endurance]\n---\nOn endurance."),
+        ]);
+        assert_eq!(idx.unlinked_mentions("c", 50).unwrap().total, 0);
+    }
+
+    #[test]
+    fn unlinked_mentions_match_aliases_and_keep_the_prose() {
+        let idx = idx_with(&[
+            (
+                "ch",
+                "Characters/Barnabas.md",
+                "---\ntype: character\naliases: [Joseph]\n---\n",
+            ),
+            ("n", "Notes/A.md", "Joseph's encouragement was known."),
+        ]);
+        let u = idx.unlinked_mentions("ch", 50).unwrap();
+        assert_eq!(u.items.len(), 1);
+        assert_eq!(u.items[0].matched, "Joseph's");
+        assert_eq!(
+            unlinked::link_text("Barnabas", &u.items[0].matched, None),
+            "[[Barnabas|Joseph's]]"
+        );
+    }
+
+    #[test]
+    fn scripture_and_writing_gather_no_unlinked_mentions() {
+        let idx = idx_with(&[
+            ("n1", "Notes/Endurance.md", "On endurance."),
+            ("n2", "Notes/B.md", "More on Endurance here."),
+        ]);
+        // A Note is not a linkable target: the mirror rule of ADR 0011.
+        assert_eq!(idx.unlinked_mentions("n1", 50).unwrap().total, 0);
+    }
+
+    #[test]
+    fn unlinked_mentions_report_a_total_past_the_cap() {
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("n", "Notes/A.md", "Antioch. Antioch. Antioch. Antioch."),
+        ]);
+        let u = idx.unlinked_mentions("p", 2).unwrap();
+        assert_eq!(u.items.len(), 2);
+        assert_eq!(u.total, 4);
+    }
+
+    #[test]
+    fn linkables_group_by_target_and_skip_what_is_linked() {
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("ch", "Characters/Paul.md", "---\ntype: character\n---\n"),
+            ("v", "Scripture/John.md", "---\ntype: book\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        let body = "Paul went to Antioch, and Antioch received him. John 3:16 was read.";
+        let l = idx.linkables("n", body, 50).unwrap();
+        let got: Vec<_> = l.iter().map(|x| (x.doc.id.as_str(), x.count)).collect();
+        // Antioch twice but one row; Scripture is never a Linkable.
+        assert_eq!(got, vec![("ch", 1), ("p", 2)]);
+        assert_eq!(l[1].start, 13);
+        assert_eq!(l[1].matched, "Antioch");
+    }
+
+    #[test]
+    fn a_name_already_linked_in_the_text_is_not_linkable() {
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        assert!(idx.linkables("n", "Left [[Antioch]] today.", 50).unwrap().is_empty());
+        assert!(idx.linkables("n", "Left #Antioch today.", 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_target_linked_once_stops_being_offered() {
+        let idx = idx_with(&[
+            ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("ch", "Characters/Paul.md", "---\ntype: character\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        // Antioch is linked once and written twice more; Paul is untouched.
+        let body = "Paul left [[Antioch]]. Antioch grew, and Antioch sent him.";
+        let l = idx.linkables("n", body, 50).unwrap();
+        let got: Vec<_> = l.iter().map(|x| x.doc.id.as_str()).collect();
+        assert_eq!(got, vec!["ch"], "the linked target is done with");
+    }
+
+    #[test]
+    fn an_alias_link_retires_the_target_it_names() {
+        let idx = idx_with(&[
+            ("ch", "Characters/Paul.md", "---\ntype: character\naliases: [Saul]\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        // Linked by its alias, then written by its title: still the same
+        // document, so it is not offered again.
+        assert!(idx
+            .linkables("n", "[[Saul]] travelled. Paul wrote later.", 50)
+            .unwrap()
+            .is_empty());
+        // And linked by path, with the prose kept as the alias.
+        assert!(idx
+            .linkables("n", "[[Characters/Paul|Saul]] went. Saul returned.", 50)
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn an_ambiguous_title_is_reported_rather_than_guessed() {
+        let idx = idx_with(&[
+            ("p1", "Places/Antioch.md", "---\ntype: place\n---\n"),
+            ("p2", "Places/Pisidia/Antioch.md", "---\ntype: place\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        let l = idx.linkables("n", "Went to Antioch then.", 50).unwrap();
+        assert_eq!(l.len(), 1);
+        assert_eq!(l[0].ambiguous.len(), 2);
+        let amb = idx.ambiguous_titles().unwrap();
+        assert_eq!(amb.len(), 1);
+        assert_eq!(amb[0].docs.len(), 2);
     }
 
     #[test]
@@ -1828,5 +3134,348 @@ Ro 5:3",
     fn natural_order() {
         assert_eq!(natural_cmp("p. 3", "p. 12"), std::cmp::Ordering::Less);
         assert_eq!(natural_cmp("ch. 2", "ch. 10"), std::cmp::Ordering::Less);
+    }
+
+    fn board_vault() -> Index {
+        idx_with(&[
+            (
+                "C1",
+                "Clippings/steadfast.md",
+                "---
+type: clipping
+title: Endurance is steadfastness
+---
+> Endurance is remaining steadfast with the right attitude.",
+            ),
+            (
+                "N1",
+                "Notes/trials.md",
+                "---
+type: note
+title: Endurance in trials
+---
+# Endurance in trials
+
+Jas 1:2-4 says to consider it all joy.
+
+## Cross-references
+
+Ro 5:3-5 links tribulation and hope.",
+            ),
+            (
+                "P1",
+                "Characters/paul.md",
+                "---
+type: character
+title: Paul
+---
+",
+            ),
+            (
+                "L1",
+                "Notes/letter.md",
+                "---
+type: note
+title: A letter
+---
+Written by [[Paul]] from prison.",
+            ),
+        ])
+    }
+
+    fn ask(idx: &Index, path: &str, sub: Option<&str>) -> BoardExcerpt {
+        idx.board_excerpts(&[(path.to_string(), sub.map(str::to_string))])
+            .unwrap()
+            .remove(&board_excerpt_key(path, sub))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_same_document_twice_keeps_its_two_excerpts_apart() {
+        // A Board may hold the whole Note and one of its sections. Keyed by
+        // path alone, the second would overwrite the first and both cards
+        // would show the same text.
+        let idx = board_vault();
+        let path = "Notes/trials.md".to_string();
+        let got = idx
+            .board_excerpts(&[
+                (path.clone(), None),
+                (path.clone(), Some("#Cross-references".into())),
+            ])
+            .unwrap();
+        assert_eq!(got.len(), 2, "the two cards collapsed into one");
+        assert_eq!(
+            got[&board_excerpt_key(&path, None)].text,
+            "Jas 1:2-4 says to consider it all joy."
+        );
+        assert_eq!(
+            got[&board_excerpt_key(&path, Some("#Cross-references"))].text,
+            "Ro 5:3-5 links tribulation and hope."
+        );
+    }
+
+    #[test]
+    fn a_board_card_shows_body_text_not_just_a_type() {
+        // The bug this feature fixes: cards showed only "Clipping" / "Note".
+        let idx = board_vault();
+        assert_eq!(
+            ask(&idx, "Clippings/steadfast.md", None).text,
+            "Endurance is remaining steadfast with the right attitude."
+        );
+        // The Note skips the heading repeating its title.
+        assert_eq!(
+            ask(&idx, "Notes/trials.md", None).text,
+            "Jas 1:2-4 says to consider it all joy."
+        );
+    }
+
+    #[test]
+    fn a_subpath_node_shows_that_section() {
+        let got = ask(&board_vault(), "Notes/trials.md", Some("#Cross-references"));
+        assert_eq!(got.text, "Ro 5:3-5 links tribulation and hope.");
+        assert!(!got.subpath_missing);
+    }
+
+    #[test]
+    fn an_unresolvable_subpath_is_flagged() {
+        let got = ask(&board_vault(), "Notes/trials.md", Some("#Gone"));
+        assert!(got.subpath_missing);
+        assert_eq!(got.text, "Jas 1:2-4 says to consider it all joy.");
+    }
+
+    #[test]
+    fn a_subject_hub_with_no_body_falls_back_to_its_mention_count() {
+        // PLAN §17.12: a Hub shows its type and mention count. Only when the
+        // body says nothing — the fallback, not a second rule.
+        let got = ask(&board_vault(), "Characters/paul.md", None);
+        assert_eq!(got.text, "");
+        assert_eq!(got.mentions, Some(1), "the letter links to Paul");
+    }
+
+    #[test]
+    fn an_ordinary_document_never_reports_a_mention_count() {
+        assert_eq!(ask(&board_vault(), "Notes/letter.md", None).mentions, None);
+    }
+
+    #[test]
+    fn a_path_outside_the_vault_is_simply_absent() {
+        // The card renders that as missing already; saying so twice is not
+        // this method's job.
+        let idx = board_vault();
+        let got = idx
+            .board_excerpts(&[("Notes/gone.md".to_string(), None)])
+            .unwrap();
+        assert!(got.is_empty());
+    }
+
+    #[test]
+    fn one_call_answers_a_whole_board() {
+        let idx = board_vault();
+        let got = idx
+            .board_excerpts(&[
+                ("Clippings/steadfast.md".to_string(), None),
+                ("Notes/trials.md".to_string(), Some("#Cross-references".into())),
+                ("Notes/gone.md".to_string(), None),
+            ])
+            .unwrap();
+        assert_eq!(got.len(), 2, "the missing path is skipped, the rest answered");
+    }
+
+    /// The demo vault's nesting: a periodical holding an issue holding an
+    /// article, a book holding a chapter, and a standalone video.
+    fn library_vault() -> Index {
+        idx_with(&[
+            (
+                "wt",
+                "Sources/the watchtower.md",
+                "---\ntype: source\ntitle: The Watchtower\nkind: periodical\nurl: https://example.org/wt\n---\n",
+            ),
+            (
+                "wt3",
+                "Sources/the watchtower 2024-03.md",
+                "---\ntype: source\ntitle: The Watchtower 2024-03\nkind: issue\ndate: 2024-03\nparent: \"[[The Watchtower]]\"\n---\n",
+            ),
+            (
+                "joy",
+                "Sources/keep enduring with joy.md",
+                "---\ntype: source\ntitle: Keep Enduring with Joy\nkind: article\nparent: \"[[The Watchtower 2024-03]]\"\n---\n",
+            ),
+            (
+                "ins",
+                "Sources/insight.md",
+                "---\ntype: source\ntitle: Insight\nkind: book\ncover: Attachments/insight.jpg\ndate: 1988\n---\n",
+            ),
+            (
+                "eph",
+                "Sources/insight ephesus.md",
+                "---\ntype: source\ntitle: \"Insight: Ephesus\"\nkind: chapter\nparent: \"[[Insight]]\"\n---\n",
+            ),
+            (
+                "mw",
+                "Sources/morning worship.md",
+                "---\ntype: source\ntitle: Morning Worship\nkind: video\ncover: https://example.org/mw.jpg\n---\n",
+            ),
+            // Not a Source: the Library must not list it.
+            (
+                "n",
+                "Notes/trials.md",
+                "---\ntype: note\ntitle: Trials\n---\nSomething about [[Insight]].\n",
+            ),
+        ])
+    }
+
+    fn entry<'a>(lib: &'a [LibraryEntry], id: &str) -> &'a LibraryEntry {
+        lib.iter().find(|e| e.id == id).expect("entry missing")
+    }
+
+    #[test]
+    fn library_reports_every_source_and_nothing_else() {
+        let lib = library_vault().library().unwrap();
+        let mut ids: Vec<_> = lib.iter().map(|e| e.id.as_str()).collect();
+        ids.sort();
+        assert_eq!(ids, vec!["eph", "ins", "joy", "mw", "wt", "wt3"]);
+    }
+
+    #[test]
+    fn library_carries_what_a_card_needs() {
+        let lib = library_vault().library().unwrap();
+        let ins = entry(&lib, "ins");
+        assert_eq!(ins.kind, "book");
+        assert_eq!(ins.cover, "Attachments/insight.jpg");
+        assert_eq!(ins.date, "1988");
+        assert_eq!(ins.parent_id, None);
+        // A remote Cover is reported as written; resolving it is the UI's job.
+        assert_eq!(entry(&lib, "mw").cover, "https://example.org/mw.jpg");
+        // Absent properties come back empty rather than missing.
+        let wt = entry(&lib, "wt");
+        assert_eq!(wt.date, "");
+        assert_eq!(wt.cover, "");
+    }
+
+    #[test]
+    fn library_resolves_the_parent_to_an_id() {
+        let lib = library_vault().library().unwrap();
+        // Written as a title, reported as an id, so a rename cannot orphan it.
+        assert_eq!(entry(&lib, "wt3").parent_id.as_deref(), Some("wt"));
+        assert_eq!(entry(&lib, "joy").parent_id.as_deref(), Some("wt3"));
+        assert_eq!(entry(&lib, "eph").parent_id.as_deref(), Some("ins"));
+    }
+
+    #[test]
+    fn library_counts_direct_children_not_descendants() {
+        let lib = library_vault().library().unwrap();
+        // The periodical holds one issue; the article underneath it is the
+        // issue's child, not the periodical's. The card says "1 issue".
+        assert_eq!(entry(&lib, "wt").child_count, 1);
+        assert_eq!(entry(&lib, "wt3").child_count, 1);
+        assert_eq!(entry(&lib, "ins").child_count, 1);
+        assert_eq!(entry(&lib, "joy").child_count, 0);
+        assert_eq!(entry(&lib, "mw").child_count, 0);
+    }
+
+    #[test]
+    fn a_dangling_parent_leaves_the_child_top_level() {
+        // The book is not in the vault, so the chapter has nothing to sit
+        // inside. It stays parentless on purpose: the UI shelves it as
+        // Unshelved, where the user can see it needs filing (ADR 0012).
+        let idx = idx_with(&[(
+            "c",
+            "Sources/ch1.md",
+            "---\ntype: source\ntitle: Chapter 1\nkind: chapter\nparent: \"[[Missing Book]]\"\n---\n",
+        )]);
+        let lib = idx.library().unwrap();
+        assert_eq!(lib.len(), 1);
+        assert_eq!(lib[0].parent_id, None);
+        assert_eq!(lib[0].kind, "chapter");
+    }
+
+    #[test]
+    fn library_sorts_numbered_titles_naturally() {
+        let idx = idx_with(&[
+            (
+                "b",
+                "Sources/ch10.md",
+                "---\ntype: source\ntitle: Chapter 10\nkind: book\n---\n",
+            ),
+            (
+                "a",
+                "Sources/ch2.md",
+                "---\ntype: source\ntitle: Chapter 2\nkind: book\n---\n",
+            ),
+        ]);
+        let titles: Vec<_> = idx
+            .library()
+            .unwrap()
+            .into_iter()
+            .map(|e| e.title)
+            .collect();
+        assert_eq!(titles, vec!["Chapter 2", "Chapter 10"]);
+    }
+
+    #[test]
+    fn an_unknown_kind_is_reported_rather_than_rejected() {
+        // ADR 0003: the vault is hand-editable. The engine passes `kind`
+        // through untouched and lets the UI decide it belongs on Unshelved.
+        let idx = idx_with(&[(
+            "s",
+            "Sources/talk.md",
+            "---\ntype: source\ntitle: A Sermon\nkind: sermon\n---\n",
+        )]);
+        let lib = idx.library().unwrap();
+        assert_eq!(lib[0].kind, "sermon");
+    }
+
+    #[test]
+    fn a_bare_year_is_read_as_a_date() {
+        // `date: 1988` with no quotes is a YAML integer. Reading the property
+        // as a string only would drop it, and the card would lose its year.
+        let idx = idx_with(&[(
+            "s",
+            "Sources/insight.md",
+            "---\ntype: source\ntitle: Insight\nkind: book\ndate: 1988\n---\n",
+        )]);
+        assert_eq!(idx.library().unwrap()[0].date, "1988");
+    }
+
+    #[test]
+    fn a_source_with_no_kind_at_all_still_appears() {
+        let idx = idx_with(&[(
+            "s",
+            "Sources/bare.md",
+            "---\ntype: source\ntitle: Bare\n---\n",
+        )]);
+        let lib = idx.library().unwrap();
+        assert_eq!(lib.len(), 1);
+        assert_eq!(lib[0].kind, "");
+    }
+
+    #[test]
+    fn child_sources_are_listed_in_natural_order() {
+        // Plain `cmp` files "Chapter 10" before "Chapter 2", which makes a
+        // Contains list of a dozen chapters read scrambled.
+        let idx = idx_with(&[
+            (
+                "bk",
+                "Sources/book.md",
+                "---\ntype: source\ntitle: Book\nkind: book\n---\n",
+            ),
+            (
+                "c10",
+                "Sources/c10.md",
+                "---\ntype: source\ntitle: Chapter 10\nkind: chapter\nparent: \"[[Book]]\"\n---\n",
+            ),
+            (
+                "c2",
+                "Sources/c2.md",
+                "---\ntype: source\ntitle: Chapter 2\nkind: chapter\nparent: \"[[Book]]\"\n---\n",
+            ),
+        ]);
+        let titles: Vec<_> = idx
+            .source_descendants("bk")
+            .unwrap()
+            .into_iter()
+            .map(|d| d.title)
+            .collect();
+        assert_eq!(titles, vec!["Chapter 2", "Chapter 10"]);
     }
 }

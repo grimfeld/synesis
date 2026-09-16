@@ -5,7 +5,7 @@ import { api, type DeviceInfo, type Lang } from "@/lib/api";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
-import { useT } from "@/i18n";
+import { useFormat, useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,7 +30,8 @@ export function SettingsView() {
   }, [s.info?.root, s.changeTick]);
   const method = s.settings?.sync_method ?? null;
   const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
-  const ago = (ms: number) => (ms ? new Date(ms).toLocaleString() : "—");
+  const fmt = useFormat();
+  const ago = (ms: number) => (ms ? fmt.dateTime(ms) : "—");
   const [relay, setRelay] = useState(s.settings?.relay_url ?? "");
   useEffect(() => setRelay(s.settings?.relay_url ?? ""), [s.settings?.relay_url]);
   const saveRelay = async () => {

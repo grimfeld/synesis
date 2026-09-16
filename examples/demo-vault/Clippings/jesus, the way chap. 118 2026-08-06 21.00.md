@@ -1,7 +1,6 @@
 ---
 id: 01M26CD0GHVD8CG22WN8WHA2R5
 type: clipping
-title: "Prayer in Gethsemane"
 created: "2026-08-06T21:00:00"
 source: "[[Jesus, the Way]]"
 locator: "chap. 118"

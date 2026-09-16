@@ -4,18 +4,21 @@
 use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, Graph,
-    GraphLevel, Index, SearchHit, TrailEntry, UnresolvedLink,
+    self, AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty,
+    DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, LibraryEntry, Linkable,
+    PlaceFact, SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use crate::parser::Detected;
 use crate::properties::{PropertySchema, PropertyType};
 use crate::scripture::{Lang, Passage};
 use crate::sync::{HistoryPoint, RemoteChange, Sync, Version};
 use crate::templates;
+use crate::unlinked;
 use crate::{Error, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -574,6 +577,14 @@ impl Vault {
         self.index.boards_referencing(id)
     }
 
+    /// The Board excerpt for each `(path, subpath)` a Board references.
+    pub fn board_excerpts(
+        &self,
+        refs: &[(String, Option<String>)],
+    ) -> Result<HashMap<String, BoardExcerpt>> {
+        self.index.board_excerpts(refs)
+    }
+
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
     /// `keep` is the document's own path, so renaming a file to a different
     /// casing of itself is not a clash (case-insensitive file systems would
@@ -607,6 +618,48 @@ impl Vault {
         document::display_title(&document::title_from_path(rel)) != title
     }
 
+    /// The moment a Clipping was kept, as a file name may spell it: dots
+    /// rather than colons, which no Windows path may contain (and which
+    /// `sanitize_title` would strip anyway).
+    fn stamp_now() -> String {
+        chrono::Local::now().format("%Y-%m-%d %H.%M").to_string()
+    }
+
+    /// A Clipping's file name: its Citation, plus the moment it was kept.
+    ///
+    /// A Clipping has no title (ADR 0013), so the Source and Locator it names
+    /// are what identify it — the one label for an excerpt that is not
+    /// invented. The timestamp is what makes it unique: two Clippings from one
+    /// paragraph are ordinary, and `unique_path`'s " 2" would tell them apart
+    /// by nothing a reader could use. It also unties the name from the
+    /// Source's title, so renaming a Source cannot make two stems collide.
+    fn citation_stem(fields: &Map<String, Value>, stamp: &str) -> String {
+        let text = |k: &str| {
+            fields
+                .get(k)
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .unwrap_or_default()
+        };
+        // `source` arrives as a wikilink, since that is what is written to
+        // frontmatter; the stem wants the Source's name alone.
+        let source = text("source")
+            .trim_start_matches("[[")
+            .trim_end_matches("]]")
+            .split('|')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let parts = [source.as_str(), text("locator"), stamp];
+        parts
+            .iter()
+            .filter(|p| !p.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
     /// Create a new document from its type's template.
     pub fn create(
         &mut self,
@@ -627,9 +680,20 @@ impl Vault {
             .unwrap_or_else(|| doc_type.default_folder().to_string());
         let mut fields = fields.clone();
         fields.remove("folder");
-        let title = document::display_title(&sanitize_title(title));
+        // A Clipping is named by its Citation and never carries a title
+        // (ADR 0013); the `title` argument is ignored for one, and a `title`
+        // field a caller passed is dropped rather than written.
+        let title = if doc_type == DocType::Clipping {
+            fields.remove("title");
+            Self::citation_stem(&fields, &Self::stamp_now())
+        } else {
+            document::display_title(&sanitize_title(title))
+        };
         let rel = self.unique_path(&folder, &title, None);
-        if !fields.contains_key("title") && Self::needs_title_field(&rel, &title) {
+        if doc_type != DocType::Clipping
+            && !fields.contains_key("title")
+            && Self::needs_title_field(&rel, &title)
+        {
             fields.insert("title".into(), Value::String(title.clone()));
         }
         let id = new_id();
@@ -647,6 +711,12 @@ impl Vault {
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
+        if summary.doc_type == DocType::Clipping {
+            // A Clipping has no title to change (ADR 0013). Refusing beats
+            // quietly writing one back: the caller has misunderstood what it
+            // holds, and the file name is a Citation the app derives.
+            return Err(Error::Invalid("A Clipping has no title".into()));
+        }
         let new_title = document::display_title(&sanitize_title(new_title));
         if new_title == summary.title {
             return self.read(id);
@@ -816,6 +886,14 @@ impl Vault {
     pub fn places(&self) -> Result<Vec<DocSummary>> {
         self.index.places()
     }
+    /// Tags, Books and mention counts per Place, for the Map's filters (§19.5).
+    pub fn place_facts(&self) -> Result<Vec<PlaceFact>> {
+        self.index.place_facts()
+    }
+    /// Every Journey with its Stops in travel order (ADR 0010).
+    pub fn journeys(&self) -> Result<Vec<Journey>> {
+        self.index.journeys()
+    }
     pub fn tagged(&self, tag: &str) -> Result<Vec<DocSummary>> {
         self.index.tagged(tag)
     }
@@ -825,11 +903,88 @@ impl Vault {
     pub fn source_trail(&self, id: &str) -> Result<Vec<TrailEntry>> {
         self.index.source_trail(id)
     }
+    /// Every Clipping with its Citation, or those of one Source (ADR 0013).
+    pub fn clippings(&self, source_id: Option<&str>) -> Result<Vec<TrailEntry>> {
+        self.index.clippings(source_id)
+    }
+    /// The Tags on each of `ids`, for filtering a list the caller already has.
+    pub fn tags_of(&self, ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
+        self.index.tags_of(ids)
+    }
     pub fn source_children(&self, id: &str) -> Result<Vec<DocSummary>> {
         self.index.source_descendants(id)
     }
+    pub fn library(&self) -> Result<Vec<LibraryEntry>> {
+        self.index.library()
+    }
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         self.index.unresolved()
+    }
+    pub fn unlinked_mentions(&self, id: &str) -> Result<UnlinkedMentions> {
+        self.index.unlinked_mentions(id, 200)
+    }
+    pub fn linkables(&self, id: &str, body: &str) -> Result<Vec<Linkable>> {
+        self.index.linkables(id, body, 50)
+    }
+    pub fn ambiguous_titles(&self) -> Result<Vec<AmbiguousTitle>> {
+        self.index.ambiguous_titles()
+    }
+
+    /// Turn one Unlinked mention into a Mention, in the document that wrote it.
+    ///
+    /// `start`/`end` are offsets into `doc_id`'s **body**, as returned by
+    /// [`Index::unlinked_mentions`]; the file on disk is re-read and the text
+    /// at those offsets checked against `expect` before anything is written,
+    /// because the index reflects the last save and Obsidian or a sync may
+    /// have edited the file since (ADR 0011).
+    ///
+    /// Returns the document's text as it was *before* the edit, so a batch can
+    /// be undone.
+    pub fn link_mention(
+        &mut self,
+        doc_id: &str,
+        start: usize,
+        end: usize,
+        expect: &str,
+        target_id: &str,
+    ) -> Result<String> {
+        let view = self.read(doc_id)?;
+        let target = self
+            .index
+            .get(target_id)?
+            .ok_or_else(|| Error::NotFound(target_id.into()))?;
+        // The target is known here — the user is standing on its Hub — so an
+        // ambiguous title is qualified by path rather than left to resolve().
+        let path = if self.index.ambiguous_titles()?.iter().any(|a| {
+            a.docs.iter().any(|d| d.id == target_id)
+        }) {
+            Some(target.path.as_str())
+        } else {
+            None
+        };
+        let replacement = unlinked::link_text(&target.title, expect, path);
+        let (s, e) = (view.body_offset + start, view.body_offset + end);
+        let next = unlinked::splice(&view.text, s, e, expect, &replacement).ok_or_else(|| {
+            Error::Invalid(format!(
+                "{} changed since it was indexed; nothing was written",
+                view.summary.path
+            ))
+        })?;
+        let before = view.text.clone();
+        self.write(doc_id, &next)?;
+        Ok(before)
+    }
+
+    /// Restore documents to the text they held before a batch of links.
+    ///
+    /// Used by Undo after "Link all": the batch keeps each document's previous
+    /// text, and putting it back is an ordinary write, so it syncs and is
+    /// itself undoable through history.
+    pub fn restore_texts(&mut self, texts: &[(String, String)]) -> Result<()> {
+        for (id, text) in texts {
+            self.write(id, text)?;
+        }
+        Ok(())
     }
     /// Find a document by URL (Sources are deduplicated by URL).
     pub fn find_by_url(&self, url: &str) -> Result<Option<DocSummary>> {
@@ -869,6 +1024,96 @@ mod tests {
     }
 
     #[test]
+    fn linking_an_unlinked_mention_rewrites_only_the_brackets() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        fs::write(
+            dir.path().join("Places/antioch.md"),
+            "---\ntype: place\ntitle: \"Antioch\"\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Notes/brothers.md"),
+            "# The brothers\n\nAntioch is where they met.\n",
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+
+        let place = v.resolve("Antioch").unwrap().unwrap();
+        let u = v.unlinked_mentions(&place.id).unwrap();
+        assert_eq!(u.total, 1, "the prose mention is found");
+        let m = &u.items[0];
+        assert_eq!(m.matched, "Antioch");
+
+        let before = v
+            .link_mention(&m.doc.id, m.start, m.end, &m.matched, &place.id)
+            .unwrap();
+        let after = fs::read_to_string(dir.path().join("Notes/brothers.md")).unwrap();
+        assert!(
+            after.contains("[[Antioch]] is where they met."),
+            "spliced at the right offset: {after:?}"
+        );
+        // Everything else is untouched, frontmatter included.
+        assert_eq!(after, before.replace("Antioch is", "[[Antioch]] is"));
+
+        // It is a Backlink now, and no longer an Unlinked mention.
+        assert_eq!(v.unlinked_mentions(&place.id).unwrap().total, 0);
+        assert_eq!(v.backlinks(&place.id).unwrap().len(), 1);
+
+        // Undo puts the words back.
+        v.restore_texts(&[(m.doc.id.clone(), before)]).unwrap();
+        assert_eq!(v.unlinked_mentions(&place.id).unwrap().total, 1);
+    }
+
+    #[test]
+    fn linking_works_on_a_crlf_file() {
+        // Windows-authored documents are CRLF throughout. The index measures
+        // the file as it is on disk and the splice reads the same bytes back,
+        // so the offsets agree and the prose keeps its line endings.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        fs::write(
+            dir.path().join("Places/antioch.md"),
+            "---
+type: place
+title: \"Antioch\"
+---
+",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Notes/brothers.md"),
+            "# The brothers
+
+One line.
+Two line.
+
+Antioch is where they met.
+",
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+
+        let place = v.resolve("Antioch").unwrap().unwrap();
+        let u = v.unlinked_mentions(&place.id).unwrap();
+        assert_eq!(u.total, 1);
+        let m = &u.items[0];
+        v.link_mention(&m.doc.id, m.start, m.end, &m.matched, &place.id)
+            .unwrap();
+        let after = fs::read_to_string(dir.path().join("Notes/brothers.md")).unwrap();
+        assert!(
+            after.contains("[[Antioch]] is where they met."),
+            "spliced at the right offset in a CRLF file: {after:?}"
+        );
+        assert!(after.contains("One line.
+"), "line endings are untouched");
+    }
+
+    #[test]
     fn open_assigns_ids_and_materialises_scripture() {
         let (dir, v) = vault();
         let text = fs::read_to_string(dir.path().join("Notes/First.md")).unwrap();
@@ -890,6 +1135,90 @@ mod tests {
         assert_eq!(bl[0].doc.title, "First");
         assert!(v.resolve("Paul").unwrap().is_none());
         assert_eq!(v.unresolved().unwrap()[0].target, "Paul");
+    }
+
+    /// ADR 0013: a Clipping is named by its Citation and carries no title.
+    #[test]
+    fn a_clipping_is_named_by_its_citation_and_has_no_title() {
+        let (_dir, mut v) = vault();
+        let mut fields = Map::new();
+        fields.insert("source".into(), "[[Keep Enduring with Joy]]".into());
+        fields.insert("locator".into(), "par. 12".into());
+        let c = v
+            .create(
+                DocType::Clipping,
+                // Ignored: a caller cannot name a Clipping.
+                "Endurance is steadfastness",
+                &fields,
+                "> Endurance is remaining steadfast.",
+            )
+            .unwrap();
+
+        assert!(
+            c.summary
+                .path
+                .starts_with("Clippings/keep enduring with joy par. 12 "),
+            "named by its Citation, got {}",
+            c.summary.path
+        );
+        assert!(
+            !c.text.contains("title:"),
+            "a Clipping carries no title property, got:\n{}",
+            c.text
+        );
+        assert!(
+            !c.summary.path.contains("endurance is steadfastness"),
+            "the title argument must not reach the file name"
+        );
+        // The label is the quote, with the `>` gone.
+        assert_eq!(c.summary.label, "Endurance is remaining steadfast.");
+        // Every other type's label is simply its title.
+        let paul = v
+            .create(DocType::Character, "Paul", &Map::new(), "The apostle.")
+            .unwrap();
+        assert_eq!(paul.summary.label, "Paul");
+
+        // A Clipping has no title, so it cannot be renamed.
+        assert!(v.rename(&c.summary.id, "Anything").is_err());
+    }
+
+    /// The timestamp, not `unique_path`'s " 2", is what tells two Clippings
+    /// from one paragraph apart (ADR 0013).
+    #[test]
+    fn two_clippings_from_one_locator_get_distinct_names() {
+        let (_dir, mut v) = vault();
+        let mut fields = Map::new();
+        fields.insert("source".into(), "[[The Watchtower]]".into());
+        fields.insert("locator".into(), "par. 3".into());
+        let a = v
+            .create(DocType::Clipping, "", &fields, "> First half.")
+            .unwrap();
+        let b = v
+            .create(DocType::Clipping, "", &fields, "> Second half.")
+            .unwrap();
+        assert_ne!(a.summary.path, b.summary.path);
+        for c in [&a, &b] {
+            assert!(c.summary.path.starts_with("Clippings/the watchtower par. 3 "));
+        }
+    }
+
+    /// A Locator is optional, so the stem drops the empty part rather than
+    /// leaving a double space.
+    #[test]
+    fn a_clipping_without_a_locator_is_named_by_source_and_time() {
+        let (_dir, mut v) = vault();
+        let mut fields = Map::new();
+        fields.insert("source".into(), "[[Insight: Ephesus]]".into());
+        let c = v
+            .create(DocType::Clipping, "", &fields, "> The great theater.")
+            .unwrap();
+        // `sanitize_title` takes the colon out; the stem is still readable.
+        assert!(
+            c.summary.path.starts_with("Clippings/insight ephesus 20"),
+            "got {}",
+            c.summary.path
+        );
+        assert!(!c.summary.path.contains("  "), "no gap where the Locator was");
     }
 
     #[test]

@@ -27,6 +27,7 @@ A local-first, Obsidian-style note-taking app for Bible study. The user reads Sc
 | Character | user | may carry Date Properties (`born`, `died`, ...) |
 | Concept | user | |
 | Event | user | has `start` and optional `end` Date; names its Place and Characters via link Properties |
+| Journey | user | has `start` / `end` Dates; names its Stops in order via a `places` link-list (ADR 0010, §19) |
 
 Links: a **Mention** is any link between documents. Scripture Mentions are auto-detected and resolve a Passage to its Verse set (ADR 0002). All other Mentions are explicit, either inline `[[Paul]]` or as a Tag `#Paul`; both are the same link. Any document is taggable; any Tag names a document.
 
@@ -38,7 +39,7 @@ Every file carries a ULID `id` in frontmatter; the CRDT and index key on it. `ty
 Vault/
   Notes/  Clippings/  Compositions/  Sources/
   Scripture/John/John 3/John 3.16.md     (aliases so [[John 3:16]] resolves)
-  Places/  Characters/  Concepts/  Events/
+  Places/  Characters/  Concepts/  Events/  Journeys/
   .bible-study/properties.json           (Property schema, ADR 0006)
   .bible-study/sync/<device-id>/         (CRDT snapshots, one per changed document; ignored by Obsidian)
 ```
@@ -87,7 +88,7 @@ Features:
 - Hosted E2EE sync with accounts and key recovery; self-host server; ~$5–10/year paid tier (Apple IAP on iOS).
 - Share-sheet capture on mobile.
 - Composition export (print / PDF / DOCX) with Embeds resolved and Sources cited.
-- Journeys on the map (ordered Places as a route).
+- ~~Journeys on the map (ordered Places as a route).~~ Designed in §19.
 - Reading-plan tracking tied to the coverage grid.
 - Additional languages via contributed tables and resource files.
 
@@ -283,9 +284,13 @@ People preparing talks want to arrange their material spatially before writing p
 10. **Material arrives** three ways: palette search on the canvas, a Candidates drawer on the Board, and a button on the Candidates panel. The drawer is what makes this Synesis rather than a generic canvas — the app already knows which material shares Tags and Passages with this talk.
 11. **Typed `[[links]]` in a `text` node are ordinary Mentions; dragged `file` nodes are Board refs.** A known rough edge, accepted: the alternative is markdown meaning different things in different files. What you typed is a claim, what you dragged is a reference.
 12. **`file` nodes render as card plus excerpt** — a Clipping shows its quote rather than its made-up title, a Note its first line, a Hub its type and mention count, and a `subpath` node that section. No live embeds: a renderer per node will not survive a forty-node Board, and body text is unreadable at the zoom where a Board is useful.
+    **Amended (2026-09-15): specified but never implemented; now built, and as one rule rather than four.** The card's excerpt slot shipped empty — `excerptFor` returned the subpath or nothing at all, so an imported card showed its title and the bare word "Clipping" while the hand-typed bubbles beside it carried real text. What is built now: **one rule for every type** — the first meaningful block of body text, minus a heading that merely repeats the title (the vault's house style, and the card shows the title already). That yields this section's Clipping and Note answers without a branch per type, so a new document type gets a sensible excerpt the day it is added. A `subpath` selects the section to start from and the same rule then applies; an unresolvable one shows the document's opening and **says the section is gone** rather than passing it off as what was pinned (§17.13). A Subject Hub falls back to its mention count only when its body says nothing, so a Concept page that opens with real prose shows the prose. The excerpt **replaces** the type label rather than stacking under it: on a 140px card the type is the least valuable row once there is text, though the subpath marker stays, because a sectioned card is otherwise indistinguishable from a whole-document one. Extraction lives in `crates/engine/src/excerpt.rs` (plain text, capped at 200 chars on a word boundary, no ellipsis — the card's `line-clamp` draws its own), reached through one `board_excerpts` call per Board keyed by path *and* subpath, since a Board may legitimately hold both a whole document and one of its sections. Text comes from the FTS row indexing already wrote, so nothing is re-read or re-parsed, and the UI refetches only when a *referenced* document's mtime changes.
+
 13. **Rename rewrites paths** in every Board referencing the document, engine-side in `rename_document`. **Delete keeps the node**, rendered as missing — never silently remove something the user placed by hand, and a hole in a spatial layout is worse than a missing list row. Precedent: `unresolved_links` surfaces broken references rather than hiding them.
 14. **External edits reconcile structurally**: parse the JSON, diff node by node against the map, apply. The watcher learns `.canvas`. Folding outside edits is mandatory (ADR 0003), and wholesale replace would reintroduce through Obsidian exactly the loss the map CRDT exists to prevent.
-15. **Mobile is view plus light edit**: pan, zoom, tap to open a node's document, long-press to move one. No edge-drawing (fiddly by finger in every app that has tried it), no groups, no marquee. Preparing a talk is a desk activity; reviewing a Board before speaking is a phone one.
+15. **Mobile is view plus light edit**: pan, zoom, long-press to move a node. No edge-drawing (fiddly by finger in every app that has tried it), no groups, no marquee. Preparing a talk is a desk activity; reviewing a Board before speaking is a phone one.
+
+    **Amended (2026-09-14): opening a document is a mode, not a platform rule.** A toolbar toggle switches the Board between *arranging* (the default: click selects, drag moves, nothing navigates) and *reading* (a press opens the card's document, nothing moves or is selectable). The original rule — tap opens on touch, click opens on the desktop — made a card hard to pick up, because the press that selects it is the press that navigates away. It also made `file` nodes wholly undraggable: rendering one as a button marked it `data-board-ui`, which the canvas skips, so it never entered a move gesture. One mode answers both platforms, and touch gains the open gesture rather than losing one. Entering reading mode clears the selection and hides the editing tools (add, drawer, selection toolbar, delete key), so nothing destructive is reachable while reading.
 16. **Fit-all on open, no viewport persistence.** A Board's shape is the point and fit-all shows it. The Timeline persists its range because that range is a query (§16.5); a Board's viewport is not.
 17. **Versions cover text and Board together**, and the diff view gains a Board tab listing nodes added, removed and moved. Restore restores both, said plainly in the confirmation. A Version is a moment (§14.8); restoring half of one is not.
 18. **Export** is a Command producing SVG and PNG of the Board's extent. The renderer is SVG anyway (the `TimelineView` precedent), so this is cheap. Not PDF — that belongs to the later Composition export (§8), and a Board is not a page.
@@ -317,3 +322,110 @@ Demo vault: "Talk on endurance" gains a Board exercising every node type — a f
 - Whether a Board can exist before its Composition does. Currently no: name the talk first.
 - Nested groups.
 - Whether `text` node markdown gets Passage detection like other bodies.
+
+## 18. Events listed elsewhere carry their Date (grilling session, 2026-09-14)
+
+After using the Timeline for a while, an Event title on its own ("Paul in Ephesus") in a Hub's Events list, a backlink row or the palette reads as half a fact: the Date is what makes an Event an Event. No new vocabulary; [CONTEXT.md](../CONTEXT.md) already says an Event *has a Date*. This is a presentation rule, so no ADR.
+
+### Decided
+
+1. **Rule**: wherever an Event is listed outside its own Hub, its Date follows its title. Surfaces: a Subject Hub's Events section, Home recent documents, backlinks and related lists in the side panel, Hub mentions, the palette (title and content hits) and the link HoverCard. Not the Timeline and mini-timeline (position already says it), not Graph nodes or Board cards (their own visual language, no room).
+2. **The text is the Date as written** (ADR 0005): `start`, or `start – end` when both are present, or `– end` when only `end` is. An unparseable value is still shown; the Hub already flags it. An Event with neither shows its title alone. Never normalised, never a computed year.
+3. **`DocSummary` carries `start` and `end`** as two nullable strings, null on every other type, so any list can show them without a second query. §16.12 refused adding `tags` to `DocSummary` because every query would grow to serve one feature; two nullable columns for a rule that applies to every list is the opposite case, and `DocSummary` already carries `lat` / `lon` for Places and `book` / `chapter` / `verse` for Scripture.
+4. **Layout**: inline after the title, muted, tabular figures; the title truncates and the Date is capped at half the row, so a long French span squeezes the title rather than pushing it out of its box. `DocLink` renders it for any Event by itself; the rows that do not use `DocLink` render the same `EventDate`.
+5. **A Hub's Events list is chronological** by parsed `start`; Events whose `start` is missing or unparseable come last, alphabetically. Alphabetical order beside visible Dates reads as wrong. Other lists keep their own order (Home by recency, backlinks by their own rules).
+
+### Declined
+
+- A normalised year ("1513 BCE") instead of the text as written: contradicts ADR 0005 and hides precision the user chose.
+- A vault-wide `event_dates()` lookup cached in the store: every list component would have to consult it; the summary is what lists already hold.
+- Dates on Timeline marks, Graph nodes and Board cards.
+
+## 19. Map filters and Journeys (grilling session, 2026-09-14)
+
+The Map is the least-developed view: 83 lines, one query (`places()`), one layer group of identical markers, no filters and no Cypress spec. Meanwhile the engine already knows a Place's Tags, backlinks, Dates and the Events naming it, and §8 has carried "Journeys on the map (ordered Places as a route)" since the first session. Both halves are settled here. New vocabulary in [CONTEXT.md](../CONTEXT.md): **Journey**, **Stop**, **Map**. Disk format is ADR 0010.
+
+### Decided
+
+1. **A Journey is a fifth Topical Subject** — `type: journey`, `Journeys/` folder, ULID, Hub page, Mentioned and Tagged like any Subject. Not a derived view over Events (ordering would be inferred from Dates, and two Stops in the same year have no defined order), and not a widened `place:` on Event (an Event happens at one Place; a Journey is a course through many). ADR 0010.
+2. **The route is a flat, ordered `places:` link-list**, with the About body carrying the per-leg narrative. Order of the list is order of travel. Rejected: a list of objects per Stop — legal YAML that Obsidian's property editor cannot edit, which fails the fallback-client promise (ADR 0003) on the one Property that matters most on the page. Template mirrors Event's: `start`, `end`, `places`, `characters`.
+3. **Journeys are off by default and opt in per Journey**, as a chip group in the same filter popover as the Place filters. One control surface, and multi-select falls out for free — the second and third missionary journeys overlap at Ephesus and are worth seeing together. Rejected: drawing all Journeys at once (spaghetti in a grown Vault), and a single-select "active Journey" dropdown (forecloses comparison, and invents a second way to mean "show this").
+4. **A Journey's Hub has "Show on map"**, which sets that Journey's chip and navigates — the entry point that makes (3) discoverable. Same pattern as §16.10's "Open in Timeline". The `show_on_map` string and the `hub-map` button already exist.
+5. **Four filter axes**, AND across them, OR within each: **Tag chips**, **title search**, **Book chips** ("Places mentioned in Acts"), and **mentioned-ness** ("only Places something mentions"). The Timeline's type axis is dead here — everything is a Place — and its viewport cull is meaningless, because the map *is* a viewport and panning already culls. Book is the axis that makes this a Bible-study map rather than a pin board, and it is the only one using Passage-to-Verse resolution (ADR 0002). Mentioned-ness is defensive: the bundled gazetteer holds ~1,300 Places, so the moment anyone bulk-imports, "only what I have written about" is the rescue.
+6. **Deferred: an era filter.** One of eleven demo Places carries a Date, so it would ship unexercised, and §16's `props` axis already covers filtering by Date Property where it belongs.
+7. **Filters govern ordinary Places; a Journey chip governs its own Stops.** A Journey that is on draws its complete route and shows every Stop's marker regardless of the other four filters, in the route's colour. The two controls answer different questions — "which Places am I browsing?" against "draw me this route" — and a route with holes is a lie about geography. The accepted cost: a Place outside your Book filter can stay on screen because a Journey put it there, which the route colouring makes legible rather than looking like a bug.
+8. **Undrawable Stops are skipped and reported, never silently dropped.** `journeys()` returns every Stop with a status — `ok`, `no_coords`, `unresolved`, `not_a_place` — and the polyline connects the survivors, because a journey is still a journey with one unlocatable Stop. The Hub lists what could not be drawn, with "Set location" as the fix for `no_coords`. Precedent: §17.13 keeps a Board node whose file was deleted rather than removing what the user placed by hand.
+9. **One new engine command, `journeys()`** -> `[{doc, stops: [{doc, status}]}]`, Stops ordered by `l.rowid` and carrying coordinates, mirroring how `places()` serves the Map in a single query. Wikilink resolution stays in the engine where `norm` matching lives (ADR 0004). The `rowid` ordering is load-bearing — a re-index that rewrote those rows in another order would silently reverse a Journey — so a test round-trips a Journey through a re-index.
+10. **Drawing: a palette by index, numbered Stops, arrowheads, and curved legs.** Palette rather than a `color` Property, so nothing has to be chosen before anything is visible; as CSS tokens beside `--c-place`, so dark mode works. Numbers do double duty: direction, and telling apart a Place visited twice — Antioch as both "1" and "14" is the whole story of a round trip that two identical markers cannot tell. Legs are quadratic Bézier curves with a consistent bulge direction, which separates an outbound leg from its return between the same two Places instead of drawing one on top of the other.
+11. **Stops are edited on the Journey Hub**, as an ordered list with drag-to-reorder, insert and remove, and a picker that searches existing Places first and the bundled gazetteer second, offering to create the Place when a gazetteer entry is picked. A twelve-Stop journey must not mean twelve trips to the New Place dialog. Rejected: the plain `list` widget (getting the order wrong on first pass is certain, and Source mode as the only fix makes the feature unused), and click-the-Map-to-route (a modal editing state on a view that has none, and it only works for Places that already exist).
+12. **Journeys reach the Timeline for free.** `start` and `end` are Date Properties, so §14.4 makes a Journey a dated Subject and §16 draws the pair as a span — three missionary journeys become three comparable bars. `journey` joins `TIMELINE_TYPES` and the Graph's `FILTERABLE`; verify rather than build.
+13. **Persistence follows §16.5's split**: Book chips and mentioned-ness persist through engine settings; Tag chips, search and Journey chips are session-only, because a Tag renamed in the Vault would otherwise silently hide everything with no way to see why. All of it lives in the app store, so a Map -> Hub -> back round-trip keeps it.
+14. **`src/lib/map.ts`** takes the filter predicate and the curve geometry, as Vitest territory — the `src/lib/timeline.ts` (§16.13) and `src/lib/board.ts` (§17.3) precedent. `cypress/e2e/map.cy.ts` does not exist today; the `data-zoom` / `data-center` hooks MapView already exposes were put there for exactly this.
+
+### Build order
+
+Filters first: they are self-contained, they give the Map the test coverage it lacks, and they establish the popover that the Journey chips then hang on. Building Journeys first would mean building that chip group twice. Each step ships engine tests, a Cypress spec, and demo-vault content.
+
+All six steps were built on 2026-09-14: `src/lib/map.ts` (filter predicate, route
+geometry, palette) with `src/lib/__tests__/map.test.ts`; engine `place_facts()`
+and `journeys()` in `index.rs` with `StopStatus` / `JourneyStop` / `Journey`;
+`DocType::Journey` threaded through `document.rs`, `templates.rs`,
+`properties.rs` (`places` as a List) and both locales; `set_map_filters` and the
+`map_books` / `map_mentioned_only` Settings; `MapFilters.tsx`, the rewritten
+`MapView.tsx`, and `JourneySection` on the Hub; `cypress/e2e/map.cy.ts` (the
+Map's first spec). Demo vault: Paul's second missionary journey (Antioch to
+Antioch, with Troas deliberately uncoordinated) and the Exodus route.
+
+1. **`src/lib/map.ts` and a baseline `map.cy.ts`.** The filter predicate as a pure function under Vitest, and a spec pinning today's behaviour: eleven Places plot, a click opens the Hub.
+2. **Engine: Place-to-Books and mentioned-ness.** The query behind the Book axis, Rust test, Tauri command, `api.` mirror.
+3. **The filter popover.** Four axes, AND / OR, active-count badge, filtered-empty state naming the active filters, `mapFilters` in the store with the persistence split. Cypress per axis.
+4. **Engine: the Journey type.** Folder, template, indexing, `journeys()` with ordered Stops and statuses. Rust tests including the rowid round-trip through a re-index and one case per status.
+5. **Map: routes.** Curve geometry in `src/lib/map.ts` (Vitest: consistent bulge, outbound and return separated), palette, numbered Stops, arrowheads, Journey chips, force-shown Stops.
+6. **The Journey Hub.** Stops editor with drag-reorder and the picker, the "cannot be drawn" list, "Show on map". Confirm the Timeline span and the mini-timeline appear without new code.
+
+Demo vault: Paul's second missionary journey (Antioch to Antioch, over ten Stops, exercising the repeat visit), one short Journey, and deliberately one Stop whose Place has no coordinates, so the "cannot be drawn" path is exercised by default.
+
+### Declined
+
+- **Journeys as a derived view over Events**, and **Event's `place:` widened to a list**.
+- **A list of objects per Stop**, and **a JSON sidecar or paired file** on the ADR 0009 model (a Journey is markdown and can hold its own ULID).
+- **All Journeys drawn at once**, and **a single-select active-Journey dropdown**.
+- **Breaking the polyline at an undrawable Stop.**
+- **An era filter**, **the type axis**, and **the viewport cull** on the Map.
+- **Click-the-Map-to-route**, and **the plain `list` widget** for Stops.
+- **A typed Event-to-Journey link**: they already meet at the Place and on the Timeline, and relational queries are the Graph's job.
+- **Great-circle legs**: rejected in the session in favour of Bézier curves, which separate outbound from return.
+
+### Open
+
+- Whether a Journey may name a Stop that is a Character or a Concept (currently `not_a_place`, surfaced as an error).
+- Whether `places:` should accept a Passage (`Ac 15:36`) as a Stop, resolving to whatever Place that Passage names.
+- A `color` Property overriding the palette, if anyone asks for it.
+
+## 20. The Library: Sources on Shelves, with Covers (grilling session, 2026-09-16)
+
+Sources had no view of their own — a flat, alphabetical sidebar group and a Hub each — so a Vault with sixty of them was a list of titles. This session turned the collection into a place you browse. New vocabulary in [CONTEXT.md](../CONTEXT.md): **Library**, **Shelf**, **Cover**. Disk format and attachments are ADR 0012.
+
+### Decided
+
+1. **A Shelf is a kind, and only top-level Sources stand on one.** A Source with a `parent` sits inside it and is reached through it, so the Library shows works rather than every fragment ever cited. Rejected: shelving every Source by kind, which turns "Chapters" into a junk drawer holding every chapter of every book.
+2. **Only container kinds get a Shelf**: book, periodical, video, talk, podcast, article, other. `chapter` and `issue` never do — they exist only inside something. A Source of a child kind that has lost its parent, or whose kind the app has never heard of, falls to a trailing **Unshelved** row that doubles as the user's fix-it queue. Rejected: auto-promoting a parentless chapter onto the Books shelf (blurs the model), and forbidding it at creation (blocks fast capture to protect a rule the user did not ask for).
+3. **The container/child split lives in the UI** (`src/lib/library.ts`), not the engine. `kind` stays `PropertyType::Text`, so a hand-written `kind: sermon` shelves as Unshelved rather than erroring — the vault stays editable by hand (ADR 0003). Rejected: a Rust enum, which would reject vocabulary the user invented in their own files.
+4. **One `cover` Property, read three ways**: `http(s)://` is a picture on the web, anything else is a path inside the vault, and empty draws a Cover from the Source's own title, kind and date. Every Source has a Cover; only some have a picture. The drawn fallback is what makes a Shelf read as a library on the first day, and it frequently beats the site logo an `og:image` actually returns. ADR 0012.
+5. **Pictures are copied into `Attachments/`, downscaled, and never indexed.** The scanner still reads `.md` only; an image is referenced by a `cover` value and is not a document. Read back as a data URL rather than through Tauri's asset protocol, because the asset protocol does not exist on the development bridge and a Cover no Cypress spec can see is a Cover that is not tested.
+6. **`Fetch` fills `cover` from `og:image`; "Save a copy" is a separate, explicit action** that downloads it into the vault and rewrites the property. Pulling third-party images into the user's vault is a decision, not a side effect of asking for a title.
+6b. **An attachment is named after its Source, so it cannot be written before the Source has a title.** In the New dialog a picked Cover is *staged* and copied in on submit; on a Hub, where the title already exists, it copies at once. `unique_path` refuses an empty title rather than falling back to "untitled" — nothing indexes attachments, so the file name is the only thing tying a picture to its Source, and `untitled.jpg` / `untitled 2.jpg` is a folder nobody can read. Found the hard way: the first real Cover saved from a URL landed as `Attachments/untitled.jpg`.
+7. **Shelves scroll sideways at every width**, because the shelf is the metaphor. The cards inside still have to survive French at 375px, so each is `min-w-0` with a clamped title; `locales.cy.ts` walks the view in both languages. Arrows appear only when a Shelf overflows, and give the row a keyboard path.
+8. **A card shows Cover, title, and its direct child count** ("12 parts"). Clicking opens the Source's Hub, where the Contains list already lives. Deferred: a clipping count, which would need an engine-side batch query rather than one `source_trail` call per card.
+9. **Two gestures add parts.** A button on the parent's Hub opens the dialog with the parent filled **and locked** and the kind it usually holds (book -> chapter, periodical -> issue, issue -> article); an inline row under Contains takes a title and Enter, keeps focus, and creates the part without leaving the page. Pasting several lines creates them all behind a confirm, because a contents page is usually something you can copy and twelve new files is not something to do silently. Nothing but the title is inherited — date inheritance is right for a book's chapters and wrong for a periodical's issues, so it waits for a case that needs it.
+10. **Child Sources sort naturally**, so "Chapter 2" precedes "Chapter 10" in the Contains list, in the reading trail's groups and on a Shelf. `natural_cmp` already existed for Locators one function away.
+11. **"Part of" is never plain text.** The picker accepts a Source the user chose — capturing its **id**, so a rename cannot break the link — or an explicit "Create X" row; typing alone never becomes a `[[wikilink]]`. The same component replaces the `source` picker on Notes and Clippings, which had the identical bug. Rejected: a strict select over existing Sources only (a dead end mid-thought), and silent creation from typed text (how "The Watchtwoer" becomes a real Source).
+12. **`author` is gone** from the dialog, the template, the built-in schema and the URL scrape — empty on every demo Source and a third of the metadata row. Existing values are never stripped: they stay in the file and render as an untyped Property.
+13. **One new engine command, `library()`** -> `[{id, title, kind, cover, date, parent_id, child_count}]`, sorted naturally, with parents resolved to ids and children counted in SQL. `DocSummary` carries none of those fields and adding them would bloat all thirteen document types for the sake of one; the alternative is a round-trip per card.
+
+### Open
+
+- A clipping count on the card, once there is a batch query for it.
+- Sidebar nesting: children under their parent in the rail, which is a second, independent piece of work.
+- Sweeping `Attachments/` for pictures no `cover` names any more.
+- Renaming a Source's Cover file when the Source is renamed, which also means rewriting the `cover` property in step.

@@ -1,5 +1,6 @@
 import { cn } from "cn";
 import type { DocSummary, DocType } from "@/lib/api";
+import { eventDateText } from "@/lib/events";
 import { useStore } from "@/lib/store";
 
 /** Tailwind background class for each document type (colours live in index.css). */
@@ -15,6 +16,7 @@ export const TYPE_BG: Record<DocType, string> = {
   character: "bg-type-character",
   concept: "bg-type-concept",
   event: "bg-type-event",
+  journey: "bg-type-journey",
   other: "bg-type-other",
 };
 
@@ -34,6 +36,34 @@ export function TypeDot({
         className,
       )}
     />
+  );
+}
+
+/**
+ * An Event's Date as written, to follow its title wherever it is listed
+ * outside its own Hub (PLAN §18). Renders nothing for anything else. Capped at
+ * half the row so a long French span squeezes the title rather than pushing it
+ * out of its box.
+ */
+export function EventDate({
+  doc,
+  className,
+}: {
+  doc: Pick<DocSummary, "type" | "start" | "end">;
+  className?: string;
+}) {
+  const text = eventDateText(doc);
+  if (!text) return null;
+  return (
+    <span
+      data-testid="event-date"
+      className={cn(
+        "ml-auto max-w-[50%] shrink-0 truncate text-xs text-muted-foreground tabular-nums",
+        className,
+      )}
+    >
+      {text}
+    </span>
   );
 }
 
@@ -62,7 +92,8 @@ export function DocLink({
       title={doc.path}
     >
       <TypeDot type={doc.type} />
-      <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+      <span className="min-w-0 flex-1 truncate">{doc.label}</span>
+      <EventDate doc={doc} />
       {children}
     </button>
   );

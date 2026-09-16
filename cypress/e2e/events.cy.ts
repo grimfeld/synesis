@@ -122,3 +122,37 @@ describe("Events and Dates", () => {
     cy.get("[data-testid=mini-lane][data-lane=events]").should("not.exist");
   });
 });
+
+// Wherever an Event is listed outside its own Hub, its Date follows its title
+// (PLAN §18): as written, `start – end` for a span, and the Hub's Events list
+// runs oldest first.
+describe("Events listed elsewhere carry their Date", () => {
+  beforeEach(() => cy.openApp());
+
+  it("a Place hub lists its Events with their Dates, oldest first", () => {
+    cy.openDoc("Jerusalem");
+    cy.get("[data-testid=hub-events] li").first().should("contain", "David king over all Israel");
+    cy.get("[data-testid=hub-events] li").first().find("[data-testid=event-date]").should("have.text", "1070 BCE");
+    cy.get("[data-testid=hub-events] li").last().should("contain", "Destruction of Jerusalem by Rome");
+    cy.get("[data-testid=hub-events] li").last().find("[data-testid=event-date]").should("have.text", "70 CE");
+    // A span shows both ends, exactly as written.
+    cy.get("[data-testid=hub-events]").contains("li", "Solomon's temple built").find("[data-testid=event-date]").should("have.text", "1034 BCE – 1027 BCE");
+  });
+
+  it("the palette shows an Event's Date next to its title", () => {
+    cy.palette("Paul in Ephesus");
+    cy.get("[data-testid=palette] [cmdk-item]")
+      .contains("[cmdk-item]", "Paul in Ephesus")
+      .find("[data-testid=event-date]")
+      .should("have.text", "c. 52 CE – c. 55 CE");
+  });
+
+  it("a Character's own Dates never read as an Event Date", () => {
+    cy.palette("David");
+    cy.get("[data-testid=palette] [cmdk-item]")
+      .contains("[cmdk-item]", "David")
+      .first()
+      .find("[data-testid=event-date]")
+      .should("not.exist");
+  });
+});

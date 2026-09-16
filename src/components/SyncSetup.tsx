@@ -65,8 +65,8 @@ export function SyncSetup({ locations, onChange, className, pairing, foldersOpen
         </section>
       )}
       <Collapsible defaultOpen={!pairing || foldersOpen} className="group/folders">
-        <CollapsibleTrigger className="flex w-full items-center gap-2 text-sm font-medium" data-testid="sync-folders-toggle">
-          <ChevronRight className="size-4 transition-transform group-data-[state=open]/folders:rotate-90" />
+        <CollapsibleTrigger className="flex w-full items-start gap-2 text-left text-sm font-medium" data-testid="sync-folders-toggle">
+          <ChevronRight className="mt-0.5 size-4 shrink-0 transition-transform group-data-[state=open]/folders:rotate-90" />
           {pairing ? t.sync.folder_section : t.sync.which_devices}
         </CollapsibleTrigger>
         <CollapsibleContent className="grid gap-5 pt-4">

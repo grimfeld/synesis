@@ -136,7 +136,7 @@ export function BoardDrawer({
                 >
                   <span className="flex items-center gap-2 text-sm">
                     <TypeDot type={doc.type} />
-                    <span className="min-w-0 flex-1 truncate">{doc.title}</span>
+                    <span className="min-w-0 flex-1 truncate">{doc.label}</span>
                     {placed && (
                       <span className="shrink-0 text-[10px] text-muted-foreground">
                         {t.board_on}

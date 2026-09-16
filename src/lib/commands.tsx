@@ -20,6 +20,8 @@ import {
   RefreshCw,
   Search,
   Settings,
+  LibraryBig,
+  Quote,
   Waypoints,
   Zap,
 } from "lucide-react";
@@ -93,12 +95,22 @@ export function useCommands(): Command[] {
       run: () => s.setDialog({ kind: "search", query: ">" }),
     });
     const views: {
-      kind: "home" | "graph" | "map" | "timeline" | "coverage" | "settings";
+      kind:
+        | "home"
+        | "graph"
+        | "library"
+        | "clippings"
+        | "map"
+        | "timeline"
+        | "coverage"
+        | "settings";
       icon: LucideIcon;
       title: string;
     }[] = [
       { kind: "home", icon: House, title: t.views.home },
       { kind: "graph", icon: Waypoints, title: t.views.graph },
+      { kind: "library", icon: LibraryBig, title: t.views.library },
+      { kind: "clippings", icon: Quote, title: t.views.clippings },
       { kind: "map", icon: MapPin, title: t.views.map },
       { kind: "timeline", icon: CalendarRange, title: t.views.timeline },
       { kind: "coverage", icon: LayoutGrid, title: t.views.coverage },
@@ -167,6 +179,24 @@ export function useCommands(): Command[] {
           icon: Network,
           keywords: "board mind map canvas talk outline",
           run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
+        });
+      }
+      // The capture box on a Source Hub. Reaching it by hand means scrolling
+      // back up past a long list of Clippings, which is what the box exists to
+      // avoid; the palette gets there from anywhere on the page.
+      if (doc?.type === "source") {
+        list.push({
+          id: "doc.capture",
+          // Not "Quick capture": that is the global command, which creates a
+          // Note belonging to no Source. This one is the box on the page.
+          title: t.capture_here,
+          group: "create",
+          icon: Zap,
+          keywords: "capture clipping note keep quote excerpt source",
+          run: () =>
+            document
+              .querySelector<HTMLTextAreaElement>("[data-testid=capture-text]")
+              ?.focus(),
         });
       }
     }
