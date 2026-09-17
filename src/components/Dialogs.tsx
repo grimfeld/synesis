@@ -32,6 +32,7 @@ import {
 import { diffBoards, type BoardChange } from "@/lib/board";
 import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
+import { FRONTMATTER, titleFor } from "@/lib/docTypes";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { quoteBody } from "@/lib/clippingBody";
@@ -921,29 +922,12 @@ function NewDocument({
         // No title is invented here, and none is sent: the engine names the
         // file from the Citation in these fields (ADR 0013).
         finalTitle = "";
-      } else if (type === "source") {
-        fields.kind = f.kind || "article";
-        if (f.url) fields.url = f.url;
-        if (f.date) fields.date = f.date;
-        if (f.cover) fields.cover = f.cover;
-        // Only ever a Source the picker resolved, so the link cannot dangle.
-        if (f.parent) fields.parent = `[[${f.parent}]]`;
-      } else if (type === "place") {
-        if (f.lat) fields.lat = Number(f.lat);
-        if (f.lon) fields.lon = Number(f.lon);
-        if (f.modern_name) fields.modern_name = f.modern_name;
-      } else if (type === "event") {
-        if (f.start) fields.start = f.start;
-        if (f.end) fields.end = f.end;
-        if (f.place) fields.place = `[[${f.place}]]`;
-      } else if (type === "note") {
-        if (f.source) fields.source = `[[${f.source}]]`;
-      } else if (type === "composition") {
-        if (f.occasion) fields.occasion = f.occasion;
-        if (f.date) fields.date = f.date;
+      } else {
+        // Every other type's fields are a pure function of the form
+        // (src/lib/docTypes.tsx), tested without a dialog or a vault.
+        Object.assign(fields, FRONTMATTER[type]?.(f) ?? {});
       }
-      if (!finalTitle && type !== "clipping")
-        finalTitle = type === "note" ? stamp() : t.untitled;
+      finalTitle = titleFor(type, finalTitle, stamp, t.untitled);
       // Now the title is final, so the picture can be copied in under a name
       // that identifies it. Before this point there was nothing to name it
       // after (ADR 0012).

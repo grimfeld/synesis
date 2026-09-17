@@ -14,7 +14,7 @@
 // ScriptureSection's own logic and already sits in one place; splitting it
 // across three descriptors would move complexity rather than concentrate it.
 import type { ReactNode } from "react";
-import type { DocumentPayload, Frontmatter } from "@/lib/api";
+import type { DocType, DocumentPayload, Frontmatter } from "@/lib/api";
 
 /** Everything a Hub section might need, whatever the type turns out to be. */
 export interface SectionProps {
@@ -47,4 +47,81 @@ export interface DocTypeUi {
   Sections?: (p: SectionProps) => ReactNode;
   /** The New dialog's type-specific fields. */
   Fields?: (p: FieldProps) => ReactNode;
+}
+
+/**
+ * Turn a filled-in New dialog into frontmatter, per type.
+ *
+ * Pure, and kept out of the dialog's submit handler so it can be read and
+ * tested without a vault: the handler around it resolves a Source, copies a
+ * Cover and calls the engine, and these rules were only ever reachable by
+ * driving the app.
+ *
+ * A Clipping is absent on purpose — its Source may have to be created before
+ * its frontmatter can name one, which is not a pure decision. Its title rule
+ * lives in `titleFor` below, which is the part that is.
+ */
+export const FRONTMATTER: Record<
+  DocType,
+  ((f: Record<string, string>) => Frontmatter) | null
+> = {
+  source: (f) => {
+    const out: Frontmatter = { kind: f.kind || "article" };
+    if (f.url) out.url = f.url;
+    if (f.date) out.date = f.date;
+    if (f.cover) out.cover = f.cover;
+    // Only ever a Source the picker resolved, so the link cannot dangle.
+    if (f.parent) out.parent = `[[${f.parent}]]`;
+    return out;
+  },
+  place: (f) => {
+    const out: Frontmatter = {};
+    if (f.lat) out.lat = Number(f.lat);
+    if (f.lon) out.lon = Number(f.lon);
+    if (f.modern_name) out.modern_name = f.modern_name;
+    return out;
+  },
+  event: (f) => {
+    const out: Frontmatter = {};
+    if (f.start) out.start = f.start;
+    if (f.end) out.end = f.end;
+    if (f.place) out.place = `[[${f.place}]]`;
+    return out;
+  },
+  note: (f) => (f.source ? { source: `[[${f.source}]]` } : {}),
+  composition: (f) => {
+    const out: Frontmatter = {};
+    if (f.occasion) out.occasion = f.occasion;
+    if (f.date) out.date = f.date;
+    return out;
+  },
+  clipping: null,
+  character: null,
+  concept: null,
+  journey: null,
+  book: null,
+  chapter: null,
+  verse: null,
+  other: null,
+};
+
+/**
+ * The title a new document is created with.
+ *
+ * A Clipping gets none at all: the engine names its file from the Citation in
+ * its frontmatter, and a machine-made title is still a title (ADR 0013). A
+ * Note left blank is stamped with the moment it was captured, because quick
+ * capture is for a thought that has not been named yet; every other type falls
+ * back to a placeholder the user can see and change.
+ */
+export function titleFor(
+  type: DocType,
+  typed: string,
+  now: () => string,
+  untitled: string,
+): string {
+  const title = typed.trim();
+  if (type === "clipping") return "";
+  if (title) return title;
+  return type === "note" ? now() : untitled;
 }
