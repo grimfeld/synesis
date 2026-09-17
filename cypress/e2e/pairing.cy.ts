@@ -56,3 +56,45 @@ describe("Pairing", () => {
     });
   });
 });
+
+// A Vault has an identity of its own, so two of them can never be mistaken for
+// each other (ADR 0014). Before this, joining a second Vault into a folder that
+// already held one merged the two permanently.
+describe("Vault identity", () => {
+  it("names the vault and lists it as one this device holds", () => {
+    cy.openApp();
+    cy.bridge<{ meta: { id: string; name: string } }>("vault_info").then((i) => {
+      expect(i.meta.id, "the vault knows what it is").to.not.be.empty;
+      expect(i.meta.name, "and what to call itself").to.not.be.empty;
+    });
+    cy.bridge<{ vaults: { name: string }[] }>("get_settings").then((s) => {
+      expect(s.vaults.length, "listed as a vault this device holds").to.be.gte(1);
+    });
+  });
+
+  it("refuses to join a folder that already holds another vault", () => {
+    cy.openApp();
+    cy.bridge<{ code: string }>("pairing_invite").then(({ code }) => {
+      // A folder carrying a different vault's identity: what the phone had.
+      cy.task<string>("vault:seed").then((occupied) => {
+        cy.bridge<{ check: { kind: string; name?: string } }>("inspect_invite", {
+          code,
+          path: occupied,
+        }).then((info) => {
+          expect(info.check.kind, "the folder is not free").to.eq("occupied");
+        });
+        cy.request({
+          method: "POST",
+          url: `${Cypress.env("bridge")}/invoke/pairing_join`,
+          body: { code, path: occupied },
+          headers: { "content-type": "application/json" },
+          failOnStatusCode: false,
+        }).then((r) => {
+          expect(r.status, "the join is refused, not merged").to.eq(500);
+          expect(r.body.error).to.contain("merge the two permanently");
+        });
+        cy.task("vault:remove", occupied);
+      });
+    });
+  });
+});

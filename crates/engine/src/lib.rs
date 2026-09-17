@@ -9,6 +9,7 @@ pub mod document;
 pub mod excerpt;
 pub mod gazetteer;
 pub mod index;
+pub mod meta;
 pub mod names;
 pub mod parser;
 pub mod properties;

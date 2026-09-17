@@ -8,6 +8,7 @@ use crate::index::{
     SearchHit, UnlinkedMentions, UnresolvedLink,
 };
 use crate::parser::Detected;
+use crate::meta::VaultMeta;
 use crate::properties::{PropertySchema, PropertyType};
 use crate::query::{Answer, Query};
 use crate::scripture::{Lang, Passage};
@@ -39,6 +40,8 @@ pub struct DocumentView {
 pub struct VaultInfo {
     pub root: String,
     pub documents: u32,
+    /// What this Vault is and what to call it (ADR 0014).
+    pub meta: VaultMeta,
     /// What each document type is, so the UI asks rather than restates.
     pub doc_types: Vec<DocTypeInfo>,
 }
@@ -85,6 +88,7 @@ impl DocTypeInfo {
 
 pub struct Vault {
     root: PathBuf,
+    meta: VaultMeta,
     index: Index,
     lang: Lang,
     sync: Option<Sync>,
@@ -149,6 +153,9 @@ impl Vault {
             return Err(Error::Invalid(format!("not a folder: {}", root.display())));
         }
         fs::create_dir_all(root.join(HIDDEN_DIR))?;
+        // Give the folder an identity before anything reads it, so a Vault
+        // that predates ids has one from here on (ADR 0014).
+        let meta = VaultMeta::adopt(&root)?;
         let local = local_dir_for(data_dir, &root);
         fs::create_dir_all(&local)?;
         let index = Index::open(&local.join("index.sqlite"))?;
@@ -156,6 +163,7 @@ impl Vault {
         let schema = PropertySchema::load(&root.join(HIDDEN_DIR));
         let mut v = Vault {
             root,
+            meta,
             index,
             lang,
             sync: Some(sync),
@@ -163,6 +171,35 @@ impl Vault {
         };
         v.scan()?;
         Ok(v)
+    }
+
+    /// What this Vault is and what to call it (ADR 0014).
+    pub fn meta(&self) -> &VaultMeta {
+        &self.meta
+    }
+
+    /// Rename the Vault. The name travels with it, so every Device that holds
+    /// it sees the new one; the folder is untouched.
+    pub fn set_name(&mut self, name: &str) -> Result<VaultMeta> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(Error::Invalid("a Vault needs a name".into()));
+        }
+        self.meta.name = name.to_string();
+        self.meta.write(&self.root)?;
+        Ok(self.meta.clone())
+    }
+
+    /// Take on the identity of the Vault being joined (ADR 0014).
+    ///
+    /// The folder was free, so whatever id it adopted on open was a local
+    /// invention; from here it is the Vault the Invite named, on every Device.
+    pub fn adopt_identity(&mut self, id: &str, name: &str) -> Result<()> {
+        self.meta = VaultMeta {
+            id: id.to_string(),
+            name: name.trim().to_string(),
+        };
+        self.meta.write(&self.root)
     }
 
     /// The vault's Property schema: built-ins plus what `.bible-study/properties.json` declares.
@@ -332,6 +369,7 @@ impl Vault {
         Ok(VaultInfo {
             root: self.root.display().to_string(),
             documents: self.index.document_count()?,
+            meta: self.meta.clone(),
             doc_types: DocTypeInfo::all(),
         })
     }

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, Loader2, QrCode, RefreshCw, ScanLine, Trash2, X } from "lucide-react";
 import { cn } from "cn";
-import { api, type PairingMember, type PairingStatus } from "@/lib/api";
+import { api, type InviteInfo, type PairingMember, type PairingStatus } from "@/lib/api";
 import { canScan, memberNode, scanCode, usePairing } from "@/lib/pairing";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -188,6 +188,31 @@ export function JoinPairing({ platform, path, onPath, onJoined }: JoinProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const valid = code.trim().startsWith("synesis:");
+  const [invite, setInvite] = useState<InviteInfo | null>(null);
+
+  // Ask what the code is for as soon as it looks like one, and propose a
+  // folder named after that Vault. The join used to offer one fixed folder for
+  // every Vault, which is how a phone merged two of them (ADR 0014).
+  useEffect(() => {
+    if (!valid) return setInvite(null);
+    let alive = true;
+    api
+      .inspectInvite(code.trim(), path.trim())
+      .then(async (info) => {
+        if (!alive) return;
+        setInvite(info);
+        if (info.check.kind === "occupied") {
+          const free = await api.suggestVaultPath(info.vault_name);
+          if (alive) onPath(free);
+        }
+      })
+      .catch(() => alive && setInvite(null));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code, valid]);
+
   const join = async () => {
     setBusy(true);
     setError(null);
@@ -217,9 +242,18 @@ export function JoinPairing({ platform, path, onPath, onJoined }: JoinProps) {
         )}
       </div>
       <div>
-        <div className="mb-1 text-xs text-muted-foreground">{t.pairing.join_path}</div>
+        <div className="mb-1 text-xs text-muted-foreground">
+          {invite ? t.join_into(invite.vault_name) : t.pairing.join_path}
+        </div>
         <Input value={path} onChange={(e) => onPath(e.target.value)} className="font-mono text-xs" data-testid="pairing-join-path" />
       </div>
+      {invite?.check.kind === "occupied" && (
+        // Said before the join is attempted, not after: the folder offered has
+        // already been moved aside, and this explains why (ADR 0014).
+        <p className="text-sm text-destructive" data-testid="join-occupied">
+          {t.vault_occupied(path, invite.check.name)}
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div>
         <Button onClick={join} disabled={!valid || !path.trim() || busy} data-testid="pairing-join-go">

@@ -497,6 +497,14 @@ export const en = {
     received_n: (n: number) => `received ${n} change${n === 1 ? "" : "s"}`,
   },
   close_vault: "Close this vault",
+  vaults: "Vaults on this device",
+  vault_name: "Vault name",
+  switch_vault: "Open",
+  forget_vault: "Forget",
+  forget_vault_hint: "Stops listing it here. The folder and its documents stay where they are.",
+  vault_occupied: (folder: string, name: string) =>
+    `${folder} already holds the vault “${name}”. Joining here would merge the two permanently.`,
+  join_into: (name: string) => `Join “${name}” into`,
   close_vault_hint: "Returns to the start screen, where you can open another vault or pair with a different device.",
   waiting_for_documents: "Waiting for documents from your paired devices. Open Synesis on one of them so the two can talk.",
 };

@@ -29,6 +29,12 @@ pub struct Settings {
     pub lang: Lang,
     #[serde(default)]
     pub recent: Vec<String>,
+    /// The Vaults this Device holds (ADR 0014): what they are, what to call
+    /// them, and where they sit here. Added when one is made or joined and
+    /// removed deliberately — unlike `recent`, which is a history and can push
+    /// a Vault you own off the end when you open others.
+    #[serde(default)]
+    pub vaults: Vec<KnownVault>,
     #[serde(default)]
     pub graph_level: Option<GraphLevel>,
     /// How this Device keeps the vault folder in sync: "icloud", "syncthing", "provider", "none".
@@ -56,6 +62,14 @@ pub struct Settings {
 
 fn default_true() -> bool {
     true
+}
+
+/// A Vault this Device holds (ADR 0014).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct KnownVault {
+    pub id: String,
+    pub name: String,
+    pub path: String,
 }
 
 pub struct AppState {
@@ -307,6 +321,17 @@ pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<Strin
         s.recent.retain(|p| p != &path);
         s.recent.insert(0, path.clone());
         s.recent.truncate(8);
+        // Remember the Vault itself, not just that this path was opened. Keyed
+        // by id, so moving a Vault updates its entry rather than adding one.
+        let known = KnownVault {
+            id: info.meta.id.clone(),
+            name: info.meta.name.clone(),
+            path: path.clone(),
+        };
+        match s.vaults.iter_mut().find(|v| v.id == known.id) {
+            Some(v) => *v = known,
+            None => s.vaults.push(known),
+        }
     }
     state.save_settings()?;
     *state.watcher.lock().map_err(err)? = watch::Watcher::start(app.clone(), root).ok();
@@ -415,6 +440,75 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
         .map(|(method, root)| SyncLocation { method: method.into(), exists: root.is_dir(), suggested: root.join("Synesis").to_string_lossy().to_string(), root: root.to_string_lossy().to_string() })
         .collect();
     Ok(SyncLocations { platform, home: home.to_string_lossy().to_string(), can_pick_folder: !mobile, locations, found })
+}
+
+/// Stop listing a Vault on this Device. The folder and its documents stay;
+/// only this Device forgets where it was (ADR 0014).
+#[tauri::command]
+fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>> {
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        s.vaults.retain(|v| v.id != id);
+    }
+    state.save_settings()?;
+    Ok(state.settings.lock().map_err(err)?.vaults.clone())
+}
+
+/// Rename the open Vault. The name travels with it, so every Device that holds
+/// this Vault sees the new one; the folder is untouched.
+#[tauri::command]
+fn rename_vault(state: State<AppState>, name: String) -> CmdResult<VaultInfo> {
+    let info = state.with_vault_mut(|v| {
+        v.set_name(&name)?;
+        v.info()
+    })?;
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        if let Some(k) = s.vaults.iter_mut().find(|k| k.id == info.meta.id) {
+            k.name = info.meta.name.clone();
+        }
+    }
+    state.save_settings()?;
+    Ok(info)
+}
+
+/// Where a Vault called `name` could go on this Device, without disturbing
+/// anything already there. What the mobile join offers instead of one fixed
+/// folder for every Vault (ADR 0014).
+#[tauri::command]
+fn suggest_vault_path(app: AppHandle, name: String) -> CmdResult<String> {
+    let platform = std::env::consts::OS;
+    let parent = if matches!(platform, "android" | "ios") {
+        app.path()
+            .document_dir()
+            .or_else(|_| app.path().app_data_dir())
+            .map_err(err)?
+            .join("Synesis vaults")
+    } else {
+        app.path().home_dir().map_err(err)?.join("Synesis vaults")
+    };
+    std::fs::create_dir_all(&parent).map_err(err)?;
+    Ok(engine::meta::free_path(&parent, &name).display().to_string())
+}
+
+/// What an Invite is for, before accepting it: which Vault, and whether the
+/// folder offered can receive it.
+#[tauri::command]
+fn inspect_invite(code: String, path: String) -> CmdResult<InviteInfo> {
+    let invite = engine::p2p::Invite::decode(&code).ok_or("not a pairing code")?;
+    let check = engine::meta::check_join(&std::path::Path::new(&path), &invite.vault_id);
+    Ok(InviteInfo {
+        vault_name: invite.vault_name,
+        vault_id: invite.vault_id,
+        check,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct InviteInfo {
+    pub vault_name: String,
+    pub vault_id: String,
+    pub check: engine::meta::JoinCheck,
 }
 
 #[tauri::command]
@@ -1128,6 +1222,10 @@ pub fn run() {
             sync_locations,
             open_vault,
             close_vault,
+            inspect_invite,
+            suggest_vault_path,
+            rename_vault,
+            forget_vault,
             vault_info,
             rescan,
             query,

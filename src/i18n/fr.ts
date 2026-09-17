@@ -503,6 +503,14 @@ export const fr: Dict = {
     received_n: (n: number) => `${n} changement${n === 1 ? "" : "s"} reçu${n === 1 ? "" : "s"}`,
   },
   close_vault: "Fermer ce coffre",
+  vaults: "Coffres sur cet appareil",
+  vault_name: "Nom du coffre",
+  switch_vault: "Ouvrir",
+  forget_vault: "Oublier",
+  forget_vault_hint: "Ne l'affiche plus ici. Le dossier et ses documents restent en place.",
+  vault_occupied: (folder: string, name: string) =>
+    `${folder} contient déjà le coffre « ${name} ». Rejoindre ici fusionnerait les deux définitivement.`,
+  join_into: (name: string) => `Rejoindre « ${name} » dans`,
   close_vault_hint: "Retourne à l'écran de départ, où vous pouvez ouvrir un autre coffre ou appairer un autre appareil.",
   waiting_for_documents: "En attente des documents de vos appareils appairés. Ouvrez Synesis sur l'un d'eux pour qu'ils se parlent.",
 };

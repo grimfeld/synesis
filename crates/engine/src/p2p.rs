@@ -103,6 +103,11 @@ pub struct Invite {
     pub host: NodeId,
     pub relay: Option<String>,
     pub secret: [u8; 32],
+    /// Which Vault this Invite is for (ADR 0014), so the joining Device can
+    /// refuse a folder that already holds a different one, and can say what it
+    /// is about to join before accepting.
+    pub vault_id: String,
+    pub vault_name: String,
 }
 
 impl Invite {
@@ -179,6 +184,8 @@ struct State {
 
 pub struct Node {
     endpoint: Endpoint,
+    /// Which Vault this node is pairing for, so an Invite can name it.
+    vault: crate::meta::VaultMeta,
     sync_dir: PathBuf,
     local_dir: PathBuf,
     me: Member,
@@ -254,6 +261,7 @@ impl Node {
         }
         let node = Arc::new(Node {
             endpoint,
+            vault: crate::meta::VaultMeta::adopt(vault_root)?,
             sync_dir: vault_root.join(HIDDEN_DIR).join(SYNC_DIR),
             local_dir: local_dir.to_path_buf(),
             me,
@@ -308,7 +316,13 @@ impl Node {
             m.version += 1;
             m.save(&self.local_dir);
         }
-        Invite { host: self.id(), relay: self.relay_hint(), secret: m.invite_secret.unwrap() }
+        Invite {
+            host: self.id(),
+            relay: self.relay_hint(),
+            secret: m.invite_secret.unwrap(),
+            vault_id: self.vault.id.clone(),
+            vault_name: self.vault.name.clone(),
+        }
     }
 
     /// Replace the invite secret; old codes stop working.
@@ -657,7 +671,13 @@ mod tests {
 
     #[test]
     fn invite_roundtrip_and_membership_merge() {
-        let inv = Invite { host: [7; 32], relay: Some("https://relay.example".into()), secret: [9; 32] };
+        let inv = Invite {
+            host: [7; 32],
+            relay: Some("https://relay.example".into()),
+            secret: [9; 32],
+            vault_id: "01VAULT".into(),
+            vault_name: "main".into(),
+        };
         let code = inv.encode();
         assert!(code.starts_with("synesis:"));
         assert_eq!(Invite::decode(&code), Some(inv));

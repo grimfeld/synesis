@@ -143,6 +143,7 @@ export function SettingsView() {
               </div>
             </CardContent>
           </Card>
+          <VaultsCard />
           <Card>
             <CardHeader>
               <CardTitle>{t.shortcuts}</CardTitle>
@@ -168,5 +169,86 @@ export function SettingsView() {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The Vaults this Device holds (ADR 0014).
+ *
+ * A list of what you own, not a history of what you opened: a Vault stays here
+ * until you forget it, so opening others cannot push it off the end.
+ */
+function VaultsCard() {
+  const s = useStore();
+  const t = useT();
+  const vaults = s.settings?.vaults ?? [];
+  const openId = s.info?.meta.id;
+  const [name, setName] = useState("");
+  useEffect(() => setName(s.info?.meta.name ?? ""), [s.info?.meta.name]);
+  if (vaults.length === 0) return null;
+  return (
+    <Card data-testid="settings-vaults">
+      <CardHeader>
+        <CardTitle>{t.vaults}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <div className="flex gap-2">
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label={t.vault_name}
+            data-testid="vault-name"
+          />
+          <Button
+            variant="outline"
+            disabled={!name.trim() || name.trim() === s.info?.meta.name}
+            onClick={() => api.renameVault(name).then(() => s.attachVault())}
+          >
+            {t.save}
+          </Button>
+        </div>
+        <ul className="divide-y rounded-md border text-sm" data-testid="vault-list">
+          {vaults.map((v) => (
+            <li
+              key={v.id}
+              className="flex items-center gap-3 px-3 py-2"
+              data-testid="vault-row"
+            >
+              <span className="min-w-0 flex-1 overflow-hidden">
+                <span className="block truncate font-medium">{v.name}</span>
+                <span className="block truncate text-xs text-muted-foreground">
+                  {v.path}
+                </span>
+              </span>
+              {v.id === openId ? (
+                <span className="shrink-0 text-xs text-muted-foreground">
+                  ({t.sync.this_device})
+                </span>
+              ) : (
+                <>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => s.openVault(v.path)}
+                    data-testid="vault-open"
+                  >
+                    {t.switch_vault}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => api.forgetVault(v.id).then(() => s.attachVault())}
+                  >
+                    {t.forget_vault}
+                  </Button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">{t.forget_vault_hint}</p>
+      </CardContent>
+    </Card>
   );
 }

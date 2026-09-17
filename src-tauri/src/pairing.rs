@@ -126,8 +126,25 @@ pub async fn pairing_revoke_invite(app: AppHandle, state: tauri::State<'_, AppSt
 #[tauri::command]
 pub async fn pairing_join(app: AppHandle, state: tauri::State<'_, AppState>, code: String, path: String) -> CmdResult<Status> {
     let invite = Invite::decode(&code).ok_or("not a pairing code")?;
+    // Refuse a folder that already holds another Vault (ADR 0014). Merging two
+    // Vaults is permanent and is never what anyone meant; this is the check
+    // whose absence merged a phone's demo vault into the user's own.
+    let root = std::path::PathBuf::from(&path);
+    if let engine::meta::JoinCheck::Occupied { name, .. } =
+        engine::meta::check_join(&root, &invite.vault_id)
+    {
+        return Err(format!(
+            "{} already holds the Vault \"{}\". Joining here would merge the two permanently. Choose another folder.",
+            root.display(),
+            name
+        ));
+    }
     stop(&state).await;
     crate::do_open_vault(app.clone(), &state, Some(path))?;
+    // The folder is this Vault from here on, whatever it was called locally.
+    if let Some(v) = state.vault.lock().map_err(err)?.as_mut() {
+        v.adopt_identity(&invite.vault_id, &invite.vault_name).map_err(err)?;
+    }
     let node = ensure_started(&app, &state).await?;
     node.join(invite);
     Ok(node.status())

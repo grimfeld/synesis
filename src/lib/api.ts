@@ -467,6 +467,8 @@ export interface Settings {
   vault_path: string | null;
   lang: Lang;
   recent: string[];
+  /** The Vaults this Device holds (ADR 0014). */
+  vaults: KnownVault[];
   graph_level: GraphLevel | null;
   sync_method: SyncMethod | null;
   relay_url: string | null;
@@ -539,6 +541,39 @@ export interface VaultInfo {
   root: string;
   documents: number;
   doc_types: DocTypeInfo[];
+  /** What this Vault is and what to call it (ADR 0014). */
+  meta: VaultMeta;
+}
+
+/** A Vault's own identity, which travels with it rather than with its folder. */
+export interface VaultMeta {
+  id: string;
+  name: string;
+}
+
+/** A Vault this Device holds (ADR 0014). Not a recents entry. */
+export interface KnownVault {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/**
+ * Whether a folder can receive the Vault being joined.
+ *
+ * `occupied` is the answer that matters: another Vault lives there, and
+ * joining would merge the two permanently.
+ */
+export type JoinCheck =
+  | { kind: "free" }
+  | { kind: "same" }
+  | { kind: "occupied"; name: string; id: string };
+
+/** What an Invite is for, before accepting it. */
+export interface InviteInfo {
+  vault_name: string;
+  vault_id: string;
+  check: JoinCheck;
 }
 
 export interface ChangedPayload {
@@ -647,6 +682,16 @@ export const api = {
     return i;
   },
   closeVault: () => invoke<void>("close_vault"),
+  /** Stop listing a Vault here. The folder and its documents stay. */
+  forgetVault: (id: string) => invoke<KnownVault[]>("forget_vault", { id }),
+  /** Rename the open Vault; the name travels to every Device that holds it. */
+  renameVault: (name: string) => invoke<VaultInfo>("rename_vault", { name }),
+  /** Where a Vault of this name could go here without disturbing anything. */
+  suggestVaultPath: (name: string) =>
+    invoke<string>("suggest_vault_path", { name }),
+  /** Which Vault a code is for, and whether `path` can receive it. */
+  inspectInvite: (code: string, path: string) =>
+    invoke<InviteInfo>("inspect_invite", { code, path }),
   vaultInfo: async () => {
     const i = await invoke<VaultInfo>("vault_info");
     setDocTypes(i.doc_types);

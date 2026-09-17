@@ -124,6 +124,10 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "sync_locations" => ok(sync_locations(app.clone(), state)?),
         "open_vault" => ok(open_vault(app.clone(), state, arg(&a, "path")?)?),
         "close_vault" => ok(close_vault(state)?),
+        "forget_vault" => ok(forget_vault(state, arg(&a, "id")?)?),
+        "rename_vault" => ok(rename_vault(state, arg(&a, "name")?)?),
+        "suggest_vault_path" => ok(suggest_vault_path(app.clone(), arg(&a, "name")?)?),
+        "inspect_invite" => ok(inspect_invite(arg(&a, "code")?, arg(&a, "path")?)?),
         "vault_info" => ok(vault_info(state)?),
         "rescan" => ok(rescan(state)?),
         // One arm for every read the index answers: a new question is a

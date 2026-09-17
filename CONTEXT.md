@@ -140,8 +140,16 @@ _Avoid_: Index page, landing page, entity page
 ### Where things live
 
 **Vault**:
-The folder that holds every document as a markdown file. The user owns it; the app is an index over it. Obsidian opens the same folder.
+The folder that holds every document as a markdown file. The user owns it; the app is an index over it. Obsidian opens the same folder. A Vault knows its own name and carries an identity of its own, so that two of them can never be mistaken for each other: a Device may hold several and the same Vault may sit at a different path on each Device.
 _Avoid_: Library, workspace, database
+
+**Vault id**:
+What makes a Vault itself rather than whatever folder it happens to sit in. Written once when the Vault comes into being and never changed, so a Device joining one can refuse a folder that already holds another. A Vault that predates ids is given one the first time it is opened.
+_Avoid_: Folder name, path (both change per Device and per whim)
+
+**Known Vault**:
+A Vault this Device holds: its name, its id, and where it sits here. The user adds one by making it or by joining it, and removes it deliberately; it is what the Vault switcher lists. Not a history of what was opened lately, which is why opening something else can never push a Vault out of the list.
+_Avoid_: Recent, workspace list
 
 **Device**:
 One installation of the app on one machine or phone. Each Device writes its own sync snapshots into the Vault and reads the others'; merging happens on the Device, never in the cloud.
