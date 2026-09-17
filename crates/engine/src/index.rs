@@ -488,6 +488,28 @@ fn row_summary(r: &Row) -> rusqlite::Result<DocSummary> {
 
 const SUMMARY_COLS: &str = "d.id, d.path, d.title, d.label, d.type, d.mtime, d.book, d.chapter, d.verse, d.lat, d.lon, (SELECT MIN(verse_id) FROM mentions m WHERE m.doc_id = d.id) AS first_verse, (SELECT sd.text FROM dates sd WHERE sd.doc_id = d.id AND sd.name = 'start' AND d.type = 'event' LIMIT 1) AS start_text, (SELECT sd.text FROM dates sd WHERE sd.doc_id = d.id AND sd.name = 'end' AND d.type = 'event' LIMIT 1) AS end_text";
 
+/// Read a Property out of a document's stored frontmatter as text.
+///
+/// A bare `date: 1988` or `locator: 12` is a YAML number, not a string, and the
+/// user wrote it that way on purpose; reading only strings would silently drop
+/// it. Returns `None` for a missing, empty or non-scalar value, so a caller can
+/// tell "not set" from "set to something".
+///
+/// The frontmatter is stored as a JSON blob, so every caller used to re-parse
+/// it inline and repeat this leniency by hand.
+fn fm_text(fm: &str, key: &str) -> Option<String> {
+    scalar_text(serde_json::from_str::<Value>(fm).ok()?.get(key)?)
+}
+
+/// The same leniency for frontmatter already parsed.
+fn scalar_text(v: &Value) -> Option<String> {
+    match v {
+        Value::String(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
+        Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
 fn excerpt_at(text: &str, start: usize) -> String {
     let start = start.min(text.len());
     let line_start = text[..start].rfind('\n').map(|i| i + 1).unwrap_or(0);
@@ -1753,14 +1775,8 @@ impl Index {
             .into_iter()
             .map(|(id, title, fm)| {
                 let fm: Value = serde_json::from_str(&fm).unwrap_or(Value::Null);
-                // A bare `date: 1988` is a YAML integer, not a string, so a
-                // number is read as written rather than dropped — the same
-                // leniency `source_trail` gives a Locator.
-                let text = |k: &str| match fm.get(k) {
-                    Some(Value::String(s)) => s.trim().to_string(),
-                    Some(Value::Number(n)) => n.to_string(),
-                    _ => String::new(),
-                };
+                let text =
+                    |k: &str| fm.get(k).and_then(scalar_text).unwrap_or_default();
                 LibraryEntry {
                     child_count: child_count.get(&id).copied().unwrap_or(0),
                     parent_id: parent_of.get(&id).cloned(),
@@ -1807,14 +1823,7 @@ impl Index {
                 if !seen.insert(d.id.clone()) {
                     continue;
                 }
-                let locator = serde_json::from_str::<Value>(&fm)
-                    .ok()
-                    .and_then(|v| v.get("locator").cloned())
-                    .and_then(|v| match v {
-                        Value::String(s) if !s.trim().is_empty() => Some(s),
-                        Value::Number(n) => Some(n.to_string()),
-                        _ => None,
-                    });
+                let locator = fm_text(&fm, "locator");
                 out.push(TrailEntry {
                     doc: d,
                     source: s.clone(),
@@ -1890,14 +1899,7 @@ impl Index {
                 Some(s) => s,
                 None => continue,
             };
-            let locator = serde_json::from_str::<Value>(&fm)
-                .ok()
-                .and_then(|v| v.get("locator").cloned())
-                .and_then(|v| match v {
-                    Value::String(s) if !s.trim().is_empty() => Some(s),
-                    Value::Number(n) => Some(n.to_string()),
-                    _ => None,
-                });
+            let locator = fm_text(&fm, "locator");
             out.push(TrailEntry {
                 doc,
                 source,
