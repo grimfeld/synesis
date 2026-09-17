@@ -21,6 +21,7 @@ import {
   PROPERTY_TYPES,
   RESERVED_PROPERTIES,
   CREATABLE_TYPES,
+  LINKABLE_TARGET_TYPES,
   SUBJECT_TYPES,
   WRITING_TYPES,
   unpackVerse,
@@ -33,6 +34,7 @@ import {
 import { setField } from "@/lib/frontmatter";
 import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
+import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useFormat, useT } from "@/i18n";
 import { toast } from "sonner";
@@ -93,42 +95,41 @@ export function RightPanel({
   onRestore,
   flush,
 }: Props) {
-  const s = useStore();
   const t = useT();
   const id = doc.summary.id;
-  const [backlinks, setBacklinks] = useState<Backlink[]>([]);
-  const [candidates, setCandidates] = useState<Candidate[]>([]);
-  const [trail, setTrail] = useState<TrailEntry[]>([]);
-  const [children, setChildren] = useState<DocSummary[]>([]);
-  const [linkables, setLinkables] = useState<Linkable[]>([]);
   const type = doc.summary.type;
   const writing = WRITING_TYPES.includes(type);
 
-  useEffect(() => {
-    let alive = true;
-    api
-      .backlinks(id)
-      .then((b) => alive && setBacklinks(b))
-      .catch(console.error);
-    if (type === "composition")
-      api
-        .candidates(id)
-        .then((c) => alive && setCandidates(c))
-        .catch(console.error);
-    if (type === "source") {
-      api
-        .sourceTrail(id)
-        .then((x) => alive && setTrail(x))
-        .catch(console.error);
-      api
-        .sourceChildren(id)
-        .then((x) => alive && setChildren(x))
-        .catch(console.error);
-    }
-    return () => {
-      alive = false;
-    };
-  }, [id, type, s.changeTick, doc.summary.mtime]);
+  // Anything written anywhere may point here, so the panel's lists move with
+  // the whole vault — and with this document's own mtime, because saving the
+  // page you are looking at is the commonest way to change what they say.
+  const { data: backlinksData } = useQuery<Backlink[]>({
+    key: [id, doc.summary.mtime],
+    deps: { any: true },
+    fetch: () => api.backlinks(id),
+  });
+  const { data: candidatesData } = useQuery<Candidate[]>({
+    key: [id, doc.summary.mtime],
+    deps: { any: true },
+    enabled: type === "composition",
+    fetch: () => api.candidates(id),
+  });
+  const { data: trailData } = useQuery<TrailEntry[]>({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["clipping", "note", "source"] },
+    enabled: type === "source",
+    fetch: () => api.sourceTrail(id),
+  });
+  const { data: childrenData } = useQuery<DocSummary[]>({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["source"] },
+    enabled: type === "source",
+    fetch: () => api.sourceChildren(id),
+  });
+  const backlinks = useMemo(() => backlinksData ?? [], [backlinksData]);
+  const candidates = useMemo(() => candidatesData ?? [], [candidatesData]);
+  const trail = useMemo(() => trailData ?? [], [trailData]);
+  const children = useMemo(() => childrenData ?? [], [childrenData]);
 
   // What the editor holds, which is not quite what is on disk: CodeMirror
   // normalises every line ending to "\n" when it loads a document. A file
@@ -142,20 +143,14 @@ export function RightPanel({
   // Linkables follow the text, so they are debounced and stale-guarded the way
   // Passage detection is: the answer is thrown away if the text moved on while
   // the engine was working.
-  useEffect(() => {
-    if (!writing || editorBody == null) return;
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      api
-        .linkables(id, editorBody)
-        .then((l) => alive && setLinkables(l))
-        .catch(console.error);
-    }, 180);
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [id, writing, editorBody, s.changeTick]);
+  const { data: linkablesData } = useQuery<Linkable[]>({
+    key: [id, editorBody ?? ""],
+    deps: { types: LINKABLE_TARGET_TYPES },
+    enabled: writing && editorBody != null,
+    debounce: 180,
+    fetch: () => api.linkables(id, editorBody!),
+  });
+  const linkables = useMemo(() => linkablesData ?? [], [linkablesData]);
 
   return (
     <aside
