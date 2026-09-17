@@ -33,7 +33,7 @@ describe("Candidates", () => {
 
   it("Home counts only unused Candidates", () => {
     cy.docByTitle("Talk on endurance").then((d) => {
-      cy.bridge<{ used: boolean }[]>("candidates", { id: d.id }).then((c) => {
+      cy.query<{ used: boolean }[]>({ kind: "candidates", id: d.id }).then((c) => {
         // Material on the Board still counts: it is not used until the prose
         // says so, which is what the Home count is about.
         const unused = c.filter((x) => !x.used).length;

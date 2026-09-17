@@ -5,9 +5,8 @@
 use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::index::{
-    AmbiguousTitle, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary,
-    DocTag, EventLink, Graph, GraphLevel, Journey, Linkable, PlaceFact, SearchHit,
-    UnlinkedMentions,
+    Backlink, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, GraphLevel, Journey,
+    Linkable, PlaceFact,
 };
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
@@ -571,12 +570,6 @@ fn resolve_many(
     state.with_vault(|v| targets.iter().map(|t| v.resolve(t)).collect())
 }
 
-/// Documents that write this Hub's name without linking it (ADR 0011).
-#[tauri::command]
-fn unlinked_mentions(state: State<AppState>, id: String) -> CmdResult<UnlinkedMentions> {
-    state.with_vault(|v| v.unlinked_mentions(&id))
-}
-
 /// Names in the text being written that could become Mentions.
 ///
 /// Takes the live editor body rather than an id: what the writer is looking at
@@ -594,11 +587,6 @@ fn linkables(state: State<AppState>, id: String, text: String) -> CmdResult<Vec<
         l.end = parser::byte_to_utf16(&text, l.end);
     }
     Ok(out)
-}
-
-#[tauri::command]
-fn ambiguous_titles(state: State<AppState>) -> CmdResult<Vec<AmbiguousTitle>> {
-    state.with_vault(|v| v.ambiguous_titles())
 }
 
 /// What one linking edit restored, so a batch can be undone.
@@ -732,50 +720,6 @@ fn verse_coverage(state: State<AppState>, book: u8, chapter: u16) -> CmdResult<V
 }
 
 #[tauri::command]
-fn graph(state: State<AppState>, level: GraphLevel) -> CmdResult<Graph> {
-    state.with_vault(|v| v.graph(level))
-}
-
-#[tauri::command]
-fn search(
-    state: State<AppState>,
-    query: String,
-    limit: Option<usize>,
-) -> CmdResult<Vec<SearchHit>> {
-    state.with_vault(|v| v.search(&query, limit.unwrap_or(30)))
-}
-
-#[tauri::command]
-fn suggest(
-    state: State<AppState>,
-    prefix: String,
-    limit: Option<usize>,
-) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.suggest(&prefix, limit.unwrap_or(12)))
-}
-
-#[derive(Serialize)]
-pub struct TagCount {
-    pub tag: String,
-    pub count: u32,
-}
-
-#[tauri::command]
-fn tags(state: State<AppState>) -> CmdResult<Vec<TagCount>> {
-    state.with_vault(|v| {
-        Ok(v.tags()?
-            .into_iter()
-            .map(|(tag, count)| TagCount { tag, count })
-            .collect())
-    })
-}
-
-#[tauri::command]
-fn tagged_documents(state: State<AppState>, tag: String) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.tagged(&tag))
-}
-
-#[tauri::command]
 fn place_facts(state: State<AppState>) -> CmdResult<Vec<PlaceFact>> {
     state.with_vault(|v| v.place_facts())
 }
@@ -852,11 +796,6 @@ fn event_links(state: State<AppState>) -> CmdResult<Vec<EventLink>> {
 #[tauri::command]
 fn timeline_tags(state: State<AppState>) -> CmdResult<Vec<DocTag>> {
     state.with_vault(|v| v.timeline_tags())
-}
-
-#[tauri::command]
-fn candidates(state: State<AppState>, id: String) -> CmdResult<Vec<Candidate>> {
-    state.with_vault(|v| v.candidates(&id))
 }
 
 /// A Composition's Board, or null when it has none yet (ADR 0009).
@@ -1279,9 +1218,7 @@ pub fn run() {
             resolve_link,
             resolve_many,
             names,
-            unlinked_mentions,
             linkables,
-            ambiguous_titles,
             link_mentions,
             undo_link_mentions,
             verse_mentions,
@@ -1289,11 +1226,6 @@ pub fn run() {
             ensure_scripture_page,
             coverage,
             verse_coverage,
-            graph,
-            search,
-            suggest,
-            tags,
-            tagged_documents,
             place_facts,
             journeys,
             set_map_filters,
@@ -1310,7 +1242,6 @@ pub fn run() {
             delete_version,
             text_at,
             history,
-            candidates,
             get_board,
             save_board,
             board_at,

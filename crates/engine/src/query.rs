@@ -22,9 +22,15 @@
 //! writes, settings, attachments and Pairing are their own operations. They
 //! keep their own commands, because they are different questions, not the
 //! same question wearing a different name.
+//!
+//! `linkables` is out for a different reason: the engine counts in bytes and
+//! CodeMirror counts in UTF-16, so its answer is re-projected offset by offset
+//! before it reaches the editor. That is a conversion for one caller, not a
+//! question the index answers, and it stays in the command that does it.
 use crate::document::DocType;
 use crate::index::{
-    Backlink, BoardExcerpt, DocSummary, LibraryEntry, TrailEntry, UnresolvedLink,
+    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, DocSummary, Graph, GraphLevel, LibraryEntry,
+    SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -65,6 +71,39 @@ pub enum Query {
     BoardsReferencing { id: String },
     /// What each Board card shows for its document (PLAN §17.12).
     BoardExcerpts { refs: Vec<BoardRef> },
+    /// Text in other documents that names this Hub but never linked to it
+    /// (ADR 0011). `limit` caps the search, and the answer carries the real
+    /// total so the Hub can say how many it did not show.
+    UnlinkedMentions {
+        id: String,
+        #[serde(default = "unlinked_limit")]
+        limit: usize,
+    },
+    /// Titles more than one document answers to, so a link can say which.
+    AmbiguousTitles,
+    /// Material sharing a Tag or a Passage with this Composition (PLAN §17).
+    Candidates {
+        id: String,
+        #[serde(default = "candidate_limit")]
+        limit: usize,
+    },
+    /// The whole graph at one level of Scripture detail (ADR 0002).
+    Graph { level: GraphLevel },
+    /// Full-text search.
+    Search { text: String, limit: usize },
+    /// Titles beginning with a prefix, for completion.
+    Suggest { prefix: String, limit: usize },
+    /// Every Tag in the vault with how many documents carry it.
+    Tags,
+    /// The documents carrying one Tag.
+    Tagged { tag: String },
+}
+
+fn unlinked_limit() -> usize {
+    UNLINKED_LIMIT
+}
+fn candidate_limit() -> usize {
+    CANDIDATE_LIMIT
 }
 
 /// One `file` node's identity on a Board: which document, and which part of it.
@@ -93,4 +132,20 @@ pub enum Answer {
     UnresolvedLinks(Vec<UnresolvedLink>),
     TagsOf(HashMap<String, Vec<String>>),
     BoardExcerpts(HashMap<String, BoardExcerpt>),
+    UnlinkedMentions(UnlinkedMentions),
+    AmbiguousTitles(Vec<AmbiguousTitle>),
+    Candidates(Vec<Candidate>),
+    Graph(Graph),
+    Search(Vec<SearchHit>),
+    Tags(Vec<TagCount>),
+}
+
+/// One Tag and how many documents carry it.
+///
+/// Named here rather than returned as a `(String, u32)` for the Tauri layer
+/// to christen on its way past.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TagCount {
+    pub tag: String,
+    pub count: u32,
 }

@@ -4,7 +4,7 @@
 use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, AmbiguousTitle, Backlink, Candidate, CoverageCell, DatedProperty,
+    self, Backlink, Candidate, CoverageCell, DatedProperty,
     DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, Linkable,
     PlaceFact, SearchHit, UnlinkedMentions, UnresolvedLink,
 };
@@ -843,6 +843,26 @@ impl Vault {
                     refs.into_iter().map(|r| (r.path, r.subpath)).collect();
                 Answer::BoardExcerpts(self.index.board_excerpts(&pairs)?)
             }
+            Query::UnlinkedMentions { id, limit } => {
+                Answer::UnlinkedMentions(self.index.unlinked_mentions(&id, limit)?)
+            }
+            Query::AmbiguousTitles => Answer::AmbiguousTitles(self.index.ambiguous_titles()?),
+            Query::Candidates { id, limit } => {
+                Answer::Candidates(self.index.candidates(&id, self.lang, limit)?)
+            }
+            Query::Graph { level } => Answer::Graph(self.index.graph(level, self.lang)?),
+            Query::Search { text, limit } => Answer::Search(self.index.search(&text, limit)?),
+            Query::Suggest { prefix, limit } => {
+                Answer::Docs(self.index.suggest(&prefix, limit)?)
+            }
+            Query::Tags => Answer::Tags(
+                self.index
+                    .tags()?
+                    .into_iter()
+                    .map(|(tag, count)| crate::query::TagCount { tag, count })
+                    .collect(),
+            ),
+            Query::Tagged { tag } => Answer::Docs(self.index.tagged(&tag)?),
         })
     }
 
@@ -891,14 +911,20 @@ impl Vault {
     pub fn devices(&self) -> Vec<crate::sync::DeviceInfo> {
         self.sync.as_ref().map(|s| s.devices()).unwrap_or_default()
     }
+    /// Names in the document being written that match a Hub and are not yet
+    /// Mentions (ADR 0011).
+    ///
+    /// Not a `Query`: the offsets are re-projected to UTF-16 for CodeMirror by
+    /// the caller, which is a conversion for one consumer rather than a
+    /// question the index answers.
+    pub fn linkables(&self, id: &str, body: &str) -> Result<Vec<Linkable>> {
+        self.index.linkables(id, body, crate::query::LINKABLE_LIMIT)
+    }
     pub fn graph(&self, level: GraphLevel) -> Result<Graph> {
         self.index.graph(level, self.lang)
     }
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
         self.index.search(q, limit)
-    }
-    pub fn suggest(&self, prefix: &str, limit: usize) -> Result<Vec<DocSummary>> {
-        self.index.suggest(prefix, limit)
     }
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
         self.index.tags()
@@ -911,9 +937,6 @@ impl Vault {
     pub fn journeys(&self) -> Result<Vec<Journey>> {
         self.index.journeys()
     }
-    pub fn tagged(&self, tag: &str) -> Result<Vec<DocSummary>> {
-        self.index.tagged(tag)
-    }
     pub fn candidates(&self, id: &str) -> Result<Vec<Candidate>> {
         self.index.candidates(id, self.lang, 50)
     }
@@ -924,12 +947,6 @@ impl Vault {
     }
     pub fn unlinked_mentions(&self, id: &str) -> Result<UnlinkedMentions> {
         self.index.unlinked_mentions(id, 200)
-    }
-    pub fn linkables(&self, id: &str, body: &str) -> Result<Vec<Linkable>> {
-        self.index.linkables(id, body, 50)
-    }
-    pub fn ambiguous_titles(&self) -> Result<Vec<AmbiguousTitle>> {
-        self.index.ambiguous_titles()
     }
 
     /// Turn one Unlinked mention into a Mention, in the document that wrote it.

@@ -565,7 +565,15 @@ export type Query =
   | { kind: "tagsOf"; ids: string[] }
   | { kind: "unresolvedLinks" }
   | { kind: "boardsReferencing"; id: string }
-  | { kind: "boardExcerpts"; refs: BoardRef[] };
+  | { kind: "boardExcerpts"; refs: BoardRef[] }
+  | { kind: "unlinkedMentions"; id: string }
+  | { kind: "ambiguousTitles" }
+  | { kind: "candidates"; id: string }
+  | { kind: "graph"; level: GraphLevel }
+  | { kind: "search"; text: string; limit: number }
+  | { kind: "suggest"; prefix: string; limit: number }
+  | { kind: "tags" }
+  | { kind: "tagged"; tag: string };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -642,10 +650,10 @@ export const api = {
     invoke<(DocSummary | null)[]>("resolve_many", { targets }),
   backlinks: (id: string) => query<Backlink[]>({ kind: "backlinks", id }),
   unlinkedMentions: (id: string) =>
-    invoke<UnlinkedMentions>("unlinked_mentions", { id }),
+    query<UnlinkedMentions>({ kind: "unlinkedMentions", id }),
   linkables: (id: string, text: string) =>
     invoke<Linkable[]>("linkables", { id, text }),
-  ambiguousTitles: () => invoke<AmbiguousTitle[]>("ambiguous_titles"),
+  ambiguousTitles: () => query<AmbiguousTitle[]>({ kind: "ambiguousTitles" }),
   linkMentions: (
     targetId: string,
     mentions: { docId: string; start: number; end: number; matched: string }[],
@@ -682,14 +690,14 @@ export const api = {
   coverage: () => invoke<CoverageCell[]>("coverage"),
   verseCoverage: (book: number, chapter: number) =>
     invoke<VerseCount[]>("verse_coverage", { book, chapter }),
-  graph: (level: GraphLevel) => invoke<Graph>("graph", { level }),
-  search: (query: string, limit = 30) =>
-    invoke<SearchHit[]>("search", { query, limit }),
+  graph: (level: GraphLevel) => query<Graph>({ kind: "graph", level }),
+  search: (text: string, limit = 30) =>
+    query<SearchHit[]>({ kind: "search", text, limit }),
   suggest: (prefix: string, limit = 12) =>
-    invoke<DocSummary[]>("suggest", { prefix, limit }),
-  tags: () => invoke<TagCount[]>("tags"),
+    query<DocSummary[]>({ kind: "suggest", prefix, limit }),
+  tags: () => query<TagCount[]>({ kind: "tags" }),
   taggedDocuments: (tag: string) =>
-    invoke<DocSummary[]>("tagged_documents", { tag }),
+    query<DocSummary[]>({ kind: "tagged", tag }),
   places: () => query<DocSummary[]>({ kind: "places" }),
   propertySchema: () => invoke<PropertySchema>("property_schema"),
   setPropertyType: (name: string, propType: PropertyType) =>
@@ -713,7 +721,7 @@ export const api = {
   history: (id: string) => invoke<HistoryPoint[]>("history", { id }),
   gazetteer: (query: string, limit = 8) =>
     invoke<GazetteerHit[]>("gazetteer", { query, limit }),
-  candidates: (id: string) => invoke<Candidate[]>("candidates", { id }),
+  candidates: (id: string) => query<Candidate[]>({ kind: "candidates", id }),
   getBoard: (id: string) => invoke<Board | null>("get_board", { id }),
   saveBoard: (id: string, board: Board) =>
     invoke<void>("save_board", { id, board }),
