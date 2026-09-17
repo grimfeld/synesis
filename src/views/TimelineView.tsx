@@ -14,12 +14,7 @@ import {
   type WheelEvent as ReactWheelEvent,
 } from "react";
 import { CalendarRange, Maximize2, Plus, Search, ZoomIn, ZoomOut } from "lucide-react";
-import {
-  api,
-  type DatedProperty,
-  type DocTag,
-  type EventLink,
-} from "@/lib/api";
+import { api } from "@/lib/api";
 import {
   activeCount,
   buildLanes,
@@ -34,6 +29,7 @@ import {
   type Lane,
   type Placed,
 } from "@/lib/timeline";
+import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
@@ -121,9 +117,6 @@ export function TimelineView() {
   const s = useStore();
   const t = useT();
   const host = useRef<HTMLDivElement>(null);
-  const [rows, setRows] = useState<DatedProperty[]>([]);
-  const [links, setLinks] = useState<EventLink[]>([]);
-  const [docTags, setDocTags] = useState<DocTag[]>([]);
   const [width, setWidth] = useState(900);
   const [range, setRange] = useState<[number, number] | null>(null);
   const drag = useRef<{ x: number; from: number; to: number } | null>(null);
@@ -131,20 +124,24 @@ export function TimelineView() {
   const touches = useRef(new Map<number, { x: number; y: number }>());
   const pinch = useRef<{ dist: number; from: number; to: number } | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    Promise.all([api.timeline(), api.eventLinks(), api.timelineTags()])
-      .then(([r, l, tg]) => {
-        if (!alive) return;
-        setRows(r);
-        setLinks(l);
-        setDocTags(tg);
-      })
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [s.changeTick, s.docs]);
+  // Any Subject may carry a Date and any document may Tag one, so the Lanes
+  // move with the whole vault. Three reads that have to agree with each
+  // other, so they are one query and arrive together.
+  const { data } = useQuery({
+    key: [],
+    deps: { any: true },
+    fetch: async () => {
+      const [rows, links, docTags] = await Promise.all([
+        api.timeline(),
+        api.eventLinks(),
+        api.timelineTags(),
+      ]);
+      return { rows, links, docTags };
+    },
+  });
+  const rows = useMemo(() => data?.rows ?? [], [data]);
+  const links = useMemo(() => data?.links ?? [], [data]);
+  const docTags = useMemo(() => data?.docTags ?? [], [data]);
 
   useEffect(() => {
     const el = host.current;

@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { House, PenLine, Zap } from "lucide-react";
 import { api, WRITING_TYPES, type DocSummary } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -150,17 +151,14 @@ function QuickCapture() {
 function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
   const s = useStore();
   const t = useT();
-  const [count, setCount] = useState<number | null>(null);
-  useEffect(() => {
-    let alive = true;
-    api
-      .candidates(doc.id)
-      .then((c) => alive && setCount(c.filter((x) => !x.used).length))
-      .catch(() => alive && setCount(0));
-    return () => {
-      alive = false;
-    };
-  }, [doc.id, doc.mtime]);
+  // A Candidate is anything sharing a Tag or a Passage with this Composition,
+  // so a Note written anywhere may become one.
+  const { data: count } = useQuery({
+    key: [doc.id],
+    deps: { any: true },
+    fetch: async () =>
+      (await api.candidates(doc.id)).filter((x) => !x.used).length,
+  });
   return (
     <li>
       <button

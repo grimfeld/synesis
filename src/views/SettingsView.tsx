@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
 import { api, type DeviceInfo, type Lang } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
@@ -24,10 +25,14 @@ export function SettingsView() {
     if (typeof dir === "string") await s.openVault(dir);
   };
   const shortcuts = commands.filter((c) => c.shortcut);
-  const [devices, setDevices] = useState<DeviceInfo[]>([]);
-  useEffect(() => {
-    api.syncStatus().then(setDevices).catch(() => setDevices([]));
-  }, [s.info?.root, s.changeTick]);
+  // Devices come and go with Pairing and sync, not with anything written in
+  // the vault; the list reloads when the open vault changes.
+  const { data: devicesData } = useQuery<DeviceInfo[]>({
+    key: [s.info?.root ?? ""],
+    deps: { none: true },
+    fetch: () => api.syncStatus(),
+  });
+  const devices = useMemo(() => devicesData ?? [], [devicesData]);
   const method = s.settings?.sync_method ?? null;
   const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
   const fmt = useFormat();

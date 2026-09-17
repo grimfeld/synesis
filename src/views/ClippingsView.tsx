@@ -5,9 +5,10 @@
 //
 // Flat rather than grouped by Source: grouping only helps when you already
 // know the Source, and in that case the Source's own Hub is the better door.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Quote, X } from "lucide-react";
 import { api, type TrailEntry } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -70,31 +71,29 @@ function Chip({
 }
 
 export function ClippingsView() {
-  const s = useStore();
   const t = useT();
-  const [entries, setEntries] = useState<TrailEntry[]>([]);
-  const [tagsOf, setTagsOf] = useState<Record<string, string[]>>({});
   const [tag, setTag] = useState<string | null>(null);
   const [sourceId, setSourceId] = useState<string | null>(null);
 
-  useEffect(() => {
-    let alive = true;
-    api
-      .clippings()
-      .then(async (x) => {
-        if (!alive) return;
-        setEntries(x);
-        // One batch call rather than a query per card; the store's own tag
-        // index counts Tags across the vault and cannot say which document
-        // carries which.
-        const tags = await api.tagsOf(x.map((e) => e.doc.id));
-        if (alive) setTagsOf(tags);
-      })
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [s.changeTick]);
+  // A Clipping and the Source it cites: editing either changes what a card
+  // says, since the Citation is the Source's title.
+  const { data, status } = useQuery({
+    key: [],
+    deps: { types: ["clipping", "source"] },
+    fetch: async () => {
+      const entries = await api.clippings();
+      // One batch call rather than a query per card; the store's own tag
+      // index counts Tags across the vault and cannot say which document
+      // carries which.
+      const tagsOf = await api.tagsOf(entries.map((e) => e.doc.id));
+      return { entries, tagsOf };
+    },
+  });
+  const entries = useMemo<TrailEntry[]>(() => data?.entries ?? [], [data]);
+  const tagsOf = useMemo<Record<string, string[]>>(
+    () => data?.tagsOf ?? {},
+    [data],
+  );
 
   const tags = useMemo(() => {
     const seen = new Map<string, number>();
@@ -178,7 +177,11 @@ export function ClippingsView() {
         className="min-h-0 flex-1 overflow-y-auto px-3 py-4"
       >
         {entries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t.clippings_empty}</p>
+          // Only once the answer is in: "you have kept nothing" is not the
+          // same as "not read yet", and they used to look alike.
+          status === "ready" && (
+            <p className="text-sm text-muted-foreground">{t.clippings_empty}</p>
+          )
         ) : (
           <>
             <p className="mb-3 text-xs text-muted-foreground">

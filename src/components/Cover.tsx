@@ -3,6 +3,7 @@
 // all, which draws one from the Source's own title, kind and date.
 import { useEffect, useState } from "react";
 import { api, type LibraryEntry } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { coverBg, coverKind } from "@/lib/library";
 import { useT } from "@/i18n";
 import { cn } from "@/lib/utils";
@@ -15,24 +16,20 @@ import { cn } from "@/lib/utils";
  * one no test ever sees (ADR 0012).
  */
 function useAttachment(path: string | null): string | null {
-  const [src, setSrc] = useState<string | null>(null);
-  useEffect(() => {
-    if (!path) {
-      setSrc(null);
-      return;
-    }
-    let alive = true;
-    api
-      .readAttachment(path)
-      .then((d) => alive && setSrc(d))
-      // A missing or unreadable picture falls back to a drawn Cover rather
-      // than leaving a hole in the Shelf.
-      .catch(() => alive && setSrc(null));
-    return () => {
-      alive = false;
-    };
-  }, [path]);
-  return src;
+  // Attachments are referenced, never indexed (ADR 0012), so nothing written
+  // in the vault can change this picture — only the path asking for it.
+  //
+  // Quiet on purpose: a missing or unreadable picture falls back to a drawn
+  // Cover rather than leaving a hole in the Shelf, so it is an answer, not a
+  // fault to report.
+  const { data } = useQuery<string | null>({
+    key: [path ?? ""],
+    deps: { none: true },
+    enabled: path !== null,
+    quiet: true,
+    fetch: () => api.readAttachment(path!),
+  });
+  return path === null ? null : (data ?? null);
 }
 
 /**

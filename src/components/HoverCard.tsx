@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { api, type Backlink, type DocSummary, type PassageInfo } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { splitFrontmatter } from "@/lib/frontmatter";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -55,17 +56,19 @@ function Loading() {
 function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]; excludeId?: string; onClose: () => void }) {
   const s = useStore();
   const t = useT();
-  const [items, setItems] = useState<Backlink[] | null>(null);
   const p = passages[0];
-  useEffect(() => {
-    let alive = true;
-    const chapter = p.unit === "book" ? undefined : p.start_chapter;
-    const verse = p.unit === "verse" || p.unit === "range" ? (p.start_verse ?? undefined) : undefined;
-    api.verseMentions(p.book, chapter, verse).then((r) => alive && setItems(r.filter((b) => b.doc.id !== excludeId)));
-    return () => {
-      alive = false;
-    };
-  }, [p, excludeId]);
+  // Any document may Mention this Passage, so the list moves with the vault.
+  const { data, status } = useQuery<Backlink[]>({
+    key: [p.book, p.unit, p.start_chapter ?? null, p.start_verse ?? null, excludeId ?? ""],
+    deps: { any: true },
+    fetch: async () => {
+      const chapter = p.unit === "book" ? undefined : p.start_chapter;
+      const verse = p.unit === "verse" || p.unit === "range" ? (p.start_verse ?? undefined) : undefined;
+      const r = await api.verseMentions(p.book, chapter, verse);
+      return r.filter((b) => b.doc.id !== excludeId);
+    },
+  });
+  const items = status === "ready" || data ? data : null;
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
@@ -124,22 +127,24 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
 function LinkCard({ target, onClose }: { target: string; onClose: () => void }) {
   const s = useStore();
   const t = useT();
-  const [doc, setDoc] = useState<DocSummary | null | undefined>(undefined);
-  const [preview, setPreview] = useState("");
-  useEffect(() => {
-    let alive = true;
-    api.resolveLink(target).then(async (d) => {
-      if (!alive) return;
-      setDoc(d);
-      if (d) {
-        const full = await api.getDocument(d.id);
-        if (alive) setPreview(splitFrontmatter(full.text).body.trim().slice(0, 400));
-      }
-    });
-    return () => {
-      alive = false;
-    };
-  }, [target]);
+  // The document this link names, and the opening of its body: one answer, so
+  // the preview can never belong to a different document than the title.
+  const { data, status } = useQuery({
+    key: [target],
+    deps: { any: true },
+    fetch: async () => {
+      const doc = await api.resolveLink(target);
+      if (!doc) return { doc: null, preview: "" };
+      const full = await api.getDocument(doc.id);
+      return {
+        doc,
+        preview: splitFrontmatter(full.text).body.trim().slice(0, 400),
+      };
+    },
+  });
+  const doc: DocSummary | null | undefined =
+    status === "ready" || data ? (data?.doc ?? null) : undefined;
+  const preview = data?.preview ?? "";
   if (doc === undefined) return <Loading />;
   if (doc === null)
     return (

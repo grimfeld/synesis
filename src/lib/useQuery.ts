@@ -26,6 +26,15 @@ export interface UseQueryOptions<T> {
   debounce?: number;
   /** Don't ask yet (the document isn't loaded, the panel is shut). */
   enabled?: boolean;
+  /**
+   * Don't tell the user when this one fails.
+   *
+   * For reads whose failure is an ordinary answer rather than a fault: a
+   * Source with no picture in the vault falls back to a drawn Cover (ADR
+   * 0012), and saying "could not read from the vault" about it would be a
+   * lie. `status` still reports the error to the caller.
+   */
+  quiet?: boolean;
 }
 
 export interface UseQueryResult<T> extends QueryState<T> {
@@ -42,13 +51,21 @@ export interface UseQueryResult<T> extends QueryState<T> {
  * still happens.
  */
 export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
-  const { key, deps, fetch, equal, debounce, enabled = true } = options;
+  const {
+    key,
+    deps,
+    fetch,
+    equal,
+    debounce,
+    enabled = true,
+    quiet = false,
+  } = options;
   const s = useStore();
   const t = useT();
 
   // The query outlives any single render; the callbacks it holds must not.
-  const latest = useRef({ fetch, equal, failed: t.load_failed });
-  latest.current = { fetch, equal, failed: t.load_failed };
+  const latest = useRef({ fetch, equal, quiet, failed: t.load_failed });
+  latest.current = { fetch, equal, quiet, failed: t.load_failed };
 
   const query = useMemo(
     () =>
@@ -57,6 +74,7 @@ export function useQuery<T>(options: UseQueryOptions<T>): UseQueryResult<T> {
         equal: (a, b) => latest.current.equal?.(a, b) ?? false,
         debounce,
         onError: (e) => {
+          if (latest.current.quiet) return;
           console.error(e);
           toast(latest.current.failed);
         },
