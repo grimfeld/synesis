@@ -326,6 +326,7 @@ export const en = {
   no_results: "No results",
   create_new: (q: string) => `Create “${q}”`,
   loading: "Loading…",
+  load_failed: "Could not read from the vault",
   titles: "Titles",
   content: "Content",
   open: "Open",

@@ -332,6 +332,7 @@ export const fr: Dict = {
   no_results: "Aucun résultat",
   create_new: (q: string) => `Créer « ${q} »`,
   loading: "Chargement…",
+  load_failed: "Lecture du coffre impossible",
   titles: "Titres",
   content: "Contenu",
   open: "Ouvrir",
