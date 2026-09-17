@@ -4,10 +4,7 @@
 
 use engine::canvas::Canvas;
 use engine::document::DocType;
-use engine::index::{
-    Backlink, CoverageCell, DatedProperty, DocSummary, DocTag, EventLink, GraphLevel, Journey,
-    Linkable, PlaceFact,
-};
+use engine::index::{DocSummary, GraphLevel, Linkable};
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
 use engine::scripture::{Lang, Passage};
@@ -657,26 +654,6 @@ fn undo_link_mentions(state: State<AppState>, texts: Vec<(String, String)>) -> C
     r
 }
 
-#[tauri::command]
-fn verse_mentions(
-    state: State<AppState>,
-    book: u8,
-    chapter: Option<u16>,
-    verse: Option<u16>,
-) -> CmdResult<Vec<Backlink>> {
-    state.with_vault(|v| v.verse_mentions(book, chapter, verse))
-}
-
-#[tauri::command]
-fn scripture_page(
-    state: State<AppState>,
-    book: u8,
-    chapter: Option<u16>,
-    verse: Option<u16>,
-) -> CmdResult<Option<DocSummary>> {
-    state.with_vault(|v| v.scripture_doc(book, chapter, verse))
-}
-
 /// Materialise (and return) the page for a Scripture unit, e.g. when the user
 /// clicks a detected Passage that has not been written on yet.
 #[tauri::command]
@@ -699,37 +676,6 @@ fn ensure_scripture_page(
 }
 
 #[tauri::command]
-fn coverage(state: State<AppState>) -> CmdResult<Vec<CoverageCell>> {
-    state.with_vault(|v| v.coverage())
-}
-
-#[derive(Serialize)]
-pub struct VerseCount {
-    pub verse: u16,
-    pub count: u32,
-}
-
-#[tauri::command]
-fn verse_coverage(state: State<AppState>, book: u8, chapter: u16) -> CmdResult<Vec<VerseCount>> {
-    state.with_vault(|v| {
-        Ok(v.verse_coverage(book, chapter)?
-            .into_iter()
-            .map(|(verse, count)| VerseCount { verse, count })
-            .collect())
-    })
-}
-
-#[tauri::command]
-fn place_facts(state: State<AppState>) -> CmdResult<Vec<PlaceFact>> {
-    state.with_vault(|v| v.place_facts())
-}
-
-#[tauri::command]
-fn journeys(state: State<AppState>) -> CmdResult<Vec<Journey>> {
-    state.with_vault(|v| v.journeys())
-}
-
-#[tauri::command]
 fn property_schema(state: State<AppState>) -> CmdResult<PropertySchema> {
     state.with_vault(|v| Ok(v.property_schema().clone()))
 }
@@ -741,21 +687,6 @@ fn set_property_type(
     prop_type: PropertyType,
 ) -> CmdResult<PropertySchema> {
     state.with_vault_mut(|v| v.set_property_type(&name, prop_type))
-}
-
-#[tauri::command]
-fn dates_of(state: State<AppState>, id: String) -> CmdResult<Vec<DatedProperty>> {
-    state.with_vault(|v| v.dates_of(&id))
-}
-
-#[tauri::command]
-fn timeline(state: State<AppState>) -> CmdResult<Vec<DatedProperty>> {
-    state.with_vault(|v| v.timeline())
-}
-
-#[tauri::command]
-fn events_naming(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.events_naming(&id))
 }
 
 #[tauri::command]
@@ -786,16 +717,6 @@ fn history(state: State<AppState>, id: String) -> CmdResult<Vec<HistoryPoint>> {
 #[tauri::command]
 fn gazetteer(query: String, limit: Option<usize>) -> Vec<engine::gazetteer::GazetteerHit> {
     engine::gazetteer::search(&query, limit.unwrap_or(8))
-}
-
-#[tauri::command]
-fn event_links(state: State<AppState>) -> CmdResult<Vec<EventLink>> {
-    state.with_vault(|v| v.event_links())
-}
-
-#[tauri::command]
-fn timeline_tags(state: State<AppState>) -> CmdResult<Vec<DocTag>> {
-    state.with_vault(|v| v.timeline_tags())
 }
 
 /// A Composition's Board, or null when it has none yet (ADR 0009).
@@ -1221,21 +1142,10 @@ pub fn run() {
             linkables,
             link_mentions,
             undo_link_mentions,
-            verse_mentions,
-            scripture_page,
             ensure_scripture_page,
-            coverage,
-            verse_coverage,
-            place_facts,
-            journeys,
             set_map_filters,
             property_schema,
             set_property_type,
-            dates_of,
-            timeline,
-            events_naming,
-            event_links,
-            timeline_tags,
             gazetteer,
             versions,
             save_version,

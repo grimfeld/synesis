@@ -4,9 +4,8 @@
 use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, Backlink, Candidate, CoverageCell, DatedProperty,
-    DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, Linkable,
-    PlaceFact, SearchHit, UnlinkedMentions, UnresolvedLink,
+    self, Backlink, Candidate, CoverageCell, DocSummary, Graph, GraphLevel, Index, Linkable,
+    SearchHit, UnlinkedMentions, UnresolvedLink,
 };
 use crate::parser::Detected;
 use crate::properties::{PropertySchema, PropertyType};
@@ -148,31 +147,6 @@ impl Vault {
             self.index_file(&path)?;
         }
         Ok(())
-    }
-
-    /// Every Date-typed Property on one document.
-    pub fn dates_of(&self, id: &str) -> Result<Vec<DatedProperty>> {
-        self.index.dates_of(id)
-    }
-
-    /// Every parsed Date on every document, earliest first.
-    pub fn timeline(&self) -> Result<Vec<DatedProperty>> {
-        self.index.timeline()
-    }
-
-    /// Events whose `place` or `characters` Property names this document.
-    pub fn events_naming(&self, id: &str) -> Result<Vec<DocSummary>> {
-        self.index.events_naming(id)
-    }
-
-    /// Every (Event, Subject) pair, for the Timeline.
-    pub fn event_links(&self) -> Result<Vec<EventLink>> {
-        self.index.event_links()
-    }
-
-    /// Every (document, Tag) pair over dated documents, for the Timeline's filter.
-    pub fn timeline_tags(&self) -> Result<Vec<DocTag>> {
-        self.index.timeline_tags()
     }
 
     fn sync_mut(&mut self) -> Result<&mut Sync> {
@@ -863,6 +837,34 @@ impl Vault {
                     .collect(),
             ),
             Query::Tagged { tag } => Answer::Docs(self.index.tagged(&tag)?),
+            Query::Coverage => Answer::Coverage(self.index.coverage()?),
+            Query::VerseCoverage { book, chapter } => Answer::VerseCoverage(
+                self.index
+                    .verse_coverage(book, chapter)?
+                    .into_iter()
+                    .map(|(verse, count)| crate::query::VerseCount { verse, count })
+                    .collect(),
+            ),
+            Query::VerseMentions {
+                book,
+                chapter,
+                verse,
+            } => Answer::Backlinks(
+                self.index
+                    .mentions_of(book, chapter, verse, self.lang, None)?,
+            ),
+            Query::ScripturePage {
+                book,
+                chapter,
+                verse,
+            } => Answer::Doc(self.index.scripture_doc(book, chapter, verse)?),
+            Query::DatesOf { id } => Answer::Dates(self.index.dates_of(&id)?),
+            Query::Timeline => Answer::Dates(self.index.timeline()?),
+            Query::EventsNaming { id } => Answer::Docs(self.index.events_naming(&id)?),
+            Query::EventLinks => Answer::EventLinks(self.index.event_links()?),
+            Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
+            Query::Journeys => Answer::Journeys(self.index.journeys()?),
+            Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
         })
     }
 
@@ -883,15 +885,6 @@ impl Vault {
     }
     pub fn backlinks(&self, id: &str) -> Result<Vec<Backlink>> {
         self.index.backlinks(id, self.lang)
-    }
-    pub fn verse_mentions(
-        &self,
-        book: u8,
-        chapter: Option<u16>,
-        verse: Option<u16>,
-    ) -> Result<Vec<Backlink>> {
-        self.index
-            .mentions_of(book, chapter, verse, self.lang, None)
     }
     pub fn scripture_doc(
         &self,
@@ -929,14 +922,7 @@ impl Vault {
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
         self.index.tags()
     }
-    /// Tags, Books and mention counts per Place, for the Map's filters (§19.5).
-    pub fn place_facts(&self) -> Result<Vec<PlaceFact>> {
-        self.index.place_facts()
-    }
     /// Every Journey with its Stops in travel order (ADR 0010).
-    pub fn journeys(&self) -> Result<Vec<Journey>> {
-        self.index.journeys()
-    }
     pub fn candidates(&self, id: &str) -> Result<Vec<Candidate>> {
         self.index.candidates(id, self.lang, 50)
     }

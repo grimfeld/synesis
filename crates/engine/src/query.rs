@@ -29,8 +29,9 @@
 //! question the index answers, and it stays in the command that does it.
 use crate::document::DocType;
 use crate::index::{
-    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, DocSummary, Graph, GraphLevel, LibraryEntry,
-    SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
+    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
+    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, SearchHit, TrailEntry,
+    UnlinkedMentions, UnresolvedLink,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -97,6 +98,36 @@ pub enum Query {
     Tags,
     /// The documents carrying one Tag.
     Tagged { tag: String },
+    /// How many Mentions each Chapter of the Bible has (PLAN §15).
+    Coverage,
+    /// How many Mentions each Verse of one Chapter has.
+    VerseCoverage { book: u8, chapter: u16 },
+    /// The documents Mentioning a Passage, at whatever unit it names.
+    VerseMentions {
+        book: u8,
+        chapter: Option<u16>,
+        verse: Option<u16>,
+    },
+    /// The page for a Book, Chapter or Verse, if it has come into being.
+    ScripturePage {
+        book: u8,
+        chapter: Option<u16>,
+        verse: Option<u16>,
+    },
+    /// Every Date-typed Property on one document (ADR 0005).
+    DatesOf { id: String },
+    /// Every parsed Date in the vault, earliest first, for the Timeline.
+    Timeline,
+    /// Events whose `place` or `characters` Property names this document.
+    EventsNaming { id: String },
+    /// Every (Event, Subject) pair, for the Timeline's Lanes.
+    EventLinks,
+    /// Every (document, Tag) pair over dated documents, for the Timeline filter.
+    TimelineTags,
+    /// Every Journey with its Stops in travel order (ADR 0010).
+    Journeys,
+    /// Tags, Books and mention counts per Place, for the Map's filters.
+    PlaceFacts,
 }
 
 fn unlinked_limit() -> usize {
@@ -138,6 +169,24 @@ pub enum Answer {
     Graph(Graph),
     Search(Vec<SearchHit>),
     Tags(Vec<TagCount>),
+    Coverage(Vec<CoverageCell>),
+    VerseCoverage(Vec<VerseCount>),
+    Doc(Option<DocSummary>),
+    Dates(Vec<DatedProperty>),
+    EventLinks(Vec<EventLink>),
+    DocTags(Vec<DocTag>),
+    Journeys(Vec<Journey>),
+    PlaceFacts(Vec<PlaceFact>),
+}
+
+/// How many Mentions one Verse has.
+///
+/// Named here rather than returned as a `(u16, u32)` for the Tauri layer to
+/// christen on its way past.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerseCount {
+    pub verse: u16,
+    pub count: u32,
 }
 
 /// One Tag and how many documents carry it.

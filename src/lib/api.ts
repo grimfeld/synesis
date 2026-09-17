@@ -573,7 +573,28 @@ export type Query =
   | { kind: "search"; text: string; limit: number }
   | { kind: "suggest"; prefix: string; limit: number }
   | { kind: "tags" }
-  | { kind: "tagged"; tag: string };
+  | { kind: "tagged"; tag: string }
+  | { kind: "coverage" }
+  | { kind: "verseCoverage"; book: number; chapter: number }
+  | {
+      kind: "verseMentions";
+      book: number;
+      chapter: number | null;
+      verse: number | null;
+    }
+  | {
+      kind: "scripturePage";
+      book: number;
+      chapter: number | null;
+      verse: number | null;
+    }
+  | { kind: "datesOf"; id: string }
+  | { kind: "timeline" }
+  | { kind: "eventsNaming"; id: string }
+  | { kind: "eventLinks" }
+  | { kind: "timelineTags" }
+  | { kind: "journeys" }
+  | { kind: "placeFacts" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -670,13 +691,15 @@ export const api = {
   undoLinkMentions: (texts: [string, string][]) =>
     invoke<void>("undo_link_mentions", { texts }),
   verseMentions: (book: number, chapter?: number, verse?: number) =>
-    invoke<Backlink[]>("verse_mentions", {
+    query<Backlink[]>({
+      kind: "verseMentions",
       book,
       chapter: chapter ?? null,
       verse: verse ?? null,
     }),
   scripturePage: (book: number, chapter?: number, verse?: number) =>
-    invoke<DocSummary | null>("scripture_page", {
+    query<DocSummary | null>({
+      kind: "scripturePage",
       book,
       chapter: chapter ?? null,
       verse: verse ?? null,
@@ -687,9 +710,9 @@ export const api = {
       chapter: chapter ?? null,
       verse: verse ?? null,
     }),
-  coverage: () => invoke<CoverageCell[]>("coverage"),
+  coverage: () => query<CoverageCell[]>({ kind: "coverage" }),
   verseCoverage: (book: number, chapter: number) =>
-    invoke<VerseCount[]>("verse_coverage", { book, chapter }),
+    query<VerseCount[]>({ kind: "verseCoverage", book, chapter }),
   graph: (level: GraphLevel) => query<Graph>({ kind: "graph", level }),
   search: (text: string, limit = 30) =>
     query<SearchHit[]>({ kind: "search", text, limit }),
@@ -702,13 +725,14 @@ export const api = {
   propertySchema: () => invoke<PropertySchema>("property_schema"),
   setPropertyType: (name: string, propType: PropertyType) =>
     invoke<PropertySchema>("set_property_type", { name, propType }),
-  datesOf: (id: string) => invoke<DatedProperty[]>("dates_of", { id }),
-  timeline: () => invoke<DatedProperty[]>("timeline"),
-  eventsNaming: (id: string) => invoke<DocSummary[]>("events_naming", { id }),
-  eventLinks: () => invoke<EventLink[]>("event_links"),
-  timelineTags: () => invoke<DocTag[]>("timeline_tags"),
-  placeFacts: () => invoke<PlaceFact[]>("place_facts"),
-  journeys: () => invoke<Journey[]>("journeys"),
+  datesOf: (id: string) => query<DatedProperty[]>({ kind: "datesOf", id }),
+  timeline: () => query<DatedProperty[]>({ kind: "timeline" }),
+  eventsNaming: (id: string) =>
+    query<DocSummary[]>({ kind: "eventsNaming", id }),
+  eventLinks: () => query<EventLink[]>({ kind: "eventLinks" }),
+  timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
+  placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
+  journeys: () => query<Journey[]>({ kind: "journeys" }),
   setMapFilters: (books: number[], mentionedOnly: boolean) =>
     invoke<void>("set_map_filters", { books, mentionedOnly }),
   versions: (id: string) => invoke<Version[]>("versions", { id }),

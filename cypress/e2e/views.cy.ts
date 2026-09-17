@@ -10,7 +10,7 @@ describe("Views", () => {
       15,
     );
     // Counts come from the engine, so the assertion follows the demo vault's content.
-    cy.bridge<{ book: number; chapter: number; count: number }[]>("coverage").then((cells) => {
+    cy.query<{ book: number; chapter: number; count: number }[]>({ kind: "coverage" }).then((cells) => {
       const gen2 = cells.find((c) => c.book === 1 && c.chapter === 2);
       cy.get("[data-testid=coverage-cell][title^='Genesis 2 ']").should("have.attr", "data-count", String(gen2?.count ?? 0));
     });

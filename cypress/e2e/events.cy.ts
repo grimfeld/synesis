@@ -64,7 +64,7 @@ describe("Events and Dates", () => {
       "true",
     );
     cy.docByTitle("The Flood").then((d) => {
-      cy.bridge<{ doc: { id: string }; name: string }[]>("timeline").then(
+      cy.query<{ doc: { id: string }; name: string }[]>({ kind: "timeline" }).then(
         (rows) => {
           const mine = rows.filter((r) => r.doc.id === d.id).map((r) => r.name);
           expect(mine).to.deep.equal(["start"]);
