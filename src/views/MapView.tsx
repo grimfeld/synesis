@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import { MapPin, Plus, Search } from "lucide-react";
 import {
@@ -18,6 +18,7 @@ import {
   type PlaceFacts,
   type RoutePoint,
 } from "@/lib/map";
+import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -39,9 +40,6 @@ export function MapView() {
   const host = useRef<HTMLDivElement>(null);
   const map = useRef<L.Map | null>(null);
   const layer = useRef<L.LayerGroup | null>(null);
-  const [places, setPlaces] = useState<DocSummary[]>([]);
-  const [rawFacts, setRawFacts] = useState<PlaceFact[]>([]);
-  const [journeys, setJourneys] = useState<Journey[]>([]);
   // Opening a Place must not re-run the marker effect: the store object changes
   // on every update, and a re-run would refit the view under the reader.
   const openDoc = useRef(s.openDoc);
@@ -49,11 +47,28 @@ export function MapView() {
   // Fit once per set of Places; after that the view is the reader's to keep.
   const fitted = useRef("");
 
-  useEffect(() => {
-    api.places().then(setPlaces).catch(console.error);
-    api.placeFacts().then(setRawFacts).catch(console.error);
-    api.journeys().then(setJourneys).catch(console.error);
-  }, [s.changeTick, s.docs]);
+  // Three reads, three answers about what is stale. A Place's own page moves
+  // the markers; a Journey's moves the routes; but the Book a Place is
+  // mentioned in is counted from every document in the vault, so the facts
+  // behind the filters move whenever anything is written.
+  const { data: placesData } = useQuery<DocSummary[]>({
+    key: [],
+    deps: { types: ["place"] },
+    fetch: () => api.places(),
+  });
+  const { data: factsData } = useQuery<PlaceFact[]>({
+    key: [],
+    deps: { any: true },
+    fetch: () => api.placeFacts(),
+  });
+  const { data: journeysData } = useQuery<Journey[]>({
+    key: [],
+    deps: { types: ["journey"] },
+    fetch: () => api.journeys(),
+  });
+  const places = useMemo(() => placesData ?? [], [placesData]);
+  const rawFacts = useMemo(() => factsData ?? [], [factsData]);
+  const journeys = useMemo(() => journeysData ?? [], [journeysData]);
 
   // The engine returns one row per Place; the filters want lookups by id.
   const facts: PlaceFacts = useMemo(() => {

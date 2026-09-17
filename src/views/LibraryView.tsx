@@ -9,6 +9,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, LibraryBig } from "lucide-react";
 import { api, type LibraryEntry } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { shelve, UNSHELVED, type Shelf } from "@/lib/library";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -145,22 +146,16 @@ function ShelfRow({ shelf }: { shelf: Shelf }) {
 }
 
 export function LibraryView() {
-  const s = useStore();
   const t = useT();
-  const [entries, setEntries] = useState<LibraryEntry[]>([]);
+  // Shelves hold Sources and are built from their `parent` links, which are
+  // Sources too: nothing else in the vault can move the Library.
+  const { data, status } = useQuery<LibraryEntry[]>({
+    key: [],
+    deps: { types: ["source"] },
+    fetch: () => api.library(),
+  });
 
-  useEffect(() => {
-    let alive = true;
-    api
-      .library()
-      .then((x) => alive && setEntries(x))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [s.changeTick]);
-
-  const shelves = useMemo(() => shelve(entries), [entries]);
+  const shelves = useMemo(() => shelve(data ?? []), [data]);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -170,9 +165,13 @@ export function LibraryView() {
         className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4"
       >
         {shelves.length === 0 ? (
-          <p className="px-3 text-sm text-muted-foreground">
-            {t.library_empty}
-          </p>
+          // Only once the answer is in: "no Sources yet" is a different thing
+          // from "not read yet", and they used to look the same.
+          status === "ready" && (
+            <p className="px-3 text-sm text-muted-foreground">
+              {t.library_empty}
+            </p>
+          )
         ) : (
           shelves.map((shelf) => <ShelfRow key={shelf.id} shelf={shelf} />)
         )}

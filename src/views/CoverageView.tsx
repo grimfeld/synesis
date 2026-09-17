@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { LayoutGrid } from "lucide-react";
 import { api, type CoverageCell } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -10,10 +11,13 @@ import { Badge } from "@/components/ui/badge";
 export function CoverageView() {
   const s = useStore();
   const t = useT();
-  const [cells, setCells] = useState<CoverageCell[]>([]);
-  useEffect(() => {
-    api.coverage().then(setCells).catch(console.error);
-  }, [s.changeTick, s.docs]);
+  // Every document may carry a Mention, so any change moves the grid.
+  const { data } = useQuery<CoverageCell[]>({
+    key: [],
+    deps: { any: true },
+    fetch: () => api.coverage(),
+  });
+  const cells = useMemo(() => data ?? [], [data]);
   const byKey = useMemo(() => new Map(cells.map((c) => [`${c.book}:${c.chapter}`, c.count])), [cells]);
   const max = useMemo(() => Math.max(1, ...cells.map((c) => c.count)), [cells]);
   const total = cells.length;
