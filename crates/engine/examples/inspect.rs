@@ -80,8 +80,11 @@ fn main() -> engine::Result<()> {
         println!(
             "trail for {}: {:?}",
             s.title,
-            v.source_trail(&s.id)?
-                .iter()
+            match v.query(engine::query::Query::SourceTrail { id: s.id.clone() })? {
+                engine::query::Answer::Entries(e) => e,
+                _ => unreachable!(),
+            }
+            .iter()
                 .map(|t| (t.doc.title.clone(), t.locator.clone()))
                 .collect::<Vec<_>>()
         );

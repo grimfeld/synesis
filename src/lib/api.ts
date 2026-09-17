@@ -559,7 +559,13 @@ export type Query =
   | { kind: "places" }
   | { kind: "library" }
   | { kind: "clippings"; sourceId: string | null }
-  | { kind: "backlinks"; id: string };
+  | { kind: "backlinks"; id: string }
+  | { kind: "sourceTrail"; id: string }
+  | { kind: "sourceChildren"; id: string }
+  | { kind: "tagsOf"; ids: string[] }
+  | { kind: "unresolvedLinks" }
+  | { kind: "boardsReferencing"; id: string }
+  | { kind: "boardExcerpts"; refs: BoardRef[] };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -712,9 +718,9 @@ export const api = {
   saveBoard: (id: string, board: Board) =>
     invoke<void>("save_board", { id, board }),
   boardsReferencing: (id: string) =>
-    invoke<DocSummary[]>("boards_referencing", { id }),
+    query<DocSummary[]>({ kind: "boardsReferencing", id }),
   boardExcerpts: (refs: BoardRef[]) =>
-    invoke<Record<string, BoardExcerpt>>("board_excerpts", { refs }),
+    query<Record<string, BoardExcerpt>>({ kind: "boardExcerpts", refs }),
   boardAt: (id: string, frontier: string) =>
     invoke<Board | null>("board_at", { id, frontier }),
   exportBoard: (path: string, data: string, base64: boolean) =>
@@ -729,7 +735,7 @@ export const api = {
     invoke<string>("save_remote_cover", { title, url }),
   /** Read a stored picture back as a data URL. */
   readAttachment: (path: string) => invoke<string>("read_attachment", { path }),
-  sourceTrail: (id: string) => invoke<TrailEntry[]>("source_trail", { id }),
+  sourceTrail: (id: string) => query<TrailEntry[]>({ kind: "sourceTrail", id }),
   /**
    * Every Clipping with the Citation it names, newest first (ADR 0013).
    * `sourceId` narrows to one Source, for its Hub's Clippings section.
@@ -738,10 +744,10 @@ export const api = {
     query<TrailEntry[]>({ kind: "clippings", sourceId: sourceId ?? null }),
   /** The Tags on each of `ids`, for filtering a list already in hand. */
   tagsOf: (ids: string[]) =>
-    invoke<Record<string, string[]>>("tags_of", { ids }),
+    query<Record<string, string[]>>({ kind: "tagsOf", ids }),
   sourceChildren: (id: string) =>
-    invoke<DocSummary[]>("source_children", { id }),
-  unresolvedLinks: () => invoke<UnresolvedLink[]>("unresolved_links"),
+    query<DocSummary[]>({ kind: "sourceChildren", id }),
+  unresolvedLinks: () => query<UnresolvedLink[]>({ kind: "unresolvedLinks" }),
   findSourceByUrl: (url: string) =>
     invoke<DocSummary | null>("find_source_by_url", { url }),
   detectPassages: (text: string) =>

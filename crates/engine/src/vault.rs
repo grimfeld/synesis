@@ -4,9 +4,9 @@
 use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty,
+    self, AmbiguousTitle, Backlink, Candidate, CoverageCell, DatedProperty,
     DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, Linkable,
-    PlaceFact, SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
+    PlaceFact, SearchHit, UnlinkedMentions, UnresolvedLink,
 };
 use crate::parser::Detected;
 use crate::properties::{PropertySchema, PropertyType};
@@ -19,7 +19,6 @@ use crate::{Error, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -574,18 +573,8 @@ impl Vault {
     }
 
     /// Compositions whose Board references this document.
-    pub fn boards_referencing(&self, id: &str) -> Result<Vec<DocSummary>> {
-        self.index.boards_referencing(id)
-    }
 
     /// The Board excerpt for each `(path, subpath)` a Board references.
-    pub fn board_excerpts(
-        &self,
-        refs: &[(String, Option<String>)],
-    ) -> Result<HashMap<String, BoardExcerpt>> {
-        self.index.board_excerpts(refs)
-    }
-
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
     /// `keep` is the document's own path, so renaming a file to a different
     /// casing of itself is not a clash (case-insensitive file systems would
@@ -842,6 +831,18 @@ impl Vault {
                 Answer::Entries(self.index.clippings(source_id.as_deref())?)
             }
             Query::Backlinks { id } => Answer::Backlinks(self.index.backlinks(&id, self.lang)?),
+            Query::SourceTrail { id } => Answer::Entries(self.index.source_trail(&id)?),
+            Query::SourceChildren { id } => Answer::Docs(self.index.source_descendants(&id)?),
+            Query::TagsOf { ids } => Answer::TagsOf(self.index.tags_of(&ids)?),
+            Query::UnresolvedLinks => Answer::UnresolvedLinks(self.index.unresolved()?),
+            Query::BoardsReferencing { id } => {
+                Answer::Docs(self.index.boards_referencing(&id)?)
+            }
+            Query::BoardExcerpts { refs } => {
+                let pairs: Vec<(String, Option<String>)> =
+                    refs.into_iter().map(|r| (r.path, r.subpath)).collect();
+                Answer::BoardExcerpts(self.index.board_excerpts(&pairs)?)
+            }
         })
     }
 
@@ -916,17 +917,8 @@ impl Vault {
     pub fn candidates(&self, id: &str) -> Result<Vec<Candidate>> {
         self.index.candidates(id, self.lang, 50)
     }
-    pub fn source_trail(&self, id: &str) -> Result<Vec<TrailEntry>> {
-        self.index.source_trail(id)
-    }
     /// Every Clipping with its Citation, or those of one Source (ADR 0013).
     /// The Tags on each of `ids`, for filtering a list the caller already has.
-    pub fn tags_of(&self, ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
-        self.index.tags_of(ids)
-    }
-    pub fn source_children(&self, id: &str) -> Result<Vec<DocSummary>> {
-        self.index.source_descendants(id)
-    }
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         self.index.unresolved()
     }

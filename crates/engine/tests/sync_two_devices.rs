@@ -2,10 +2,19 @@
 //! the provider has copied everything). Each device has its own data dir.
 use engine::canvas::{Canvas, Node, NodeKind};
 use engine::document::DocType;
+use engine::query::{Answer, Query};
 use engine::scripture::Lang;
 use engine::Vault;
 use serde_json::Map;
 use std::fs;
+
+/// The Compositions whose Board holds this document, through the one read seam.
+fn boards_referencing(v: &Vault, id: &str) -> Vec<engine::index::DocSummary> {
+    match v.query(Query::BoardsReferencing { id: id.to_string() }).unwrap() {
+        Answer::Docs(d) => d,
+        other => panic!("unexpected answer: {other:?}"),
+    }
+}
 
 fn open(root: &std::path::Path, data: &std::path::Path) -> Vault {
     Vault::open(root, data, Lang::En).unwrap()
@@ -386,7 +395,7 @@ fn renaming_follows_boards() {
     a.write_board(&comp_id, &board).unwrap();
 
     // The Note is on the Board, and the Composition is findable from the Note.
-    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+    assert_eq!(boards_referencing(&a, &note_id).len(), 1);
 
     // Rename the Note: the node must follow it, not dangle.
     let renamed = a.rename(&note_id, "Steadfastness").unwrap();
@@ -397,7 +406,7 @@ fn renaming_follows_boards() {
         Some(renamed.summary.path.as_str()),
         "board node left pointing at the old path"
     );
-    assert_eq!(a.boards_referencing(&note_id).unwrap().len(), 1);
+    assert_eq!(boards_referencing(&a, &note_id).len(), 1);
 
     // Rename the Composition: its own Board file moves with it.
     let moved = a.rename(&comp_id, "Talk on endurance").unwrap();
@@ -441,7 +450,7 @@ fn deleting_a_target_leaves_the_node_as_missing() {
         Some(note.summary.path.as_str())
     );
     // The ref itself is gone from the index: it names no document any more.
-    assert!(a.boards_referencing(&note.summary.id).unwrap().is_empty());
+    assert!(boards_referencing(&a, &note.summary.id).is_empty());
 }
 
 /// Deleting a Composition takes its Board with it.

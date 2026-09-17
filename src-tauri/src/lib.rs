@@ -5,9 +5,9 @@
 use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::index::{
-    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
+    AmbiguousTitle, Backlink, Candidate, CoverageCell, DatedProperty, DocSummary,
     DocTag, EventLink, Graph, GraphLevel, Journey, Linkable, PlaceFact, SearchHit,
-    TrailEntry, UnlinkedMentions, UnresolvedLink,
+    UnlinkedMentions,
 };
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
@@ -16,7 +16,6 @@ use engine::sync::{HistoryPoint, Version};
 use engine::vault::{DocumentView, VaultInfo, HIDDEN_DIR};
 use engine::{parser, Vault};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use serde_json::{Map, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -572,11 +571,6 @@ fn resolve_many(
     state.with_vault(|v| targets.iter().map(|t| v.resolve(t)).collect())
 }
 
-#[tauri::command]
-fn backlinks(state: State<AppState>, id: String) -> CmdResult<Vec<Backlink>> {
-    state.with_vault(|v| v.backlinks(&id))
-}
-
 /// Documents that write this Hub's name without linking it (ADR 0011).
 #[tauri::command]
 fn unlinked_mentions(state: State<AppState>, id: String) -> CmdResult<UnlinkedMentions> {
@@ -880,27 +874,10 @@ fn save_board(state: State<AppState>, id: String, board: Canvas) -> CmdResult<()
     r
 }
 
-/// One `file` node's identity: which document, and which part of it.
-#[derive(Debug, Clone, Deserialize)]
-pub struct BoardRef {
-    pub path: String,
-    pub subpath: Option<String>,
-}
-
 /// The text each Board card shows for its document (PLAN §17.12).
 ///
 /// One call per Board rather than one per card: a Board is read as a whole,
 /// and forty cards must not mean forty round trips.
-#[tauri::command]
-fn board_excerpts(
-    state: State<AppState>,
-    refs: Vec<BoardRef>,
-) -> CmdResult<HashMap<String, BoardExcerpt>> {
-    let pairs: Vec<(String, Option<String>)> =
-        refs.into_iter().map(|r| (r.path, r.subpath)).collect();
-    state.with_vault(|v| v.board_excerpts(&pairs))
-}
-
 /// A Composition's Board as it stood at a Version's frontier.
 #[tauri::command]
 fn board_at(state: State<AppState>, id: String, frontier: String) -> CmdResult<Option<Canvas>> {
@@ -926,31 +903,6 @@ fn export_board(path: String, data: String, base64: bool) -> CmdResult<()> {
 }
 
 /// Compositions whose Board references this document.
-#[tauri::command]
-fn boards_referencing(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.boards_referencing(&id))
-}
-
-#[tauri::command]
-fn source_trail(state: State<AppState>, id: String) -> CmdResult<Vec<TrailEntry>> {
-    state.with_vault(|v| v.source_trail(&id))
-}
-
-#[tauri::command]
-fn tags_of(state: State<AppState>, ids: Vec<String>) -> CmdResult<HashMap<String, Vec<String>>> {
-    state.with_vault(|v| v.tags_of(&ids))
-}
-
-#[tauri::command]
-fn source_children(state: State<AppState>, id: String) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.source_children(&id))
-}
-
-#[tauri::command]
-fn unresolved_links(state: State<AppState>) -> CmdResult<Vec<UnresolvedLink>> {
-    state.with_vault(|v| v.unresolved())
-}
-
 /// Shrink a picture to a Cover and encode it, or hand back the original bytes
 /// when it is already small enough and in a format we serve (ADR 0012).
 fn to_cover(bytes: &[u8], ext: &str) -> Result<(Vec<u8>, String), String> {
@@ -1327,7 +1279,6 @@ pub fn run() {
             resolve_link,
             resolve_many,
             names,
-            backlinks,
             unlinked_mentions,
             linkables,
             ambiguous_titles,
@@ -1362,17 +1313,11 @@ pub fn run() {
             candidates,
             get_board,
             save_board,
-            board_excerpts,
-            boards_referencing,
             board_at,
             export_board,
-            source_trail,
-            tags_of,
-            source_children,
             attach_image,
             save_remote_cover,
             read_attachment,
-            unresolved_links,
             find_source_by_url,
             detect_passages,
             books,

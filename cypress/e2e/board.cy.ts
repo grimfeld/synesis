@@ -83,7 +83,8 @@ describe("Board", () => {
     // Material placed on a Board is visible from the document's side, so a
     // Board is not a one-way mirror (PLAN §17.6).
     cy.docByTitle("Endurance in trials").then((d) => {
-      cy.bridge<{ title: string }[]>("boards_referencing", {
+      cy.query<{ title: string }[]>({
+        kind: "boardsReferencing",
         id: d.id,
       }).should((rows) => {
         expect(rows.map((r) => r.title)).to.include("Talk on endurance");
@@ -91,7 +92,7 @@ describe("Board", () => {
     });
     // A document on no Board reports none.
     cy.docByTitle("Psalm 23 reflections").then((d) => {
-      cy.bridge<unknown[]>("boards_referencing", { id: d.id }).should(
+      cy.query<unknown[]>({ kind: "boardsReferencing", id: d.id }).should(
         "have.length",
         0,
       );

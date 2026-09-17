@@ -24,9 +24,10 @@
 //! same question wearing a different name.
 use crate::document::DocType;
 use crate::index::{
-    Backlink, DocSummary, LibraryEntry, TrailEntry,
+    Backlink, BoardExcerpt, DocSummary, LibraryEntry, TrailEntry, UnresolvedLink,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// How many Candidates a Composition offers before the list is cut (PLAN §17).
 pub const CANDIDATE_LIMIT: usize = 50;
@@ -52,6 +53,29 @@ pub enum Query {
     Clippings { source_id: Option<String> },
     /// The documents that Mention this one.
     Backlinks { id: String },
+    /// What was kept from this Source and everything inside it (PLAN §18).
+    SourceTrail { id: String },
+    /// The Sources sitting inside this one, however deep.
+    SourceChildren { id: String },
+    /// The Tags on each of these documents, for filtering a list in hand.
+    TagsOf { ids: Vec<String> },
+    /// Links that name a document the vault does not hold.
+    UnresolvedLinks,
+    /// The Compositions whose Board holds this document (PLAN §17.6).
+    BoardsReferencing { id: String },
+    /// What each Board card shows for its document (PLAN §17.12).
+    BoardExcerpts { refs: Vec<BoardRef> },
+}
+
+/// One `file` node's identity on a Board: which document, and which part of it.
+///
+/// Named here rather than left as a `(String, Option<String>)` for the Tauri
+/// layer to christen on its way past.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardRef {
+    pub path: String,
+    pub subpath: Option<String>,
 }
 
 /// What the index answered.
@@ -66,4 +90,7 @@ pub enum Answer {
     Library(Vec<LibraryEntry>),
     Entries(Vec<TrailEntry>),
     Backlinks(Vec<Backlink>),
+    UnresolvedLinks(Vec<UnresolvedLink>),
+    TagsOf(HashMap<String, Vec<String>>),
+    BoardExcerpts(HashMap<String, BoardExcerpt>),
 }
