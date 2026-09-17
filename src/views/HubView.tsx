@@ -28,7 +28,6 @@ import {
   api,
   fmString,
   type Backlink,
-  type DatedProperty,
   type DocSummary,
   type DocType,
   type DocumentPayload,
@@ -39,6 +38,7 @@ import {
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
 import type { SectionProps } from "@/lib/docTypes";
+import { useQuery } from "@/lib/useQuery";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { childKindFor } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
@@ -77,41 +77,44 @@ export function HubView({ id }: { id: string }) {
   const t = useT();
   const d = useDocument(id);
   const [hover, setHover] = useState<HoverState | null>(null);
-  const [backlinks, setBacklinks] = useState<Backlink[]>([]);
-  const [unlinked, setUnlinked] = useState<UnlinkedMentionsData>({
-    items: [],
-    total: 0,
-  });
-  const [boards, setBoards] = useState<DocSummary[]>([]);
   const doc = d.doc;
+  const mtime = doc?.summary.mtime;
+
+  // Anything written anywhere may point at this Hub, and saving the Hub itself
+  // changes what these lists say, so they follow both.
+  const { data: backlinksData, refetch: refetchBacklinks } = useQuery<
+    Backlink[]
+  >({
+    key: [id, mtime],
+    deps: { any: true },
+    fetch: () => api.backlinks(id),
+  });
+  const { data: unlinkedData, refetch: refetchUnlinked } =
+    useQuery<UnlinkedMentionsData>({
+      key: [id, mtime],
+      deps: { any: true },
+      fetch: () => api.unlinkedMentions(id),
+    });
+  // Material placed on a Board is visible from the document's side too, so
+  // twelve Notes on a Board are not a one-way mirror (PLAN §17.6).
+  const { data: boardsData } = useQuery<DocSummary[]>({
+    key: [id, mtime],
+    deps: { types: ["composition"] },
+    fetch: () => api.boardsReferencing(id),
+  });
+  const backlinks = useMemo(() => backlinksData ?? [], [backlinksData]);
+  const unlinked = useMemo<UnlinkedMentionsData>(
+    () => unlinkedData ?? { items: [], total: 0 },
+    [unlinkedData],
+  );
+  const boards = useMemo(() => boardsData ?? [], [boardsData]);
 
   // Linking rewrites another document, so both lists are refetched together:
-  // what leaves one joins the other.
+  // what leaves one joins the other (ADR 0011).
   const reload = useCallback(() => {
-    api.backlinks(id).then(setBacklinks).catch(console.error);
-    api.unlinkedMentions(id).then(setUnlinked).catch(console.error);
-  }, [id]);
-
-  useEffect(() => {
-    let alive = true;
-    api
-      .backlinks(id)
-      .then((b) => alive && setBacklinks(b))
-      .catch(console.error);
-    api
-      .unlinkedMentions(id)
-      .then((u) => alive && setUnlinked(u))
-      .catch(console.error);
-    // Material placed on a Board is visible from the document's side too, so
-    // twelve Notes on a Board are not a one-way mirror (PLAN §17.6).
-    api
-      .boardsReferencing(id)
-      .then((b) => alive && setBoards(b))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [id, s.changeTick, doc?.summary.mtime]);
+    refetchBacklinks();
+    refetchUnlinked();
+  }, [refetchBacklinks, refetchUnlinked]);
 
   const env = useMemo<EditorEnv>(
     () => ({
@@ -859,38 +862,29 @@ function JourneySection({
 
 /** Dates on a Subject (ADR 0005) and, for anything but an Event, the Events naming it. */
 function DatesSection({ doc }: { doc: DocumentPayload }) {
-  const s = useStore();
   const t = useT();
   const id = doc.summary.id;
   const isEvent = doc.summary.type === "event";
-  const [dates, setDates] = useState<DatedProperty[]>([]);
-  const [events, setEvents] = useState<DocSummary[]>([]);
   // The mini-timeline needs each Event's own Dates, which `eventsNaming` omits.
-  const [eventDates, setEventDates] = useState<
-    { doc: DocSummary; dates: DatedProperty[] }[]
-  >([]);
-  useEffect(() => {
-    let alive = true;
-    api
-      .datesOf(id)
-      .then((x) => alive && setDates(x))
-      .catch(console.error);
-    if (!isEvent)
-      api
-        .eventsNaming(id)
-        .then(async (x) => {
-          if (!alive) return;
-          setEvents(x);
-          const withDates = await Promise.all(
-            x.map(async (e) => ({ doc: e, dates: await api.datesOf(e.id) })),
-          );
-          if (alive) setEventDates(withDates);
-        })
-        .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [id, isEvent, s.changeTick, doc.summary.mtime]);
+  // This document's own Dates, and — unless it is an Event itself — every
+  // Event naming it, each with the Dates the mini-timeline needs. One answer,
+  // so an Event can never appear without the Dates that place it.
+  const { data } = useQuery({
+    key: [id, isEvent, doc.summary.mtime],
+    deps: { types: ["event"] },
+    fetch: async () => {
+      const dates = await api.datesOf(id);
+      if (isEvent) return { dates, events: [], eventDates: [] };
+      const events = await api.eventsNaming(id);
+      const eventDates = await Promise.all(
+        events.map(async (e) => ({ doc: e, dates: await api.datesOf(e.id) })),
+      );
+      return { dates, events, eventDates };
+    },
+  });
+  const dates = useMemo(() => data?.dates ?? [], [data]);
+  const events = useMemo(() => data?.events ?? [], [data]);
+  const eventDates = useMemo(() => data?.eventDates ?? [], [data]);
   if (dates.length === 0 && (isEvent || events.length === 0)) return null;
   const anyParsed =
     dates.some((d) => d.date) ||
@@ -1182,27 +1176,23 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
   // The kind a new part defaults to depends on what this Source is: a book
   // holds chapters, a periodical issues.
   const sourceKind = String(doc.frontmatter.kind ?? "");
-  const [trail, setTrail] = useState<TrailEntry[]>([]);
-  const [clippings, setClippings] = useState<TrailEntry[]>([]);
-  const [children, setChildren] = useState<DocSummary[]>([]);
-  useEffect(() => {
-    let alive = true;
-    api
-      .sourceTrail(id)
-      .then((x) => alive && setTrail(x))
-      .catch(console.error);
-    api
-      .clippings(id)
-      .then((x) => alive && setClippings(x))
-      .catch(console.error);
-    api
-      .sourceChildren(id)
-      .then((x) => alive && setChildren(x))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [id, s.changeTick, doc.summary.mtime]);
+  // What was kept from this Source: its reading trail, its Clippings, and the
+  // Sources sitting inside it. All three move with what cites this Source.
+  const { data } = useQuery({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["clipping", "note", "composition", "source"] },
+    fetch: async () => {
+      const [trail, clippings, children] = await Promise.all([
+        api.sourceTrail(id),
+        api.clippings(id),
+        api.sourceChildren(id),
+      ]);
+      return { trail, clippings, children };
+    },
+  });
+  const trail = useMemo(() => data?.trail ?? [], [data]);
+  const clippings = useMemo(() => data?.clippings ?? [], [data]);
+  const children = useMemo(() => data?.children ?? [], [data]);
   // Group under the child Source each entry came from; the parent's own
   // entries first. Clippings are left out: they have their own section above,
   // because a Clipping belongs to its Source in a way that a Note merely
@@ -1318,50 +1308,42 @@ function ScriptureSection({
   const s = useStore();
   const t = useT();
   const sum = doc.summary;
-  const [cells, setCells] = useState<{ n: number; count: number }[]>([]);
-  const [mentions, setMentions] = useState<Backlink[] | null>(null);
-  useEffect(() => {
-    let alive = true;
-    if (sum.type === "book") {
-      api.coverage().then((c) => {
-        if (!alive) return;
+  // How heavily each part of this Book or Chapter is Mentioned, and who
+  // Mentions the unit itself. Both counted from every document, so both move
+  // with the whole vault.
+  const { data } = useQuery({
+    key: [sum.type, sum.chapter ?? null, sum.verse ?? null, book.number],
+    deps: { any: true },
+    fetch: async () => {
+      let cells: { n: number; count: number }[] = [];
+      if (sum.type === "book") {
+        const c = await api.coverage();
         const byCh = new Map(
-          c
-            .filter((x) => x.book === book.number)
-            .map((x) => [x.chapter, x.count]),
+          c.filter((x) => x.book === book.number).map((x) => [x.chapter, x.count]),
         );
-        setCells(
-          book.chapters.map((_, i) => ({
-            n: i + 1,
-            count: byCh.get(i + 1) ?? 0,
-          })),
-        );
-      });
-    } else if (sum.type === "chapter" && sum.chapter) {
-      const max = book.chapters[sum.chapter - 1];
-      api.verseCoverage(book.number, sum.chapter).then((v: VerseCount[]) => {
-        if (!alive) return;
+        cells = book.chapters.map((_, i) => ({
+          n: i + 1,
+          count: byCh.get(i + 1) ?? 0,
+        }));
+      } else if (sum.type === "chapter" && sum.chapter) {
+        const max = book.chapters[sum.chapter - 1];
+        const v: VerseCount[] = await api.verseCoverage(book.number, sum.chapter);
         const byV = new Map(v.map((x) => [x.verse, x.count]));
-        setCells(
-          Array.from({ length: max }, (_, i) => ({
-            n: i + 1,
-            count: byV.get(i + 1) ?? 0,
-          })),
-        );
-      });
-    }
-    api
-      .verseMentions(
+        cells = Array.from({ length: max }, (_, i) => ({
+          n: i + 1,
+          count: byV.get(i + 1) ?? 0,
+        }));
+      }
+      const mentions = await api.verseMentions(
         book.number,
         sum.type === "book" ? undefined : (sum.chapter ?? undefined),
         sum.type === "verse" ? (sum.verse ?? undefined) : undefined,
-      )
-      .then((m) => alive && setMentions(m))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [sum.type, sum.chapter, sum.verse, book, s.changeTick]);
+      );
+      return { cells, mentions };
+    },
+  });
+  const cells = useMemo(() => data?.cells ?? [], [data]);
+  const mentions = data?.mentions ?? null;
 
   const max = Math.max(1, ...cells.map((c) => c.count));
   const shade = (n: number) =>
