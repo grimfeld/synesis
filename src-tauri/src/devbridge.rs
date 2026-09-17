@@ -108,6 +108,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "set_language" => ok(set_language(state, arg(&a, "lang")?)?),
         "set_graph_level" => ok(set_graph_level(state, arg(&a, "level")?)?),
         "set_timeline_filters" => ok(set_timeline_filters(state, arg(&a, "hiddenTypes")?, arg(&a, "inView")?)?),
+        "set_map_filters" => ok(set_map_filters(state, arg(&a, "books")?, arg(&a, "mentionedOnly")?)?),
         "set_sync_method" => ok(set_sync_method(state, arg(&a, "method")?)?),
         "pairing_status" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_status(state))?),
         "pairing_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_invite(app.clone(), state))?),
