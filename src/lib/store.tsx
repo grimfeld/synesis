@@ -29,6 +29,7 @@ import {
 } from "./api";
 import { NO_FILTERS, type Filters } from "./timeline";
 import { NO_MAP_FILTERS, type MapFilters } from "./map";
+import { RELOAD_EVERYTHING } from "./query";
 
 export type View =
   | { kind: "home" }
@@ -376,7 +377,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       await refresh();
       // A new document changes what other pages show — a parent Source's
       // Contains list, a reading trail, the Library — and none of those are
-      // derived from `docs`, so they need telling.
+      // derived from `docs`, so they need telling. Announced the same way the
+      // engine announces a change from disk, so a query that cares about this
+      // type refetches and the rest are left alone.
+      setLastChange({ changed: [d.summary], removed: [] });
       setChangeTick((n) => n + 1);
       if (open) openDoc(d.summary.id);
       return d;
@@ -388,6 +392,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await api.setLanguage(l);
     setSettings(await api.getSettings());
     setBooks(await api.books());
+    // The engine renders Passage displays and Book names in the Device's
+    // language, so every answer it has already given is now in the wrong one.
+    // Nothing in the vault changed, so this is the one case that asks every
+    // query to look again.
+    setLastChange({ changed: [], removed: [RELOAD_EVERYTHING] });
     setChangeTick((n) => n + 1);
   }, []);
 

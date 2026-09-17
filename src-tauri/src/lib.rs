@@ -1169,3 +1169,103 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+
+/// The pure parts of this layer: turning a picked picture into a Cover
+/// (ADR 0012) and reading a page's own description of itself. Neither needs a
+/// vault, a window or the network, and until now neither had a test.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A solid image of the given size, as PNG bytes.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(w, h, image::Rgb([10, 20, 30]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    /// A half-transparent image, to prove JPEG gets a flattened copy.
+    fn png_with_alpha(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 128]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn size_of(bytes: &[u8]) -> (u32, u32) {
+        let img = image::load_from_memory(bytes).unwrap();
+        (img.width(), img.height())
+    }
+
+    #[test]
+    fn a_small_picture_is_stored_exactly_as_it_arrived() {
+        // Nothing to gain by re-encoding: the bytes the user picked are kept.
+        let bytes = png(100, 80);
+        let (out, ext) = to_cover(&bytes, "png").unwrap();
+        assert_eq!(ext, "png");
+        assert_eq!(out, bytes);
+    }
+
+    #[test]
+    fn an_oversize_picture_is_shrunk_to_the_longest_edge() {
+        let bytes = png(1800, 900);
+        let (out, _) = to_cover(&bytes, "png").unwrap();
+        let (w, h) = size_of(&out);
+        assert_eq!(w, engine::attachments::MAX_EDGE);
+        // The aspect ratio is kept, so a 2:1 picture stays 2:1.
+        assert_eq!(h, engine::attachments::MAX_EDGE / 2);
+    }
+
+    #[test]
+    fn a_jpeg_stays_a_jpeg_and_everything_else_becomes_a_png() {
+        // A resized GIF would lose its animation and a WebP would need an
+        // encoder we do not ship, so the output format is not the input's.
+        let (_, ext) = to_cover(&png(1800, 900), "jpg").unwrap();
+        assert_eq!(ext, "jpg");
+        let (_, ext) = to_cover(&png(1800, 900), "gif").unwrap();
+        assert_eq!(ext, "png");
+        let (_, ext) = to_cover(&png(1800, 900), "webp").unwrap();
+        assert_eq!(ext, "png");
+    }
+
+    #[test]
+    fn a_transparent_picture_can_still_be_written_as_a_jpeg() {
+        // JPEG has no alpha; flattening rather than failing is the rule.
+        let (out, ext) = to_cover(&png_with_alpha(1200, 1200), "jpg").unwrap();
+        assert_eq!(ext, "jpg");
+        assert_eq!(size_of(&out).0, engine::attachments::MAX_EDGE);
+    }
+
+    #[test]
+    fn something_that_is_not_a_picture_is_refused() {
+        let err = to_cover(b"<html>not an image</html>", "png").unwrap_err();
+        assert!(err.contains("not an image"), "{err}");
+    }
+
+    #[test]
+    fn a_meta_tag_is_read_in_either_attribute_order() {
+        let a = r#"<meta property="og:title" content="Keep Enduring">"#;
+        let b = r#"<meta content="Keep Enduring" property="og:title">"#;
+        assert_eq!(meta_content(a, "og:title").as_deref(), Some("Keep Enduring"));
+        assert_eq!(meta_content(b, "og:title").as_deref(), Some("Keep Enduring"));
+    }
+
+    #[test]
+    fn a_meta_tag_that_is_not_there_is_not_invented() {
+        assert_eq!(meta_content("<html></html>", "og:title"), None);
+    }
+
+    #[test]
+    fn entities_are_read_as_the_characters_they_stand_for() {
+        let html = r#"<meta name="description" content="Faith &amp; works &#39;now&#39;">"#;
+        assert_eq!(
+            meta_content(html, "description").as_deref(),
+            Some("Faith & works 'now'"),
+        );
+    }
+}

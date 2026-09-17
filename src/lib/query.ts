@@ -26,6 +26,18 @@ export type QueryDeps =
   | { none: true; types?: never; ids?: never; any?: never };
 
 /**
+ * A `removed` entry that is not a path: "everything the engine told you is
+ * stale".
+ *
+ * Changing the Device's language does not touch the vault, but the engine
+ * renders Passage displays and Book names in it, so every answer already given
+ * is in the wrong language. A removal already means "refetch unless you are
+ * `none`", which is exactly the rule wanted here. A bare "*" is not a path any
+ * document can have, so nothing else collides with it.
+ */
+export const RELOAD_EVERYTHING = "*";
+
+/**
  * Whether `change` is this query's business.
  *
  * A removal is deliberately coarse: `ChangedPayload.removed` carries a

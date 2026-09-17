@@ -2,7 +2,12 @@
 // allowed to speak when several are in flight.
 import { describe, expect, it, vi } from "vitest";
 import type { ChangedPayload, DocSummary, DocType } from "../api";
-import { createQuery, matches, type QueryDeps } from "../query";
+import {
+  createQuery,
+  matches,
+  RELOAD_EVERYTHING,
+  type QueryDeps,
+} from "../query";
 
 function doc(id: string, type: DocType): DocSummary {
   return {
@@ -60,6 +65,26 @@ describe("matches", () => {
     // The Device list: pairing refreshes it, saving a document does not.
     expect(matches({ none: true }, change([doc("a", "note")]))).toBe(false);
     expect(matches({ none: true }, change([], ["Sources/gone.md"]))).toBe(false);
+  });
+
+  it("wakes a type query when the app itself creates that type", () => {
+    // Creating a document in-app does not go past the file watcher, so the
+    // store announces it the same way the engine would. Without that, a new
+    // Clipping never reached the Source Hub that should list it.
+    const created = change([doc("c1", "clipping")]);
+    expect(matches({ types: ["clipping", "source"] }, created)).toBe(true);
+    expect(matches({ types: ["place"] }, created)).toBe(false);
+  });
+
+  it("wakes everything when the display language changes", () => {
+    // Nothing in the vault changed, but the engine renders Passage displays
+    // and Book names in the Device's language, so every answer is stale.
+    const relang = change([], [RELOAD_EVERYTHING]);
+    expect(matches({ types: ["source"] }, relang)).toBe(true);
+    expect(matches({ any: true }, relang)).toBe(true);
+    expect(matches({ ids: ["01H"] }, relang)).toBe(true);
+    // Except the reads a vault cannot affect at all.
+    expect(matches({ none: true }, relang)).toBe(false);
   });
 
   it("wakes every document query on a removal, since the type is gone with it", () => {
