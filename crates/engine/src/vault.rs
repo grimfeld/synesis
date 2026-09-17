@@ -39,6 +39,48 @@ pub struct DocumentView {
 pub struct VaultInfo {
     pub root: String,
     pub documents: u32,
+    /// What each document type is, so the UI asks rather than restates.
+    pub doc_types: Vec<DocTypeInfo>,
+}
+
+/// What the engine knows about one document type.
+///
+/// The UI used to keep six arrays of its own saying which types are Subjects,
+/// which open in the editor, which may be created and so on — facts the engine
+/// already computes, mirrored by hand and drifting quietly. It sends them
+/// instead. The table is the same for every vault, so it rides along with
+/// `VaultInfo` and is in the store before the first view renders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DocTypeInfo {
+    #[serde(rename = "type")]
+    pub doc_type: DocType,
+    pub is_scripture: bool,
+    pub is_subject: bool,
+    pub is_hub: bool,
+    pub is_writing: bool,
+    pub is_creatable: bool,
+    pub is_linkable_target: bool,
+    pub folder: String,
+}
+
+impl DocTypeInfo {
+    fn of(t: DocType) -> Self {
+        DocTypeInfo {
+            doc_type: t,
+            is_scripture: t.is_scripture(),
+            is_subject: t.is_subject(),
+            is_hub: t.is_hub(),
+            is_writing: t.is_writing(),
+            is_creatable: t.is_creatable(),
+            is_linkable_target: t.is_linkable_target(),
+            folder: t.default_folder().to_string(),
+        }
+    }
+
+    /// Every type the app knows, in the order the UI offers them.
+    pub fn all() -> Vec<DocTypeInfo> {
+        DocType::ALL.iter().copied().map(DocTypeInfo::of).collect()
+    }
 }
 
 pub struct Vault {
@@ -290,6 +332,7 @@ impl Vault {
         Ok(VaultInfo {
             root: self.root.display().to_string(),
             documents: self.index.document_count()?,
+            doc_types: DocTypeInfo::all(),
         })
     }
 

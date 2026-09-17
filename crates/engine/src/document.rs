@@ -137,6 +137,29 @@ impl DocType {
     pub fn is_linkable_target(self) -> bool {
         self.is_subject() && !self.is_scripture() || self == DocType::Source
     }
+
+    /// Whether the page's body is the point, so it opens in the editor: a
+    /// Note, a Clipping or a Composition (CONTEXT.md, "Writing").
+    pub fn is_writing(self) -> bool {
+        matches!(
+            self,
+            DocType::Note | DocType::Clipping | DocType::Composition
+        )
+    }
+
+    /// Whether the page gathers what points at it, so it opens as a view: a
+    /// Source or any Subject (CONTEXT.md, "Hub").
+    pub fn is_hub(self) -> bool {
+        self.is_subject() || self == DocType::Source
+    }
+
+    /// Whether the user can make one.
+    ///
+    /// Scripture is absent: a Book, Chapter or Verse page comes into being the
+    /// first time it is Mentioned, never from the New dialog (ADR 0003).
+    pub fn is_creatable(self) -> bool {
+        self.is_writing() || self.is_linkable_target()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -682,5 +705,56 @@ no frontmatter
         assert_eq!(yaml_str("[[Paul]]"), "\"[[Paul]]\"");
         assert_eq!(yaml_str("John 3:16"), "\"John 3:16\"");
         assert_eq!(yaml_str("2024"), "\"2024\"");
+    }
+}
+
+#[cfg(test)]
+mod doctype_tests {
+    use super::DocType;
+
+    #[test]
+    fn a_writing_opens_in_the_editor_and_a_hub_does_not() {
+        assert!(DocType::Note.is_writing());
+        assert!(DocType::Clipping.is_writing());
+        assert!(DocType::Composition.is_writing());
+        assert!(!DocType::Source.is_writing());
+        assert!(!DocType::Place.is_writing());
+    }
+
+    #[test]
+    fn every_subject_and_the_source_gathers_what_points_at_it() {
+        for t in [
+            DocType::Source,
+            DocType::Book,
+            DocType::Chapter,
+            DocType::Verse,
+            DocType::Place,
+            DocType::Character,
+            DocType::Concept,
+            DocType::Event,
+            DocType::Journey,
+        ] {
+            assert!(t.is_hub(), "{t:?} should be a Hub");
+        }
+        for t in [DocType::Note, DocType::Clipping, DocType::Composition] {
+            assert!(!t.is_hub(), "{t:?} should not be a Hub");
+        }
+    }
+
+    #[test]
+    fn scripture_comes_into_being_by_mention_never_from_the_new_dialog() {
+        for t in [DocType::Book, DocType::Chapter, DocType::Verse] {
+            assert!(!t.is_creatable(), "{t:?} must not be creatable");
+        }
+        // The nine the New dialog offers.
+        let creatable: Vec<_> = DocType::ALL.iter().filter(|t| t.is_creatable()).collect();
+        assert_eq!(creatable.len(), 9);
+    }
+
+    #[test]
+    fn a_hub_is_either_a_writing_or_a_hub_never_both() {
+        for t in DocType::ALL {
+            assert!(!(t.is_writing() && t.is_hub()), "{t:?} is both");
+        }
     }
 }

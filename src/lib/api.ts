@@ -18,57 +18,55 @@ export type DocType =
   | "journey"
   | "other";
 
-export const CREATABLE_TYPES: DocType[] = [
-  "note",
-  "clipping",
-  "composition",
-  "source",
-  "place",
-  "character",
-  "concept",
-  "event",
-  "journey",
-];
-export const SUBJECT_TYPES: DocType[] = [
-  "book",
-  "chapter",
-  "verse",
-  "place",
-  "character",
-  "concept",
-  "event",
-  "journey",
-];
-export const SCRIPTURE_TYPES: DocType[] = ["book", "chapter", "verse"];
 /**
- * Documents whose name may be matched in prose (ADR 0011).
+ * What the engine says one document type is (`DocTypeInfo` in vault.rs).
  *
- * One rule read in two directions: these gather Unlinked mentions on their
- * Hub, and exactly these can turn up as a Linkable while writing. Mirrors
- * `DocType::is_linkable_target` in the engine.
+ * These used to be six arrays written out here by hand, mirroring predicates
+ * the engine already computed — the `is_linkable_target` comment said so out
+ * loud. Now the engine sends its answer with `VaultInfo` and the arrays below
+ * are derived from it, so a new type cannot be a Subject on one side of the
+ * boundary and not the other.
  */
-export const LINKABLE_TARGET_TYPES: DocType[] = [
-  "source",
-  "place",
-  "character",
-  "concept",
-  "event",
-  "journey",
-];
+export interface DocTypeInfo {
+  type: DocType;
+  is_scripture: boolean;
+  is_subject: boolean;
+  is_hub: boolean;
+  is_writing: boolean;
+  is_creatable: boolean;
+  is_linkable_target: boolean;
+  folder: string;
+}
+
+/** Types the user can make, in the order the New dialog offers them. */
+export let CREATABLE_TYPES: DocType[] = [];
+/** Scripture and the Topical Subjects. */
+export let SUBJECT_TYPES: DocType[] = [];
+export let SCRIPTURE_TYPES: DocType[] = [];
+/** Documents whose name may be matched in prose (ADR 0011). */
+export let LINKABLE_TARGET_TYPES: DocType[] = [];
 /** Pages whose body is the point; they open in the editor. */
-export const WRITING_TYPES: DocType[] = ["note", "clipping", "composition"];
-/** Pages that gather what points at them (Sources and Subjects); they open as a view. */
-export const HUB_TYPES: DocType[] = [
-  "source",
-  "book",
-  "chapter",
-  "verse",
-  "place",
-  "character",
-  "concept",
-  "event",
-  "journey",
-];
+export let WRITING_TYPES: DocType[] = [];
+/** Pages that gather what points at them; they open as a view. */
+export let HUB_TYPES: DocType[] = [];
+
+/**
+ * Fill the type tables from what the engine sent.
+ *
+ * Called once as a vault opens, before any view renders, so every call site
+ * stays synchronous — routing asks `HUB_TYPES.includes(type)` during render
+ * and cannot wait for a fetch.
+ */
+export function setDocTypes(info: DocTypeInfo[]): void {
+  const of = (p: (d: DocTypeInfo) => boolean) =>
+    info.filter(p).map((d) => d.type);
+  CREATABLE_TYPES = of((d) => d.is_creatable);
+  SUBJECT_TYPES = of((d) => d.is_subject);
+  SCRIPTURE_TYPES = of((d) => d.is_scripture);
+  LINKABLE_TARGET_TYPES = of((d) => d.is_linkable_target);
+  WRITING_TYPES = of((d) => d.is_writing);
+  HUB_TYPES = of((d) => d.is_hub);
+}
 
 export type Lang = "en" | "fr";
 export type GraphLevel = "book" | "chapter" | "verse";
@@ -540,6 +538,7 @@ export interface SyncLocations {
 export interface VaultInfo {
   root: string;
   documents: number;
+  doc_types: DocTypeInfo[];
 }
 
 export interface ChangedPayload {
@@ -640,10 +639,19 @@ export const api = {
     invoke<void>("set_graph_level", { level }),
   setTimelineFilters: (hiddenTypes: DocType[], inView: boolean) =>
     invoke<void>("set_timeline_filters", { hiddenTypes, inView }),
-  openVault: (path?: string) =>
-    invoke<VaultInfo>("open_vault", { path: path ?? null }),
+  // The type tables are filled here rather than by the caller: every route
+  // into an open vault goes through one of these two, so nothing can forget.
+  openVault: async (path?: string) => {
+    const i = await invoke<VaultInfo>("open_vault", { path: path ?? null });
+    setDocTypes(i.doc_types);
+    return i;
+  },
   closeVault: () => invoke<void>("close_vault"),
-  vaultInfo: () => invoke<VaultInfo>("vault_info"),
+  vaultInfo: async () => {
+    const i = await invoke<VaultInfo>("vault_info");
+    setDocTypes(i.doc_types);
+    return i;
+  },
   rescan: () => invoke<DocSummary[]>("rescan"),
   listDocuments: (docType?: DocType) =>
     query<DocSummary[]>({ kind: "list", docType: docType ?? null }),
