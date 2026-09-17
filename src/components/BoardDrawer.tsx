@@ -4,14 +4,14 @@
 // This is what makes a Board Synesis rather than a generic canvas — the app
 // already knows which Notes and Clippings share Tags and Passages with this
 // talk, so triaging them is a drag rather than a hunt (PLAN §17.10).
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { cn } from "cn";
 import { api, type Candidate, type DocSummary } from "@/lib/api";
-import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
+import { useQuery } from "@/lib/useQuery";
 
 export function BoardDrawer({
   compositionId,
@@ -23,42 +23,32 @@ export function BoardDrawer({
   /** Whether a path is already on the Board, so it can be marked. */
   onPath: (path: string) => boolean;
 }) {
-  const s = useStore();
   const t = useT();
   const [open, setOpen] = useState(true);
-  const [items, setItems] = useState<Candidate[]>([]);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<DocSummary[]>([]);
 
-  useEffect(() => {
-    let alive = true;
-    api
-      .candidates(compositionId)
-      .then((c) => alive && setItems(c))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [compositionId, s.changeTick]);
+  // A Candidate is anything sharing a Tag or a Passage with the Composition,
+  // so anything written may become one.
+  const { data: itemsData } = useQuery<Candidate[]>({
+    key: [compositionId],
+    deps: { any: true },
+    fetch: () => api.candidates(compositionId),
+  });
+  const items = useMemo(() => itemsData ?? [], [itemsData]);
 
-  useEffect(() => {
-    const q = query.trim();
-    if (q.length < 2) {
-      setHits([]);
-      return;
-    }
-    let alive = true;
-    const timer = window.setTimeout(() => {
-      api
-        .suggest(q, 20)
-        .then((r) => alive && setHits(r))
-        .catch(console.error);
-    }, 150);
-    return () => {
-      alive = false;
-      window.clearTimeout(timer);
-    };
-  }, [query]);
+  // The search box follows what is being typed.
+  const q = query.trim();
+  const { data: hitsData } = useQuery<DocSummary[]>({
+    key: [q],
+    deps: { any: true },
+    enabled: q.length >= 2,
+    debounce: 150,
+    fetch: () => api.suggest(q, 20),
+  });
+  const hits = useMemo(
+    () => (q.length < 2 ? [] : (hitsData ?? [])),
+    [q, hitsData],
+  );
 
   // Material worth offering: what the talk has not committed to yet. Anything
   // the prose already uses is not Board material.

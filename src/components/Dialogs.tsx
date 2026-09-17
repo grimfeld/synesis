@@ -33,6 +33,7 @@ import { diffBoards, type BoardChange } from "@/lib/board";
 import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { FRONTMATTER, titleFor } from "@/lib/docTypes";
+import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { quoteBody } from "@/lib/clippingBody";
@@ -307,22 +308,19 @@ function GazetteerPicker({
 }) {
   const t = useT();
   const [q, setQ] = useState("");
-  const [hits, setHits] = useState<GazetteerHit[]>([]);
   const [focus, setFocus] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    if (!q.trim()) {
-      setHits([]);
-      return;
-    }
-    api
-      .gazetteer(q, 8)
-      .then((h) => alive && setHits(h))
-      .catch(console.error);
-    return () => {
-      alive = false;
-    };
-  }, [q]);
+  // The gazetteer is a table shipped with the app, not something the vault
+  // holds, so nothing written can change what it answers.
+  const { data: hitsData } = useQuery<GazetteerHit[]>({
+    key: [q.trim()],
+    deps: { none: true },
+    enabled: q.trim() !== "",
+    fetch: () => api.gazetteer(q, 8),
+  });
+  const hits = useMemo(
+    () => (q.trim() ? (hitsData ?? []) : []),
+    [q, hitsData],
+  );
   return (
     <div className="relative" data-testid="gazetteer">
       <Input
@@ -343,7 +341,6 @@ function GazetteerPicker({
                 onMouseDown={() => {
                   onPick(h);
                   setQ("");
-                  setHits([]);
                 }}
               >
                 <TypeDot type="place" />
@@ -1311,7 +1308,6 @@ function Palette({
   const t = useT();
   const commands = useCommands();
   const [q, setQ] = useState(initial);
-  const [hits, setHits] = useState<SearchHit[]>([]);
   const [names, setNames] = useState<NameIndex>(() => new NameIndex());
   const commandMode = q.startsWith(">");
   const query = (commandMode ? q.slice(1) : q).trim();
@@ -1321,22 +1317,18 @@ function Palette({
       .then((n) => setNames(new NameIndex(n)))
       .catch(console.error);
   }, []);
-  useEffect(() => {
-    if (commandMode || !query) return setHits([]);
-    let alive = true;
-    const h = window.setTimeout(
-      () =>
-        api
-          .search(query, 20)
-          .then((r) => alive && setHits(r))
-          .catch(console.error),
-      120,
-    );
-    return () => {
-      alive = false;
-      window.clearTimeout(h);
-    };
-  }, [query, commandMode]);
+  // Full-text search follows what is being typed, and any document may match.
+  const { data: searchData } = useQuery<SearchHit[]>({
+    key: [query, commandMode],
+    deps: { any: true },
+    enabled: !commandMode && query !== "",
+    debounce: 120,
+    fetch: () => api.search(query, 20),
+  });
+  const hits = useMemo(
+    () => (commandMode || !query ? [] : (searchData ?? [])),
+    [commandMode, query, searchData],
+  );
   const titleHits: NameEntry[] = useMemo(() => {
     if (commandMode || !query) return [];
     const seen = new Set<string>();
