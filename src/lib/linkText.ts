@@ -1,4 +1,5 @@
 import type { DocSummary } from "./api";
+import { resolve } from "./findOccurrence";
 
 /**
  * The wikilink that replaces matched text when linking to `target`.
@@ -25,4 +26,27 @@ export function linkText(
   return matched === target.title
     ? `[[${target.title}]]`
     : `[[${target.title}|${matched}]]`;
+}
+
+/**
+ * The body with a Linkable turned into a Mention, or null if its words are
+ * gone from the text.
+ *
+ * The splice itself, which used to live inline in the panel beside the
+ * identical call that only reveals the words. Keeping the two apart is how
+ * they came to disagree by a few characters; keeping the whole edit here is
+ * what lets it be tested without an editor.
+ */
+export function linkInBody(
+  body: string,
+  l: { start: number; end: number; matched: string; ambiguous: DocSummary[] },
+  target: DocSummary,
+): { body: string; at: number } | null {
+  const at = resolve(body, l);
+  if (at == null) return null;
+  const link = linkText(target, l.matched, l.ambiguous.length > 1);
+  return {
+    body: body.slice(0, at) + link + body.slice(at + l.matched.length),
+    at,
+  };
 }

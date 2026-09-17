@@ -32,7 +32,7 @@ import {
 } from "@/lib/backlinks";
 import { setField } from "@/lib/frontmatter";
 import { resolve } from "@/lib/findOccurrence";
-import { linkText } from "@/lib/linkText";
+import { linkInBody } from "@/lib/linkText";
 import { useStore } from "@/lib/store";
 import { useFormat, useT } from "@/i18n";
 import { toast } from "sonner";
@@ -179,14 +179,9 @@ export function RightPanel({
             onReveal?.(at, at + l.matched.length);
           }}
           onLink={(l, target) => {
-            const at = resolve(editorBody, l);
-            if (at == null) return void toast(t.link_moved);
-            const link = linkText(target, l.matched, l.ambiguous.length > 1);
-            onBodyChange(
-              editorBody.slice(0, at) +
-                link +
-                editorBody.slice(at + l.matched.length),
-            );
+            const next = linkInBody(editorBody, l, target);
+            if (!next) return void toast(t.link_moved);
+            onBodyChange(next.body);
           }}
         />
       )}
