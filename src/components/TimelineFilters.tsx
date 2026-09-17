@@ -7,14 +7,13 @@ import { activeCount, type Filters } from "@/lib/timeline";
 import { useT } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { TypeDot } from "@/components/DocLink";
+import { Chips } from "@/components/FilterChips";
 
 /** The Subject types that can carry a Date, and so can own a Lane. */
 export const TIMELINE_TYPES: DocType[] = [
@@ -27,48 +26,6 @@ export const TIMELINE_TYPES: DocType[] = [
   "journey",
 ];
 
-function Chips({
-  label,
-  values,
-  selected,
-  onChange,
-  dot,
-  name = (v: string) => v,
-}: {
-  label: string;
-  values: string[];
-  selected: string[];
-  onChange: (v: string[]) => void;
-  dot?: (v: string) => React.ReactNode;
-  name?: (v: string) => string;
-}) {
-  if (values.length === 0) return null;
-  return (
-    <div>
-      <Label className="mb-1.5 text-xs text-muted-foreground">{label}</Label>
-      <ToggleGroup
-        type="multiple"
-        value={selected}
-        onValueChange={onChange}
-        variant="outline"
-        size="sm"
-        spacing={1}
-        className="flex-wrap justify-start"
-      >
-        {values.map((v) => (
-          <ToggleGroupItem
-            key={v}
-            value={v}
-            className="h-7 gap-1.5 text-xs data-[state=off]:opacity-45"
-          >
-            {dot?.(v)}
-            {name(v)}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
-    </div>
-  );
-}
 
 export function TimelineFilters({
   filters,

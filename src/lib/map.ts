@@ -7,6 +7,7 @@
 // a viewport; panning already culls), so the four are Tags, title search, the
 // Book a Place is mentioned in, and whether anything mentions it at all.
 import type { DocSummary } from "./api";
+import { fold } from "./names";
 
 /** What the Map's four filters currently restrict to (PLAN §19.5). */
 export interface MapFilters {
@@ -51,13 +52,6 @@ export function activeCount(f: MapFilters): number {
   );
 }
 
-/** Accent- and case-insensitive, matching how the engine norms a name. */
-function fold(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-}
 
 /** What the four axes need to know about each Place beyond its summary. */
 export interface PlaceFacts {

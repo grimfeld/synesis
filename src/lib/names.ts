@@ -11,6 +11,18 @@ export function norm(s: string): string {
     .trim();
 }
 
+/**
+ * Accent- and case-insensitive, for matching what the user typed against a
+ * title. Looser than `norm`, which mirrors the engine's key: this one strips
+ * diacritics so "jerusalem" finds "Jérusalem".
+ */
+export function fold(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase();
+}
+
 export class NameIndex {
   private byNorm = new Map<string, NameEntry>();
   entries: NameEntry[] = [];

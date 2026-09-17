@@ -2,6 +2,7 @@
 // Hub mini-timeline. Lanes, year projection, label collision and Clusters live
 // here so both shells stay dumb SVG and the logic is tested once (`test:unit`).
 import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink } from "./api";
+import { fold } from "./names";
 
 /** One thing drawn on a Lane: a point Date, or a span when it has a `to`. */
 export interface Mark {
@@ -305,13 +306,6 @@ export function activeCount(f: Filters): number {
   );
 }
 
-/** Case- and accent-insensitive, matching how the engine norms a name. */
-function fold(s: string): string {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase();
-}
 
 /**
  * Narrow the rows a Lane is built from. Property names filter *before* spans are
