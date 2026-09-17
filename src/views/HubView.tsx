@@ -1,6 +1,6 @@
 // Hub page: a Source or a Subject. The page gathers what points at it; the
 // markdown body is an optional "About" at the bottom.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import L from "leaflet";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
@@ -30,6 +30,7 @@ import {
   type Backlink,
   type DatedProperty,
   type DocSummary,
+  type DocType,
   type DocumentPayload,
   type Journey,
   type TrailEntry,
@@ -37,6 +38,7 @@ import {
   type VerseCount,
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
+import type { SectionProps } from "@/lib/docTypes";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { childKindFor } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
@@ -655,43 +657,43 @@ function MiniMap({ lat, lon }: { lat: number; lon: number }) {
 
 // -------------------------------------------------------------- type section
 
-function TypeSection({
-  doc,
-  book,
-  title,
-  fm,
-  onFmChange,
-}: {
-  doc: DocumentPayload;
-  book?: { number: number; name: string; chapters: number[] };
-  title: string;
-  fm: string;
-  onFmChange: (fm: string) => void;
-}) {
-  switch (doc.summary.type) {
-    case "source":
-      return <SourceSection doc={doc} />;
-    case "book":
-    case "chapter":
-    case "verse":
-      return book ? (
-        <ScriptureSection doc={doc} book={book} title={title} />
-      ) : null;
-    case "journey":
-      return (
-        <>
-          <JourneySection doc={doc} fm={fm} onFmChange={onFmChange} />
-          <DatesSection doc={doc} />
-        </>
-      );
-    case "event":
-    case "character":
-    case "place":
-    case "concept":
-      return <DatesSection doc={doc} />;
-    default:
-      return null;
-  }
+/**
+ * Which sections each type's Hub shows.
+ *
+ * A total map rather than a switch with a `default: return null`: a type added
+ * to `DocType` without an entry here is a compile error naming the missing
+ * key, where before it rendered an empty Hub in silence.
+ *
+ * `null` is a type that shows no type-specific section, said out loud.
+ */
+const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
+  source: ({ doc }) => <SourceSection doc={doc} />,
+  book: ({ doc, book, title }) =>
+    book ? <ScriptureSection doc={doc} book={book} title={title} /> : null,
+  chapter: ({ doc, book, title }) =>
+    book ? <ScriptureSection doc={doc} book={book} title={title} /> : null,
+  verse: ({ doc, book, title }) =>
+    book ? <ScriptureSection doc={doc} book={book} title={title} /> : null,
+  journey: ({ doc, fm, onFmChange }) => (
+    <>
+      <JourneySection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <DatesSection doc={doc} />
+    </>
+  ),
+  event: ({ doc }) => <DatesSection doc={doc} />,
+  character: ({ doc }) => <DatesSection doc={doc} />,
+  place: ({ doc }) => <DatesSection doc={doc} />,
+  concept: ({ doc }) => <DatesSection doc={doc} />,
+  // Writings open in the editor and have no Hub of their own (CONTEXT.md).
+  note: null,
+  clipping: null,
+  composition: null,
+  other: null,
+};
+
+function TypeSection(p: SectionProps) {
+  const render = HUB_SECTIONS[p.doc.summary.type];
+  return render ? render(p) : null;
 }
 
 /** The list a `places` Property holds, whatever shape YAML gave it. */
