@@ -1445,10 +1445,11 @@ impl Index {
 
     /// Every Journey with its Stops in travel order (ADR 0010, PLAN §19.9).
     ///
-    /// Order comes from the order the `places` Property's links were indexed,
-    /// which is `links.rowid` — the same insertion-order guarantee
-    /// `event_links` relies on. That ordering is load-bearing: rewriting those
-    /// rows in another order would silently reverse a Journey.
+    /// Order comes from where each link sits in the file: `links.start` is the
+    /// byte offset the wikilink was found at, and the `places:` list is read in
+    /// document order. The route is therefore the order the user wrote it in
+    /// (ADR 0010), and survives anything that rewrites the rows — it used to
+    /// rest on `links.rowid`, which agreed by accident rather than by rule.
     pub fn journeys(&self) -> Result<Vec<Journey>> {
         let mut out = Vec::new();
         let mut st = self.conn.prepare(&format!(
@@ -1458,7 +1459,7 @@ impl Index {
             .query_map([], row_summary)?
             .collect::<rusqlite::Result<_>>()?;
         let mut targets = self.conn.prepare(
-            "SELECT target FROM links WHERE from_id = ?1 AND property = 'places' ORDER BY rowid",
+            "SELECT target FROM links WHERE from_id = ?1 AND property = 'places' ORDER BY start",
         )?;
         for doc in docs {
             let mut stops = Vec::new();
@@ -1935,7 +1936,12 @@ impl Index {
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         let mut st = self
             .conn
-            .prepare("SELECT target, COUNT(*) FROM links GROUP BY norm ORDER BY 2 DESC")?;
+            // Prose rows only. A board row's `target` is a document id, not
+            // something the user wrote, and an id resolves to nothing — a card
+            // on a Board is not a link pointing nowhere.
+            .prepare(
+                "SELECT target, COUNT(*) FROM links WHERE kind = 'prose' GROUP BY norm ORDER BY 2 DESC",
+            )?;
         let rows: Vec<(String, i64)> = st
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
@@ -2936,6 +2942,31 @@ tags: [judgment]
         let amb = idx.ambiguous_titles().unwrap();
         assert_eq!(amb.len(), 1);
         assert_eq!(amb[0].docs.len(), 2);
+    }
+
+    #[test]
+    fn a_board_reference_is_not_an_unresolved_link() {
+        // `links.target` holds a written link for a prose row and a document
+        // id for a board row. `unresolved` reads every row and asks whether
+        // the target names a document, and an id never does — so a Board card
+        // used to report its own document as a link pointing nowhere.
+        let mut idx = idx_with(&[
+            ("n1", "Notes/Steadfast.md", "Body"),
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---
+type: composition
+---
+Body",
+            ),
+        ]);
+        idx.set_board_refs("comp", &["Notes/Steadfast.md".into()]).unwrap();
+        let unresolved = idx.unresolved().unwrap();
+        assert!(
+            unresolved.is_empty(),
+            "a Board card is not a dangling link: {unresolved:?}"
+        );
     }
 
     #[test]
