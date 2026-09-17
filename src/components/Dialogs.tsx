@@ -821,6 +821,140 @@ function KindSelect({
   );
 }
 
+/**
+ * The New dialog's type-specific fields.
+ *
+ * A total map, so a type added to `DocType` without deciding what its dialog
+ * asks for is a compile error rather than a form that silently offers nothing.
+ * `null` means the type needs no fields beyond a title.
+ *
+ * These stay in this file because they reach for the dialog's own pieces — the
+ * Source picker, the gazetteer, `createDoc` — and moving the JSX somewhere
+ * else would only move those dependencies with it.
+ */
+const TYPE_FIELDS: Record<
+  DocType,
+  ((p: {
+    f: Record<string, string>;
+    set: (k: string, v: string) => void;
+    title: string;
+    setTitle: (t: string) => void;
+    s: ReturnType<typeof useStore>;
+    t: ReturnType<typeof useT>;
+  }) => ReactNode) | null
+> = {
+  note: ({ f, set, s, t }) => (
+    <Field label={t.source}>
+      <DocPicker
+        types={["source"]}
+        testId="source-picker"
+        value={f.source ?? ""}
+        onChange={(v, d) => {
+          set("source", d ? d.title : v);
+          set("source_id", d?.id ?? "");
+        }}
+        onCreate={async (name) => {
+          const created = await s.createDoc("source", name, {
+            kind: "article",
+          });
+          set("source", created.summary.title);
+          set("source_id", created.summary.id);
+        }}
+        placeholder="(optional)"
+      />
+    </Field>
+  ),
+  composition: ({ f, set, t }) => (
+    <div className="grid grid-cols-2 gap-3">
+      <Field label="Occasion">
+        <Input
+          value={f.occasion ?? ""}
+          onChange={(e) => set("occasion", e.target.value)}
+        />
+      </Field>
+      <Field label={t.date}>
+        <Input
+          value={f.date ?? ""}
+          onChange={(e) => set("date", e.target.value)}
+        />
+      </Field>
+    </div>
+  ),
+  event: ({ f, set, t }) => (
+    <>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t.start}>
+          <Input
+            value={f.start ?? ""}
+            onChange={(e) => set("start", e.target.value)}
+            placeholder={t.date_placeholder}
+          />
+        </Field>
+        <Field label={t.end}>
+          <Input
+            value={f.end ?? ""}
+            onChange={(e) => set("end", e.target.value)}
+            placeholder={t.date_placeholder}
+          />
+        </Field>
+      </div>
+      <Field label={t.types.place}>
+        <DocPicker
+          types={["place"]}
+          value={f.place ?? ""}
+          onChange={(v) => set("place", v)}
+          placeholder="(optional)"
+        />
+      </Field>
+    </>
+  ),
+  place: ({ f, set, title, setTitle, t }) => (
+    <>
+    <Field label={t.lookup_place}>
+      <GazetteerPicker
+        onPick={(h) => {
+          if (!title.trim()) setTitle(placeTitle(h.name));
+          set("lat", String(h.lat));
+          set("lon", String(h.lon));
+          set("modern_name", h.modern_name);
+        }}
+      />
+    </Field>
+    <div className="grid grid-cols-2 gap-3">
+      <Field label={t.lat}>
+        <Input
+          type="number"
+          step="any"
+          value={f.lat ?? ""}
+          onChange={(e) => set("lat", e.target.value)}
+          placeholder="31.7683"
+        />
+      </Field>
+      <Field label={t.lon}>
+        <Input
+          type="number"
+          step="any"
+          value={f.lon ?? ""}
+          onChange={(e) => set("lon", e.target.value)}
+          placeholder="35.2137"
+        />
+      </Field>
+    </div>
+    </>
+  ),
+  // A Source's and a Clipping's fields are bound up with the URL lookup and
+  // the Cover staging above, so they stay in the form itself.
+  source: null,
+  clipping: null,
+  character: null,
+  concept: null,
+  journey: null,
+  book: null,
+  chapter: null,
+  verse: null,
+  other: null,
+};
+
 function NewDocument({
   type: initial,
   title: initialTitle,
@@ -1099,105 +1233,7 @@ function NewDocument({
             </Field>
           </>
         )}
-        {type === "note" && (
-          <Field label={t.source}>
-            <DocPicker
-              types={["source"]}
-              testId="source-picker"
-              value={f.source ?? ""}
-              onChange={(v, d) => {
-                set("source", d ? d.title : v);
-                set("source_id", d?.id ?? "");
-              }}
-              onCreate={async (name) => {
-                const created = await s.createDoc("source", name, {
-                  kind: "article",
-                });
-                set("source", created.summary.title);
-                set("source_id", created.summary.id);
-              }}
-              placeholder="(optional)"
-            />
-          </Field>
-        )}
-        {type === "composition" && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Occasion">
-              <Input
-                value={f.occasion ?? ""}
-                onChange={(e) => set("occasion", e.target.value)}
-              />
-            </Field>
-            <Field label={t.date}>
-              <Input
-                value={f.date ?? ""}
-                onChange={(e) => set("date", e.target.value)}
-              />
-            </Field>
-          </div>
-        )}
-        {type === "event" && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t.start}>
-                <Input
-                  value={f.start ?? ""}
-                  onChange={(e) => set("start", e.target.value)}
-                  placeholder={t.date_placeholder}
-                />
-              </Field>
-              <Field label={t.end}>
-                <Input
-                  value={f.end ?? ""}
-                  onChange={(e) => set("end", e.target.value)}
-                  placeholder={t.date_placeholder}
-                />
-              </Field>
-            </div>
-            <Field label={t.types.place}>
-              <DocPicker
-                types={["place"]}
-                value={f.place ?? ""}
-                onChange={(v) => set("place", v)}
-                placeholder="(optional)"
-              />
-            </Field>
-          </>
-        )}
-        {type === "place" && (
-          <Field label={t.lookup_place}>
-            <GazetteerPicker
-              onPick={(h) => {
-                if (!title.trim()) setTitle(placeTitle(h.name));
-                set("lat", String(h.lat));
-                set("lon", String(h.lon));
-                set("modern_name", h.modern_name);
-              }}
-            />
-          </Field>
-        )}
-        {type === "place" && (
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={t.lat}>
-              <Input
-                type="number"
-                step="any"
-                value={f.lat ?? ""}
-                onChange={(e) => set("lat", e.target.value)}
-                placeholder="31.7683"
-              />
-            </Field>
-            <Field label={t.lon}>
-              <Input
-                type="number"
-                step="any"
-                value={f.lon ?? ""}
-                onChange={(e) => set("lon", e.target.value)}
-                placeholder="35.2137"
-              />
-            </Field>
-          </div>
-        )}
+        {TYPE_FIELDS[type]?.({ f, set, title, setTitle, s, t })}
         {error && <div className="text-sm text-destructive">{error}</div>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>
