@@ -30,7 +30,8 @@ describe("Home", () => {
     // The Note is titled with a timestamp and lands at the top of Recent.
     cy.get("[data-testid=home-recent] li").first().should("contain.text", "20");
     cy.get("[data-testid=home-quick] textarea").should("have.value", "");
-    cy.bridge<{ title: string; type: string }[]>("list_documents", {
+    cy.query<{ title: string; type: string }[]>({
+      kind: "list",
       docType: "note",
     }).then((notes) => {
       const created = notes.find((n) =>

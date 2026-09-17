@@ -5,11 +5,12 @@ use crate::canvas::{self, Canvas};
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
     self, AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty,
-    DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, LibraryEntry, Linkable,
+    DocSummary, DocTag, EventLink, Graph, GraphLevel, Index, Journey, Linkable,
     PlaceFact, SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use crate::parser::Detected;
 use crate::properties::{PropertySchema, PropertyType};
+use crate::query::{Answer, Query};
 use crate::scripture::{Lang, Passage};
 use crate::sync::{HistoryPoint, RemoteChange, Sync, Version};
 use crate::templates;
@@ -826,6 +827,24 @@ impl Vault {
 
     // ---- read-only queries -------------------------------------------------
 
+    /// Answer a question from the UI (`crate::query`).
+    ///
+    /// The whole read surface of the index behind one method, so a new
+    /// question is a variant rather than a forward here, a command, a bridge
+    /// arm and a method in `api.ts`. The Device's display language is filled
+    /// in here: it is state this Vault holds, not part of the question.
+    pub fn query(&self, q: Query) -> Result<Answer> {
+        Ok(match q {
+            Query::List { doc_type } => Answer::Docs(self.index.list(doc_type)?),
+            Query::Places => Answer::Docs(self.index.places()?),
+            Query::Library => Answer::Library(self.index.library()?),
+            Query::Clippings { source_id } => {
+                Answer::Entries(self.index.clippings(source_id.as_deref())?)
+            }
+            Query::Backlinks { id } => Answer::Backlinks(self.index.backlinks(&id, self.lang)?),
+        })
+    }
+
     pub fn list(&self, doc_type: Option<DocType>) -> Result<Vec<DocSummary>> {
         self.index.list(doc_type)
     }
@@ -883,9 +902,6 @@ impl Vault {
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
         self.index.tags()
     }
-    pub fn places(&self) -> Result<Vec<DocSummary>> {
-        self.index.places()
-    }
     /// Tags, Books and mention counts per Place, for the Map's filters (§19.5).
     pub fn place_facts(&self) -> Result<Vec<PlaceFact>> {
         self.index.place_facts()
@@ -904,18 +920,12 @@ impl Vault {
         self.index.source_trail(id)
     }
     /// Every Clipping with its Citation, or those of one Source (ADR 0013).
-    pub fn clippings(&self, source_id: Option<&str>) -> Result<Vec<TrailEntry>> {
-        self.index.clippings(source_id)
-    }
     /// The Tags on each of `ids`, for filtering a list the caller already has.
     pub fn tags_of(&self, ids: &[String]) -> Result<HashMap<String, Vec<String>>> {
         self.index.tags_of(ids)
     }
     pub fn source_children(&self, id: &str) -> Result<Vec<DocSummary>> {
         self.index.source_descendants(id)
-    }
-    pub fn library(&self) -> Result<Vec<LibraryEntry>> {
-        self.index.library()
     }
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         self.index.unresolved()

@@ -6,10 +6,11 @@ use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::index::{
     AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
-    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, Linkable, PlaceFact, SearchHit,
+    DocTag, EventLink, Graph, GraphLevel, Journey, Linkable, PlaceFact, SearchHit,
     TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use engine::properties::{PropertySchema, PropertyType};
+use engine::query::{Answer, Query};
 use engine::scripture::{Lang, Passage};
 use engine::sync::{HistoryPoint, Version};
 use engine::vault::{DocumentView, VaultInfo, HIDDEN_DIR};
@@ -440,9 +441,15 @@ fn rescan(state: State<AppState>) -> CmdResult<Vec<DocSummary>> {
     state.with_vault_mut(|v| v.scan())
 }
 
+/// Every read the index can answer, as one command (`engine::query`).
+///
+/// A read used to be written out in four places — a forward on `Vault`, a
+/// command here, an arm in the debug bridge, and a method in `api.ts` naming
+/// the command as a string — of which three carried nothing but the name.
+/// Now the question is a value and only the last of those remains.
 #[tauri::command]
-fn list_documents(state: State<AppState>, doc_type: Option<DocType>) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.list(doc_type))
+fn query(state: State<AppState>, query: Query) -> CmdResult<Answer> {
+    state.with_vault(|v| v.query(query))
 }
 
 #[tauri::command]
@@ -775,11 +782,6 @@ fn tagged_documents(state: State<AppState>, tag: String) -> CmdResult<Vec<DocSum
 }
 
 #[tauri::command]
-fn places(state: State<AppState>) -> CmdResult<Vec<DocSummary>> {
-    state.with_vault(|v| v.places())
-}
-
-#[tauri::command]
 fn place_facts(state: State<AppState>) -> CmdResult<Vec<PlaceFact>> {
     state.with_vault(|v| v.place_facts())
 }
@@ -935,11 +937,6 @@ fn source_trail(state: State<AppState>, id: String) -> CmdResult<Vec<TrailEntry>
 }
 
 #[tauri::command]
-fn clippings(state: State<AppState>, source_id: Option<String>) -> CmdResult<Vec<TrailEntry>> {
-    state.with_vault(|v| v.clippings(source_id.as_deref()))
-}
-
-#[tauri::command]
 fn tags_of(state: State<AppState>, ids: Vec<String>) -> CmdResult<HashMap<String, Vec<String>>> {
     state.with_vault(|v| v.tags_of(&ids))
 }
@@ -952,12 +949,6 @@ fn source_children(state: State<AppState>, id: String) -> CmdResult<Vec<DocSumma
 #[tauri::command]
 fn unresolved_links(state: State<AppState>) -> CmdResult<Vec<UnresolvedLink>> {
     state.with_vault(|v| v.unresolved())
-}
-
-/// Every Source, with what the Library needs to draw a Shelf of Covers.
-#[tauri::command]
-fn library(state: State<AppState>) -> CmdResult<Vec<LibraryEntry>> {
-    state.with_vault(|v| v.library())
 }
 
 /// Shrink a picture to a Cover and encode it, or hand back the original bytes
@@ -1327,7 +1318,7 @@ pub fn run() {
             close_vault,
             vault_info,
             rescan,
-            list_documents,
+            query,
             get_document,
             save_document,
             create_document,
@@ -1352,7 +1343,6 @@ pub fn run() {
             suggest,
             tags,
             tagged_documents,
-            places,
             place_facts,
             journeys,
             set_map_filters,
@@ -1377,10 +1367,8 @@ pub fn run() {
             board_at,
             export_board,
             source_trail,
-            clippings,
             tags_of,
             source_children,
-            library,
             attach_image,
             save_remote_cover,
             read_attachment,

@@ -45,7 +45,7 @@ describe("Capture on a Source Hub", () => {
 
     // The file is named by its Citation, holds no title, and reads as a
     // quotation in Obsidian as much as here.
-    cy.bridge<{ path: string; type: string }[]>("list_documents").then(
+    cy.query<{ path: string; type: string }[]>({ kind: "list", docType: null }).then(
       (docs) => {
         const kept = docs.filter(
           (d) => d.type === "clipping" && d.path.includes("par. 7"),

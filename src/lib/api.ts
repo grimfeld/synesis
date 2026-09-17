@@ -547,6 +547,38 @@ export interface ChangedPayload {
   removed: string[];
 }
 
+/**
+ * A question for the index (`crates/engine/src/query.rs`).
+ *
+ * One command carries every read, so adding a question is a variant on both
+ * sides rather than a command, a bridge arm and a method here — the shape that
+ * let `set_map_filters` ship without a bridge arm and fail only in a browser.
+ */
+export type Query =
+  | { kind: "list"; docType: DocType | null }
+  | { kind: "places" }
+  | { kind: "library" }
+  | { kind: "clippings"; sourceId: string | null }
+  | { kind: "backlinks"; id: string };
+
+/** What the index answered: a tag and the value under it. */
+interface Answer {
+  kind: string;
+  value: unknown;
+}
+
+/**
+ * Ask the index a question.
+ *
+ * The caller names the result type, as it did when each read was its own
+ * command; the `Answer` tag is what the engine uses to stay exhaustive, and is
+ * unwrapped here rather than at every call site.
+ */
+async function query<T>(q: Query): Promise<T> {
+  const a = await invoke<Answer>("query", { query: q });
+  return a.value as T;
+}
+
 export const api = {
   getSettings: () => invoke<Settings>("get_settings"),
   setLanguage: (lang: Lang) => invoke<void>("set_language", { lang }),
@@ -579,7 +611,7 @@ export const api = {
   vaultInfo: () => invoke<VaultInfo>("vault_info"),
   rescan: () => invoke<DocSummary[]>("rescan"),
   listDocuments: (docType?: DocType) =>
-    invoke<DocSummary[]>("list_documents", { docType: docType ?? null }),
+    query<DocSummary[]>({ kind: "list", docType: docType ?? null }),
   getDocument: (id: string) => invoke<DocumentPayload>("get_document", { id }),
   saveDocument: (id: string, text: string) =>
     invoke<DocumentPayload>("save_document", { id, text }),
@@ -602,7 +634,7 @@ export const api = {
     invoke<DocSummary | null>("resolve_link", { target }),
   resolveMany: (targets: string[]) =>
     invoke<(DocSummary | null)[]>("resolve_many", { targets }),
-  backlinks: (id: string) => invoke<Backlink[]>("backlinks", { id }),
+  backlinks: (id: string) => query<Backlink[]>({ kind: "backlinks", id }),
   unlinkedMentions: (id: string) =>
     invoke<UnlinkedMentions>("unlinked_mentions", { id }),
   linkables: (id: string, text: string) =>
@@ -652,7 +684,7 @@ export const api = {
   tags: () => invoke<TagCount[]>("tags"),
   taggedDocuments: (tag: string) =>
     invoke<DocSummary[]>("tagged_documents", { tag }),
-  places: () => invoke<DocSummary[]>("places"),
+  places: () => query<DocSummary[]>({ kind: "places" }),
   propertySchema: () => invoke<PropertySchema>("property_schema"),
   setPropertyType: (name: string, propType: PropertyType) =>
     invoke<PropertySchema>("set_property_type", { name, propType }),
@@ -688,7 +720,7 @@ export const api = {
   exportBoard: (path: string, data: string, base64: boolean) =>
     invoke<void>("export_board", { path, data, base64 }),
   /** Every Source with what a Library card needs, in one call (ADR 0012). */
-  library: () => invoke<LibraryEntry[]>("library"),
+  library: () => query<LibraryEntry[]>({ kind: "library" }),
   /** Copy a picture into `Attachments/`; returns its vault-relative path. */
   attachImage: (title: string, path: string) =>
     invoke<string>("attach_image", { title, path }),
@@ -703,7 +735,7 @@ export const api = {
    * `sourceId` narrows to one Source, for its Hub's Clippings section.
    */
   clippings: (sourceId?: string) =>
-    invoke<TrailEntry[]>("clippings", { sourceId: sourceId ?? null }),
+    query<TrailEntry[]>({ kind: "clippings", sourceId: sourceId ?? null }),
   /** The Tags on each of `ids`, for filtering a list already in hand. */
   tagsOf: (ids: string[]) =>
     invoke<Record<string, string[]>>("tags_of", { ids }),

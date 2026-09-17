@@ -12,7 +12,7 @@ describe("Dialogs", () => {
     cy.get("button[aria-label=Delete]").click();
     cy.get("[data-testid=confirm-delete]").click();
     cy.get("h1").should("contain", "Home");
-    cy.bridge<{ title: string }[]>("list_documents", { docType: "note" }).then(
+    cy.query<{ title: string }[]>({ kind: "list", docType: "note" }).then(
       (notes) => {
         expect(notes.map((n) => n.title)).to.not.include("Cypress note");
       },

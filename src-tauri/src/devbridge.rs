@@ -126,7 +126,9 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "close_vault" => ok(close_vault(state)?),
         "vault_info" => ok(vault_info(state)?),
         "rescan" => ok(rescan(state)?),
-        "list_documents" => ok(list_documents(state, arg(&a, "docType")?)?),
+        // One arm for every read the index answers: a new question is a
+        // `Query` variant, not another line here that someone forgets.
+        "query" => ok(query(state, arg(&a, "query")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
         "save_document" => ok(save_document(state, arg(&a, "id")?, arg(&a, "text")?)?),
         "create_document" => ok(create_document(
@@ -180,7 +182,6 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "suggest" => ok(suggest(state, arg(&a, "prefix")?, arg(&a, "limit")?)?),
         "tags" => ok(tags(state)?),
         "tagged_documents" => ok(tagged_documents(state, arg(&a, "tag")?)?),
-        "places" => ok(places(state)?),
         "place_facts" => ok(place_facts(state)?),
         "journeys" => ok(journeys(state)?),
         "property_schema" => ok(property_schema(state)?),
@@ -208,10 +209,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "board_at" => ok(board_at(state, arg(&a, "id")?, arg(&a, "frontier")?)?),
         "source_trail" => ok(source_trail(state, arg(&a, "id")?)?),
         // `sourceId` is optional: absent means every Clipping in the vault.
-        "clippings" => ok(clippings(state, arg(&a, "sourceId")?)?),
         "tags_of" => ok(tags_of(state, arg(&a, "ids")?)?),
         "source_children" => ok(source_children(state, arg(&a, "id")?)?),
-        "library" => ok(library(state)?),
         "attach_image" => ok(attach_image(state, arg(&a, "title")?, arg(&a, "path")?)?),
         "read_attachment" => ok(read_attachment(state, arg(&a, "path")?)?),
         "save_remote_cover" => ok(tauri::async_runtime::block_on(save_remote_cover(

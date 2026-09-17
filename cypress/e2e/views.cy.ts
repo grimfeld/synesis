@@ -27,7 +27,7 @@ describe("Views", () => {
     // How many Notes the demo vault holds is not this test's business: ask
     // the engine rather than hardcoding a number that every new demo document
     // invalidates.
-    cy.bridge<{ type: string }[]>("list_documents", {}).then((docs) => {
+    cy.query<{ type: string }[]>({ kind: "list", docType: null }).then((docs) => {
       const notes = docs.filter((d) => d.type === "note").length;
       cy.get("[data-testid=graph-counts]")
         .invoke("text")
@@ -46,7 +46,7 @@ describe("Views", () => {
 
   it("Map shows every Place with coordinates", () => {
     cy.get("[data-testid=nav-map]").click();
-    cy.bridge<unknown[]>("places").then((places) => {
+    cy.query<unknown[]>({ kind: "places" }).then((places) => {
       cy.get("[data-testid=map] path.leaflet-interactive").should("have.length", places.length);
     });
     cy.get("[data-testid=map] .leaflet-tooltip")

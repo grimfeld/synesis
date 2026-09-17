@@ -12,6 +12,7 @@ pub mod index;
 pub mod names;
 pub mod parser;
 pub mod properties;
+pub mod query;
 pub mod scripture;
 pub mod sync;
 pub mod p2p;

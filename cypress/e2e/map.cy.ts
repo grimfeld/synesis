@@ -8,7 +8,7 @@ describe("Map", () => {
     cy.runCommand("Go to Map");
     cy.get("[data-testid=map]").should("exist");
     // The demo vault's Places all carry looked-up coordinates (PLAN §14 step 5).
-    cy.bridge<{ id: string; title: string }[]>("places").then((places) => {
+    cy.query<{ id: string; title: string }[]>({ kind: "places" }).then((places) => {
       expect(places.length, "Places with coordinates").to.be.greaterThan(0);
       cy.get("[data-testid=map] .leaflet-interactive").should(
         "have.length",
@@ -37,7 +37,7 @@ describe("Map", () => {
     cy.runCommand("Go to Map");
     // Labels are tooltips (`pointer-events: none`), so the marker is the target.
     // Markers are added in the order `places()` returns them, which is by title.
-    cy.bridge<{ title: string }[]>("places").then((places) => {
+    cy.query<{ title: string }[]>({ kind: "places" }).then((places) => {
       const i = places.findIndex((p) => p.title === "Corinth");
       expect(i, "Corinth among the plotted Places").to.be.at.least(0);
       cy.get("[data-testid=map] .leaflet-interactive").eq(i).click();
