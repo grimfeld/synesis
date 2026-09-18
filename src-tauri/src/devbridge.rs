@@ -122,6 +122,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "set_background_sync" => ok(crate::pairing::set_background_sync(state, arg(&a, "enabled")?)?),
         "sync_status" => ok(sync_status(state)?),
         "sync_locations" => ok(sync_locations(app.clone(), state)?),
+        "storage_access" => ok(crate::storage::storage_access(app.clone())?),
+        "request_storage_access" => ok(crate::storage::request_storage_access(app.clone())?),
         "open_vault" => ok(open_vault(app.clone(), state, arg(&a, "path")?)?),
         "close_vault" => ok(close_vault(state)?),
         "forget_vault" => ok(forget_vault(state, arg(&a, "id")?)?),

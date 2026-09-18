@@ -429,3 +429,108 @@ Sources had no view of their own — a flat, alphabetical sidebar group and a Hu
 - Sidebar nesting: children under their parent in the rail, which is a second, independent piece of work.
 - Sweeping `Attachments/` for pictures no `cover` names any more.
 - Renaming a Source's Cover file when the Source is renamed, which also means rewriting the `cover` property in step.
+
+## 21. Onboarding rebuilt: three ways in, and a Vault you can find (grilling session, 2026-09-19)
+
+Outcome of a session after using the Android build. Two faults: the wizard's
+sync step offered a pairing code field and a "Next" button that ignored it, so
+typing a code and pressing Next silently created a local Vault; and every Vault
+the phone made landed in `Android/data/`, which the Files app will not browse.
+The location decision is [ADR 0015](adr/0015-the-app-decides-where-a-vault-lives-on-mobile.md).
+
+### Decided
+
+1. **Step 2 is a chooser, and nothing else.** Three cards: **Pair with another
+   device** (recommended), **Use a synced folder**, **Just this device**. The
+   cards are the navigation — tapping one opens its own screen. There is no
+   `Next` on the chooser and no `Skip`; the footer carries only `Back`. Each
+   detail screen has exactly one primary action, labelled with what it does
+   (`Join vault`, `Create vault`), so no button can mean something other than
+   the one the user is looking at. This is the fix for the reported bug, and it
+   removes the class rather than the instance.
+2. **Four steps stay**, on desktop and mobile alike: Welcome, Sync, Vault,
+   Done. Step 2 is chooser-then-detail, and `Back` from a detail screen returns
+   to the chooser rather than to step 1. The pairing branch reaches its Vault
+   through the join itself, so it passes through step 3 without a screen.
+3. **Mobile has no path field.** The app derives the path from the Vault's
+   name: `<shared Documents>/Synesis/<name>`, with `free_path`'s suffix on a
+   collision. The local branch asks for a name (prefilled, editable) and shows
+   the resulting folder read-only underneath. Desktop is unchanged — picker and
+   path input, defaulting inside the chosen sync tool's folder when there is
+   one, `~/Documents/Synesis/<name>` otherwise.
+4. **The permission is asked where the consequence is visible.** Each branch's
+   screen shows the folder the Vault will occupy; on Android without all-files
+   access that preview shows the `Android/data/` fallback, says it will be
+   hidden from the Files app, and offers "Allow access to Documents". `Create`
+   stays enabled throughout: refusing yields a working Vault in a hidden
+   folder, never a blocked wizard. iOS needs no permission and shows no row.
+5. **"Drive" is not a choice, because on Android it cannot be one.** Google
+   Drive has no synced local folder on Android and reaches the engine only
+   through SAF. The third card is **Use a synced folder** — honest about being
+   any folder another app keeps in sync (Syncthing, a Drive-sync tool) — and
+   carries the existing per-method tutorials.
+6. **The synced-folder branch inverts the setup order on mobile**: create the
+   Vault at `Documents/Synesis/<name>` first, then point the sync tool at a
+   folder that already exists and already holds something. Discovery is
+   unchanged and stays in this branch — found Vaults (`.bible-study/` in a
+   known sync root, labelled by the Device that made them) are offered here,
+   because they exist by virtue of a sync folder existing.
+7. **A returning user does not walk a wizard.** When `settings.vaults` is not
+   empty, step 1 lists the Vaults this Device holds with a "New vault" action
+   underneath, instead of the three pillars. The pillars are for the first run.
+8. **Joining derives its path from the Invite.** `inspect_invite` already
+   reports the Vault's name; the join screen shows "Joining *main*, into
+   `Documents/Synesis/main`" once the code parses. ADR 0014's occupied-folder
+   case keeps moving to a sibling automatically, but is stated as information
+   in that preview rather than as a destructive-red error — the app has already
+   resolved it. Mobile gets no escape hatch: reintroducing a path field behind
+   an "Advanced" disclosure would keep the confusion for the users likeliest to
+   open it.
+9. **Existing Vaults move on request, never on their own.** Settings gains a
+   per-Vault "Move to Documents", shown when a Vault sits under `Android/data/`
+   and the permission is granted. It closes the Vault, copies, updates
+   `settings.vaults`, deletes the old folder and reopens at the new path.
+10. **Settings keeps today's sync UI.** The chooser is onboarding-only: a
+    Settings dialog opens with a Vault already open, where "create a local
+    Vault" means nothing. `set_sync_method` moves from Vault-open time to each
+    branch's action, where the method is actually known.
+
+### Build order
+
+One branch, several commits, shipped as one release — a half-migrated wizard is
+worse than either end of it.
+
+1. **Paths and permission.** `suggest_vault_path` parent `Synesis vaults` ->
+   `Synesis`; shared-Documents parent on Android and iOS; `storage_access` and
+   `request_storage_access` commands (a `@TauriPlugin` class injected by
+   `scripts/android-post-init.mjs`, which also adds the manifest permission),
+   reporting `{ needed: false, granted: true }` off Android; iOS Info.plist
+   gains `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace`. Rust
+   tests for the parent and for collision suffixes.
+2. **The wizard.** Chooser plus three detail screens; step 1's Vault list;
+   found Vaults into the synced-folder branch; the path-preview component with
+   its permission row.
+3. **Move a Vault** in Settings: a `move_vault` command (close, copy, update,
+   delete, reopen) and its row.
+4. **Tutorials and strings.** Reword `docs/sync/syncthing.android.*` for the
+   inverted order; en and fr for every new screen.
+5. **Tests.** Vitest in `src/lib` for the decision rules — given platform,
+   permission, method and name, which path and which screens — next to
+   `syncRules.ts`, which already has that shape. A rewritten `onboarding.cy.ts`
+   for the three-branch navigation and the absence of `wizard-next` on step 2,
+   with `sync_locations` and `storage_access` intercepted to drive the Android
+   shape. A `locales.cy.ts` case at phone width: three cards of French copy is
+   exactly the overflow this repo's locale rule warns about.
+
+### Declined
+
+- **SAF and a `DocumentsProvider`**, both in ADR 0015: the first needs a VFS
+  under the whole engine, the second leaves Obsidian unable to open the folder.
+- **Google Drive as a named method on Android.** It would promise a thing the
+  platform cannot deliver, and the user would discover it only after choosing.
+- **An "Advanced" path field on mobile.** The choice is what confused; hiding
+  it does not unconfuse it.
+- **Automatic migration of Vaults already on the device** (ADR 0015).
+- **Three steps instead of four.** Vault creation stops having its own screen
+  on mobile, but renumbering the header per branch makes the progress indicator
+  lie about where the user is.

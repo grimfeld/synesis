@@ -140,7 +140,7 @@ _Avoid_: Index page, landing page, entity page
 ### Where things live
 
 **Vault**:
-The folder that holds every document as a markdown file. The user owns it; the app is an index over it. Obsidian opens the same folder. A Vault knows its own name and carries an identity of its own, so that two of them can never be mistaken for each other: a Device may hold several and the same Vault may sit at a different path on each Device.
+The folder that holds every document as a markdown file. The user owns it; the app is an index over it. Obsidian opens the same folder. A Vault knows its own name and carries an identity of its own, so that two of them can never be mistaken for each other: a Device may hold several and the same Vault may sit at a different path on each Device. On a phone the Device chooses that path from the Vault's name, and chooses somewhere the user can reach with their file manager, so the folder is never hidden from the person who owns it.
 _Avoid_: Library, workspace, database
 
 **Vault id**:

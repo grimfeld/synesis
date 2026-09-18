@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated iOS Info.plist by Tauri, which reads any plist
+  sitting beside tauri.conf.json.
+
+  A Vault must be a folder the user can reach (ADR 0015). On iOS that needs no
+  permission: these two keys publish the app's Documents container to the Files
+  app, so Vaults under <Documents>/Synesis are browsable, and other apps can
+  open the markdown in place rather than on a copy.
+-->
+<plist version="1.0">
+  <dict>
+    <key>UIFileSharingEnabled</key>
+    <true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key>
+    <true/>
+  </dict>
+</plist>

@@ -20,6 +20,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 #[cfg(debug_assertions)]
 mod devbridge;
 mod pairing;
+mod storage;
 mod watch;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -373,11 +374,17 @@ pub struct SyncLocation {
 #[derive(Serialize)]
 pub struct SyncLocations {
     pub platform: String,
-    /// Where new vaults go by default: the user's home on desktop, the app's
-    /// private storage on mobile (no permissions, mirrored by Pairing).
+    /// Where new vaults go by default: `<Documents>/Synesis` everywhere, which
+    /// on Android is the shared folder the Files app browses when the user has
+    /// granted all-files access, and the app's private storage when they have
+    /// not (ADR 0015).
     pub home: String,
-    /// Desktop only: mobile has no folder picker and no user-writable home.
+    /// Desktop only: mobile has no folder picker, and the app chooses the path.
     pub can_pick_folder: bool,
+    /// Mobile: the path is derived from the Vault's name, never typed.
+    pub app_decides_path: bool,
+    /// Whether this Device may write where the user can find the Vault.
+    pub storage: storage::StorageAccess,
     pub locations: Vec<SyncLocation>,
     /// Vaults already present in those folders (synced from another Device).
     pub found: Vec<engine::sync::FoundVault>,
@@ -388,11 +395,12 @@ pub struct SyncLocations {
 fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocations> {
     let platform = std::env::consts::OS.to_string();
     let mobile = matches!(platform.as_str(), "android" | "ios");
-    let home = if mobile {
-        app.path().document_dir().or_else(|_| app.path().app_data_dir()).map_err(err)?.join("Synesis vaults")
-    } else {
-        app.path().home_dir().map_err(err)?
-    };
+    // Where new Vaults go. Desktop still scans the sync tools' folders below
+    // and may propose one of those instead (PLAN §21.3).
+    let vaults_home = storage::vaults_parent(&app)?;
+    // The sync tools keep their folders under the real home, which on mobile
+    // is not a place the app can look.
+    let home = if mobile { vaults_home.clone() } else { app.path().home_dir().map_err(err)? };
     let env_dir = |k: &str| std::env::var(k).ok().map(PathBuf::from);
     let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
     match platform.as_str() {
@@ -439,7 +447,16 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
         .into_iter()
         .map(|(method, root)| SyncLocation { method: method.into(), exists: root.is_dir(), suggested: root.join("Synesis").to_string_lossy().to_string(), root: root.to_string_lossy().to_string() })
         .collect();
-    Ok(SyncLocations { platform, home: home.to_string_lossy().to_string(), can_pick_folder: !mobile, locations, found })
+    let storage = storage::access(&app);
+    Ok(SyncLocations {
+        platform,
+        home: vaults_home.to_string_lossy().to_string(),
+        can_pick_folder: !mobile,
+        app_decides_path: storage::app_decides_path(),
+        storage,
+        locations,
+        found,
+    })
 }
 
 /// Stop listing a Vault on this Device. The folder and its documents stay;
@@ -474,21 +491,11 @@ fn rename_vault(state: State<AppState>, name: String) -> CmdResult<VaultInfo> {
 
 /// Where a Vault called `name` could go on this Device, without disturbing
 /// anything already there. What the mobile join offers instead of one fixed
-/// folder for every Vault (ADR 0014).
+/// folder for every Vault (ADR 0014), and what the whole mobile wizard uses
+/// now that the app chooses the folder rather than asking (ADR 0015).
 #[tauri::command]
 fn suggest_vault_path(app: AppHandle, name: String) -> CmdResult<String> {
-    let platform = std::env::consts::OS;
-    let parent = if matches!(platform, "android" | "ios") {
-        app.path()
-            .document_dir()
-            .or_else(|_| app.path().app_data_dir())
-            .map_err(err)?
-            .join("Synesis vaults")
-    } else {
-        app.path().home_dir().map_err(err)?.join("Synesis vaults")
-    };
-    std::fs::create_dir_all(&parent).map_err(err)?;
-    Ok(engine::meta::free_path(&parent, &name).display().to_string())
+    Ok(storage::vault_path(&app, &name)?.display().to_string())
 }
 
 /// What an Invite is for, before accepting it: which Vault, and whether the
@@ -1149,7 +1156,8 @@ fn load_settings(p: &Path) -> Settings {
 pub fn run() {
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init());
+        .plugin(tauri_plugin_opener::init())
+        .plugin(storage::plugin());
     #[cfg(desktop)]
     let builder = builder.plugin(
         tauri_plugin_global_shortcut::Builder::new()
@@ -1220,6 +1228,8 @@ pub fn run() {
             pairing::set_background_sync,
             sync_status,
             sync_locations,
+            storage::storage_access,
+            storage::request_storage_access,
             open_vault,
             close_vault,
             inspect_invite,
