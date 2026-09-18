@@ -698,6 +698,10 @@ export const api = {
   closeVault: () => invoke<void>("close_vault"),
   /** Stop listing a Vault here. The folder and its documents stay. */
   forgetVault: (id: string) => invoke<KnownVault[]>("forget_vault", { id }),
+  /** Vaults sitting where the user cannot browse them (ADR 0015), by id. */
+  hiddenVaults: () => invoke<string[]>("hidden_vaults"),
+  /** Move a Vault to the folder this Device would choose for it today. */
+  moveVault: (id: string) => invoke<VaultInfo>("move_vault", { id }),
   /** Rename the open Vault; the name travels to every Device that holds it. */
   renameVault: (name: string) => invoke<VaultInfo>("rename_vault", { name }),
   /** Where a Vault of this name could go here without disturbing anything. */

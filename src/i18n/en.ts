@@ -530,6 +530,10 @@ export const en = {
   vaults: "Vaults on this device",
   vault_name: "Vault name",
   switch_vault: "Open",
+  move_vault: "Move to Documents",
+  move_vault_badge: "Hidden from the Files app",
+  move_vault_hint: "This vault sits in a folder Android hides from the Files app, so Obsidian cannot open it either. Moving it puts it beside your other vaults.",
+  move_vault_busy: "Moving…",
   forget_vault: "Forget",
   forget_vault_hint: "Stops listing it here. The folder and its documents stay where they are.",
   vault_occupied: (folder: string, name: string) =>

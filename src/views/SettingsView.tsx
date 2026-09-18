@@ -184,7 +184,28 @@ function VaultsCard() {
   const vaults = s.settings?.vaults ?? [];
   const openId = s.info?.meta.id;
   const [name, setName] = useState("");
+  // Vaults made before the app chose where they go can sit somewhere Android
+  // hides. The engine decides which those are (ADR 0015).
+  const [hidden, setHidden] = useState<string[]>([]);
+  const [moving, setMoving] = useState<string | null>(null);
+  const [moveError, setMoveError] = useState<string | null>(null);
   useEffect(() => setName(s.info?.meta.name ?? ""), [s.info?.meta.name]);
+  useEffect(() => {
+    api.hiddenVaults().then(setHidden).catch(() => setHidden([]));
+  }, [s.settings?.vaults]);
+  const move = async (id: string) => {
+    setMoving(id);
+    setMoveError(null);
+    try {
+      await api.moveVault(id);
+      await s.attachVault();
+      setHidden(await api.hiddenVaults());
+    } catch (e) {
+      setMoveError(String(e));
+    } finally {
+      setMoving(null);
+    }
+  };
   if (vaults.length === 0) return null;
   return (
     <Card data-testid="settings-vaults">
@@ -219,6 +240,22 @@ function VaultsCard() {
                 <span className="block truncate text-xs text-muted-foreground">
                   {v.path}
                 </span>
+                {hidden.includes(v.id) && (
+                  <span className="mt-1 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-destructive">
+                      {t.move_vault_badge}
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="outline"
+                      disabled={moving !== null}
+                      onClick={() => move(v.id)}
+                      data-testid="vault-move"
+                    >
+                      {moving === v.id ? t.move_vault_busy : t.move_vault}
+                    </Button>
+                  </span>
+                )}
               </span>
               {v.id === openId ? (
                 <span className="shrink-0 text-xs text-muted-foreground">
@@ -247,6 +284,10 @@ function VaultsCard() {
             </li>
           ))}
         </ul>
+        {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+        {hidden.length > 0 && (
+          <p className="text-xs text-muted-foreground">{t.move_vault_hint}</p>
+        )}
         <p className="text-xs text-muted-foreground">{t.forget_vault_hint}</p>
       </CardContent>
     </Card>

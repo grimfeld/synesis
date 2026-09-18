@@ -530,6 +530,10 @@ export const fr: Dict = {
   vaults: "Coffres sur cet appareil",
   vault_name: "Nom du coffre",
   switch_vault: "Ouvrir",
+  move_vault: "Déplacer vers Documents",
+  move_vault_badge: "Masqué dans l'app Fichiers",
+  move_vault_hint: "Ce coffre est dans un dossier qu'Android masque dans l'app Fichiers, et Obsidian ne peut donc pas l'ouvrir. Le déplacer le met à côté de vos autres coffres.",
+  move_vault_busy: "Déplacement…",
   forget_vault: "Oublier",
   forget_vault_hint: "Ne l'affiche plus ici. Le dossier et ses documents restent en place.",
   vault_occupied: (folder: string, name: string) =>

@@ -93,6 +93,31 @@ pub fn request_storage_access(app: AppHandle) -> CmdResult<()> {
     }
 }
 
+/// Copy a folder and everything under it. Used by the move, which copies
+/// before it deletes so a phone that sleeps mid-way leaves the Vault intact.
+pub fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for entry in std::fs::read_dir(from)? {
+        let entry = entry?;
+        let dest = to.join(entry.file_name());
+        if entry.file_type()?.is_dir() {
+            copy_tree(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), &dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Whether a Vault sits somewhere its owner cannot browse, and so is worth
+/// offering to move (ADR 0015). Only Android hides a folder this way.
+pub fn is_hidden_path(app: &AppHandle, path: &str) -> bool {
+    if std::env::consts::OS != "android" || !access(app).visible() {
+        return false;
+    }
+    path.contains("/Android/data/")
+}
+
 /// Calls into the Kotlin side that `scripts/android-post-init.mjs` injects
 /// into the generated project (`src-tauri/gen/` is regenerated and gitignored,
 /// so the plugin cannot live there as a checked-in source file).
@@ -183,6 +208,23 @@ mod tests {
         // which the wizard says on the screen before it happens (ADR 0015).
         assert!(!StorageAccess { needed: true, granted: false }.visible());
         assert!(StorageAccess { needed: true, granted: true }.visible());
+    }
+
+    #[test]
+    fn a_copied_tree_keeps_everything_under_it() {
+        // The move copies before it deletes, so a phone that sleeps half way
+        // through still has the Vault where it was.
+        let root = std::env::temp_dir().join(format!("synesis-copy-{}", std::process::id()));
+        let from = root.join("from");
+        let nested = from.join(".bible-study").join("sync");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(from.join("a note.md"), "hello").unwrap();
+        std::fs::write(nested.join("device.json"), "{}").unwrap();
+        let to = root.join("to");
+        copy_tree(&from, &to).unwrap();
+        assert_eq!(std::fs::read_to_string(to.join("a note.md")).unwrap(), "hello");
+        assert!(to.join(".bible-study").join("sync").join("device.json").is_file());
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]

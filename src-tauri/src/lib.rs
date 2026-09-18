@@ -471,6 +471,52 @@ fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>
     Ok(state.settings.lock().map_err(err)?.vaults.clone())
 }
 
+/// The Vaults this Device holds that sit somewhere their owner cannot browse
+/// (ADR 0015), by id. Asked rather than worked out in the UI, so the rule for
+/// what counts as hidden lives in one place.
+#[tauri::command]
+fn hidden_vaults(app: AppHandle, state: State<AppState>) -> CmdResult<Vec<String>> {
+    let vaults = state.settings.lock().map_err(err)?.vaults.clone();
+    Ok(vaults.into_iter().filter(|v| storage::is_hidden_path(&app, &v.path)).map(|v| v.id).collect())
+}
+
+/// Move a Vault to the folder this Device would choose for it today, for the
+/// Vaults made before the app chose (ADR 0015). Copies, then deletes: a phone
+/// that sleeps half way through leaves the original where it was.
+///
+/// The Vault is closed first — a folder moving under a live CRDT and a running
+/// watcher is not worth the cleverness — and reopened at its new path.
+#[tauri::command]
+fn move_vault(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<VaultInfo> {
+    let known = {
+        let s = state.settings.lock().map_err(err)?;
+        s.vaults.iter().find(|v| v.id == id).cloned().ok_or("no such vault")?
+    };
+    let from = PathBuf::from(&known.path);
+    if !from.is_dir() {
+        return Err("the vault folder is gone".into());
+    }
+    let to = storage::vault_path(&app, &known.name)?;
+    if to == from {
+        return Err("the vault is already there".into());
+    }
+    let was_open = state.settings.lock().map_err(err)?.vault_path.as_deref() == Some(known.path.as_str());
+    if was_open {
+        close_vault(state.clone())?;
+    }
+    storage::copy_tree(&from, &to).map_err(err)?;
+    std::fs::remove_dir_all(&from).map_err(err)?;
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        if let Some(k) = s.vaults.iter_mut().find(|k| k.id == id) {
+            k.path = to.to_string_lossy().to_string();
+        }
+        s.recent.retain(|p| p != &known.path);
+    }
+    state.save_settings()?;
+    open_vault(app, state, Some(to.to_string_lossy().to_string()))
+}
+
 /// Rename the open Vault. The name travels with it, so every Device that holds
 /// this Vault sees the new one; the folder is untouched.
 #[tauri::command]
@@ -1236,6 +1282,8 @@ pub fn run() {
             suggest_vault_path,
             rename_vault,
             forget_vault,
+            move_vault,
+            hidden_vaults,
             vault_info,
             rescan,
             query,
