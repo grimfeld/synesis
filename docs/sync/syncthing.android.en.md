@@ -8,17 +8,20 @@ Syncthing copies a folder directly between your own devices, encrypted, with no 
 2. Open it and grant the permissions it asks for: **All files access** (so it can write the vault folder) and **Ignore battery optimisation** (so it keeps syncing in the background).
 3. In the app's **Settings → Run conditions**, choose when it runs: *always* or *only on Wi-Fi* and *when charging* if you want to save battery.
 
+## Make the vault first
+
+Android has no folder a sync tool is guaranteed to watch, so Synesis makes the vault and you point Syncthing at it — rather than the other way round.
+
+1. In Synesis, choose *Use a synced folder*, name the vault, and allow file access when it asks. The screen shows the folder it will use, normally `Documents/Synesis/<name>`.
+2. Tap **Create vault**. Note the path on that screen; the next steps need it.
+
 ## Pair with your desktop
 
 1. In Syncthing-Fork, tap **Devices → +**. Scan the QR code shown on the desktop under *Actions → Show ID*, or paste the ID. Give the desktop a name.
 2. On the desktop, accept the *New Device* prompt.
-3. On the desktop, share the *Synesis* folder with the phone (**Edit folder → Sharing**).
-4. On the phone, accept the *New Folder* prompt. Set its path to **Internal storage → Sync → Synesis** (`/storage/emulated/0/Sync/Synesis`); Synesis looks there.
-5. Wait for the folder to show *Up to date*.
-
-## Open the vault in Synesis
-
-Launch Synesis, choose *Syncthing* in the wizard; the vault appears under *Synced from <your desktop>*. Tap it.
+3. In Syncthing-Fork, tap **Folders → +** and choose the folder Synesis showed you (`Documents/Synesis/<name>`). Give it a folder ID you will recognise, and share it with the desktop.
+4. On the desktop, accept the *New Folder* prompt and point it at the vault folder there — the same vault, if the desktop already has one, or an empty folder if it does not.
+5. Wait for the folder to show *Up to date* on both.
 
 
 ## Check that it works

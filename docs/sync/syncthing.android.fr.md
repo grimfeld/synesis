@@ -8,17 +8,20 @@ Syncthing copie un dossier directement entre vos propres appareils, chiffré, sa
 2. Ouvrez-le et accordez les permissions demandées : **Accès à tous les fichiers** (pour écrire le dossier du coffre) et **Ignorer l'optimisation de batterie** (pour continuer en arrière-plan).
 3. Dans **Paramètres → Conditions d'exécution**, choisissez quand il tourne : *toujours* ou *seulement en Wi-Fi* et *en charge* pour économiser la batterie.
 
+## Créez d'abord le coffre
+
+Android n'a aucun dossier qu'un outil de synchro surveille d'office : Synesis crée donc le coffre, et c'est vous qui y pointez Syncthing — et non l'inverse.
+
+1. Dans Synesis, choisissez *Utiliser un dossier synchronisé*, nommez le coffre et autorisez l'accès aux fichiers quand c'est demandé. L'écran affiche le dossier utilisé, normalement `Documents/Synesis/<nom>`.
+2. Touchez **Créer le coffre**. Notez le chemin affiché : les étapes suivantes en ont besoin.
+
 ## Appairer avec l'ordinateur
 
 1. Dans Syncthing-Fork, touchez **Appareils → +**. Scannez le QR code affiché sur l'ordinateur sous *Actions → Afficher l'ID*, ou collez l'ID. Nommez l'ordinateur.
 2. Sur l'ordinateur, acceptez l'invite *Nouvel appareil*.
-3. Sur l'ordinateur, partagez le dossier *Synesis* avec le téléphone (**Modifier le partage → Partage**).
-4. Sur le téléphone, acceptez l'invite *Nouveau partage*. Placez-le dans **Stockage interne → Sync → Synesis** (`/storage/emulated/0/Sync/Synesis`) ; Synesis y regarde.
-5. Attendez que le dossier affiche *À jour*.
-
-## Ouvrir le coffre dans Synesis
-
-Lancez Synesis, choisissez *Syncthing* dans l'assistant ; le coffre apparaît sous *Synchronisé depuis <votre ordinateur>*. Touchez-le.
+3. Dans Syncthing-Fork, touchez **Partages → +** et choisissez le dossier indiqué par Synesis (`Documents/Synesis/<nom>`). Donnez-lui un identifiant reconnaissable et partagez-le avec l'ordinateur.
+4. Sur l'ordinateur, acceptez l'invite *Nouveau partage* et pointez-la vers le dossier du coffre — le même coffre s'il en a déjà un, sinon un dossier vide.
+5. Attendez que le dossier affiche *À jour* des deux côtés.
 
 
 ## Vérifier que ça marche
