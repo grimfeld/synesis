@@ -162,6 +162,25 @@ describe("Locale layout", () => {
         cy.get("[data-testid=sync-pairing]").should("be.visible");
         expectNoOverflow();
       });
+
+      it("keeps the wizard's three cards inside the screen", () => {
+        // Three cards, each a title beside a badge with a sentence under it,
+        // and the French bodies run half again as long: "Un dossier qu'une
+        // autre app garde synchronisé…" against "A folder another app keeps
+        // in sync…". The vault must be closed for the wizard to show.
+        cy.bridge("close_vault");
+        cy.visit("/");
+        cy.get("[data-testid=wizard-step-1]", { timeout: 15000 }).should("exist");
+        expectNoOverflow();
+        cy.get("[data-testid=wizard-next]").click();
+        cy.get("[data-testid=wizard-routes]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=route-local]").click();
+        cy.get("[data-testid=route-screen-local]").should("be.visible");
+        expectNoOverflow();
+        // The spec opens the seeded vault once, in before(); put it back.
+        cy.bridge("open_vault", { path: Cypress.env("vault") });
+      });
     });
   }
 });

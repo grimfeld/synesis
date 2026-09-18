@@ -496,10 +496,14 @@ fn move_vault(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<V
     if !from.is_dir() {
         return Err("the vault folder is gone".into());
     }
-    let to = storage::vault_path(&app, &known.name)?;
-    if to == from {
+    // Compared against the parent, not against `vault_path`: that one appends
+    // a numeric suffix when the name is taken, and the name is taken by this
+    // very Vault when it already sits there — which would move it beside
+    // itself as `<name> 2`.
+    if from.parent() == Some(storage::vaults_parent(&app)?.as_path()) {
         return Err("the vault is already there".into());
     }
+    let to = storage::vault_path(&app, &known.name)?;
     let was_open = state.settings.lock().map_err(err)?.vault_path.as_deref() == Some(known.path.as_str());
     if was_open {
         close_vault(state.clone())?;

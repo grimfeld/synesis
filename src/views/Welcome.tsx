@@ -137,7 +137,10 @@ export function Welcome() {
 
   // Back from a route's screen returns to the chooser, not to step 1.
   const back = () => {
-    if (step === 3 && route) return setRoute(null);
+    if (step === 3 && route) {
+      setRoute(null);
+      return setStep(2);
+    }
     setStep((step - 1) as Step);
   };
 
