@@ -529,10 +529,21 @@ export interface SyncLocation {
   suggested: string;
 }
 
+/** Whether this Device may write a Vault where its owner can find it (ADR 0015). */
+export interface StorageAccess {
+  /** Android: all-files access. Elsewhere nothing stands in the way. */
+  needed: boolean;
+  granted: boolean;
+}
+
 export interface SyncLocations {
   platform: string;
+  /** Where new Vaults go: `<Documents>/Synesis`, or the private fallback. */
   home: string;
   can_pick_folder: boolean;
+  /** Mobile: the path comes from the Vault's name and is never typed. */
+  app_decides_path: boolean;
+  storage: StorageAccess;
   locations: SyncLocation[];
   found: FoundVault[];
 }
@@ -655,6 +666,9 @@ export const api = {
     invoke<void>("set_sync_method", { method }),
   syncStatus: () => invoke<DeviceInfo[]>("sync_status"),
   syncLocations: () => invoke<SyncLocations>("sync_locations"),
+  /** Re-checked whenever the window regains focus: the grant happens outside the app. */
+  storageAccess: () => invoke<StorageAccess>("storage_access"),
+  requestStorageAccess: () => invoke<void>("request_storage_access"),
   pairingStatus: () => invoke<PairingStatus | null>("pairing_status"),
   pairingInvite: () => invoke<{ code: string }>("pairing_invite"),
   pairingRevokeInvite: () => invoke<{ code: string }>("pairing_revoke_invite"),

@@ -1,14 +1,20 @@
-// Onboarding wizard, shown whenever no vault is open (docs/PLAN.md §14):
-// 1 Welcome · 2 Devices & sync · 3 Vault · 4 Done.
-import { useEffect, useMemo, useState } from "react";
+// Onboarding wizard, shown whenever no vault is open (PLAN §21):
+// 1 Welcome · 2 Sync · 3 Vault · 4 Done.
+//
+// Step 2 is a chooser and nothing else — three cards, each opening its own
+// screen. There is deliberately no "Next" there: the old one advanced past a
+// typed pairing code and silently made a local vault instead.
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { open as pickFolder } from "@tauri-apps/plugin-dialog";
-import { ArrowLeft, ArrowRight, BookOpenText, Check, FolderOpen, FolderPlus, Laptop, RefreshCw, Search, Zap } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpenText, Check, ChevronRight, FolderOpen, FolderPlus, Laptop, Link2, RefreshCw, Search, Zap } from "lucide-react";
 import { cn } from "cn";
 import { api, type SyncLocations } from "@/lib/api";
 import { shortcut } from "@/lib/keys";
-import { locationsFor, type DeviceKind, type Method } from "@/lib/sync";
+import { destination, methodFor, nameIsUsable, type Route } from "@/lib/onboarding";
+import { locationsFor, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
+import { LandsIn } from "@/components/LandsIn";
 import { SyncSetup } from "@/components/SyncSetup";
 import { JoinPairing, JoinWaiting } from "@/components/Pairing";
 import { usePairing } from "@/lib/pairing";
@@ -19,26 +25,40 @@ import { Kbd } from "@/components/ui/kbd";
 
 type Step = 1 | 2 | 3 | 4;
 
-function joinPathIn(home: string, name: string) {
-  const sep = home.includes("\\") ? "\\" : "/";
-  return home.replace(/[\\/]+$/, "") + sep + name;
+/** One way into a vault. The card is the button; tapping it opens its screen. */
+function RouteCard({ icon: Icon, title, body, recommended, onClick, testid }: { icon: typeof Link2; title: string; body: string; recommended?: boolean; onClick: () => void; testid: string }) {
+  const t = useT();
+  return (
+    <button type="button" onClick={onClick} data-testid={testid} className="flex w-full items-start gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:bg-accent">
+      <Icon className="mt-0.5 size-5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="font-medium">{title}</span>
+          {recommended && <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold tracking-wider text-primary uppercase">{t.sync.recommended}</span>}
+        </span>
+        <span className="mt-0.5 block text-sm text-muted-foreground">{body}</span>
+      </span>
+      <ChevronRight className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+    </button>
+  );
 }
 
 export function Welcome() {
   const t = useT();
   const s = useStore();
   const [step, setStep] = useState<Step>(1);
+  const [route, setRoute] = useState<Route | null>(null);
   const [locations, setLocations] = useState<SyncLocations | null>(null);
   const [method, setMethod] = useState<Method | null>(null);
-  const [, setDevices] = useState<DeviceKind[]>([]);
-  const [path, setPath] = useState("");
+  const [name, setName] = useState("");
+  const [path, setPath] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [joinPath, setJoinPath] = useState("");
   const [joinStatus, setJoinStatus] = useState<PairingStatus | null>(null);
   const joining = joinStatus !== null;
   const pairing = usePairing(joining);
-  const recent = s.settings?.recent ?? [];
+  const known = s.settings?.vaults ?? [];
+
   // Joined and approved: the engine has the vault open; adopt it.
   useEffect(() => {
     if (joining && pairing.lastEvent?.kind === "approved") s.attachVault().catch(console.error);
@@ -49,34 +69,60 @@ export function Welcome() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairing.lastEvent, joining]);
 
-  useEffect(() => {
+  const reload = useCallback(() => {
     api.syncLocations().then(setLocations).catch(console.error);
   }, []);
+  useEffect(reload, [reload]);
 
-  // Default vault path: inside the chosen method's folder when it exists, else the home folder.
-  const suggested = useMemo(() => {
-    if (!locations) return "";
-    const inMethod = method ? locationsFor(method, locations.locations).find((l) => l.exists) : undefined;
-    return inMethod?.suggested ?? joinPathIn(locations.home, "Synesis");
-  }, [locations, method]);
-  useEffect(() => setPath(suggested), [suggested]);
+  // The grant happens in the system's own settings, so the only reliable
+  // moment to look again is when this window comes back.
   useEffect(() => {
-    if (locations) setJoinPath((p) => p || joinPathIn(locations.home, "Synesis"));
+    const onFocus = () => {
+      if (locations?.storage.needed && !locations.storage.granted) reload();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [locations, reload]);
+
+  const grant = async () => {
+    try {
+      await api.requestStorageAccess();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  useEffect(() => {
+    if (!name && locations) setName(t.wizard.name_placeholder);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [locations]);
 
-  const found = locations?.found ?? [];
+  // Desktop keeps the picker, and keeps proposing a folder inside the sync
+  // tool's own directory when one was chosen (PLAN §21.3).
+  const suggested = useMemo(() => {
+    if (!locations || locations.app_decides_path) return undefined;
+    const inMethod = method ? locationsFor(method, locations.locations).find((l) => l.exists) : undefined;
+    return inMethod ? `${inMethod.suggested}` : destination(locations, name).path;
+  }, [locations, method, name]);
+  useEffect(() => setPath(suggested), [suggested]);
 
-  const openAt = async (p: string) => {
+  const dest = destination(locations, name, path);
+
+  const createVault = async () => {
     setBusy(true);
     setError(null);
     try {
-      await api.setSyncMethod(method ?? "none");
-      await s.openVault(p);
+      await api.setSyncMethod(methodFor(route ?? "local", method) as never);
+      // The engine has the real free_path: ask it, so a name already taken
+      // becomes a sibling rather than a folder that holds another Vault.
+      const target = locations?.app_decides_path ? await api.suggestVaultPath(name.trim()) : dest.path;
+      await s.openVault(target);
     } catch (e) {
       setError(String(e));
       setBusy(false);
     }
   };
+
   const choose = async () => {
     const dir = await pickFolder({ directory: true, multiple: false });
     if (typeof dir === "string") setPath(dir);
@@ -88,6 +134,12 @@ export function Welcome() {
     { n: 3, label: t.wizard.step_vault },
     { n: 4, label: t.wizard.step_done },
   ];
+
+  // Back from a route's screen returns to the chooser, not to step 1.
+  const back = () => {
+    if (step === 3 && route) return setRoute(null);
+    setStep((step - 1) as Step);
+  };
 
   return (
     <div className="flex h-full flex-col bg-muted/40">
@@ -109,7 +161,33 @@ export function Welcome() {
 
       <div className="thin-scroll min-h-0 flex-1 overflow-auto px-6 pb-8">
         <div className="mx-auto max-w-2xl" data-testid={`wizard-step-${step}`}>
-          {step === 1 && (
+          {step === 1 && known.length > 0 && (
+            // This Device already holds Vaults: opening one is the likely
+            // errand, not walking a wizard again (PLAN §21.7).
+            <section className="grid gap-4 pt-8">
+              <div>
+                <h1 className="font-prose text-3xl font-bold tracking-tight">{t.wizard.open_title}</h1>
+                <p className="mt-2 text-muted-foreground">{t.wizard.open_body}</p>
+              </div>
+              <ul className="grid gap-2" data-testid="known-vaults">
+                {known.map((v) => (
+                  <li key={v.id}>
+                    <button type="button" className="flex w-full items-center gap-3 rounded-xl border bg-card p-4 text-left transition-colors hover:bg-accent" onClick={() => s.openVault(v.path).catch((e) => setError(String(e)))} title={v.path}>
+                      <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{v.name}</span>
+                        <span className="block truncate font-mono text-xs text-muted-foreground">{v.path}</span>
+                      </span>
+                      <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+            </section>
+          )}
+
+          {step === 1 && known.length === 0 && (
             <section className="grid gap-6 pt-8">
               <div>
                 <h1 className="font-prose text-3xl font-bold tracking-tight">{t.welcome_title}</h1>
@@ -123,57 +201,56 @@ export function Welcome() {
                   </li>
                 ))}
               </ul>
-              {recent.length > 0 && (
-                <div className="rounded-xl border bg-card p-4">
-                  <div className="mb-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.recent}</div>
-                  <ul className="space-y-0.5">
-                    {recent.map((p) => (
-                      <li key={p}>
-                        <button type="button" className="flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent" onClick={() => s.openVault(p)} title={p}>
-                          <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate">{p}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </section>
           )}
 
           {step === 2 && (
-            <section className="grid gap-4 pt-6">
+            <section className="grid gap-4 pt-6" data-testid="wizard-routes">
               <div>
-                <h2 className="text-xl font-semibold">{t.wizard.sync_title}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{t.wizard.sync_body}</p>
+                <h2 className="text-xl font-semibold">{t.wizard.choose_title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t.wizard.choose_body}</p>
+              </div>
+              <RouteCard icon={Link2} title={t.wizard.route_pairing} body={t.wizard.route_pairing_body} recommended testid="route-pairing" onClick={() => { setRoute("pairing"); setStep(3); }} />
+              <RouteCard icon={RefreshCw} title={t.wizard.route_folder} body={t.wizard.route_folder_body} testid="route-folder" onClick={() => { setRoute("folder"); setStep(3); }} />
+              <RouteCard icon={FolderPlus} title={t.wizard.route_local} body={t.wizard.route_local_body} testid="route-local" onClick={() => { setRoute("local"); setStep(3); }} />
+            </section>
+          )}
+
+          {step === 3 && route === "pairing" && (
+            <section className="grid gap-4 pt-6" data-testid="route-screen-pairing">
+              <div>
+                <h2 className="text-xl font-semibold">{t.wizard.pairing_title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t.pairing.intro}</p>
               </div>
               {joining ? (
                 <JoinWaiting status={pairing.status ?? joinStatus} />
               ) : (
-                <SyncSetup
-                  locations={locations}
-                  pairing={<JoinPairing platform={locations?.platform ?? ""} path={joinPath} onPath={setJoinPath} onJoined={setJoinStatus} />}
-                  onChange={(m, d) => {
-                    setMethod(m);
-                    setDevices(d);
-                  }}
-                />
+                <>
+                  <JoinPairing
+                    platform={locations?.platform ?? ""}
+                    locations={locations}
+                    onJoined={setJoinStatus}
+                    onGrant={grant}
+                  />
+                  {error && <p className="text-sm text-destructive">{error}</p>}
+                </>
               )}
-              {error && !joining && <p className="text-sm text-destructive">{error}</p>}
             </section>
           )}
 
-          {step === 3 && (
-            <section className="grid gap-4 pt-6">
+          {step === 3 && route === "folder" && (
+            <section className="grid gap-4 pt-6" data-testid="route-screen-folder">
               <div>
-                <h2 className="text-xl font-semibold">{t.wizard.vault_title}</h2>
-                <p className="mt-1 text-sm text-muted-foreground">{method ? t.wizard.vault_body_synced(t.sync.methods[method]) : t.wizard.vault_body}</p>
+                <h2 className="text-xl font-semibold">{t.wizard.folder_title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t.wizard.sync_body}</p>
               </div>
-              {found.length > 0 && (
+              {locations && locations.found.length > 0 && (
+                // Found Vaults live here because they exist by virtue of a
+                // synced folder existing (PLAN §21.6).
                 <div className="rounded-xl border bg-card p-4" data-testid="found-vaults">
                   <div className="mb-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.wizard.found_title}</div>
                   <ul className="space-y-1">
-                    {found.map((v) => {
+                    {locations.found.map((v) => {
                       const others = v.devices.filter((d) => !d.is_self);
                       const from = others.map((d) => d.name || t.sync.unknown_device).join(", ");
                       return (
@@ -192,25 +269,43 @@ export function Welcome() {
                   </ul>
                 </div>
               )}
-              <div className="rounded-xl border bg-card p-4">
-                <div className="mb-2 text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.wizard.create_title}</div>
-                <p className="mb-2 text-xs text-muted-foreground">{t.wizard.create_body}</p>
-                <div className="flex gap-2">
-                  <Input value={path} onChange={(e) => setPath(e.target.value)} data-testid="vault-path" className="font-mono text-xs" />
-                  {locations?.can_pick_folder !== false && (
-                    <Button variant="outline" onClick={choose} title={t.wizard.choose}>
-                      <FolderOpen />
-                    </Button>
-                  )}
-                </div>
-                {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
-                <div className="mt-3 flex gap-2">
-                  <Button onClick={() => setStep(4)} disabled={!path.trim() || busy} data-testid="vault-create">
-                    <FolderPlus />
-                    {t.wizard.create_here}
-                  </Button>
-                </div>
+              <SyncSetup locations={locations} foldersOpen onChange={(m) => setMethod(m)} />
+              <VaultNameAndPlace
+                locations={locations}
+                name={name}
+                onName={setName}
+                path={path}
+                onPath={setPath}
+                onChoose={choose}
+                dest={dest}
+                onGrant={grant}
+                busy={busy}
+                error={error}
+                onCreate={createVault}
+                hint={locations?.app_decides_path ? t.wizard.point_tool_here(dest.path) : undefined}
+              />
+            </section>
+          )}
+
+          {step === 3 && route === "local" && (
+            <section className="grid gap-4 pt-6" data-testid="route-screen-local">
+              <div>
+                <h2 className="text-xl font-semibold">{t.wizard.local_title}</h2>
+                <p className="mt-1 text-sm text-muted-foreground">{t.wizard.local_body}</p>
               </div>
+              <VaultNameAndPlace
+                locations={locations}
+                name={name}
+                onName={setName}
+                path={path}
+                onPath={setPath}
+                onChoose={choose}
+                dest={dest}
+                onGrant={grant}
+                busy={busy}
+                error={error}
+                onCreate={createVault}
+              />
             </section>
           )}
 
@@ -242,8 +337,8 @@ export function Welcome() {
       </div>
 
       <footer className="flex items-center gap-2 border-t bg-background px-6 py-3">
-        {step > 1 && (
-          <Button variant="ghost" onClick={() => setStep((step - 1) as Step)}>
+        {step > 1 && !joining && (
+          <Button variant="ghost" onClick={back}>
             <ArrowLeft />
             {t.back}
           </Button>
@@ -251,33 +346,91 @@ export function Welcome() {
         <div className="flex-1" />
         {step === 1 && (
           <Button onClick={() => setStep(2)} data-testid="wizard-next">
-            {t.wizard.get_started}
+            {known.length > 0 ? t.wizard.new_vault : t.wizard.get_started}
             <ArrowRight />
           </Button>
         )}
-        {step === 2 && !joining && (
-          <>
-            {!method && (
-              <Button variant="ghost" onClick={() => setStep(3)} data-testid="wizard-skip">
-                {t.wizard.skip_sync}
-              </Button>
-            )}
-            <Button onClick={() => setStep(3)} data-testid="wizard-next">
-              {t.next}
-              <ArrowRight />
-            </Button>
-          </>
-        )}
+        {/* Step 2 has no Next: the cards are the navigation, and each screen
+            below carries the one action that says what it does (PLAN §21.1). */}
         {step === 4 && (
           <>
             {error && <span className="text-sm text-destructive">{error}</span>}
-            <Button onClick={() => openAt(path.trim())} disabled={busy} data-testid="wizard-open">
+            <Button onClick={createVault} disabled={busy} data-testid="wizard-open">
               {t.wizard.open_vault}
               <ArrowRight />
             </Button>
           </>
         )}
       </footer>
+    </div>
+  );
+}
+
+/**
+ * Name the vault and show where it will go. On mobile the path is derived and
+ * read-only; on desktop the picker stays, because a real filesystem is there
+ * to point at (PLAN §21.3).
+ */
+function VaultNameAndPlace({
+  locations,
+  name,
+  onName,
+  path,
+  onPath,
+  onChoose,
+  dest,
+  onGrant,
+  busy,
+  error,
+  onCreate,
+  hint,
+}: {
+  locations: SyncLocations | null;
+  name: string;
+  onName: (v: string) => void;
+  path: string | undefined;
+  onPath: (v: string) => void;
+  onChoose: () => void;
+  dest: { path: string; visible: boolean; canAsk: boolean };
+  onGrant: () => void;
+  busy: boolean;
+  error: string | null;
+  onCreate: () => void;
+  hint?: string;
+}) {
+  const t = useT();
+  const derived = locations?.app_decides_path ?? false;
+  return (
+    <div className="grid gap-3 rounded-xl border bg-card p-4" data-testid="vault-place">
+      <div className="grid gap-1.5">
+        <label className="text-sm font-medium" htmlFor="vault-name">
+          {t.wizard.name_label}
+        </label>
+        <Input id="vault-name" value={name} onChange={(e) => onName(e.target.value)} placeholder={t.wizard.name_placeholder} data-testid="vault-name" />
+      </div>
+      {derived ? (
+        <LandsIn path={dest.path} visible={dest.visible} canAsk={dest.canAsk} onGrant={onGrant} />
+      ) : (
+        <div className="grid gap-1.5">
+          <div className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">{t.wizard.lands_in}</div>
+          <div className="flex gap-2">
+            <Input value={path ?? ""} onChange={(e) => onPath(e.target.value)} data-testid="vault-path" className="font-mono text-xs" />
+            {locations?.can_pick_folder !== false && (
+              <Button variant="outline" onClick={onChoose} title={t.wizard.choose}>
+                <FolderOpen />
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      <div>
+        <Button onClick={onCreate} disabled={busy || !nameIsUsable(derived ? name : path ?? "")} data-testid="vault-create">
+          <FolderPlus />
+          {t.wizard.create_vault}
+        </Button>
+      </div>
     </div>
   );
 }

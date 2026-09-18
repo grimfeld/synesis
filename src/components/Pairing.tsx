@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import { Check, Copy, Loader2, QrCode, RefreshCw, ScanLine, Trash2, X } from "lucide-react";
 import { cn } from "cn";
-import { api, type InviteInfo, type PairingMember, type PairingStatus } from "@/lib/api";
+import { api, type InviteInfo, type PairingMember, type PairingStatus, type SyncLocations } from "@/lib/api";
+import { canAsk, destination, looksLikeInvite, visible } from "@/lib/onboarding";
+import { LandsIn } from "@/components/LandsIn";
 import { canScan, memberNode, scanCode, usePairing } from "@/lib/pairing";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -174,50 +176,64 @@ function Members({ status, onDone }: { status: PairingStatus; onDone: () => void
 
 interface JoinProps {
   platform: string;
-  /** Where to create the vault on this Device. */
-  path: string;
-  onPath: (p: string) => void;
+  /** Where Vaults go here, and whether the user can reach that folder. */
+  locations: SyncLocations | null;
   /** Called once the join request is sent; the parent shows the waiting state. */
   onJoined: (status: PairingStatus) => void;
+  /** Ask Android for the access that moves the folder somewhere visible. */
+  onGrant: () => void;
 }
 
-/** Enter (or scan) a code from another Device and ask to join its vault. */
-export function JoinPairing({ platform, path, onPath, onJoined }: JoinProps) {
+/**
+ * Enter (or scan) a code from another Device and ask to join its Vault.
+ *
+ * The folder is not asked for: the Invite says which Vault this is, and the
+ * path follows from its name (ADR 0015). When that folder already holds a
+ * different Vault the engine offers a sibling, and this says so as a fact —
+ * it has already been handled, so it is not an error (ADR 0014).
+ */
+export function JoinPairing({ platform, locations, onJoined, onGrant }: JoinProps) {
   const t = useT();
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const valid = code.trim().startsWith("synesis:");
   const [invite, setInvite] = useState<InviteInfo | null>(null);
+  const [path, setPath] = useState("");
+  const valid = looksLikeInvite(code);
 
-  // Ask what the code is for as soon as it looks like one, and propose a
-  // folder named after that Vault. The join used to offer one fixed folder for
-  // every Vault, which is how a phone merged two of them (ADR 0014).
+  // Ask what the code is for as soon as it looks like one, then ask the engine
+  // where that Vault would go. Nothing is written until Join.
   useEffect(() => {
-    if (!valid) return setInvite(null);
+    if (!valid) {
+      setInvite(null);
+      setPath("");
+      return;
+    }
     let alive = true;
-    api
-      .inspectInvite(code.trim(), path.trim())
-      .then(async (info) => {
+    (async () => {
+      try {
+        const proposed = await api.suggestVaultPath("Synesis");
+        const info = await api.inspectInvite(code.trim(), proposed);
         if (!alive) return;
         setInvite(info);
-        if (info.check.kind === "occupied") {
-          const free = await api.suggestVaultPath(info.vault_name);
-          if (alive) onPath(free);
-        }
-      })
-      .catch(() => alive && setInvite(null));
+        setPath(await api.suggestVaultPath(info.vault_name));
+      } catch {
+        if (alive) setInvite(null);
+      }
+    })();
     return () => {
       alive = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, valid]);
+
+  const dest = destination(locations, invite?.vault_name ?? "", path || undefined);
+  const shown = path || dest.path;
 
   const join = async () => {
     setBusy(true);
     setError(null);
     try {
-      onJoined(await api.pairingJoin(code.trim(), path.trim()));
+      onJoined(await api.pairingJoin(code.trim(), shown));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -241,22 +257,22 @@ export function JoinPairing({ platform, path, onPath, onJoined }: JoinProps) {
           </Button>
         )}
       </div>
-      <div>
-        <div className="mb-1 text-xs text-muted-foreground">
-          {invite ? t.join_into(invite.vault_name) : t.pairing.join_path}
+      {invite && (
+        <div className="grid gap-2" data-testid="join-destination">
+          <div className="text-xs text-muted-foreground">{t.join_into(invite.vault_name)}</div>
+          <LandsIn path={shown} visible={visible(locations?.storage)} canAsk={canAsk(locations?.storage)} onGrant={onGrant} />
+          {invite.check.kind === "occupied" && (
+            // Already resolved: the sibling path above is where it goes. Said
+            // as information, not as a failure (ADR 0014).
+            <p className="text-xs text-muted-foreground" data-testid="join-occupied">
+              {t.vault_occupied(shown, invite.check.name)}
+            </p>
+          )}
         </div>
-        <Input value={path} onChange={(e) => onPath(e.target.value)} className="font-mono text-xs" data-testid="pairing-join-path" />
-      </div>
-      {invite?.check.kind === "occupied" && (
-        // Said before the join is attempted, not after: the folder offered has
-        // already been moved aside, and this explains why (ADR 0014).
-        <p className="text-sm text-destructive" data-testid="join-occupied">
-          {t.vault_occupied(path, invite.check.name)}
-        </p>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div>
-        <Button onClick={join} disabled={!valid || !path.trim() || busy} data-testid="pairing-join-go">
+        <Button onClick={join} disabled={!valid || !shown || busy} data-testid="pairing-join-go">
           {busy ? <Loader2 className="animate-spin" /> : <QrCode />}
           {t.pairing.join}
         </Button>

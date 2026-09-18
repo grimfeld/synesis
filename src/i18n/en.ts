@@ -427,6 +427,36 @@ export const en = {
     create_body: "Edit the path if you prefer another place. The folder is created if it does not exist.",
     choose: "Choose a folder…",
     create_here: "Use this folder",
+    // Step 1, once this Device holds Vaults: open one instead of making another.
+    open_title: "Your vaults",
+    open_body: "Open one, or start another.",
+    new_vault: "New vault",
+    // Step 2 is a chooser and nothing else: one card per way in, and the card
+    // is the button (PLAN §21.1).
+    choose_title: "How do you want to start?",
+    choose_body: "Pick one. You can change it later in Settings.",
+    route_pairing: "Pair with another device",
+    route_pairing_body: "You already use Synesis somewhere else. Scan its code and this device joins the same vault.",
+    route_folder: "Use a synced folder",
+    route_folder_body: "A folder another app keeps in sync, like Syncthing or a Drive-sync tool. Good if you also use a computer.",
+    route_local: "Just this device",
+    route_local_body: "Start a vault here. You can pair or add syncing whenever you like.",
+    // Each route's own screen.
+    pairing_title: "Pair with another device",
+    folder_title: "Use a synced folder",
+    local_title: "Start a vault on this device",
+    local_body: "Name it. Synesis puts it somewhere you can find again.",
+    name_label: "Vault name",
+    name_placeholder: "My vault",
+    lands_in: "Your vault will live in",
+    lands_visible: "You can open this folder in Files, and Obsidian can open the vault.",
+    lands_hidden: "This folder is hidden from the Files app, and other apps cannot open the vault in it.",
+    grant_access: "Allow access to Documents",
+    grant_hint: "Synesis asks for file access so your vault is a folder you own, not something locked inside the app.",
+    create_vault: "Create vault",
+    // The folder route tells the sync tool where to look, rather than hunting
+    // for wherever it happens to keep its folder (PLAN §21.6).
+    point_tool_here: (p: string) => `Add ${p} as a folder in your sync app, on this device and on the others.`,
     done_title: "You're set.",
     done_body: "Three things to try once the vault opens.",
     try_capture: "Quick capture",
