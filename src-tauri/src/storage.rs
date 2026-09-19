@@ -138,16 +138,18 @@ mod android {
         path: String,
     }
 
-    /// Managed state once `init()` has run; absent if the plugin failed to
-    /// load, in which case we report no access and fall back.
-    pub struct Handle(pub PluginHandle<tauri::Wry>);
+    /// Managed state once the plugin has loaded; absent if it failed to, in
+    /// which case we report no access and fall back. Generic over the runtime
+    /// so the state's type matches the plugin the builder produced.
+    pub struct Handle<R: Runtime>(pub PluginHandle<R>);
 
     pub fn register<R: Runtime>(api: PluginApi<R, ()>) -> Result<PluginHandle<R>, Box<dyn std::error::Error>> {
         Ok(api.register_android_plugin("tech.grimfeld.synesis", "StoragePlugin")?)
     }
 
-    fn plugin(app: &AppHandle) -> Option<tauri::State<'_, Handle>> {
-        app.try_state::<Handle>()
+    /// `AppHandle` in this crate is `AppHandle<Wry>`, so the lookup is concrete.
+    fn plugin(app: &AppHandle) -> Option<tauri::State<'_, Handle<tauri::Wry>>> {
+        app.try_state::<Handle<tauri::Wry>>()
     }
 
     pub fn is_manager(app: &AppHandle) -> bool {
@@ -179,7 +181,11 @@ pub fn plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
             #[cfg(target_os = "android")]
             {
                 match android::register(_api) {
-                    Ok(handle) => _app.manage(android::Handle(handle)),
+                    // `manage` answers whether the value was new; nothing here
+                    // has anything to say about that.
+                    Ok(handle) => {
+                        _app.manage(android::Handle(handle));
+                    }
                     // Without the plugin we cannot reach the shared folder;
                     // `access()` then reports not-granted and Vaults fall back
                     // to private storage rather than failing to be created.
