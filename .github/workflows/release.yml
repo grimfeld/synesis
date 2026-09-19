@@ -180,7 +180,12 @@ jobs:
           key: ${{ matrix.cache }}
           cache-on-failure: true
 
+      # Cypress ships a browser binary that `npm ci` downloads from its own
+      # CDN. A release build runs no tests and never uses it, and on 2026-09-17
+      # that download failed and took the Android build with it.
       - run: npm ci --no-audit --no-fund
+        env:
+          CYPRESS_INSTALL_BINARY: 0
 
       # Optional code signing; builds stay unsigned when the secrets are absent.
       # The bundler signs whenever APPLE_CERTIFICATE exists in the environment,
@@ -254,7 +259,12 @@ jobs:
           workspaces: ". -> target"
           cache-on-failure: true
 
+      # Cypress ships a browser binary that `npm ci` downloads from its own
+      # CDN. A release build runs no tests and never uses it, and on 2026-09-17
+      # that download failed and took the Android build with it.
       - run: npm ci --no-audit --no-fund
+        env:
+          CYPRESS_INSTALL_BINARY: 0
 
       - name: Generate the Android project
         env:
@@ -337,7 +347,12 @@ jobs:
           workspaces: ". -> target"
           cache-on-failure: true
 
+      # Cypress ships a browser binary that `npm ci` downloads from its own
+      # CDN. A release build runs no tests and never uses it, and on 2026-09-17
+      # that download failed and took the Android build with it.
       - run: npm ci --no-audit --no-fund
+        env:
+          CYPRESS_INSTALL_BINARY: 0
 
       # Two ways to sign. With only the App Store Connect key, `tauri ios
       # build` imports a placeholder identity and lets Xcode sign in the
