@@ -47,8 +47,13 @@ pub const LINKABLE_LIMIT: usize = 50;
 ///
 /// A limit is a field with a default rather than a number buried in a
 /// forwarding method, so the cap is visible where the question is asked.
+/// `rename_all` names the variants; `rename_all_fields` names their fields.
+/// Without the second one a multi-word field stays snake_case while the UI
+/// sends camelCase, and an `Option` field silently arrives as `None` — which is
+/// how every Source's Hub came to list every Clipping in the vault, and how
+/// `List` ignored the type it was given.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum Query {
     /// Every document, or every document of one type.
     List { doc_type: Option<DocType> },
@@ -197,4 +202,79 @@ pub struct VerseCount {
 pub struct TagCount {
     pub tag: String,
     pub count: u32,
+}
+
+#[cfg(test)]
+mod wire_tests {
+    use super::*;
+
+    /// The UI writes `Query` in camelCase (src/lib/api.ts). A field this enum
+    /// spells snake_case is simply not found, and because the fields that
+    /// narrow a question are `Option`, the question silently widens instead of
+    /// failing: `clippings` answered with every Clipping in the vault, so every
+    /// Source's Hub listed all of them, and `list` ignored the type it was
+    /// given. Both were `rename_all` naming the variants while the fields kept
+    /// their Rust spelling.
+    #[test]
+    fn a_multi_word_field_is_read_from_its_camel_case_name() {
+        let q: Query = serde_json::from_str(r#"{"kind":"clippings","sourceId":"s1"}"#).unwrap();
+        assert!(
+            matches!(q, Query::Clippings { source_id: Some(ref s) } if s == "s1"),
+            "sourceId did not reach source_id: {q:?}"
+        );
+
+        let q: Query = serde_json::from_str(r#"{"kind":"list","docType":"note"}"#).unwrap();
+        assert!(
+            matches!(q, Query::List { doc_type: Some(crate::document::DocType::Note) }),
+            "docType did not reach doc_type: {q:?}"
+        );
+    }
+
+    /// Serialising and reading back is the check that survives a new field:
+    /// whatever a variant is called and whatever it holds, the round trip only
+    /// works while both ends agree on the spelling.
+    #[test]
+    fn every_narrowing_question_survives_a_round_trip() {
+        let cases = vec![
+            Query::Clippings { source_id: Some("s1".into()) },
+            Query::Clippings { source_id: None },
+            Query::List { doc_type: Some(crate::document::DocType::Clipping) },
+            Query::List { doc_type: None },
+        ];
+        for q in cases {
+            let json = serde_json::to_string(&q).unwrap();
+            let back: Query = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"));
+            assert_eq!(format!("{q:?}"), format!("{back:?}"), "round trip changed {json}");
+        }
+    }
+
+    /// The one that would have caught it: a serialised `Query` must carry no
+    /// snake_case key, because the UI never sends one.
+    #[test]
+    fn no_question_serialises_a_snake_case_key() {
+        let every = vec![
+            Query::List { doc_type: None },
+            Query::Clippings { source_id: None },
+            Query::Backlinks { id: "x".into() },
+            Query::SourceTrail { id: "x".into() },
+            Query::SourceChildren { id: "x".into() },
+            Query::TagsOf { ids: vec![] },
+            Query::UnresolvedLinks,
+            Query::BoardsReferencing { id: "x".into() },
+            Query::UnlinkedMentions { id: "x".into(), limit: 1 },
+            Query::AmbiguousTitles,
+            Query::DatesOf { id: "x".into() },
+            Query::EventsNaming { id: "x".into() },
+            Query::VerseCoverage { book: 1, chapter: 1 },
+        ];
+        for q in every {
+            let v: serde_json::Value = serde_json::to_value(&q).unwrap();
+            for key in v.as_object().expect("a tagged object").keys() {
+                assert!(
+                    !key.contains('_'),
+                    "{q:?} serialises `{key}`, which the UI does not send"
+                );
+            }
+        }
+    }
 }

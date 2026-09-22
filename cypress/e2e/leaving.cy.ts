@@ -99,7 +99,7 @@ describe("Removing a device from a vault", () => {
     // The row and the folder go together, and the documents stay.
     cy.get("[data-testid=sync-device]").should("not.contain", "Old phone");
     cy.task<boolean>("file:exists", ghostDir()).should("equal", false);
-    cy.query({ kind: "Documents", args: {} }).should("not.be.empty");
+    cy.query({ kind: "list", docType: null }).should("not.be.empty");
 
     // It is retired, so a folder that comes back is not trusted again.
     cy.task("file:write", {
