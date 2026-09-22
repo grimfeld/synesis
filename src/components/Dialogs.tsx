@@ -32,12 +32,12 @@ import {
 import { diffBoards, type BoardChange } from "@/lib/board";
 import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
-import { FRONTMATTER, titleFor } from "@/lib/docTypes";
+import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { quoteBody } from "@/lib/clippingBody";
-import { useT } from "@/i18n";
+import { propertyLabel, useT } from "@/i18n";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -829,6 +829,39 @@ function KindSelect({
  * Source picker, the gazetteer, `createDoc` — and moving the JSX somewhere
  * else would only move those dependencies with it.
  */
+/**
+ * The two Date fields of a Span (CONTEXT.md), labelled by the Property each
+ * writes: `born`/`died` for a Character, `start`/`end` for an Event or a
+ * Journey. One component, because it is one concept whichever page it is on.
+ */
+function SpanFields({
+  f,
+  set,
+  type,
+}: {
+  f: Record<string, string>;
+  set: (k: string, v: string) => void;
+  type: DocType;
+}) {
+  const t = useT();
+  const span = SPAN[type];
+  if (!span) return null;
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      {span.map((name) => (
+        <Field key={name} label={propertyLabel(name, t)}>
+          <Input
+            value={f[name] ?? ""}
+            onChange={(e) => set(name, e.target.value)}
+            placeholder={t.date_placeholder}
+            data-testid={`new-${name}`}
+          />
+        </Field>
+      ))}
+    </div>
+  );
+}
+
 const TYPE_FIELDS: Record<
   DocType,
   ((p: {
@@ -880,20 +913,7 @@ const TYPE_FIELDS: Record<
   event: ({ f, set, t }) => (
     <>
       <div className="grid grid-cols-2 gap-3">
-        <Field label={t.start}>
-          <Input
-            value={f.start ?? ""}
-            onChange={(e) => set("start", e.target.value)}
-            placeholder={t.date_placeholder}
-          />
-        </Field>
-        <Field label={t.end}>
-          <Input
-            value={f.end ?? ""}
-            onChange={(e) => set("end", e.target.value)}
-            placeholder={t.date_placeholder}
-          />
-        </Field>
+        <SpanFields f={f} set={set} type="event" />
       </div>
       <Field label={t.types.place}>
         <DocPicker
@@ -943,9 +963,11 @@ const TYPE_FIELDS: Record<
   // the Cover staging above, so they stay in the form itself.
   source: null,
   clipping: null,
-  character: null,
+  // The Span its type suggests, so a lifespan or a duration can be given when
+  // the page is made rather than discovered later in the Properties panel.
+  character: ({ f, set }) => <SpanFields f={f} set={set} type="character" />,
   concept: null,
-  journey: null,
+  journey: ({ f, set }) => <SpanFields f={f} set={set} type="journey" />,
   book: null,
   chapter: null,
   verse: null,

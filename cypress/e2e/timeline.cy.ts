@@ -136,8 +136,10 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane][data-lane=events]").should("exist");
     cy.get("[data-slot=popover-content]").contains("button", "Characters").click();
     cy.get("[data-testid=tl-lane][data-type=character]").should("exist");
-    // A Date Property name filters both axes: only Lanes carrying `died`.
-    cy.get("[data-slot=popover-content]").contains("button", "died").click();
+    // A Date Property filters both axes: only Lanes carrying `died`. The chip
+    // reads "Died" — a built-in Property is labelled in the reader's language,
+    // while the filter itself still holds the front-matter name.
+    cy.get("[data-slot=popover-content]").contains("button", "Died").click();
     cy.get("[data-testid=tl-lane]").should("have.length.lessThan", 13);
     cy.get("[data-testid=tl-filter-clear]").click();
     cy.get("@all").then((all) => {

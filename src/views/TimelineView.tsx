@@ -33,7 +33,7 @@ import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
-import { useT } from "@/i18n";
+import { propertyLabel, useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
 import { TypeDot } from "@/components/DocLink";
@@ -158,13 +158,14 @@ export function TimelineView() {
     for (const dt of docTags) m.set(dt.doc, [...(m.get(dt.doc) ?? []), dt.tag]);
     return m;
   }, [docTags]);
+  const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const allLanes = useMemo(
-    () => buildLanes(rows, links, t.events),
-    [rows, links, t.events],
+    () => buildLanes(rows, links, t.events, label),
+    [rows, links, t.events, label],
   );
   const matched = useMemo(
-    () => buildLanes(filterRows(rows, f, tagsByDoc), links, t.events),
-    [rows, f, tagsByDoc, links, t.events],
+    () => buildLanes(filterRows(rows, f, tagsByDoc), links, t.events, label),
+    [rows, f, tagsByDoc, links, t.events, label],
   );
   // The extent ignores the filters, so narrowing them does not move the view.
   const extent = useMemo(() => extentOf(allLanes), [allLanes]);

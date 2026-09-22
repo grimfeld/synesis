@@ -100,7 +100,7 @@ A geographical location in the Bible's world, with a position on the map. Create
 _Avoid_: Location
 
 **Character**:
-A person in the Bible's world. Created manually by the user.
+A person in the Bible's world. May carry a Span — their lifespan, as `born` and `died` — and so sit on the Timeline. Created manually by the user.
 _Avoid_: Person, figure
 
 **Concept**:
@@ -108,11 +108,11 @@ An idea or theme the user studies across Scripture, such as grace or covenant. C
 _Avoid_: Topic, theme, idea
 
 **Event**:
-Something that happened in the Bible's world at a point or span in time, such as the Flood or Paul's stay in Ephesus. Has a Date, may name a Place and Characters, and sits on the Timeline. Created manually by the user.
+Something that happened in the Bible's world at a point or a Span in time, such as the Flood or Paul's stay in Ephesus. Has a Date, or a Span as `start` and `end`; may name a Place and Characters; sits on the Timeline. Created manually by the user.
 _Avoid_: Happening, occurrence, milestone
 
 **Journey**:
-An ordered course through Places that someone in the Bible's world travelled, such as Paul's second missionary journey or Israel's route out of Egypt. Names its Stops in order, carries a Date span, and so sits on the Map as a route and on the Timeline as a span. Created manually by the user.
+An ordered course through Places that someone in the Bible's world travelled, such as Paul's second missionary journey or Israel's route out of Egypt. Names its Stops in order, carries a Span as `start` and `end`, and so sits on the Map as a route and on the Timeline as a span. Created manually by the user.
 _Avoid_: Route, Trip, Itinerary, Travels
 
 **Stop**:
@@ -120,8 +120,12 @@ One Place on a Journey, at one position in its order. The same Place may be Stop
 _Avoid_: Leg, Waypoint, Station
 
 **Date**:
-A moment in the Bible's chronology, written the way a reader would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". Carries its own precision (year, month, day) and whether it is approximate. A Date is never rewritten; the app only reads it. A pair of Dates makes a span.
+A moment in the Bible's chronology, written the way a reader would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". Carries its own precision (year, month, day) and whether it is approximate. A Date is never rewritten; the app only reads it. A pair of Dates makes a Span.
 _Avoid_: Timestamp, year (a year is one precision of Date)
+
+**Span**:
+The stretch between a pair of Dates: a Character's lifespan, an Event's or a Journey's duration. One concept whichever it is, carried by two Date Properties whose names differ by what the Span is of — a Character is `born` and `died`, an Event and a Journey `start` and `end`. A Span is recognised, never declared: the user writes two Dates and the app sees the Span in them, so there is nothing named "span" to fill in. Recognised on any page that carries such a pair, so a Character with a reign has that Span too; each kind of page only *suggests* the pair conventional for it.
+_Avoid_: Lifespan or duration (both are what a particular Span is of, not a second term), period, range, interval
 
 **Property**:
 A named, typed value on a document's front matter, such as a Place's latitude or a Character's `born` Date. A property name means the same thing and has the same type everywhere in the Vault; the user chooses the type once, the first time the name is used. Types: text, number, Date, calendar date (today's world), link, list, checkbox.

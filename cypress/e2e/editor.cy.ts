@@ -127,7 +127,12 @@ describe("Editor (Writing page)", () => {
       "contain",
       "Nothing links here yet",
     );
-    cy.get("[data-testid=right-panel]").should("contain", "source");
+    // A Note's `source` is labelled "Source" here; nothing else on this screen
+    // edits it, so the panel still offers it. The row is found by the Property
+    // name whatever the label says.
+    cy.get("[data-testid=right-panel] [data-testid=property-source]").should(
+      "exist",
+    );
     cy.get(
       "[data-testid=right-panel] input[value='[[Keep Enduring with Joy]]']",
     ).should("exist");

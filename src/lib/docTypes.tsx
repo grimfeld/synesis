@@ -50,6 +50,48 @@ export interface DocTypeUi {
 }
 
 /**
+ * The pair of Date Properties a page of this type is offered for its Span
+ * (CONTEXT.md), or null where the type has no date convention.
+ *
+ * A suggestion, never a constraint. Any document carrying a recognised pair
+ * gets its Span drawn whatever its type (`SPAN_PAIRS` in lib/timeline.ts), so a
+ * Character who also has `start`/`end` for a reign keeps that Span; this only
+ * decides which pair the New dialog and the Hub put in front of the user.
+ * Place and Concept are null on purpose: a Place carries `lat`/`lon` and, in
+ * one file of the demo vault, `destroyed` — offering it a Span would invent a
+ * convention the vault does not have.
+ *
+ * Lives here rather than in the engine because Span recognition lives in the
+ * UI; splitting the concept across layers would be worse than either home. If
+ * recognition ever moves into the engine — the Timeline asking for Spans rather
+ * than deriving them — this belongs in `DocTypeInfo` and moves with it.
+ */
+export const SPAN: Record<DocType, readonly [string, string] | null> = {
+  character: ["born", "died"],
+  event: ["start", "end"],
+  journey: ["start", "end"],
+  place: null,
+  concept: null,
+  source: null,
+  note: null,
+  clipping: null,
+  composition: null,
+  book: null,
+  chapter: null,
+  verse: null,
+  other: null,
+};
+
+/** Whichever halves of a type's Span the user filled in. */
+function spanOf(type: DocType, f: Record<string, string>): Frontmatter {
+  const out: Frontmatter = {};
+  for (const name of SPAN[type] ?? []) {
+    if (f[name]?.trim()) out[name] = f[name].trim();
+  }
+  return out;
+}
+
+/**
  * Turn a filled-in New dialog into frontmatter, per type.
  *
  * Pure, and kept out of the dialog's submit handler so it can be read and
@@ -82,9 +124,7 @@ export const FRONTMATTER: Record<
     return out;
   },
   event: (f) => {
-    const out: Frontmatter = {};
-    if (f.start) out.start = f.start;
-    if (f.end) out.end = f.end;
+    const out: Frontmatter = spanOf("event", f);
     if (f.place) out.place = `[[${f.place}]]`;
     return out;
   },
@@ -96,9 +136,11 @@ export const FRONTMATTER: Record<
     return out;
   },
   clipping: null,
-  character: null,
+  // Both carry a Span and nothing else the dialog collects. `spanOf` keeps the
+  // two from drifting apart from the pair `SPAN` offers.
+  character: (f) => spanOf("character", f),
   concept: null,
-  journey: null,
+  journey: (f) => spanOf("journey", f),
   book: null,
   chapter: null,
   verse: null,

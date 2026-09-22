@@ -125,7 +125,33 @@ describe("buildLanes", () => {
   it("leaves an unpaired born as a point, not a span", () => {
     const lanes = buildLanes([dated(david, "born", -1107)], [], "Events");
     expect(lanes[0].marks[0].to).to.equal(null);
+    // No labeller given: the Property's own name, which is what a caller that
+    // has no dictionary should see.
     expect(lanes[0].marks[0].label).to.equal("born");
+  });
+
+  it("labels a lone Date through the labeller it is given", () => {
+    // The views hand in `propertyLabel`, so a bare `born` reads as a word in
+    // the reader's language and not as a front-matter key.
+    const lanes = buildLanes(
+      [dated(david, "born", -1107)],
+      [],
+      "Events",
+      (name) => (name === "born" ? "Naissance" : name),
+    );
+    expect(lanes[0].marks[0].label).to.equal("Naissance");
+  });
+
+  it("labels a span by its Subject, never by the labeller", () => {
+    // A paired Span is one mark carrying the Subject's title; the Property
+    // names are spent making the pair and have nothing left to say.
+    const lanes = buildLanes(
+      [dated(david, "born", -1107), dated(david, "died", -1037)],
+      [],
+      "Events",
+      () => "should not be used",
+    );
+    expect(lanes[0].marks[0].label).to.equal(david.title);
   });
 
   it("puts Events on their own Lane first, ahead of Subjects", () => {

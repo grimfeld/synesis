@@ -2,7 +2,7 @@
 // live inside an async submit handler beside four engine calls, so the only
 // way to check them was to drive the app.
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER, titleFor } from "../docTypes";
+import { FRONTMATTER, SPAN, titleFor } from "../docTypes";
 import type { DocType } from "../api";
 
 const stamp = () => "2026-09-17 14.30";
@@ -77,15 +77,71 @@ describe("FRONTMATTER", () => {
 
   it("has no builder for the types whose New dialog adds no fields", () => {
     // Said with null rather than left out, so adding a type to DocType without
-    // deciding this is a compile error.
-    for (const t of ["character", "concept", "journey"] as DocType[]) {
+    // deciding this is a compile error. Character and Journey left this list
+    // when they gained their Span.
+    for (const t of ["concept", "book", "chapter", "verse"] as DocType[]) {
       expect(FRONTMATTER[t]).toBeNull();
     }
+  });
+
+  it("writes the Span a type suggests, and only the halves filled in", () => {
+    // A Character is `born`/`died`, an Event and a Journey `start`/`end` — one
+    // concept, different Property names (CONTEXT.md).
+    expect(FRONTMATTER.character!({ born: "c. 1107 BCE", died: "1037 BCE" })).toEqual({
+      born: "c. 1107 BCE",
+      died: "1037 BCE",
+    });
+    expect(FRONTMATTER.journey!({ start: "47 CE", end: "48 CE" })).toEqual({
+      start: "47 CE",
+      end: "48 CE",
+    });
+    // Half a Span is the common case: the demo vault has Characters with a
+    // death and no birth.
+    expect(FRONTMATTER.character!({ died: "1037 BCE" })).toEqual({
+      died: "1037 BCE",
+    });
+    // Blank and whitespace-only are not Dates, and never reach the file.
+    expect(FRONTMATTER.character!({ born: "   ", died: "" })).toEqual({});
+    // A type with no suggested Span writes none, whatever the form holds.
+    expect(FRONTMATTER.concept).toBeNull();
+  });
+
+  it("does not write one type's Span Properties onto another", () => {
+    // A Character filled in through some other path must not gain `start`.
+    expect(FRONTMATTER.character!({ start: "47 CE" })).toEqual({});
+    expect(FRONTMATTER.journey!({ born: "c. 1107 BCE" })).toEqual({});
   });
 
   it("has no builder for a Clipping, whose Source may not exist yet", () => {
     // Creating the Source it cites is not a pure decision, so that stays in
     // the dialog; only the title rule is here.
     expect(FRONTMATTER.clipping).toBeNull();
+  });
+});
+
+describe("SPAN", () => {
+  it("suggests the pair each type conventionally uses", () => {
+    expect(SPAN.character).toEqual(["born", "died"]);
+    expect(SPAN.event).toEqual(["start", "end"]);
+    expect(SPAN.journey).toEqual(["start", "end"]);
+  });
+
+  it("suggests none where the vault has no date convention", () => {
+    // A Place carries lat/lon; offering it a Span would invent a convention.
+    expect(SPAN.place).toBeNull();
+    expect(SPAN.concept).toBeNull();
+  });
+
+  it("suggests none for a writing, which has no Hub of its own", () => {
+    for (const t of ["note", "clipping", "composition"] as DocType[]) {
+      expect(SPAN[t]).toBeNull();
+    }
+  });
+
+  it("names two Date Properties wherever it names any", () => {
+    // A Span is a *pair*; one Date is not a Span (CONTEXT.md).
+    for (const pair of Object.values(SPAN)) {
+      if (pair) expect(pair).toHaveLength(2);
+    }
   });
 });

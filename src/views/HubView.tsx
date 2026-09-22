@@ -37,7 +37,7 @@ import {
   type VerseCount,
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
-import type { SectionProps } from "@/lib/docTypes";
+import { SPAN, type SectionProps } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { childKindFor } from "@/lib/library";
@@ -45,7 +45,7 @@ import { quoteBody } from "@/lib/clippingBody";
 import { setField, splitFrontmatter } from "@/lib/frontmatter";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
-import { useT } from "@/i18n";
+import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
 import { stamp } from "@/components/Dialogs";
@@ -557,6 +557,12 @@ function HubHeader({
   const type = doc.summary.type;
   const isScripture = type === "book" || type === "chapter" || type === "verse";
   const hasAliases = type === "character" || type === "concept";
+  // Properties this page edits somewhere of its own, so the Properties grid
+  // leaves them out rather than offering the same value a second time.
+  const owned = useMemo(
+    () => [...(SPAN[type] ?? []), ...(hasAliases ? ["aliases"] : [])],
+    [type, hasAliases],
+  );
   const isPlace =
     type === "place" && doc.summary.lat != null && doc.summary.lon != null;
   const aliasSuggestions = useMemo(() => [] as { value: string }[], []);
@@ -593,7 +599,16 @@ function HubHeader({
         )}
         {!isScripture && (
           <div className="mt-4 border-t pt-4">
-            <Properties doc={doc} fm={fm} onFmChange={onFmChange} inline />
+            {/* Whatever the rest of this page already edits: the Span in the
+                Dates section, the Aliases in their own row above. Offering the
+                same value twice is how one of them comes to disagree. */}
+            <Properties
+              doc={doc}
+              fm={fm}
+              onFmChange={onFmChange}
+              hide={owned}
+              inline
+            />
           </div>
         )}
       </div>
@@ -680,13 +695,21 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
   journey: ({ doc, fm, onFmChange }) => (
     <>
       <JourneySection doc={doc} fm={fm} onFmChange={onFmChange} />
-      <DatesSection doc={doc} />
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
     </>
   ),
-  event: ({ doc }) => <DatesSection doc={doc} />,
-  character: ({ doc }) => <DatesSection doc={doc} />,
-  place: ({ doc }) => <DatesSection doc={doc} />,
-  concept: ({ doc }) => <DatesSection doc={doc} />,
+  event: ({ doc, fm, onFmChange }) => (
+    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+  ),
+  character: ({ doc, fm, onFmChange }) => (
+    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+  ),
+  place: ({ doc, fm, onFmChange }) => (
+    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+  ),
+  concept: ({ doc, fm, onFmChange }) => (
+    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+  ),
   // Writings open in the editor and have no Hub of their own (CONTEXT.md).
   note: null,
   clipping: null,
@@ -860,11 +883,95 @@ function JourneySection({
   );
 }
 
-/** Dates on a Subject (ADR 0005) and, for anything but an Event, the Events naming it. */
-function DatesSection({ doc }: { doc: DocumentPayload }) {
+/**
+ * One half of a Span, editable in place.
+ *
+ * Local state with a commit on blur, like `TitleEditor`: the saved value comes
+ * back through the document and would fight the cursor on every keystroke.
+ *
+ * Emptying the field removes the Property rather than writing `born: ""` — a
+ * blank Date is not a Date, and a key with nothing after it would be parsed
+ * back as an invalid one and flagged.
+ */
+function SpanDate({
+  name,
+  value,
+  invalid,
+  fm,
+  onFmChange,
+}: {
+  name: string;
+  value: string;
+  invalid: boolean;
+  fm: string;
+  onFmChange: (fm: string) => void;
+}) {
+  const t = useT();
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  const commit = () => {
+    const next = text.trim();
+    if (next === value.trim()) return;
+    onFmChange(setField(fm, name, next === "" ? null : next));
+  };
+  return (
+    <>
+      <Input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") setText(value);
+        }}
+        placeholder={t.date_placeholder}
+        aria-label={propertyLabel(name, t)}
+        data-testid={`date-input-${name}`}
+        className={cn(
+          "h-7 max-w-52 text-sm tabular-nums",
+          invalid && "border-destructive text-destructive",
+        )}
+      />
+      {invalid && (
+        <span
+          className="flex shrink-0 items-center gap-1 text-xs text-destructive"
+          title={t.date_invalid}
+        >
+          <CircleAlert className="size-3.5" />
+          {t.date_invalid}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * Dates on a Subject (ADR 0005) and, for anything but an Event, the Events
+ * naming it.
+ *
+ * The Span its type suggests is always offered, filled or not (`SPAN` in
+ * lib/docTypes.tsx). It used to render only what was already there, and a
+ * Character with no Dates showed nothing at all — so the way to record a
+ * lifespan was to know that a Property called `born` existed and to add it by
+ * hand in the Properties panel. An empty labelled field says where a birth
+ * goes; a button to reveal one does not.
+ *
+ * These Properties are edited here, so the Properties panel is told to leave
+ * them out rather than offer the same value twice.
+ */
+function DatesSection({
+  doc,
+  fm,
+  onFmChange,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+}) {
   const t = useT();
   const id = doc.summary.id;
   const isEvent = doc.summary.type === "event";
+  const span = SPAN[doc.summary.type];
   // The mini-timeline needs each Event's own Dates, which `eventsNaming` omits.
   // This document's own Dates, and — unless it is an Event itself — every
   // Event naming it, each with the Dates the mini-timeline needs. One answer,
@@ -885,7 +992,17 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
   const dates = useMemo(() => data?.dates ?? [], [data]);
   const events = useMemo(() => data?.events ?? [], [data]);
   const eventDates = useMemo(() => data?.eventDates ?? [], [data]);
-  if (dates.length === 0 && (isEvent || events.length === 0)) return null;
+  if (!span && dates.length === 0 && (isEvent || events.length === 0)) {
+    return null;
+  }
+  // The suggested pair first and always, then any other Date the document
+  // carries — a Character's `reign_start` keeps its place below the lifespan.
+  const byName = new Map(dates.map((d) => [d.name, d]));
+  const spanRows = (span ?? []).map((name) => ({
+    name,
+    row: byName.get(name) ?? null,
+  }));
+  const others = dates.filter((d) => !span?.includes(d.name));
   const anyParsed =
     dates.some((d) => d.date) ||
     eventDates.some((e) => e.dates.some((d) => d.date));
@@ -894,19 +1011,44 @@ function DatesSection({ doc }: { doc: DocumentPayload }) {
       {anyParsed && (
         <MiniTimeline doc={doc.summary} dates={dates} events={eventDates} />
       )}
-      {dates.length > 0 && (
+      {(spanRows.length > 0 || others.length > 0) && (
         <div>
           <PanelTitle className="mb-3">{t.dates}</PanelTitle>
           <ul className="space-y-1">
-            {dates.map((d) => (
+            {spanRows.map(({ name, row }) => (
+              <li
+                key={name}
+                className="flex min-w-0 items-center gap-3 text-sm"
+                data-testid={`date-${name}`}
+                data-valid={row?.date ? "true" : "false"}
+              >
+                <span
+                  className="w-24 shrink-0 truncate text-xs text-muted-foreground"
+                  title={name}
+                >
+                  {propertyLabel(name, t)}
+                </span>
+                <SpanDate
+                  name={name}
+                  value={row?.text ?? ""}
+                  invalid={row != null && !row.date}
+                  fm={fm}
+                  onFmChange={onFmChange}
+                />
+              </li>
+            ))}
+            {others.map((d) => (
               <li
                 key={d.name}
                 className="flex items-center gap-3 text-sm"
                 data-testid={`date-${d.name}`}
                 data-valid={d.date ? "true" : "false"}
               >
-                <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
-                  {d.name}
+                <span
+                  className="w-24 shrink-0 truncate text-xs text-muted-foreground"
+                  title={d.name}
+                >
+                  {propertyLabel(d.name, t)}
                 </span>
                 <span
                   className={cn("tabular-nums", !d.date && "text-destructive")}

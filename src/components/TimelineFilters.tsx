@@ -4,7 +4,7 @@
 import { Filter, X } from "lucide-react";
 import type { DocType } from "@/lib/api";
 import { activeCount, type Filters } from "@/lib/timeline";
-import { useT } from "@/i18n";
+import { propertyLabel, useT } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -86,6 +86,9 @@ export function TimelineFilters({
           values={props}
           selected={filters.props}
           onChange={(v) => onChange({ ...filters, props: v })}
+          // The chip is a Property name: a built-in reads in the current
+          // language, one the user invented reads as they named it.
+          name={(v) => propertyLabel(v, t)}
         />
         <Chips
           label={t.tl_filter_tags}

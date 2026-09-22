@@ -141,6 +141,37 @@ export const fr: Dict = {
     list: "Liste",
     checkbox: "Case à cocher",
   },
+  /**
+   * Le nom affiché d'une Propriété intégrée, par sa clé dans l'en-tête.
+   *
+   * Le nom dans le fichier ne change jamais : le coffre reste compatible avec
+   * Obsidian (ADR 0003) et un fichier écrit ici s'ouvre à l'identique sur un
+   * appareil dans une autre langue. Seul le libellé change. Une Propriété
+   * inventée par l'utilisateur n'a pas d'entrée et s'affiche telle qu'il l'a
+   * nommée : l'app ne l'a pas nommée et ne peut pas la traduire.
+   */
+  property_labels: {
+    aliases: "Aussi appelé",
+    born: "Naissance",
+    characters: "Personnages",
+    cover: "Couverture",
+    created: "Créé le",
+    date: "Publication",
+    died: "Mort",
+    end: "Fin",
+    kind: "Type",
+    lat: "Latitude",
+    locator: "Repère",
+    lon: "Longitude",
+    modern_name: "Nom moderne",
+    occasion: "Occasion",
+    parent: "Fait partie de",
+    place: "Lieu",
+    places: "Lieux",
+    source: "Source",
+    start: "Début",
+    url: "URL",
+  },
   date_placeholder: "v. 1513 av. n. è.",
   add_property: "Ajouter une propriété",
   candidates: "Matière candidate",

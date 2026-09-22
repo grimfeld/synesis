@@ -1,7 +1,7 @@
 // The one Subject's Lane, shrunk into its Hub (PLAN §16.9). Static: no zoom or
 // pan, because a wheel-zoom inside a scrolling Hub hijacks the page. Two rows,
 // own Dates above and the Events naming it below, so the widget stays short.
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { CalendarRange } from "lucide-react";
 import type { DatedProperty, DocSummary } from "@/lib/api";
 import {
@@ -14,7 +14,7 @@ import {
   type Placed,
 } from "@/lib/timeline";
 import { useStore } from "@/lib/store";
-import { useT } from "@/i18n";
+import { propertyLabel, useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { PanelTitle } from "@/components/Field";
 
@@ -31,16 +31,20 @@ export function miniLanes(
   doc: DocSummary,
   dates: DatedProperty[],
   events: { doc: DocSummary; dates: DatedProperty[] }[],
+  /** What to call a Property on a mark; the view hands it `propertyLabel`. */
+  propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
   const own = buildLanes(
     dates.map((d) => ({ ...d, doc })),
     [],
     "",
+    propertyLabel,
   );
   const evLanes = buildLanes(
     events.flatMap((e) => e.dates.map((d) => ({ ...d, doc: e.doc }))),
     [],
     "events",
+    propertyLabel,
   );
   const out: Lane[] = [];
   if (own.length > 0) out.push({ ...own[0], id: "own" });
@@ -61,9 +65,10 @@ export function MiniTimeline({
   const s = useStore();
   const t = useT();
   const [w, setW] = useState(420);
+  const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const lanes = useMemo(
-    () => miniLanes(doc, dates, events),
-    [doc, dates, events],
+    () => miniLanes(doc, dates, events, label),
+    [doc, dates, events, label],
   );
   const [from, to] = useMemo(() => extentOf(lanes), [lanes]);
   const plotW = Math.max(120, w - PAD * 2);

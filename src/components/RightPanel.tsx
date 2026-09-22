@@ -36,7 +36,7 @@ import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
-import { useFormat, useT } from "@/i18n";
+import { propertyLabel, useFormat, useT } from "@/i18n";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -234,22 +234,35 @@ export function Properties({
   fm,
   onFmChange,
   inline,
+  hide,
 }: {
   doc: DocumentPayload;
   fm: string;
   onFmChange: (fm: string) => void;
   inline?: boolean;
+  /**
+   * Properties another part of this screen is editing, left out so the same
+   * value is not offered twice.
+   *
+   * Hidden because *owned here*, not because of what the Property is: a Hub
+   * hands over the Span its Dates section edits, while the same document in
+   * the editor's panel — where no Dates section exists — still shows them, so
+   * a Property is never left with nothing to edit it.
+   */
+  hide?: readonly string[];
 }) {
   const s = useStore();
   const t = useT();
   const [adding, setAdding] = useState("");
   const [addingType, setAddingType] = useState<PropertyType>("text");
+  const hidden = useMemo(() => new Set(hide ?? []), [hide]);
   const entries = useMemo(
     () =>
       Object.entries(doc.frontmatter).filter(
-        ([k]) => k !== "id" && k !== "title" && k !== "tags",
+        ([k]) =>
+          k !== "id" && k !== "title" && k !== "tags" && !hidden.has(k),
       ),
-    [doc.frontmatter],
+    [doc.frontmatter, hidden],
   );
   const set = (k: string, v: string) => onFmChange(setField(fm, k, v));
   const isScripture =
@@ -417,12 +430,14 @@ function PropertyRow({
     }
   };
   const retypable = !RESERVED_PROPERTIES.includes(name);
+  // The label is translated for a built-in; the tooltip keeps the front-matter
+  // name, so what to search the vault for is always a hover away.
   const label = (
     <span
       className="w-24 shrink-0 truncate text-xs text-muted-foreground"
       title={`${name} · ${t.property_types[propType]}`}
     >
-      {name}
+      {propertyLabel(name, t)}
     </span>
   );
   return (

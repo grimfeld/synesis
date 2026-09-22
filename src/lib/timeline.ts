@@ -39,6 +39,16 @@ export function formatYear(y: number, t: { bce: string; ce: string }): string {
   return r <= 0 ? `${1 - r} ${t.bce}` : `${r} ${t.ce}`;
 }
 
+/**
+ * The Property pairs that make a Span (CONTEXT.md): a Character's lifespan, an
+ * Event's or a Journey's duration.
+ *
+ * Recognised on any document carrying such a pair, whatever its type — a
+ * Character who also has `start`/`end` for a reign gets that Span drawn too.
+ * Which pair a *new* page is offered is a separate, per-type matter and lives
+ * with the rest of the UI's per-type table (`SPAN` in lib/docTypes.tsx); a
+ * suggestion is not a constraint.
+ */
 const SPAN_PAIRS: [string, string][] = [
   ["start", "end"],
   ["born", "died"],
@@ -48,6 +58,12 @@ export function buildLanes(
   rows: DatedProperty[],
   links: EventLink[],
   eventsTitle: string,
+  /**
+   * What to call a Property on a Lane. Passed in rather than looked up here so
+   * this stays pure and testable; the views hand it `propertyLabel`, so a
+   * Character's bare `born` reads "Born" and not its front-matter key.
+   */
+  propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
   const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
   for (const r of rows) {
@@ -122,7 +138,7 @@ export function buildLanes(
       eventMarks.set(doc.id, mark);
     } else {
       const marks = marksFor(doc, dates, (name) =>
-        name === "span" ? doc.title : name,
+        name === "span" ? doc.title : propertyLabel(name),
       );
       if (marks.length === 0) continue;
       subjects.push({

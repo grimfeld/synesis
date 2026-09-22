@@ -141,6 +141,43 @@ export const en = {
     list: "List",
     checkbox: "Checkbox",
   },
+  /**
+   * What a built-in Property is called, keyed by its name in the front matter.
+   *
+   * The name in the file never changes — the vault stays Obsidian-compatible
+   * (ADR 0003) and a file written here opens the same on a Device in another
+   * language. Only the label does. A Property the user invented has no entry
+   * and shows as they named it, which is the honest answer: the app did not
+   * name it and cannot translate it.
+   *
+   * Every name in `BUILTIN` (crates/engine/src/properties.rs) belongs here; a
+   * Vitest test fails when one is missing, because TypeScript cannot check it
+   * — Property names reach the UI as runtime strings, not as a union.
+   */
+  property_labels: {
+    aliases: "Also known as",
+    born: "Born",
+    characters: "Characters",
+    cover: "Cover",
+    created: "Created",
+    // A Source's own date, not the calendar word: "published" is what the user
+    // is being asked for.
+    date: "Published",
+    died: "Died",
+    end: "End",
+    kind: "Kind",
+    lat: "Latitude",
+    locator: "Locator",
+    lon: "Longitude",
+    modern_name: "Modern name",
+    occasion: "Occasion",
+    parent: "Part of",
+    place: "Place",
+    places: "Places",
+    source: "Source",
+    start: "Start",
+    url: "URL",
+  },
   date_placeholder: "c. 1513 BCE",
   candidates: "Candidate material",
   candidates_hint:

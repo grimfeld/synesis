@@ -71,6 +71,24 @@ describe("Locale layout", () => {
 
       // "Quitter et supprimer les documents" on a 390px phone is the longest
       // button label in the app, and it sits in a dialog rather than a card.
+      // "Naissance"/"Mort" put a label beside a field on a 390px screen, and
+      // the New dialog sets the pair in a two-column grid. The Character is
+      // made through the engine rather than the palette: a spec should not
+      // have to know what the Command is called in each language.
+      it("keeps a Character's Span inside its row and its dialog", () => {
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Jael",
+          fields: {},
+        });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=group-character]").click();
+        cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
+        cy.get("[data-testid=date-input-born]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps the Leave dialog inside the screen", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=nav-settings]").click();

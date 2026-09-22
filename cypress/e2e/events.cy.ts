@@ -6,13 +6,15 @@ describe("Events and Dates", () => {
     cy.openDoc("Paul in Ephesus");
     cy.get("[data-testid=right-panel]").should("not.exist");
     cy.get("[data-testid=hub-header]").should("contain", "Event");
-    cy.get("[data-testid=hub-dates] [data-testid=date-start]")
-      .should("have.attr", "data-valid", "true")
-      .and("contain", "c. 52 CE");
-    cy.get("[data-testid=hub-dates] [data-testid=date-end]").should(
-      "contain",
-      "c. 55 CE",
+    // The Span a type suggests is editable in place, so its value is the
+    // field's, not the row's text.
+    cy.get("[data-testid=hub-dates] [data-testid=date-start]").should(
+      "have.attr",
+      "data-valid",
+      "true",
     );
+    cy.get("[data-testid=date-input-start]").should("have.value", "c. 52 CE");
+    cy.get("[data-testid=date-input-end]").should("have.value", "c. 55 CE");
     cy.get("[data-testid=property-place]").should(
       "have.attr",
       "data-prop-type",
@@ -33,20 +35,14 @@ describe("Events and Dates", () => {
 
   it("Character hub: open-ended Date properties and the Events naming it", () => {
     cy.openDoc("David");
-    cy.get("[data-testid=hub-dates] [data-testid=date-born]").should(
-      "contain",
-      "c. 1107 BCE",
-    );
-    // "anointed" is a user-declared Date in .bible-study/properties.json.
-    cy.get("[data-testid=hub-dates] [data-testid=date-anointed]").should(
-      "have.attr",
-      "data-valid",
-      "true",
-    );
-    cy.get("[data-testid=hub-dates] [data-testid=date-died]").should(
-      "contain",
-      "1037 BCE",
-    );
+    cy.get("[data-testid=date-input-born]").should("have.value", "c. 1107 BCE");
+    cy.get("[data-testid=date-input-died]").should("have.value", "1037 BCE");
+    // "anointed" is a user-declared Date in .bible-study/properties.json. It is
+    // not part of the Span a Character suggests, so it stays a read-only row
+    // below — and reads as the user named it, having no label of the app's.
+    cy.get("[data-testid=hub-dates] [data-testid=date-anointed]")
+      .should("have.attr", "data-valid", "true")
+      .and("contain", "anointed");
     cy.get("[data-testid=hub-events]").should("contain", "David anointed king");
     cy.openDoc("Bethlehem");
     cy.get("[data-testid=hub-events]").should("contain", "David anointed king");
@@ -54,10 +50,16 @@ describe("Events and Dates", () => {
 
   it("a Date the app cannot read is kept, flagged, and off the Timeline", () => {
     cy.openDoc("The Flood");
-    cy.get("[data-testid=property-end] input").type("whenever").blur();
-    cy.get("[data-testid=hub-dates] [data-testid=date-end]")
-      .should("have.attr", "data-valid", "false")
-      .and("contain", "whenever");
+    // An Event's `end` is half its Span, so the Dates section owns it and the
+    // Properties panel does not offer it a second time.
+    cy.get("[data-testid=property-end]").should("not.exist");
+    cy.get("[data-testid=date-input-end]").clear().type("whenever").blur();
+    cy.get("[data-testid=hub-dates] [data-testid=date-end]").should(
+      "have.attr",
+      "data-valid",
+      "false",
+    );
+    cy.get("[data-testid=date-input-end]").should("have.value", "whenever");
     cy.get("[data-testid=hub-dates] [data-testid=date-start]").should(
       "have.attr",
       "data-valid",
@@ -77,13 +79,11 @@ describe("Events and Dates", () => {
     cy.runCommand("New Event");
     cy.get("[data-testid=new-doc-form]").should("contain", "Event");
     cy.get("[data-testid=new-doc-form] input").first().type("Pentecost 33");
-    cy.get("[data-testid=new-doc-form] input[placeholder='c. 1513 BCE']")
-      .first()
-      .type("Sivan 33 CE");
+    cy.get("[data-testid=new-start]").type("Sivan 33 CE");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
     cy.get("[data-testid=hub-header]").should("contain", "Event");
-    cy.get("[data-testid=hub-dates] [data-testid=date-start]").should(
-      "contain",
+    cy.get("[data-testid=date-input-start]").should(
+      "have.value",
       "Sivan 33 CE",
     );
     cy.docByTitle("Pentecost 33").then((d) => {
@@ -154,5 +154,71 @@ describe("Events listed elsewhere carry their Date", () => {
       .first()
       .find("[data-testid=event-date]")
       .should("not.exist");
+  });
+
+  it("offers a Character its Span even when it has no Dates at all", () => {
+    // The complaint this exists for: a Character with nothing dated showed no
+    // Dates section, so the way to record a lifespan was to know that a
+    // Property called `born` existed and to add it in the Properties panel.
+    cy.runCommand("New Character");
+    cy.get("[data-testid=new-doc-form] input").first().type("Jael");
+    cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
+    cy.get("[data-testid=hub-header]").should("contain", "Character");
+    cy.get("[data-testid=date-input-born]").should("have.value", "");
+    cy.get("[data-testid=date-input-died]").should("have.value", "");
+    // Labelled by what the Property means, not by its key.
+    cy.get("[data-testid=hub-dates]").should("contain", "Born");
+    cy.get("[data-testid=hub-dates]").should("contain", "Died");
+
+    // Filling one writes it to the front matter under its real name.
+    cy.get("[data-testid=date-input-born]").type("c. 1250 BCE").blur();
+    cy.get("[data-testid=hub-dates] [data-testid=date-born]").should(
+      "have.attr",
+      "data-valid",
+      "true",
+    );
+    cy.docByTitle("Jael").then((d) => {
+      cy.query<{ name: string; text: string }[]>({
+        kind: "datesOf",
+        id: d.id,
+      }).then((dates) => {
+        expect(dates.map((x) => x.name)).to.deep.equal(["born"]);
+        expect(dates[0].text).to.equal("c. 1250 BCE");
+      });
+    });
+
+    // Emptying it takes the Property away rather than leaving `born:` blank.
+    cy.get("[data-testid=date-input-born]").clear().blur();
+    cy.docByTitle("Jael").then((d) => {
+      cy.query<unknown[]>({ kind: "datesOf", id: d.id }).should("be.empty");
+    });
+  });
+
+  it("does not offer a Span to a type with no date convention", () => {
+    // A Place carries lat/lon; offering it born/died would invent a convention
+    // the vault does not have.
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=date-input-born]").should("not.exist");
+    cy.get("[data-testid=date-input-start]").should("not.exist");
+  });
+
+  it("writes a Character's Span from the New dialog", () => {
+    cy.runCommand("New Character");
+    cy.get("[data-testid=new-doc-form] input").first().type("Deborah");
+    cy.get("[data-testid=new-born]").type("c. 1280 BCE");
+    cy.get("[data-testid=new-died]").type("c. 1200 BCE");
+    cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
+    cy.get("[data-testid=date-input-born]").should("have.value", "c. 1280 BCE");
+    cy.get("[data-testid=date-input-died]").should("have.value", "c. 1200 BCE");
+    // A pair of Dates is a Span, so the Hub draws one.
+    cy.get("[data-testid=hub-minitimeline]").should("be.visible");
+  });
+
+  it("keeps the Span out of the Properties panel, which edits it above", () => {
+    cy.openDoc("David");
+    cy.get("[data-testid=property-born]").should("not.exist");
+    cy.get("[data-testid=property-died]").should("not.exist");
+    // A Date the app does not own is still the panel's to offer.
+    cy.get("[data-testid=property-anointed]").should("exist");
   });
 });
