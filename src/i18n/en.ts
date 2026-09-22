@@ -131,6 +131,7 @@ export const en = {
   version_same: "Identical to the current text.",
   properties: "Properties",
   add_property: "Add property",
+  remove_property: "Remove property",
   property_type: "Property type",
   property_types: {
     text: "Text",

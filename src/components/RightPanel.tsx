@@ -31,7 +31,7 @@ import {
   viaSummary,
   type BacklinkGroup,
 } from "@/lib/backlinks";
-import { setField } from "@/lib/frontmatter";
+import { removeField, setField } from "@/lib/frontmatter";
 import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
 import { useQuery } from "@/lib/useQuery";
@@ -52,6 +52,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -471,6 +472,15 @@ function PropertyRow({
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              variant="destructive"
+              data-testid={`remove-property-${name}`}
+              onSelect={() => onFmChange(removeField(fm, name))}
+            >
+              <Trash2 />
+              {t.remove_property}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : (

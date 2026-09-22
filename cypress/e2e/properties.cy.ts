@@ -93,4 +93,25 @@ describe("Properties", () => {
       "text",
     );
   });
+
+  it("a Property can be removed from its label menu, and leaves the file", () => {
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=property-modern_name]").should("exist");
+    cy.get(
+      "[data-testid=property-modern_name] button[aria-label='modern_name: Property type']",
+    ).click();
+    cy.get("[data-testid=remove-property-modern_name]").click();
+    cy.get("[data-testid=property-modern_name]").should("not.exist");
+    cy.wait(800);
+    cy.docByTitle("Ephesus").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+        (text) => {
+          expect(text).not.to.contain("modern_name:");
+          // Only that line went: its neighbours are untouched (ADR 0003).
+          expect(text).to.contain("lat:");
+          expect(text).to.contain("lon:");
+        },
+      );
+    });
+  });
 });

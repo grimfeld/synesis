@@ -131,6 +131,7 @@ export const fr: Dict = {
   version_diff_hint:
     "Les lignes que la Version a et que le texte actuel n’a plus sont marquées −, celles ajoutées depuis +.",
   version_same: "Identique au texte actuel.",
+  remove_property: "Supprimer la propriété",
   property_type: "Type de propriété",
   property_types: {
     text: "Texte",
