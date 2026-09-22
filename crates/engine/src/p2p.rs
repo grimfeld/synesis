@@ -55,6 +55,13 @@ pub struct Membership {
     pub invite_secret: Option<[u8; 32]>,
     pub members: Vec<Member>,
     pub removed: Vec<NodeId>,
+    /// The sync folder of every Device ever removed, so a removal can reach
+    /// the folder as well as the peer: a node id names a peer, and the
+    /// snapshots live under a device id. Never forgotten, for the same reason
+    /// `removed` is not — a retired Device that reappears is not trusted again
+    /// by virtue of reappearing. Read by `sync::Roster`.
+    #[serde(default)]
+    pub removed_devices: Vec<String>,
 }
 
 impl Membership {
@@ -75,10 +82,16 @@ impl Membership {
         let mut changed = false;
         if other.version > self.version {
             let mut removed = self.removed.clone();
+            let mut removed_devices = self.removed_devices.clone();
             *self = other.clone();
             for r in removed.drain(..) {
                 if !self.removed.contains(&r) {
                     self.removed.push(r);
+                }
+            }
+            for d in removed_devices.drain(..) {
+                if !self.removed_devices.contains(&d) {
+                    self.removed_devices.push(d);
                 }
             }
             changed = true;
@@ -86,6 +99,12 @@ impl Membership {
             for r in &other.removed {
                 if !self.removed.contains(r) {
                     self.removed.push(*r);
+                    changed = true;
+                }
+            }
+            for d in &other.removed_devices {
+                if !self.removed_devices.contains(d) {
+                    self.removed_devices.push(d.clone());
                     changed = true;
                 }
             }
@@ -351,6 +370,12 @@ impl Node {
         let Some(member) = st.pending.remove(node) else { return false };
         if allow {
             let m = &mut st.membership;
+            // Approving is the deliberate act that lifts a retirement, and the
+            // only one: a Device that was evicted, wiped and paired again is
+            // admitted here, and its folder has to be trusted from now on.
+            // Without this a Device could be removed but never re-paired.
+            m.removed.retain(|n| n != &member.node);
+            m.removed_devices.retain(|d| d != &member.device_id);
             m.members.retain(|x| x.node != member.node);
             m.members.push(member);
             m.version += 1;
@@ -362,12 +387,50 @@ impl Node {
     }
 
     /// Remove a Device from the vault; every peer will refuse it from now on.
+    /// Retire a Device by its sync folder name, whether or not it is still a
+    /// member.
+    ///
+    /// `remove` needs a node id, which only a Device that paired through this
+    /// roster has. A Device retired before removals were recorded — or one
+    /// whose folder arrived from a peer that had it — is known by its folder
+    /// alone, and that is exactly the Device whose snapshots must stop being
+    /// trusted.
+    pub fn forget_device(&self, device: &str) {
+        let mut st = self.state.lock().unwrap();
+        let m = &mut st.membership;
+        if m.removed_devices.iter().any(|d| d == device) {
+            return;
+        }
+        m.removed_devices.push(device.to_string());
+        // A member holding that folder goes too, so it is not re-admitted on
+        // the next round.
+        if let Some(node) = m.members.iter().find(|x| x.device_id == device).map(|x| x.node) {
+            m.members.retain(|x| x.node != node);
+            if !m.removed.contains(&node) {
+                m.removed.push(node);
+            }
+            st.connected.remove(&node);
+        }
+        st.membership.version += 1;
+        st.membership.save(&self.local_dir);
+        drop(st);
+        self.changed.notify_waiters();
+    }
+
     pub fn remove(&self, node: &NodeId) {
         let mut st = self.state.lock().unwrap();
         let m = &mut st.membership;
+        // Take the device id before dropping the Member: the folder to stop
+        // trusting is named by the device, not by the node.
+        let device = m.members.iter().find(|x| &x.node == node).map(|x| x.device_id.clone());
         m.members.retain(|x| &x.node != node);
         if !m.removed.contains(node) {
             m.removed.push(*node);
+        }
+        if let Some(d) = device {
+            if !m.removed_devices.contains(&d) {
+                m.removed_devices.push(d);
+            }
         }
         m.version += 1;
         m.save(&self.local_dir);
@@ -599,11 +662,18 @@ impl Node {
     fn manifest(&self) -> Vec<Entry> {
         let mut out = Vec::new();
         let Ok(devices) = fs::read_dir(&self.sync_dir) else { return out };
+        let removed = self.state.lock().unwrap().membership.removed_devices.clone();
         for d in devices.flatten() {
             if !d.path().is_dir() {
                 continue;
             }
             let device = d.file_name().to_string_lossy().to_string();
+            // A retired Device's folder is not advertised, so a peer that
+            // still holds it does not learn of it from here and mirroring
+            // stops spreading it.
+            if removed.contains(&device) {
+                continue;
+            }
             if let Ok(files) = fs::read_dir(d.path()) {
                 for f in files.flatten() {
                     let p = f.path();
@@ -635,6 +705,12 @@ impl Node {
 
     fn write_file(&self, e: &Entry, bytes: &[u8]) {
         if !Self::safe(&e.device) || !Self::safe(&e.name) || e.device == self.me.device_id {
+            return;
+        }
+        // A peer that has not yet merged the removal will still offer the
+        // retired Device's snapshots; refusing them here is what keeps the
+        // folder from coming back.
+        if self.state.lock().unwrap().membership.removed_devices.contains(&e.device) {
             return;
         }
         let dir = self.sync_dir.join(&e.device);
@@ -691,6 +767,90 @@ mod tests {
         let older = Membership { version: 1, removed: vec![[4; 32]], ..Default::default() };
         assert!(a.merge(&older));
         assert!(a.removed.contains(&[4; 32]) && a.removed.contains(&[3; 32]));
+    }
+
+    /// A retired Device's folder is named by its device id, and that travels
+    /// between peers the way the node removal does: a newer membership never
+    /// drops what this one already knew, so the folder cannot come back by
+    /// meeting a peer that has not heard of the removal yet.
+    #[test]
+    fn a_removed_device_is_never_forgotten_by_a_merge() {
+        let mut a = Membership { version: 1, removed_devices: vec!["01PHONE".into()], ..Default::default() };
+        let newer = Membership { version: 9, removed_devices: vec!["01TABLET".into()], ..Default::default() };
+        assert!(a.merge(&newer));
+        assert!(a.removed_devices.contains(&"01PHONE".to_string()), "a newer membership dropped a removal");
+        assert!(a.removed_devices.contains(&"01TABLET".to_string()));
+
+        // An older peer's removal is still taken, and taken only once.
+        let older = Membership { version: 1, removed_devices: vec!["01LAPTOP".into(), "01PHONE".into()], ..Default::default() };
+        assert!(a.merge(&older));
+        assert_eq!(a.removed_devices.iter().filter(|d| *d == "01PHONE").count(), 1);
+        assert!(a.removed_devices.contains(&"01LAPTOP".to_string()));
+
+        // Nothing new to learn.
+        assert!(!a.merge(&older));
+    }
+
+    /// Retiring a Device by its folder name reaches one that is still a member
+    /// and one that never was — a Device retired before removals were recorded
+    /// is known by its folder alone, and that is the Device to stop trusting.
+    #[tokio::test]
+    async fn a_device_can_be_retired_by_its_folder_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member("self", "Self"), Some(String::new()), tx).await.unwrap();
+
+        // A Device that is still a member: the folder and the peer both go.
+        let paired = [7u8; 32];
+        {
+            let mut st = node.state.lock().unwrap();
+            st.membership.members.push(Member { node: paired, ..member("tablet", "Tablet") });
+        }
+        node.forget_device("tablet");
+        let m = node.membership();
+        assert!(m.removed_devices.contains(&"tablet".to_string()));
+        assert!(!m.is_member(&paired), "the retired Device is still a member");
+
+        // A Device that never paired through this roster, which is how the
+        // phone whose folder outlived it looks. No node id to go by.
+        node.forget_device("ghost");
+        let m = node.membership();
+        assert!(m.removed_devices.contains(&"ghost".to_string()), "a folder-only Device could not be retired");
+
+        // Idempotent, and it persists for the next Sync to read.
+        let before = node.membership().version;
+        node.forget_device("ghost");
+        assert_eq!(node.membership().version, before, "retiring twice bumped the version");
+        let saved = fs::read_to_string(dir.path().join("local").join(MEMBERSHIP_FILE)).unwrap();
+        assert!(saved.contains("ghost"), "the retirement was not written for sync to read");
+        node.shutdown().await;
+    }
+
+    /// Approving is what lifts a retirement, and the only thing that does: a
+    /// Device evicted, wiped and paired again must be trustable, or it could be
+    /// removed and never come back.
+    #[tokio::test]
+    async fn approving_a_device_again_lifts_its_retirement() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        let me = member("self", "Self");
+        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), me, Some(String::new()), tx).await.unwrap();
+
+        let returning = member("phone", "Phone");
+        let their_node = [42u8; 32];
+        let returning = Member { node: their_node, ..returning };
+
+        node.forget_device("phone");
+        assert!(node.membership().removed_devices.contains(&"phone".to_string()));
+
+        // It comes back and is approved.
+        node.state.lock().unwrap().pending.insert(their_node, returning);
+        assert!(node.approve(&their_node, true));
+        let m = node.membership();
+        assert!(!m.removed_devices.contains(&"phone".to_string()), "an approved Device is still retired");
+        assert!(!m.removed.contains(&their_node), "an approved Device's node is still removed");
+        assert!(m.is_member(&their_node));
+        node.shutdown().await;
     }
 
     /// Two nodes on one machine, relays disabled: invite, join, approve, then

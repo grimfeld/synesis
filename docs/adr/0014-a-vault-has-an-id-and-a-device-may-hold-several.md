@@ -71,3 +71,42 @@ missing from the only UI that lists one.
   folder name stays local.
 - The mobile default path is derived from the Vault's name, with a numeric
   suffix when taken, so joining `main` proposes `Synesis vaults/main`.
+
+## Amendment (2026-09-22): a Device's claim on a Vault is the roster, not a folder
+
+The merge this ADR prevents came back in a second form. A phone was re-paired
+after its vault folders were separated, and documents that were not part of the
+Vault appeared on it and synced to the desktop — from an empty folder.
+
+The Vault held two sync folders for one phone, under two device ids. The retired
+id's 636 snapshots had never been removed, because nothing removes another
+Device's folder: `import_remote` and the pairing manifest walked every directory
+in `sync/` and trusted each one, so a Device was trusted because a folder
+bearing its name existed. Pairing mirrored the dead folder to the phone; the
+phone materialised 190 documents the Vault no longer had; `publish_missing`
+republished 84 of them under the phone's *new* id; the round pushed them back.
+
+So: **a folder in `sync/` is not a claim on the Vault. The pairing roster is.**
+
+- A Device removed from the roster is recorded by its device id
+  (`Membership.removed_devices`), not only by its node id — a node id names a
+  peer, and the snapshots live under a device id. Removals merge in both
+  directions and are never forgotten, so a Device that reappears is not trusted
+  again by virtue of reappearing.
+- Trust is a blocklist, never a whitelist. A folder the roster has never heard
+  of is still read: that is what a folder-synced Vault looks like (no roster at
+  all, ADR 0001), and what a Device paired while this one was offline looks like
+  before the two memberships meet.
+- Approving a Device is the one act that lifts a retirement, so a Device that
+  was evicted, wiped and paired again can come back.
+- Removing a Vault from a Device is therefore a real operation, not a matter of
+  forgetting a path: `Vault::leave` withdraws this Device's snapshots so the
+  others stop mirroring them, then drops its index and CRDT, and optionally the
+  documents. Evicting another Device (`forget_device`) retires it in the roster
+  *before* deleting its folder, so a crash between the two leaves a Vault that
+  still syncs rather than a folder that will be trusted again.
+
+Document identity is untouched and still per-Device: the same verse note created
+on two Devices gets two ULIDs, so a resurrected file lands beside the original
+rather than being recognised as a duplicate. Removal stops new ghosts; it does
+not make existing duplicates detectable.

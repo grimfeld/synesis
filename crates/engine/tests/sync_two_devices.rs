@@ -542,3 +542,289 @@ fn a_vault_indexed_by_an_older_build_still_opens() {
     v.write_board(&comp.summary.id, &board).unwrap();
     assert_eq!(v.read_board(&comp.summary.id).unwrap().unwrap().nodes.len(), 1);
 }
+
+// ---- a retired Device's folder (step 1 of removing a Vault from a Device) ---
+
+/// Write the pairing roster `sync::Roster` reads, marking `removed` as retired.
+///
+/// The real one is written by `p2p::Membership`; only the removed device ids
+/// matter here, and `#[serde(default)]` on the rest is what lets this be small.
+fn retire(data: &std::path::Path, root: &std::path::Path, removed: &[&str]) {
+    let local = engine::vault::local_dir_for(data, root);
+    fs::create_dir_all(&local).unwrap();
+    let json = serde_json::json!({ "removed_devices": removed });
+    fs::write(local.join("pairing.json"), json.to_string()).unwrap();
+}
+
+/// The bug this exists for: a phone left the Vault, its snapshots stayed in
+/// `sync/`, and the next device to open the Vault materialised documents the
+/// Vault no longer had. A folder is not a claim.
+#[test]
+fn a_retired_devices_snapshots_are_not_imported() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    // B publishes a document, then its folder is all that is left of it.
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let id = doc.summary.id.clone();
+    let path = doc.summary.path.clone();
+    let retired = b.device_id().unwrap().to_string();
+    drop(b);
+    // The document is removed from the Vault the way losing the phone leaves it:
+    // the file is gone, the snapshot is not.
+    fs::remove_file(root.join(&path)).unwrap();
+    assert!(root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired).join(format!("{id}.loro")).is_file());
+
+    // A, with B retired, must not bring the file back.
+    retire(&da, &root, &[&retired]);
+    let mut a = open(&root, &da);
+    assert!(a.apply_remote().unwrap().is_empty(), "a retired Device's snapshots were imported");
+    assert!(!root.join(&path).exists(), "a retired Device's document was materialised");
+    assert!(a.read(&id).is_err(), "a retired Device's document reached the index");
+}
+
+/// The other half: a Device that is merely unknown to the roster is still
+/// trusted. That is what every folder-synced Vault looks like (no roster at
+/// all), and what a Device paired while this one was offline looks like before
+/// the two memberships meet.
+#[test]
+fn an_unknown_device_is_still_trusted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From a new device", &Map::new(), "Here.").unwrap();
+    let id = doc.summary.id.clone();
+
+    // A's roster names some other Device as retired, not B.
+    retire(&da, &root, &["01SOMEOTHERDEVICE"]);
+    let a = open(&root, &da);
+    assert!(a.read(&id).unwrap().text.contains("Here."), "an unknown Device was refused");
+}
+
+/// A Vault with no roster is unpaired (Syncthing, iCloud, a plain folder) and
+/// behaves exactly as it did before trust existed.
+#[test]
+fn without_a_roster_every_folder_is_trusted() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "Folder synced", &Map::new(), "Plain.").unwrap();
+    let id = doc.summary.id.clone();
+
+    let a = open(&root, &da);
+    assert!(!engine::vault::local_dir_for(&da, &root).join("pairing.json").exists());
+    assert!(a.read(&id).unwrap().text.contains("Plain."));
+}
+
+/// A removal that lands while the Vault is open takes effect on the next
+/// import: the roster is re-read, not cached from open.
+#[test]
+fn a_removal_takes_effect_without_reopening_the_vault() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let first = b.create(DocType::Note, "Before", &Map::new(), "Before.").unwrap();
+    let retired = b.device_id().unwrap().to_string();
+
+    // A opens unpaired and imports normally.
+    let mut a = open(&root, &da);
+    assert!(a.read(&first.summary.id).unwrap().text.contains("Before."));
+
+    // B publishes again, and only then is it retired.
+    let second = b.create(DocType::Note, "After", &Map::new(), "After.").unwrap();
+    let second_path = second.summary.path.clone();
+    fs::remove_file(root.join(&second_path)).unwrap();
+    retire(&da, &root, &[&retired]);
+
+    assert!(a.apply_remote().unwrap().is_empty(), "the roster was cached from open");
+    assert!(!root.join(&second_path).exists());
+}
+
+/// Evicting a Device removes its folder from the Vault. Its documents stay:
+/// a Device leaving takes its history with it, not the work.
+#[test]
+fn forgetting_a_device_removes_its_folder_and_keeps_the_documents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Kept.").unwrap();
+    let id = doc.summary.id.clone();
+    let retired = b.device_id().unwrap().to_string();
+    drop(b);
+
+    let mut a = open(&root, &da);
+    assert!(a.read(&id).unwrap().text.contains("Kept."), "A never saw the document");
+    let folder = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired);
+    assert!(folder.is_dir());
+
+    assert!(a.forget_device(&retired).unwrap(), "the folder was reported missing");
+    assert!(!folder.exists(), "the retired Device's folder survived");
+    assert!(a.read(&id).unwrap().text.contains("Kept."), "forgetting a Device took its documents");
+    // Idempotent: nothing left to remove.
+    assert!(!a.forget_device(&retired).unwrap());
+}
+
+/// Forgetting a Device drops what this one had imported from it, so nothing is
+/// resumed from a stamp that no longer describes anything once the Device is
+/// re-admitted. Re-admission itself is the pairing roster's business
+/// (`p2p::Node::approve`); here the manifest is what must be clean.
+#[test]
+fn forgetting_a_device_clears_what_was_imported_from_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "Shared", &Map::new(), "First.").unwrap();
+    let id = doc.summary.id.clone();
+    let device = b.device_id().unwrap().to_string();
+
+    let mut a = open(&root, &da);
+    assert!(a.read(&id).unwrap().text.contains("First."));
+    let manifest = engine::vault::local_dir_for(&da, &root).join("crdt").join("imported.json");
+    assert!(fs::read_to_string(&manifest).unwrap().contains(&device), "A never recorded the import");
+
+    a.forget_device(&device).unwrap();
+    assert!(!fs::read_to_string(&manifest).unwrap().contains(&device), "the import manifest still names the forgotten Device");
+}
+
+/// A Device cannot forget itself: leaving a Vault is its own operation with
+/// its own order, and doing it through this path would drop the folder while
+/// the CRDT went on publishing into it.
+#[test]
+fn a_device_cannot_forget_itself() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let me = a.device_id().unwrap().to_string();
+    assert!(a.forget_device(&me).is_err());
+    assert!(root.join(engine::vault::HIDDEN_DIR).join("sync").join(&me).is_dir());
+}
+
+// ---- leaving a Vault (step 3) ----------------------------------------------
+
+/// Leaving without deleting: sync stops, the folder is left as Obsidian would
+/// find it (ADR 0003), and the other Devices stop mirroring this one.
+#[test]
+fn leaving_a_vault_keeps_the_documents_and_withdraws_the_snapshots() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut a = open(&root, &da);
+    let doc = a.create(DocType::Note, "My work", &Map::new(), "Mine.").unwrap();
+    let file = root.join(&doc.summary.path);
+    let leaving = a.device_id().unwrap().to_string();
+    let own = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&leaving);
+    assert!(own.is_dir());
+    let local = engine::vault::local_dir_for(&da, &root);
+    assert!(local.is_dir());
+
+    a.leave(false).unwrap();
+
+    assert!(!own.exists(), "the leaving Device kept publishing into the Vault");
+    assert!(!local.exists(), "this Device's state for the Vault survived");
+    assert!(file.is_file(), "leaving took the documents with it");
+    assert_eq!(fs::read_to_string(&file).unwrap().contains("Mine."), true);
+
+    // B still has the Vault, and no longer sees A as a Device in it.
+    let b = open(&root, &db);
+    assert!(!b.devices().iter().any(|d| d.id == leaving), "the Vault still lists the Device that left");
+}
+
+/// Leaving with the documents: the Vault is gone from this Device entirely.
+#[test]
+fn leaving_a_vault_can_take_the_documents_too() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let da = tmp.path().join("devA");
+
+    let mut a = open(&root, &da);
+    a.create(DocType::Note, "My work", &Map::new(), "Mine.").unwrap();
+    let local = engine::vault::local_dir_for(&da, &root);
+
+    a.leave(true).unwrap();
+
+    assert!(!root.exists(), "the Vault folder survived a leave that asked for it");
+    assert!(!local.exists());
+}
+
+/// A Vault left and then reopened at the same folder is a fresh start for this
+/// Device: no snapshots of its own, no imported history, and the documents
+/// read from disk. It keeps its identity, because the folder is still the same
+/// Vault (ADR 0014).
+#[test]
+fn a_vault_reopened_after_leaving_starts_clean() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let da = tmp.path().join("devA");
+
+    let mut a = open(&root, &da);
+    let doc = a.create(DocType::Note, "Kept", &Map::new(), "Still here.").unwrap();
+    let id = doc.summary.id.clone();
+    let was = a.meta().id.clone();
+    a.leave(false).unwrap();
+
+    let mut again = open(&root, &da);
+    assert_eq!(again.meta().id, was, "reopening the folder invented a new Vault");
+    assert!(again.read(&id).unwrap().text.contains("Still here."), "the document did not come back from disk");
+    assert!(again.versions(&id).unwrap().is_empty(), "history survived leaving");
+}
+
+/// Eviction has to stick with sync switched off, which is exactly where a
+/// stale folder sits unnoticed: the roster is written by the engine, not by a
+/// running pairing node, so a folder that comes back is not trusted again.
+#[test]
+fn forgetting_a_device_survives_the_folder_coming_back() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Ghost.").unwrap();
+    let id = doc.summary.id.clone();
+    let path = doc.summary.path.clone();
+    let retired = b.device_id().unwrap().to_string();
+    let folder = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired);
+    let snapshot = folder.join(format!("{id}.loro"));
+    let bytes = fs::read(&snapshot).unwrap();
+    drop(b);
+
+    let mut a = open(&root, &da);
+    a.forget_device(&retired).unwrap();
+    assert!(!folder.exists());
+
+    // A provider (or a peer that had not merged the removal) puts it back, and
+    // the document is gone from disk the way losing the phone leaves it.
+    fs::create_dir_all(&folder).unwrap();
+    fs::write(&snapshot, &bytes).unwrap();
+    fs::remove_file(root.join(&path)).unwrap();
+
+    assert!(a.apply_remote().unwrap().is_empty(), "a retired Device's folder was trusted again");
+    assert!(!root.join(&path).exists(), "the ghost document came back");
+
+    // And it is still refused by a Device opening the Vault afresh.
+    let mut again = open(&root, &da);
+    assert!(again.apply_remote().unwrap().is_empty(), "the retirement did not persist");
+}

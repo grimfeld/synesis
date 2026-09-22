@@ -1,5 +1,5 @@
 import { defineConfig } from "cypress";
-import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,6 +40,17 @@ export default defineConfig({
         "vault:remove"(dir: string): null {
           if (dir && existsSync(dir) && dir.includes("synesis-cy-"))
             rmSync(dir, { recursive: true, force: true });
+          return null;
+        },
+        /**
+         * Write a file, creating its parents. Used to plant a device folder in
+         * a seeded vault's `sync/`, the way a retired Device leaves one behind.
+         * Confined to the temp copies, so a spec cannot touch a real vault.
+         */
+        "file:write"({ path, text }: { path: string; text: string }): null {
+          if (!path.includes("synesis-cy-")) throw new Error(`refusing to write outside a seeded vault: ${path}`);
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, text);
           return null;
         },
         "file:read"(path: string): string | null {

@@ -698,6 +698,23 @@ export const api = {
   closeVault: () => invoke<void>("close_vault"),
   /** Stop listing a Vault here. The folder and its documents stay. */
   forgetVault: (id: string) => invoke<KnownVault[]>("forget_vault", { id }),
+  /**
+   * Take this Device out of a Vault: its snapshots are withdrawn so the other
+   * Devices stop mirroring them, and this Device's history for it is dropped.
+   *
+   * `deleteDocuments` also removes the folder and cannot be undone. Without
+   * it the folder is left as plain markdown that Obsidian still opens. The
+   * Vault must be open: leaving runs the engine, which holds only the open one.
+   */
+  leaveVault: (id: string, deleteDocuments: boolean) =>
+    invoke<KnownVault[]>("leave_vault", { id, deleteDocuments }),
+  /**
+   * Stop holding another Device's snapshots in the open Vault, and retire it so
+   * its folder is not trusted again if it comes back. The Vault's documents
+   * stay: a Device leaving takes its history, not the work.
+   */
+  forgetDevice: (device: string) =>
+    invoke<DeviceInfo[]>("forget_device", { device }),
   /** Vaults sitting where the user cannot browse them (ADR 0015), by id. */
   hiddenVaults: () => invoke<string[]>("hidden_vaults"),
   /** Move a Vault to the folder this Device would choose for it today. */

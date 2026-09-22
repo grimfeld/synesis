@@ -69,6 +69,34 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // "Quitter et supprimer les documents" on a 390px phone is the longest
+      // button label in the app, and it sits in a dialog rather than a card.
+      it("keeps the Leave dialog inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-settings]").click();
+        cy.get("[data-testid=vault-leave]").click();
+        cy.get("[data-testid=vault-leave-confirm]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The seeded vault has no other Device, so one is planted: the dialog's
+      // label is long in French and it is the only place it is seen.
+      it("keeps the evict-device dialog inside the screen", () => {
+        const dir = `${Cypress.env("vault")}/.bible-study/sync/01LOCALESGHOSTDEVICE00000`;
+        cy.task("file:write", {
+          path: `${dir}/device.json`,
+          text: JSON.stringify({ name: "Ancien téléphone", platform: "android" }),
+        });
+        cy.bridge("open_vault", { path: Cypress.env("vault") });
+        cy.visit("/");
+        cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-settings]").click();
+        cy.get("[data-testid=device-evict]").first().click();
+        cy.get("[data-testid=device-evict-confirm]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps the Pairing panel inside its card once a code is shown", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=nav-settings]").click();

@@ -88,6 +88,10 @@ impl DocTypeInfo {
 
 pub struct Vault {
     root: PathBuf,
+    /// Where this Device's state for this Vault lives (`local_dir_for`). Held
+    /// so leaving cannot be pointed at another Vault's state by a caller that
+    /// derived the path a second time.
+    local_dir: PathBuf,
     meta: VaultMeta,
     index: Index,
     lang: Lang,
@@ -163,6 +167,7 @@ impl Vault {
         let schema = PropertySchema::load(&root.join(HIDDEN_DIR));
         let mut v = Vault {
             root,
+            local_dir: local,
             meta,
             index,
             lang,
@@ -984,6 +989,53 @@ impl Vault {
     /// Devices seen in the sync folder (ADR 0001); empty when sync is off.
     pub fn devices(&self) -> Vec<crate::sync::DeviceInfo> {
         self.sync.as_ref().map(|s| s.devices()).unwrap_or_default()
+    }
+    /// Take this Device out of the Vault (ADR 0014).
+    ///
+    /// Consumes the Vault: the index and the CRDT are open files, and on
+    /// Windows a directory holding one cannot be removed, so everything this
+    /// Device knows has to be dropped before the folder that holds it.
+    ///
+    /// `delete_documents` is the user's call and is not recoverable: a Vault
+    /// that syncs nowhere else, or that holds work no other Device has seen,
+    /// goes with it. Without it the folder is left exactly as Obsidian would
+    /// find it — plain markdown, sync stopped (ADR 0003).
+    ///
+    /// The order is deliberate. `withdraw` first, so the other Devices stop
+    /// mirroring this one's snapshots; then this Device's own state; then, if
+    /// asked, the documents. A crash part way through leaves a Vault that
+    /// still syncs rather than a folder whose history is gone.
+    pub fn leave(mut self, delete_documents: bool) -> Result<()> {
+        if let Some(sync) = self.sync.as_mut() {
+            sync.withdraw()?;
+        }
+        let root = self.root.clone();
+        let local_dir = self.local_dir.clone();
+        // Drop the index and the CRDT before removing what holds them.
+        drop(self);
+        if local_dir.is_dir() {
+            fs::remove_dir_all(&local_dir)?;
+        }
+        if delete_documents && root.is_dir() {
+            fs::remove_dir_all(&root)?;
+        }
+        Ok(())
+    }
+
+    /// Stop holding another Device's snapshots in this Vault, and forget what
+    /// this Device had imported from it. `true` when a folder was there.
+    ///
+    /// The Vault's own documents are untouched: a Device leaving takes its
+    /// history with it, not the work. Whatever it had already merged into a
+    /// document stays merged, because that is the document's history now.
+    ///
+    /// When a pairing node is running for this Vault, call
+    /// `p2p::Node::forget_device` first and this second. The node holds the
+    /// roster in memory and rewrites it on its next save, so a retirement
+    /// written only here would be overwritten; told first, the node records it
+    /// and the write here finds nothing left to do.
+    pub fn forget_device(&mut self, device: &str) -> Result<bool> {
+        self.sync_mut()?.forget_device(device)
     }
     /// Names in the document being written that match a Hub and are not yet
     /// Mentions (ADR 0011).

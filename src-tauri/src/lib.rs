@@ -471,6 +471,62 @@ fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>
     Ok(state.settings.lock().map_err(err)?.vaults.clone())
 }
 
+/// Take this Device out of a Vault: withdraw its snapshots so the other
+/// Devices stop mirroring them, drop this Device's index and history, and stop
+/// listing it (ADR 0014).
+///
+/// `delete_documents` also removes the folder, which is not recoverable and is
+/// the user's call; without it the folder is left as plain markdown that
+/// Obsidian still opens (ADR 0003).
+///
+/// Only the open Vault can be left: leaving runs the engine, and the engine
+/// only holds the Vault that is open. The UI opens it first.
+#[tauri::command]
+fn leave_vault(state: State<AppState>, id: String, delete_documents: bool) -> CmdResult<Vec<KnownVault>> {
+    let known = {
+        let s = state.settings.lock().map_err(err)?;
+        s.vaults.iter().find(|v| v.id == id).cloned().ok_or("no such vault")?
+    };
+    let open_path = state.settings.lock().map_err(err)?.vault_path.clone();
+    if open_path.as_deref() != Some(known.path.as_str()) {
+        return Err("open the Vault before leaving it".into());
+    }
+    // Pairing holds the node for this Vault, and the watcher holds its folder.
+    // Both must let go before the engine can remove anything.
+    tauri::async_runtime::block_on(pairing::stop(&state));
+    *state.watcher.lock().map_err(err)? = None;
+    let vault = state.vault.lock().map_err(err)?.take().ok_or("no vault open")?;
+    vault.leave(delete_documents).map_err(err)?;
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        s.vaults.retain(|v| v.id != id);
+        s.recent.retain(|p| p != &known.path);
+        s.vault_path = None;
+    }
+    state.save_settings()?;
+    Ok(state.settings.lock().map_err(err)?.vaults.clone())
+}
+
+/// Stop holding a Device's snapshots in the open Vault, and remove it from the
+/// pairing roster so it is not trusted again if its folder comes back.
+///
+/// The Vault's documents are untouched: a Device leaving takes its history,
+/// not the work (ADR 0001).
+#[tauri::command]
+fn forget_device(state: State<AppState>, device: String) -> CmdResult<Vec<engine::sync::DeviceInfo>> {
+    // The roster first: it is what stops the folder being trusted, and it must
+    // outlive a crash between the two steps. `pairing_remove` covers a Device
+    // that is still a member; this also reaches one that never was, which is
+    // how a Device retired before removals were recorded looks.
+    if let Some(node) = state.p2p.lock().map_err(err)?.clone() {
+        node.forget_device(&device);
+    }
+    state.with_vault_mut(|v| {
+        v.forget_device(&device)?;
+        Ok(v.devices())
+    })
+}
+
 /// The Vaults this Device holds that sit somewhere their owner cannot browse
 /// (ADR 0015), by id. Asked rather than worked out in the UI, so the rule for
 /// what counts as hidden lives in one place.
@@ -1286,6 +1342,8 @@ pub fn run() {
             suggest_vault_path,
             rename_vault,
             forget_vault,
+            leave_vault,
+            forget_device,
             move_vault,
             hidden_vaults,
             vault_info,

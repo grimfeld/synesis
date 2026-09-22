@@ -25,6 +25,8 @@ use std::time::UNIX_EPOCH;
 
 pub const SYNC_DIR: &str = "sync";
 const DEVICE_FILE: &str = "device.json";
+/// Written by `p2p` beside the Vault's CRDT state; read here for the roster.
+const ROSTER_FILE: &str = "pairing.json";
 
 /// What a Device writes about itself into its sync folder, so other Devices
 /// can name it ("synced from Paul's MacBook").
@@ -219,6 +221,97 @@ const CANVAS_ORDER: &str = "#order";
 /// Root-level keys of the canvas file that the spec does not define.
 const CANVAS_EXTRA: &str = "#extra";
 
+/// Which Devices a paired Vault still trusts to publish into it.
+///
+/// A Device used to be trusted because a folder bearing its id sat in
+/// `sync/`, which is how a retired phone kept its hold: its snapshots stayed
+/// on every Device, and a later pairing round mirrored them onward, so
+/// `apply_remote` materialised documents the Vault no longer had and
+/// `publish_missing` republished them under the phone's new id. A folder is
+/// not a claim; the pairing roster is (ADR 0014).
+///
+/// Read from the roster `p2p` keeps beside this Vault's CRDT state, so the
+/// two cannot drift and no caller has to carry it. A Vault synced through a
+/// plain folder (Syncthing, iCloud) has no roster at all, and `None` means
+/// what it has always meant: trust every folder.
+#[derive(Debug, Clone, Default)]
+pub struct Roster {
+    /// Device ids removed from the roster. Never forgotten, so a Device that
+    /// returns is not trusted again by virtue of reappearing.
+    ///
+    /// Only removals are held. Trust is not a whitelist: a folder the roster
+    /// has never heard of is how a folder-synced Vault looks, and how a Device
+    /// paired while this one was offline looks before the memberships meet.
+    /// Listing members here and trusting only them would stop both.
+    removed: Vec<String>,
+}
+
+/// The part of `p2p::Membership` this module reads. Everything else in that
+/// file is the pairing transport's business.
+#[derive(Deserialize)]
+struct RosterFile {
+    /// Removed peers are recorded by node id too, and a node id is not a
+    /// device id, so a removal has to name the device to reach its folder.
+    #[serde(default)]
+    removed_devices: Vec<String>,
+}
+
+impl Roster {
+    /// The roster beside a Vault's CRDT state, or `None` when the Vault is not
+    /// paired.
+    fn beside(crdt_dir: &Path) -> Option<Roster> {
+        let path = crdt_dir.parent()?.join(ROSTER_FILE);
+        let text = fs::read_to_string(path).ok()?;
+        let f: RosterFile = serde_json::from_str(&text).ok()?;
+        Some(Roster { removed: f.removed_devices })
+    }
+
+    /// Record a Device as removed in the roster beside `crdt_dir`, creating
+    /// the roster if the Vault has never paired.
+    ///
+    /// Eviction has to stick whether or not the pairing node happens to be
+    /// running: the roster is what stops a folder being trusted, and a Vault
+    /// whose sync is off is exactly where a stale folder sits unnoticed. When
+    /// the node is running it raises the membership version itself, and a
+    /// version this write does not touch is right — `merge` takes removals
+    /// from either side regardless of version.
+    fn retire(crdt_dir: &Path, device: &str) -> Result<()> {
+        let Some(dir) = crdt_dir.parent() else { return Ok(()) };
+        let path = dir.join(ROSTER_FILE);
+        let mut doc: serde_json::Value = fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_else(|| serde_json::json!({}));
+        if !doc.is_object() {
+            doc = serde_json::json!({});
+        }
+        let list = doc
+            .as_object_mut()
+            .expect("an object")
+            .entry("removed_devices")
+            .or_insert_with(|| serde_json::json!([]));
+        let Some(arr) = list.as_array_mut() else {
+            return Err(crate::Error::Invalid("the pairing roster is malformed".into()));
+        };
+        if arr.iter().any(|d| d.as_str() == Some(device)) {
+            return Ok(());
+        }
+        arr.push(serde_json::Value::String(device.to_string()));
+        write_atomic(&path, serde_json::to_string_pretty(&doc)?.as_bytes())?;
+        Ok(())
+    }
+
+    /// Whether `device` may publish into this Vault.
+    ///
+    /// A removed Device never may. A Device the roster does not name is left
+    /// alone rather than trusted or deleted: it is how a folder-synced Vault
+    /// looks, and how a Device that paired while this one was offline looks
+    /// before the memberships meet.
+    fn trusts(&self, device: &str) -> bool {
+        !self.removed.iter().any(|d| d == device)
+    }
+}
+
 #[derive(Default, Serialize, Deserialize)]
 struct Manifest {
     /// "<device>/<file>" -> (mtime ms, len)
@@ -232,6 +325,10 @@ pub struct Sync {
     local_dir: PathBuf,
     docs: HashMap<String, LoroDoc>,
     manifest: Manifest,
+    /// Which Devices this Vault trusts, when it is paired. Re-read on each
+    /// import: `p2p` rewrites the roster whenever a peer is removed, and this
+    /// Sync outlives that.
+    roster: Option<Roster>,
 }
 
 fn mtime_ms(p: &Path) -> i64 {
@@ -297,6 +394,7 @@ impl Sync {
                 let _ = fs::write(mine.join(DEVICE_FILE), json);
             }
         }
+        let roster = Roster::beside(&local_dir);
         Ok(Sync {
             device_id,
             peer,
@@ -304,6 +402,7 @@ impl Sync {
             local_dir,
             docs: HashMap::new(),
             manifest,
+            roster,
         })
     }
 
@@ -315,6 +414,12 @@ impl Sync {
 
     pub fn device_id(&self) -> &str {
         &self.device_id
+    }
+
+    /// Whether a folder in `sync/` may be read from. Untrusted folders are
+    /// left on disk untouched; removing them is a separate, deliberate act.
+    fn trusts(&self, device: &str) -> bool {
+        self.roster.as_ref().map_or(true, |r| r.trusts(device))
     }
 
     fn local_snapshot_path(&self, id: &str) -> PathBuf {
@@ -706,7 +811,8 @@ impl Sync {
     pub fn remote_mtime(&self, id: &str) -> Option<i64> {
         let mut best = None;
         for dev in fs::read_dir(&self.vault_sync_dir).ok()?.flatten() {
-            if dev.file_name().to_string_lossy() == self.device_id {
+            let name = dev.file_name().to_string_lossy().to_string();
+            if name == self.device_id || !self.trusts(&name) {
                 continue;
             }
             let p = dev.path().join(format!("{id}.loro"));
@@ -718,6 +824,70 @@ impl Sync {
         best
     }
 
+    /// This Device's own folder in the Vault, for leaving it.
+    fn own_dir(&self) -> PathBuf {
+        self.vault_sync_dir.join(&self.device_id)
+    }
+
+    /// Withdraw this Device from the Vault's sync folder: its published
+    /// snapshots go, so no other Device keeps mirroring them.
+    ///
+    /// Only the shared folder is touched. The per-Device CRDT state is the
+    /// Vault's to remove, after the roster has been written — a crash between
+    /// the two should leave a Vault that still syncs, not a folder whose
+    /// history is gone.
+    pub fn withdraw(&mut self) -> Result<()> {
+        let dir = self.own_dir();
+        if dir.is_dir() {
+            fs::remove_dir_all(&dir)?;
+        }
+        self.docs.clear();
+        Ok(())
+    }
+
+    /// Stop holding a Device's snapshots in this Vault: record it as retired
+    /// in the roster, delete its folder, and forget every file of its this
+    /// Device had imported.
+    ///
+    /// The roster entry is what makes this stick. Deleting the folder alone
+    /// would leave it to be restored by the next peer that has not heard of
+    /// the removal, or by a cloud provider putting it back.
+    ///
+    /// Forgetting the import manifest entries matters as much as the delete.
+    /// The manifest skips a file whose (mtime, len) it has already seen, so a
+    /// folder that came back — a cloud provider restoring it, a peer that had
+    /// not merged the removal yet — would be silently skipped rather than
+    /// re-examined, and a Device could never be cleanly re-paired.
+    ///
+    /// Refuses to forget this Device: leaving a Vault is `Vault::leave`, which
+    /// has its own order to keep.
+    pub fn forget_device(&mut self, device: &str) -> Result<bool> {
+        if device == self.device_id {
+            return Err(crate::Error::Invalid(
+                "a Device cannot forget itself; leave the Vault instead".into(),
+            ));
+        }
+        // The roster first: it is what keeps the folder from being trusted if
+        // it comes back, and it must outlive a crash between the two steps.
+        Roster::retire(&self.local_dir, device)?;
+        self.roster = Roster::beside(&self.local_dir);
+        let dir = self.vault_sync_dir.join(device);
+        let existed = dir.is_dir();
+        if existed {
+            fs::remove_dir_all(&dir)?;
+        }
+        let prefix = format!("{device}/");
+        let before = self.manifest.imported.len();
+        self.manifest.imported.retain(|k, _| !k.starts_with(&prefix));
+        if self.manifest.imported.len() != before {
+            write_atomic(
+                &self.local_dir.join("imported.json"),
+                serde_json::to_string(&self.manifest)?.as_bytes(),
+            )?;
+        }
+        Ok(existed)
+    }
+
     /// Import every new or changed snapshot from other devices. Returns the
     /// documents whose merged state differs from what this device last knew.
     pub fn import_remote(&mut self) -> Result<Vec<RemoteChange>> {
@@ -726,10 +896,12 @@ impl Sync {
             Ok(d) => d,
             Err(_) => return Ok(out),
         };
+        // A removal may have landed since this Sync opened.
+        self.roster = Roster::beside(&self.local_dir);
         let mut touched: Vec<String> = Vec::new();
         for dev in devices.flatten() {
             let dev_name = dev.file_name().to_string_lossy().to_string();
-            if dev_name == self.device_id || !dev.path().is_dir() {
+            if dev_name == self.device_id || !dev.path().is_dir() || !self.trusts(&dev_name) {
                 continue;
             }
             for f in fs::read_dir(dev.path())?.flatten() {

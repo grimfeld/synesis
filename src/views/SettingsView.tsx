@@ -15,6 +15,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { PairingPanel } from "@/components/Pairing";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export function SettingsView() {
   const s = useStore();
@@ -32,7 +42,17 @@ export function SettingsView() {
     deps: { none: true },
     fetch: () => api.syncStatus(),
   });
-  const devices = useMemo(() => devicesData ?? [], [devicesData]);
+  const fetched = useMemo(() => devicesData ?? [], [devicesData]);
+  // `forget_device` answers with the list that is left, so the row goes as soon
+  // as the engine has removed it rather than on the next poll.
+  const [evicted, setEvicted] = useState<DeviceInfo[] | null>(null);
+  const devices = evicted ?? fetched;
+  useEffect(() => setEvicted(null), [fetched]);
+  const [evicting, setEvicting] = useState<DeviceInfo | null>(null);
+  const evict = async (d: DeviceInfo) => {
+    setEvicting(null);
+    setEvicted(await api.forgetDevice(d.id));
+  };
   const method = s.settings?.sync_method ?? null;
   const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
   const fmt = useFormat();
@@ -131,9 +151,38 @@ export function SettingsView() {
                           {d.platform} · {t.sync.last_snapshot} {ago(d.last_snapshot)}
                         </span>
                       </span>
+                      {!d.is_self && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="min-h-9 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => setEvicting(d)}
+                          data-testid="device-evict"
+                        >
+                          {t.sync.evict_device}
+                        </Button>
+                      )}
                     </li>
                   ))}
                 </ul>
+              )}
+              {evicting && (
+                <AlertDialog open onOpenChange={(o) => !o && setEvicting(null)}>
+                  <AlertDialogContent data-testid="device-evict-confirm">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>
+                        {t.sync.evict_device_title(evicting.name || t.sync.unknown_device)}
+                      </AlertDialogTitle>
+                      <AlertDialogDescription>{t.sync.evict_device_body}</AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => evict(evicting)} data-testid="device-evict-go">
+                        {t.sync.evict_device_confirm}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               )}
               <div>
                 <Button variant="outline" onClick={() => s.setDialog({ kind: "sync" })} data-testid="settings-sync-setup">
@@ -189,6 +238,24 @@ function VaultsCard() {
   const [hidden, setHidden] = useState<string[]>([]);
   const [moving, setMoving] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  // Leaving is per-Vault and irreversible when it takes the documents, so the
+  // dialog holds which Vault and what the user typed to confirm it.
+  const [leaving, setLeaving] = useState<{ id: string; name: string } | null>(null);
+  const [typed, setTyped] = useState("");
+  const [leaveError, setLeaveError] = useState<string | null>(null);
+  useEffect(() => setTyped(""), [leaving?.id]);
+  const leave = async (deleteDocuments: boolean) => {
+    if (!leaving) return;
+    setLeaveError(null);
+    try {
+      await api.leaveVault(leaving.id, deleteDocuments);
+      setLeaving(null);
+      // The Vault is gone from this Device; the store has to let go of it too.
+      await s.attachVault();
+    } catch (e) {
+      setLeaveError(String(e));
+    }
+  };
   useEffect(() => setName(s.info?.meta.name ?? ""), [s.info?.meta.name]);
   useEffect(() => {
     api.hiddenVaults().then(setHidden).catch(() => setHidden([]));
@@ -258,9 +325,20 @@ function VaultsCard() {
                 )}
               </span>
               {v.id === openId ? (
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  ({t.sync.this_device})
-                </span>
+                <>
+                  <span className="shrink-0 text-xs text-muted-foreground">
+                    ({t.sync.this_device})
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="min-h-9 shrink-0 text-muted-foreground hover:text-destructive"
+                    onClick={() => setLeaving({ id: v.id, name: v.name })}
+                    data-testid="vault-leave"
+                  >
+                    {t.leave_vault}
+                  </Button>
+                </>
               ) : (
                 <>
                   <Button
@@ -285,10 +363,53 @@ function VaultsCard() {
           ))}
         </ul>
         {moveError && <p className="text-sm text-destructive">{moveError}</p>}
+        {leaving && (
+          <AlertDialog open onOpenChange={(o) => !o && setLeaving(null)}>
+            <AlertDialogContent data-testid="vault-leave-confirm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>{t.leave_vault_title(leaving.name)}</AlertDialogTitle>
+                <AlertDialogDescription>{t.leave_vault_body}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="grid gap-3 text-sm">
+                <p className="text-muted-foreground">{t.leave_vault_keep_hint}</p>
+                <Button
+                  variant="outline"
+                  className="min-h-9"
+                  onClick={() => leave(false)}
+                  data-testid="vault-leave-keep"
+                >
+                  {t.leave_vault_keep}
+                </Button>
+                <p className="text-muted-foreground">{t.leave_vault_delete_hint}</p>
+                <Input
+                  value={typed}
+                  onChange={(e) => setTyped(e.target.value)}
+                  placeholder={t.leave_vault_confirm(leaving.name)}
+                  aria-label={t.leave_vault_confirm(leaving.name)}
+                  data-testid="vault-leave-name"
+                />
+                <Button
+                  variant="destructive"
+                  className="min-h-9"
+                  disabled={typed.trim() !== leaving.name}
+                  onClick={() => leave(true)}
+                  data-testid="vault-leave-delete"
+                >
+                  {t.leave_vault_delete}
+                </Button>
+                {leaveError && <p className="text-destructive">{leaveError}</p>}
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        )}
         {hidden.length > 0 && (
           <p className="text-xs text-muted-foreground">{t.move_vault_hint}</p>
         )}
         <p className="text-xs text-muted-foreground">{t.forget_vault_hint}</p>
+        <p className="text-xs text-muted-foreground">{t.leave_vault_hint}</p>
       </CardContent>
     </Card>
   );
