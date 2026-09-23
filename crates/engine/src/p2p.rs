@@ -15,6 +15,14 @@
 //! exchanges memberships, then manifests, then pushes and pulls the snapshot
 //! files each side lacks. Rounds run on connect, on local change, and every
 //! 30 seconds.
+//!
+//! One connection per peer is kept open and reused by both sides' rounds, so a
+//! peer is online for as long as it is reachable, not just during a round. An
+//! unreachable peer is retried soon (1s, doubling up to 30s), each dial is
+//! bounded, and peers are dialled in parallel so one gone Device cannot hold
+//! up the others. Each peer's own address (home relay, direct addresses) is
+//! remembered in `peers.json`, so the next dial goes straight to it instead
+//! of waiting on address lookup.
 
 use crate::sync::SYNC_DIR;
 use crate::vault::HIDDEN_DIR;
@@ -33,8 +41,15 @@ pub const ALPN: &[u8] = b"synesis/sync/1";
 const MEMBERSHIP_FILE: &str = "pairing.json";
 const KEY_FILE: &str = "pairing.key";
 const MAX_FILE: usize = 64 * 1024 * 1024;
+const PEERS_FILE: &str = "peers.json";
 const ROUND_EVERY: Duration = Duration::from_secs(30);
 const JOIN_POLL: Duration = Duration::from_secs(2);
+/// A dial that has not connected by then counts as unreachable for this pass.
+const DIAL_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long the first pass waits for a home relay before dialling anyway.
+const ONLINE_TIMEOUT: Duration = Duration::from_secs(10);
+/// First retry after a peer could not be reached; doubles up to `ROUND_EVERY`.
+const RETRY_FIRST: Duration = Duration::from_secs(1);
 
 pub type NodeId = [u8; 32];
 
@@ -158,6 +173,9 @@ enum Request {
     Manifest(Vec<Entry>),
     GetFile { device: String, name: String },
     PutFile { entry: Entry, bytes: Vec<u8> },
+    /// The dialler's own address; the reply carries the responder's. Last in
+    /// the enum so older peers still decode every other request.
+    Hello(EndpointAddr),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -169,6 +187,7 @@ enum Response {
     Manifest(Vec<Entry>),
     File(Option<Vec<u8>>),
     Ok,
+    Hello(EndpointAddr),
 }
 
 /// What the UI hears from the node.
@@ -197,7 +216,12 @@ pub struct Status {
 struct State {
     membership: Membership,
     pending: HashMap<NodeId, Member>,
-    connected: HashSet<NodeId>,
+    /// The live connection to each member, whoever dialled it.
+    conns: HashMap<NodeId, Connection>,
+    /// Members a dial is in flight to, so a pass never starts a second one.
+    dialing: HashSet<NodeId>,
+    /// Each peer's last self-reported address (`peers.json`).
+    addrs: HashMap<NodeId, EndpointAddr>,
     joining: Option<Invite>,
 }
 
@@ -212,6 +236,8 @@ pub struct Node {
     events: mpsc::Sender<Event>,
     changed: Arc<Notify>,
     relay: Option<RelayUrl>,
+    /// False when relays are disabled (tests): there is no home relay to wait for.
+    relays: bool,
 }
 
 pub fn node_id_hex(id: &NodeId) -> String {
@@ -236,6 +262,19 @@ fn node_secret(device_dir: &Path) -> SecretKey {
     let _ = fs::create_dir_all(device_dir);
     let _ = fs::write(&p, hex::encode(k.to_bytes()));
     k
+}
+
+fn load_addrs(dir: &Path) -> HashMap<NodeId, EndpointAddr> {
+    let saved: HashMap<String, EndpointAddr> = fs::read_to_string(dir.join(PEERS_FILE)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+    saved.into_iter().filter_map(|(k, v)| Some((hex::decode(k).ok()?.try_into().ok()?, v))).collect()
+}
+
+fn save_addrs(dir: &Path, addrs: &HashMap<NodeId, EndpointAddr>) {
+    let by_hex: HashMap<String, &EndpointAddr> = addrs.iter().map(|(k, v)| (node_id_hex(k), v)).collect();
+    if let Ok(json) = serde_json::to_string_pretty(&by_hex) {
+        let _ = fs::create_dir_all(dir);
+        let _ = fs::write(dir.join(PEERS_FILE), json);
+    }
 }
 
 fn endpoint_addr(id: &NodeId, relay: Option<&str>) -> Option<EndpointAddr> {
@@ -284,10 +323,11 @@ impl Node {
             sync_dir: vault_root.join(HIDDEN_DIR).join(SYNC_DIR),
             local_dir: local_dir.to_path_buf(),
             me,
-            state: Arc::new(Mutex::new(State { membership, pending: HashMap::new(), connected: HashSet::new(), joining: None })),
+            state: Arc::new(Mutex::new(State { membership, pending: HashMap::new(), conns: HashMap::new(), dialing: HashSet::new(), addrs: load_addrs(local_dir), joining: None })),
             events,
             changed: Arc::new(Notify::new()),
             relay: relay_url,
+            relays: relay.as_deref() != Some(""),
         });
         tokio::spawn(Node::accept_loop(node.clone()));
         tokio::spawn(Node::dial_loop(node.clone()));
@@ -303,9 +343,10 @@ impl Node {
     pub fn membership(&self) -> Membership {
         self.state.lock().unwrap().membership.clone()
     }
-    /// Wake the dial loop: something local changed, push it now.
+    /// Wake the dial loop: something local changed, push it now. The wake is
+    /// kept when the loop is mid-round, so a change made then is not lost.
     pub fn notify_changed(&self) {
-        self.changed.notify_waiters();
+        self.changed.notify_one();
     }
 
     fn relay_hint(&self) -> Option<String> {
@@ -357,7 +398,7 @@ impl Node {
         Status {
             node: node_id_hex(&self.id()),
             relay: self.relay_hint(),
-            connected: st.connected.iter().map(node_id_hex).collect(),
+            connected: st.conns.iter().filter(|(_, c)| c.close_reason().is_none()).map(|(n, _)| node_id_hex(n)).collect(),
             pending: st.pending.values().cloned().collect(),
             members: st.membership.members.clone(),
             joining: st.joining.is_some(),
@@ -382,7 +423,7 @@ impl Node {
             m.save(&self.local_dir);
         }
         drop(st);
-        self.changed.notify_waiters();
+        self.changed.notify_one();
         true
     }
 
@@ -409,12 +450,14 @@ impl Node {
             if !m.removed.contains(&node) {
                 m.removed.push(node);
             }
-            st.connected.remove(&node);
+            if let Some(c) = st.conns.remove(&node) {
+                c.close(iroh::endpoint::VarInt::from_u32(0), b"removed");
+            }
         }
         st.membership.version += 1;
         st.membership.save(&self.local_dir);
         drop(st);
-        self.changed.notify_waiters();
+        self.changed.notify_one();
     }
 
     pub fn remove(&self, node: &NodeId) {
@@ -434,9 +477,11 @@ impl Node {
         }
         m.version += 1;
         m.save(&self.local_dir);
-        st.connected.remove(node);
+        if let Some(c) = st.conns.remove(node) {
+            c.close(iroh::endpoint::VarInt::from_u32(0), b"removed");
+        }
         drop(st);
-        self.changed.notify_waiters();
+        self.changed.notify_one();
     }
 
     /// Start joining through an Invite: keeps asking the host until approved.
@@ -453,7 +498,11 @@ impl Node {
                 };
                 let mut me = node.me.clone();
                 me.node = node.id();
-                match node.endpoint.connect(addr, ALPN).await {
+                let connected = match tokio::time::timeout(DIAL_TIMEOUT, node.endpoint.connect(addr, ALPN)).await {
+                    Ok(r) => r.map_err(|e| format!("connect: {e}")),
+                    Err(_) => Err("connect: timed out".to_string()),
+                };
+                match connected {
                     Ok(conn) => match request(&conn, &Request::Join { secret: inv.secret, member: me }).await {
                         Ok(Response::Approved(m)) => {
                             {
@@ -463,7 +512,7 @@ impl Node {
                                 st.joining = None;
                             }
                             node.emit(Event::Approved).await;
-                            node.changed.notify_waiters();
+                            node.changed.notify_one();
                             return;
                         }
                         Ok(Response::Denied) => {
@@ -474,7 +523,7 @@ impl Node {
                         Ok(_) => {}
                         Err(e) => node.emit(Event::Error { message: e }).await,
                     },
-                    Err(e) => node.emit(Event::Error { message: format!("connect: {e}") }).await,
+                    Err(message) => node.emit(Event::Error { message }).await,
                 }
                 tokio::time::sleep(JOIN_POLL).await;
             }
@@ -486,32 +535,6 @@ impl Node {
     }
 
     // ---------------------------------------------------------------- server
-
-    async fn accept_loop(node: Arc<Node>) {
-        while let Some(incoming) = node.endpoint.accept().await {
-            let node = node.clone();
-            tokio::spawn(async move {
-                let Ok(conn) = incoming.await else { return };
-                let remote_id: NodeId = *conn.remote_id().as_bytes();
-                let member = node.state.lock().unwrap().membership.is_member(&remote_id);
-                if member {
-                    node.state.lock().unwrap().connected.insert(remote_id);
-                    node.emit(Event::Peer { node: node_id_hex(&remote_id), connected: true }).await;
-                }
-                loop {
-                    let Ok((send, recv)) = conn.accept_bi().await else { break };
-                    let node = node.clone();
-                    tokio::spawn(async move {
-                        let _ = node.serve(remote_id, send, recv).await;
-                    });
-                }
-                if member {
-                    node.state.lock().unwrap().connected.remove(&remote_id);
-                    node.emit(Event::Peer { node: node_id_hex(&remote_id), connected: false }).await;
-                }
-            });
-        }
-    }
 
     async fn serve(&self, remote: NodeId, mut send: SendStream, mut recv: RecvStream) -> Result<(), String> {
         let bytes = recv.read_to_end(MAX_FILE + 4096).await.map_err(|e| e.to_string())?;
@@ -556,6 +579,10 @@ impl Node {
                 }
             }
             _ if !is_member => Response::Denied,
+            Request::Hello(addr) => {
+                self.learn_addr(remote, addr);
+                Response::Hello(self.endpoint.addr())
+            }
             Request::Manifest(_) => Response::Manifest(self.manifest()),
             Request::GetFile { device, name } => Response::File(self.read_file(&device, &name)),
             Request::PutFile { entry, bytes } => {
@@ -571,36 +598,186 @@ impl Node {
         Ok(())
     }
 
+    async fn accept_loop(node: Arc<Node>) {
+        while let Some(incoming) = node.endpoint.accept().await {
+            let node = node.clone();
+            tokio::spawn(async move {
+                let Ok(conn) = incoming.await else { return };
+                let remote_id: NodeId = *conn.remote_id().as_bytes();
+                let member = node.state.lock().unwrap().membership.is_member(&remote_id);
+                if member {
+                    node.adopt(conn);
+                    // A member reached us: run our half of the round now
+                    // rather than on our next timer.
+                    node.changed.notify_one();
+                } else {
+                    // A joining or removed Device: answered, never kept.
+                    node.serve_conn(remote_id, &conn).await;
+                }
+            });
+        }
+    }
+
+    /// Keep `conn` as the connection to its member and serve the peer's
+    /// requests on it until it closes. Either side's rounds use it.
+    fn adopt(self: &Arc<Self>, conn: Connection) {
+        let remote: NodeId = *conn.remote_id().as_bytes();
+        let fresh = {
+            let mut st = self.state.lock().unwrap();
+            let live = st.conns.get(&remote).is_some_and(|c| c.close_reason().is_none());
+            st.conns.insert(remote, conn.clone());
+            !live
+        };
+        let node = self.clone();
+        tokio::spawn(async move {
+            if fresh {
+                node.emit(Event::Peer { node: node_id_hex(&remote), connected: true }).await;
+            }
+            node.serve_conn(remote, &conn).await;
+            // Only the connection still on record speaks for the peer: an
+            // older one closing after a newer replaced it changes nothing.
+            let gone = {
+                let mut st = node.state.lock().unwrap();
+                let current = st.conns.get(&remote).is_some_and(|c| c.stable_id() == conn.stable_id());
+                if current {
+                    st.conns.remove(&remote);
+                }
+                current
+            };
+            if gone {
+                node.emit(Event::Peer { node: node_id_hex(&remote), connected: false }).await;
+                // Redial now: the peer may only have changed networks.
+                node.changed.notify_one();
+            }
+        });
+    }
+
+    async fn serve_conn(self: &Arc<Self>, remote: NodeId, conn: &Connection) {
+        while let Ok((send, recv)) = conn.accept_bi().await {
+            let node = self.clone();
+            tokio::spawn(async move {
+                let _ = node.serve(remote, send, recv).await;
+            });
+        }
+    }
+
+    fn learn_addr(&self, node: NodeId, addr: EndpointAddr) {
+        if addr.id.as_bytes() != &node {
+            return;
+        }
+        let mut st = self.state.lock().unwrap();
+        if st.addrs.get(&node) != Some(&addr) {
+            st.addrs.insert(node, addr);
+            save_addrs(&self.local_dir, &st.addrs);
+        }
+    }
+
+    /// Where to dial a member: its own last reported address, else a relay hint.
+    fn dial_addr(&self, node: &NodeId) -> Option<EndpointAddr> {
+        let st = self.state.lock().unwrap();
+        let hint = st.joining.as_ref().and_then(|i| i.relay.clone()).or_else(|| self.relay_hint());
+        match st.addrs.get(node) {
+            Some(known) if known.relay_urls().next().is_some() => Some(known.clone()),
+            Some(known) => {
+                let mut addr = known.clone();
+                if let Some(r) = hint.and_then(|r| r.parse::<RelayUrl>().ok()) {
+                    addr = addr.with_relay_url(r);
+                }
+                Some(addr)
+            }
+            None => endpoint_addr(node, hint.as_deref()),
+        }
+    }
+
+    /// Swap addresses with a peer just dialled. A peer too old to know the
+    /// request fails it, which is fine: it is then found as before.
+    async fn hello(&self, conn: &Connection) {
+        let remote: NodeId = *conn.remote_id().as_bytes();
+        if let Ok(Response::Hello(addr)) = request(conn, &Request::Hello(self.endpoint.addr())).await {
+            self.learn_addr(remote, addr);
+        }
+    }
+
     // ---------------------------------------------------------------- client
 
     async fn dial_loop(node: Arc<Node>) {
+        // Dialling before this Device has a home relay mostly fails, and a
+        // failed first pass is what used to cost a whole ROUND_EVERY.
+        if node.relays {
+            let _ = tokio::time::timeout(ONLINE_TIMEOUT, node.endpoint.online()).await;
+        }
+        let mut retry = RETRY_FIRST;
         loop {
             let members: Vec<Member> = {
                 let st = node.state.lock().unwrap();
                 st.membership.members.iter().filter(|m| m.node != node.id()).cloned().collect()
             };
+            let mut pass = tokio::task::JoinSet::new();
             for m in members {
-                let relay = node.state.lock().unwrap().joining.as_ref().and_then(|i| i.relay.clone()).or_else(|| node.relay_hint());
-                let Some(addr) = endpoint_addr(&m.node, relay.as_deref()) else { continue };
-                match node.endpoint.connect(addr, ALPN).await {
-                    Ok(conn) => {
-                        let r = node.round(&conn).await;
-                        conn.close(iroh::endpoint::VarInt::from_u32(0), b"done");
-                        if let Err(e) = r {
-                            node.emit(Event::Error { message: format!("{}: {e}", m.name) }).await;
-                        }
-                    }
-                    Err(_) => {}
-                }
+                let node = node.clone();
+                pass.spawn(async move { node.sync_with(m).await });
             }
+            let mut all_reached = true;
+            while let Some(reached) = pass.join_next().await {
+                all_reached &= reached.unwrap_or(false);
+            }
+            let wait = if all_reached {
+                retry = RETRY_FIRST;
+                ROUND_EVERY
+            } else {
+                let w = retry;
+                retry = (retry * 2).min(ROUND_EVERY);
+                w
+            };
             tokio::select! {
                 _ = node.changed.notified() => {}
-                _ = tokio::time::sleep(ROUND_EVERY) => {}
+                _ = tokio::time::sleep(wait) => {}
             }
         }
     }
 
-    /// One sync round with a peer we dialled: memberships, manifests, then files both ways.
+    /// One round with one member over its live connection. Without one,
+    /// start a dial and return false: the dial runs on its own, so an
+    /// unreachable member never holds up the round with a reachable one.
+    async fn sync_with(self: &Arc<Self>, m: Member) -> bool {
+        let live = self.state.lock().unwrap().conns.get(&m.node).filter(|c| c.close_reason().is_none()).cloned();
+        let Some(conn) = live else {
+            self.dial(m.node);
+            return false;
+        };
+        if let Err(e) = self.round(&conn).await {
+            // A connection that closed mid-round is the peer going away, not
+            // an error: its closing already woke the loop to redial.
+            if conn.close_reason().is_none() {
+                self.emit(Event::Error { message: format!("{}: {e}", m.name) }).await;
+            }
+        }
+        true
+    }
+
+    /// Dial a member in the background; on success, wake the loop for a round.
+    fn dial(self: &Arc<Self>, node: NodeId) {
+        if !self.state.lock().unwrap().dialing.insert(node) {
+            return;
+        }
+        let me = self.clone();
+        tokio::spawn(async move {
+            let conn = match me.dial_addr(&node) {
+                Some(addr) => tokio::time::timeout(DIAL_TIMEOUT, me.endpoint.connect(addr, ALPN)).await.ok().and_then(|r| r.ok()),
+                None => None,
+            };
+            if let Some(conn) = &conn {
+                me.adopt(conn.clone());
+                me.hello(conn).await;
+            }
+            me.state.lock().unwrap().dialing.remove(&node);
+            if conn.is_some() {
+                me.changed.notify_one();
+            }
+        });
+    }
+
+    /// One sync round with a peer: memberships, manifests, then files both ways.
     async fn round(&self, conn: &Connection) -> Result<(), String> {
         let mine_m = self.membership();
         if let Response::Membership(theirs) = request(conn, &Request::Membership(mine_m)).await? {
@@ -854,7 +1031,8 @@ mod tests {
     }
 
     /// Two nodes on one machine, relays disabled: invite, join, approve, then
-    /// a snapshot written on A shows up in B's sync folder.
+    /// a snapshot written on A shows up in B's sync folder — in seconds, even
+    /// with a member A can never reach, and both sides see each other online.
     #[tokio::test]
     async fn pair_and_mirror_locally() {
         let dir = tempfile::tempdir().unwrap();
@@ -886,6 +1064,12 @@ mod tests {
         .await
         .expect("A hears the join request");
         let node_b: NodeId = hex::decode(join).unwrap().try_into().unwrap();
+        // A member that is never online: dialling it must not hold up B.
+        {
+            let gone = *SecretKey::generate().public().as_bytes();
+            let mut st = a.state.lock().unwrap();
+            st.membership.members.push(Member { node: gone, ..member("dev-gone", "Gone") });
+        }
         assert!(a.approve(&node_b, true));
         tokio::time::timeout(Duration::from_secs(20), async {
             loop {
@@ -898,13 +1082,23 @@ mod tests {
         .expect("B is approved");
         assert!(b.membership().is_member(&a.id()));
 
+        // One connection, online on both sides, not only the side that accepted it.
+        let (hex_a, hex_b) = (node_id_hex(&a.id()), node_id_hex(&node_b));
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !(a.status().connected.contains(&hex_b) && b.status().connected.contains(&hex_a)) {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        })
+        .await
+        .expect("A and B both see the other online");
+
         // A publishes a snapshot; B receives it in A's device folder.
         let snap = vault_a.join(HIDDEN_DIR).join(SYNC_DIR).join("dev-a");
         fs::create_dir_all(&snap).unwrap();
         fs::write(snap.join("DOC1.loro"), b"snapshot bytes").unwrap();
         a.notify_changed();
         let target = vault_b.join(HIDDEN_DIR).join(SYNC_DIR).join("dev-a").join("DOC1.loro");
-        tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::time::timeout(Duration::from_secs(3), async {
             while fs::read(&target).ok().as_deref() != Some(b"snapshot bytes") {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
@@ -912,9 +1106,15 @@ mod tests {
         .await
         .expect("B mirrors A's snapshot");
 
+        // Each remembers the other's own address for the next dial.
+        for (local, peer) in [("local-a", &hex_b), ("local-b", &hex_a)] {
+            let saved = fs::read_to_string(dir.path().join(local).join(PEERS_FILE)).unwrap_or_default();
+            assert!(saved.contains(peer.as_str()), "{local} did not remember its peer's address");
+        }
+
         // Removal propagates: A removes B, B learns it on the next round.
         a.remove(&node_b);
-        tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::time::timeout(Duration::from_secs(5), async {
             while b.membership().is_member(&node_b) {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
