@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
+import { Check, Copy, FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
 import { api, type DeviceInfo, type Lang } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
@@ -216,9 +216,60 @@ export function SettingsView() {
               </dl>
             </CardContent>
           </Card>
+          <AboutCard />
         </div>
       </div>
     </div>
+  );
+}
+
+/** Which build this is: the version, and the commit it was made from. */
+function AboutCard() {
+  const t = useT();
+  const fmt = useFormat();
+  const [copied, setCopied] = useState(false);
+  const commit = __APP_COMMIT__;
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(`${__APP_VERSION__} (${commit || t.app_info.unknown})`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+  const rows: [string, string, string][] = [
+    [t.app_info.version, __APP_VERSION__, "about-version"],
+    [t.app_info.commit, commit ? commit.slice(0, 7) : t.app_info.unknown, "about-commit"],
+    ...(__APP_COMMIT_DATE__
+      ? [[t.app_info.committed, fmt.dateTime(Date.parse(__APP_COMMIT_DATE__)), "about-committed"] as [string, string, string]]
+      : []),
+    [t.app_info.built, fmt.dateTime(Date.parse(__APP_BUILT__)), "about-built"],
+  ];
+  return (
+    <Card data-testid="settings-about">
+      <CardHeader>
+        <CardTitle>{t.app_info.title}</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-4 gap-y-2 text-sm">
+          {rows.map(([label, value, id]) => (
+            <div key={id} className="contents">
+              <dt className="text-muted-foreground">{label}</dt>
+              <dd className="min-w-0 font-mono text-xs break-all select-text" data-testid={id} title={id === "about-commit" ? commit : undefined}>
+                {value}
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <div>
+          <Button variant="outline" size="sm" className="min-h-8" onClick={copy} data-testid="about-copy">
+            {copied ? <Check /> : <Copy />}
+            {copied ? t.app_info.copied : t.app_info.copy}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
