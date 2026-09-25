@@ -535,3 +535,86 @@ worse than either end of it.
 - **Three steps instead of four.** Vault creation stops having its own screen
   on mobile, but renumbering the header per branch makes the progress indicator
   lie about where the user is.
+
+## 22. Talk and Board side by side (grilling session, 2026-09-25)
+
+Writing the talk while looking at its Board means flipping tabs today. §17.9
+kept the tab in the store rather than the route so this split would not be
+foreclosed; this section fills it in. No new vocabulary.
+
+### Decided
+
+1. **Only a Composition and its own Board.** Not a general split pane: that
+   needs per-pane history, a second current document for the side panel and the
+   palette, and a rule for which pane Back acts on. The side panel and the
+   HoverCard already cover reading a Note while writing.
+2. **A third state of the existing tab control: Talk | Split | Board.**
+   `docTab` becomes `"talk" | "split" | "board"`, with a "Split Talk and Board"
+   Command beside the existing toggle. One control, one piece of state, no
+   ambiguous combinations. Source mode and the panel toggle stay in the header
+   while split, because the editor is still there.
+3. **The side panel stays available**, as a third column: Talk | Board | panel.
+   Split is where Candidates matter most, and backlinks and Properties live
+   only in the panel. The user trades width for it with the existing toggle.
+4. **A draggable divider, 50/50 by default**, each side at least ~320px. The
+   ratio lives in the store beside `docTab`, session-only: `docTab` is not
+   persisted and §17.16 does not persist a Board's viewport either. The Board
+   fits-all when the split is entered, not on every divider drag, so dragging
+   does not undo the user's pan and zoom.
+5. **Split is offered only where both sides fit.** Below the width that holds
+   both minimums — every phone — the option is hidden, and a `"split"` state
+   renders as Talk, returning to split when there is room again. Talk, not
+   Board, because the prose is the deliverable; §17.15 already makes the phone a
+   place to review a Board, not to write beside one. Stacking vertically was
+   rejected: half a phone is too little for either CodeMirror with a keyboard up
+   or a Board.
+6. **Keyboard input follows focus.** The Board's `window` keydown listener
+   (`BoardView.tsx`) exempts only `<input>` and `<textarea>`, and CodeMirror is
+   `contenteditable`: in split, Backspace in the talk would delete the selected
+   Board nodes, and Mod+A would select every node and swallow the editor's
+   select-all. The Board's shortcuts fire only when focus is inside the Board
+   container, which becomes focusable and takes focus on click; a selection
+   survives the editor taking focus, inert. A focus ring marks the active side.
+7. **A card pressed in reading mode opens its document, as on the Board tab.**
+   Back returns to the Composition still split, since `docTab` is in the store.
+8. **A Board save refreshes what depends on it.** `save_board` emits the same
+   change event a document save does, so the Candidates panel's "on the Board"
+   state and a Hub's "Boards" line update while both are on screen. Until now
+   the panel was hidden whenever the Board was shown, so the staleness never
+   surfaced. Engine-side rather than a UI invalidation, so a second window or a
+   paired Device sees it too. The 400ms save debounce keeps a drag from
+   refetching per frame.
+
+### Build order
+
+1. **Engine:** `save_board` emits a change for its Composition; test that a
+   Candidate placed on the Board reports `on_board` through a change-driven
+   refetch.
+2. **Focus-scoped Board keys**, shipped first on their own: they fix nothing
+   visible on the tabs today but are the precondition for everything else.
+3. **The Split tab, the layout and the divider**, with the width fallback.
+4. **Tests.** `cypress/e2e/board.cy.ts` (or a new `split.cy.ts`): enter split,
+   both panes present; select a node, Backspace in the talk, node survives;
+   Mod+A in the talk does not select nodes; place a Candidate, the panel moves
+   it to "on the Board"; below the width threshold the Split tab is gone and the
+   talk shows. `locales.cy.ts`: the three-way tab control fits the header in
+   French at phone width, where the Split tab is hidden, and at a desktop width.
+   The divider clamp as Vitest in `src/lib`.
+
+### Declined
+
+- **Two-way sync between the talk and its Board** (prose generating a map and
+  the map generating prose). It reverses §17.1 and the declined Outline mirror,
+  writes into the user's text against the hard constraint that the app never
+  rewrites it, collapses the Board ref / Mention distinction (§17.6), and needs a
+  tree that JSON Canvas cannot hold without custom fields (§17.7, ADR 0003).
+- **Dragging a card from the Board into the talk to insert a `[[link]]`.**
+  Turning a Board ref into a Mention deserves its own decision, not a side
+  effect of a layout change.
+- **A general split pane** (decision 1), **a vertical stack on narrow screens**
+  (decision 5), **a persisted divider** (decision 4).
+
+### Deferred
+
+- In split, a reading-mode press showing the document in the HoverCard beside
+  the card, keeping the talk in view.
