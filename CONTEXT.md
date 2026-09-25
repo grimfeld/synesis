@@ -210,7 +210,7 @@ The single search box that finds documents by default and runs Commands when the
 _Avoid_: Quick switcher, launcher, omnibox
 
 **Tutorial**:
-A short explanation of one feature, in the app's language, opened from the views where that feature is used or from the Command Palette. Every Tutorial ends by having the user do the thing once, so they leave having used the feature rather than read about it. Setting up sync is a feature like any other, so its Tutorials are Tutorials too, with a variant per platform.
+A short explanation of one feature, in the app's language, opened from the views where that feature is used or from the Command Palette. Every Tutorial ends by having the user do the thing once, for real in their own Vault, so they leave having used the feature rather than read about it. A step may add to what the user has or create something new, saying so; it never changes what the user already wrote. Setting up sync is a feature like any other, so its Tutorials are Tutorials too, with a variant per platform.
 _Avoid_: Help page, guide, walkthrough, docs
 
 **Live Preview**:
