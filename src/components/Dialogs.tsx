@@ -1307,7 +1307,7 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
   );
 }
 
-const GROUP_ORDER: CommandGroup[] = ["create", "navigate", "editor"];
+const GROUP_ORDER: CommandGroup[] = ["create", "navigate", "editor", "help"];
 
 function matchesCommand(c: Command, q: string): boolean {
   const hay = `${c.title} ${c.keywords ?? ""} ${c.id}`.toLowerCase();

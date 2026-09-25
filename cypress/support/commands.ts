@@ -19,6 +19,16 @@ declare global {
       shortcut(keys: string): Chainable<void>;
       /** Assert the Hub header shows this title (input for editable pages, heading for Scripture). */
       hubTitle(title: string): Chainable<void>;
+      /** Open a Tutorial from the current view's "?" (through its list when the view has several). */
+      openTutorial(id: string): Chainable<void>;
+      /** Assert the Tutorial panel is on this step (0-based). */
+      tutorialStep(index: number): Chainable<void>;
+      /** Go to the next step of the open Tutorial. */
+      tutorialNext(): Chainable<void>;
+      /** Click a Command link in the current step, by Command id. */
+      tutorialCommand(id: string): Chainable<void>;
+      /** Say the last step is done, and check the Tutorial is finished. */
+      tutorialDone(): Chainable<void>;
       /** Find a document summary by title in the engine. */
       docByTitle<T = { id: string; path: string; title: string; type: string }>(title: string): Chainable<T>;
     }
@@ -81,3 +91,29 @@ Cypress.Commands.add("docByTitle", (title) =>
 );
 
 export {};
+
+Cypress.Commands.add("openTutorial", (id) => {
+  cy.get("[data-testid=tutorial-button]").first().click();
+  cy.get("[data-testid=tutorial-panel]").should("be.visible");
+  cy.get("[data-testid=tutorial-panel]").then(($p) => {
+    if ($p.find("[data-testid=tutorial-list]").length) cy.get(`[data-testid=tutorial-list-item][data-id="${id}"]`).click();
+  });
+  cy.get("[data-testid=tutorial-body]").should("have.attr", "data-id", id);
+});
+
+Cypress.Commands.add("tutorialStep", (index) => {
+  cy.get(`[data-testid=tutorial-step][data-index=${index}]`).should("have.attr", "data-current", "true");
+});
+
+Cypress.Commands.add("tutorialNext", () => {
+  cy.get("[data-testid=tutorial-next]").click();
+});
+
+Cypress.Commands.add("tutorialCommand", (id) => {
+  cy.get(`[data-testid=tutorial-step][data-current=true] [data-testid=command-link][data-command="${id}"]`).first().should("have.attr", "data-available", "true").click();
+});
+
+Cypress.Commands.add("tutorialDone", () => {
+  cy.get("[data-testid=tutorial-done]").click();
+  cy.get("[data-testid=tutorial-again]").should("exist");
+});

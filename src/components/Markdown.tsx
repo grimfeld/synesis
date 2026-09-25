@@ -1,48 +1,85 @@
-// A small markdown renderer for bundled help text (tutorials). Headings,
-// paragraphs, ordered and bulleted lists, fenced code, bold/italic/code
-// spans and links (opened in the system browser). Not for vault content.
-import { Fragment, type ReactNode } from "react";
+// A small markdown renderer for bundled help text (Tutorials). Headings,
+// paragraphs, ordered and bulleted lists (nested by indentation), fenced code,
+// bold/italic/code spans, links (opened in the system browser) and pictures.
+// Not for vault content.
+//
+// A caller may take over links and pictures by scheme: Tutorials render
+// `command:` links as buttons that run the Command and `image:` pictures from
+// the chosen image mode (PLAN §22.9, §22.12).
+import { createContext, useContext, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cn } from "cn";
 
-function inline(text: string, key = 0): ReactNode[] {
+export interface MarkdownRenderers {
+  /** Return null to fall back to an ordinary link. */
+  link?: (text: string, href: string, key: number) => ReactNode | null;
+  /** Return null to show nothing. */
+  image?: (alt: string, src: string, key: number) => ReactNode | null;
+}
+
+const Renderers = createContext<MarkdownRenderers>({});
+
+function Inline({ text }: { text: string }) {
+  const r = useContext(Renderers);
   const out: ReactNode[] = [];
-  const re = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
+  const re = /(!\[[^\]]*\]\([^)]+\)|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`|\[[^\]]+\]\([^)]+\))/g;
   let last = 0;
   let m: RegExpExecArray | null;
-  let i = key;
+  let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const tok = m[0];
-    if (tok.startsWith("**")) out.push(<strong key={i++}>{tok.slice(2, -2)}</strong>);
+    if (tok.startsWith("![")) {
+      const im = /^!\[([^\]]*)\]\(([^)]+)\)$/.exec(tok)!;
+      const key = i++;
+      out.push(r.image ? r.image(im[1], im[2], key) : <img key={key} src={im[2]} alt={im[1]} className="max-w-full rounded-md border" />);
+    } else if (tok.startsWith("**")) out.push(<strong key={i++}>{tok.slice(2, -2)}</strong>);
     else if (tok.startsWith("`")) out.push(<code key={i++} className="rounded bg-muted px-1 py-0.5 font-mono text-[0.9em]">{tok.slice(1, -1)}</code>);
     else if (tok.startsWith("*")) out.push(<em key={i++}>{tok.slice(1, -1)}</em>);
     else {
       const lm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok)!;
       const href = lm[2];
+      const key = i++;
+      const custom = r.link?.(lm[1], href, key);
       out.push(
-        <a
-          key={i++}
-          href={href}
-          className="text-link underline underline-offset-2"
-          onClick={(e) => {
-            e.preventDefault();
-            openUrl(href).catch(() => window.open(href, "_blank"));
-          }}
-        >
-          {lm[1]}
-        </a>,
+        custom ?? (
+          <a
+            key={key}
+            href={href}
+            className="text-link underline underline-offset-2"
+            onClick={(e) => {
+              e.preventDefault();
+              openUrl(href).catch(() => window.open(href, "_blank"));
+            }}
+          >
+            {lm[1]}
+          </a>
+        ),
       );
     }
     last = m.index + tok.length;
   }
   if (last < text.length) out.push(text.slice(last));
-  return out;
+  return <>{out}</>;
 }
 
-type Block = { kind: "h"; level: number; text: string } | { kind: "p"; text: string } | { kind: "ul" | "ol"; items: string[] } | { kind: "code"; text: string } | { kind: "quote"; text: string };
+type Block =
+  | { kind: "h"; level: number; text: string }
+  | { kind: "p"; text: string }
+  | { kind: "ul" | "ol"; items: string[] }
+  | { kind: "code"; text: string }
+  | { kind: "quote"; text: string };
 
-function parse(src: string): Block[] {
+const BULLET = /^[-*]\s+/;
+const NUMBER = /^\d+[.)]\s+/;
+
+/** Undo the smallest indentation of the non-blank lines. */
+function dedent(lines: string[]): string[] {
+  const cut = Math.min(...lines.filter((l) => l.trim()).map((l) => /^\s*/.exec(l)![0].length), Infinity);
+  return lines.map((l) => l.slice(Number.isFinite(cut) ? cut : 0));
+}
+
+export function parse(src: string): Block[] {
   const lines = src.replace(/\r\n/g, "\n").split("\n");
   const blocks: Block[] = [];
   let i = 0;
@@ -66,17 +103,38 @@ function parse(src: string): Block[] {
       i++;
       continue;
     }
-    if (/^\s*[-*]\s+/.test(line) || /^\s*\d+[.)]\s+/.test(line)) {
-      const ordered = /^\s*\d+[.)]\s+/.test(line);
+    if (BULLET.test(line) || NUMBER.test(line)) {
+      const marker = NUMBER.test(line) ? NUMBER : BULLET;
       const items: string[] = [];
-      while (i < lines.length && (ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*]\s+/).test(lines[i])) {
-        let item = lines[i].replace(ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*]\s+/, "");
+      while (i < lines.length && marker.test(lines[i])) {
+        const item = [lines[i].replace(marker, "")];
         i++;
-        // Continuation lines indented under the item.
-        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !/^\s*([-*]|\d+[.)])\s+/.test(lines[i])) item += " " + lines[i++].trim();
-        items.push(item);
+        // The item runs on through indented lines, and through blank lines
+        // that an indented line follows: sub-lists and continuation text.
+        while (i < lines.length) {
+          if (/^\s{2,}\S/.test(lines[i])) {
+            item.push(lines[i++]);
+            continue;
+          }
+          if (!lines[i].trim()) {
+            let j = i;
+            while (j < lines.length && !lines[j].trim()) j++;
+            if (j < lines.length && /^\s{2,}\S/.test(lines[j])) {
+              item.push(...lines.slice(i, j));
+              i = j;
+              continue;
+            }
+          }
+          break;
+        }
+        const [first, ...more] = item;
+        items.push([first, ...dedent(more)].join("\n"));
+        // Blank lines between items of one list do not end it.
+        let j = i;
+        while (j < lines.length && !lines[j].trim()) j++;
+        if (j < lines.length && marker.test(lines[j])) i = j;
       }
-      blocks.push({ kind: ordered ? "ol" : "ul", items });
+      blocks.push({ kind: marker === NUMBER ? "ol" : "ul", items });
       continue;
     }
     if (line.startsWith(">")) {
@@ -86,32 +144,36 @@ function parse(src: string): Block[] {
       continue;
     }
     const buf: string[] = [];
-    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|>|\s*[-*]\s+|\s*\d+[.)]\s+)/.test(lines[i])) buf.push(lines[i++]);
+    while (i < lines.length && lines[i].trim() && !/^(#{1,6}\s|```|>|[-*]\s+|\d+[.)]\s+)/.test(lines[i])) buf.push(lines[i++].trim());
     blocks.push({ kind: "p", text: buf.join(" ") });
   }
   return blocks;
 }
 
-export function Markdown({ source, className }: { source: string; className?: string }) {
+function Blocks({ source, className }: { source: string; className?: string }) {
   const blocks = parse(source);
   return (
-    <div className={cn("text-sm leading-relaxed [&>*+*]:mt-3", className)}>
+    <div className={cn("[&>*+*]:mt-3", className)}>
       {blocks.map((b, i) => {
         switch (b.kind) {
           case "h": {
-            const Tag = (`h${Math.min(6, b.level + 1)}`) as "h2" | "h3" | "h4" | "h5" | "h6";
+            const Tag = `h${Math.min(6, b.level + 1)}` as "h2" | "h3" | "h4" | "h5" | "h6";
             return (
               <Tag key={i} className={cn("font-semibold", b.level === 1 ? "text-lg" : b.level === 2 ? "mt-5! text-base" : "text-sm")}>
-                {inline(b.text)}
+                <Inline text={b.text} />
               </Tag>
             );
           }
           case "p":
-            return <p key={i}>{inline(b.text)}</p>;
+            return (
+              <p key={i}>
+                <Inline text={b.text} />
+              </p>
+            );
           case "quote":
             return (
               <blockquote key={i} className="border-l-2 pl-3 text-muted-foreground">
-                {inline(b.text)}
+                <Inline text={b.text} />
               </blockquote>
             );
           case "code":
@@ -126,9 +188,7 @@ export function Markdown({ source, className }: { source: string; className?: st
             return (
               <List key={i} className={cn("space-y-1.5 pl-5", b.kind === "ol" ? "list-decimal" : "list-disc")}>
                 {b.items.map((it, j) => (
-                  <li key={j}>
-                    <Fragment>{inline(it)}</Fragment>
-                  </li>
+                  <li key={j}>{it.includes("\n") ? <Blocks source={it} /> : <Inline text={it} />}</li>
                 ))}
               </List>
             );
@@ -136,5 +196,13 @@ export function Markdown({ source, className }: { source: string; className?: st
         }
       })}
     </div>
+  );
+}
+
+export function Markdown({ source, className, renderers }: { source: string; className?: string; renderers?: MarkdownRenderers }) {
+  return (
+    <Renderers.Provider value={renderers ?? {}}>
+      <Blocks source={source} className={cn("text-sm leading-relaxed", className)} />
+    </Renderers.Provider>
   );
 }

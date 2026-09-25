@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
-import { api, type DeviceInfo, type Lang } from "@/lib/api";
+import { api, type DeviceInfo, type Lang, type SyncLocations } from "@/lib/api";
+import { platformToKind } from "@/lib/syncRules";
+import { IMAGE_MODES, type ImageMode } from "@/lib/tutorials";
+import { useTutorials } from "@/lib/tutorialState";
 import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
@@ -30,6 +33,7 @@ export function SettingsView() {
   const s = useStore();
   const t = useT();
   const commands = useCommands();
+  const tut = useTutorials();
   const change = async () => {
     const dir = await openDialog({ directory: true, multiple: false });
     if (typeof dir === "string") await s.openVault(dir);
@@ -54,6 +58,9 @@ export function SettingsView() {
     setEvicted(await api.forgetDevice(d.id));
   };
   const method = s.settings?.sync_method ?? null;
+  // The folder-sync Tutorials the "?" offers are this Device's (PLAN §22.10).
+  const { data: locations } = useQuery<SyncLocations>({ key: ["locations"], deps: { none: true }, fetch: () => api.syncLocations() });
+  const deviceKind = locations ? platformToKind(locations.platform) : undefined;
   const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
   const fmt = useFormat();
   const ago = (ms: number) => (ms ? fmt.dateTime(ms) : "—");
@@ -65,7 +72,7 @@ export function SettingsView() {
   };
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.settings} icon={<Settings />} />
+      <ViewHeader title={t.views.settings} icon={<Settings />} tutorials={{ kind: "settings" }} deviceKind={deviceKind} />
       <div className="thin-scroll min-h-0 flex-1 overflow-auto p-6">
         <div className="mx-auto grid max-w-xl gap-4">
           <Card>
@@ -80,6 +87,27 @@ export function SettingsView() {
                 <SelectContent>
                   <SelectItem value="en">English</SelectItem>
                   <SelectItem value="fr">Français</SelectItem>
+                </SelectContent>
+              </Select>
+            </CardContent>
+          </Card>
+          <Card data-testid="settings-appearance">
+            <CardHeader>
+              <CardTitle>{t.appearance}</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              <div className="text-sm font-medium">{t.tutorials.images_title}</div>
+              <p className="text-xs text-muted-foreground">{t.tutorials.images_body}</p>
+              <Select value={tut.imageMode} onValueChange={(v) => tut.setImageMode(v as ImageMode)}>
+                <SelectTrigger className="w-48 max-w-full" data-testid="tutorial-image-mode">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {IMAGE_MODES.map((m) => (
+                    <SelectItem key={m} value={m} data-testid={`tutorial-image-mode-${m}`}>
+                      {t.tutorials.image_modes[m]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </CardContent>

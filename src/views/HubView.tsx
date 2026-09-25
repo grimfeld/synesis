@@ -68,6 +68,7 @@ import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { TutorialButton } from "@/components/TutorialPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
@@ -268,6 +269,7 @@ export function HubView({ id }: { id: string }) {
             ""
           )}
         </span>
+        <TutorialButton place={{ kind: "hub", type }} />
         {type === "source" && url && (
           <IconButton
             label={t.open_url}

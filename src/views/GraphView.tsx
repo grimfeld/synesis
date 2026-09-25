@@ -575,6 +575,7 @@ export function GraphView() {
         title={t.views.graph}
         icon={<Waypoints />}
         className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5"
+        tutorials={{ kind: "graph" }}
       >
         <div className="relative ml-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />

@@ -65,7 +65,7 @@ export function CoverageView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.coverage_title} icon={<LayoutGrid />}>
+      <ViewHeader title={t.coverage_title} icon={<LayoutGrid />} tutorials={{ kind: "coverage" }}>
         <Badge variant="secondary" className="tabular-nums">
           {total} / {allChapters}
         </Badge>

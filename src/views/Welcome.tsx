@@ -13,6 +13,8 @@ import { shortcut } from "@/lib/keys";
 import { destination, methodFor, nameIsUsable, type Route } from "@/lib/onboarding";
 import { locationsFor, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
+import { tutorial } from "@/lib/tutorials";
+import { useTutorials } from "@/lib/tutorialState";
 import { useT } from "@/i18n";
 import { LandsIn } from "@/components/LandsIn";
 import { SyncSetup } from "@/components/SyncSetup";
@@ -58,6 +60,7 @@ export function Welcome() {
   const joining = joinStatus !== null;
   const pairing = usePairing(joining);
   const known = s.settings?.vaults ?? [];
+  const tutorials = useTutorials();
 
   // Joined and approved: the engine has the vault open; adopt it.
   useEffect(() => {
@@ -319,16 +322,31 @@ export function Welcome() {
                 <p className="mt-2 text-muted-foreground">{t.wizard.done_body}</p>
               </div>
               <ul className="grid gap-3">
+                {/* Each opens the Vault with its Tutorial beside it (PLAN §22.11). */}
                 {[
-                  { icon: Zap, title: t.wizard.try_capture, body: t.wizard.try_capture_body, kbd: shortcut("⇧N") },
-                  { icon: Search, title: t.wizard.try_palette, body: t.wizard.try_palette_body, kbd: shortcut("K") },
-                  { icon: Laptop, title: t.wizard.try_passage, body: t.wizard.try_passage_body, kbd: "" },
+                  { icon: Zap, title: t.wizard.try_capture, body: t.wizard.try_capture_body, kbd: shortcut("⇧N"), tutorial: "capture" },
+                  { icon: Search, title: t.wizard.try_palette, body: t.wizard.try_palette_body, kbd: shortcut("K"), tutorial: "palette" },
+                  { icon: Laptop, title: t.wizard.try_passage, body: t.wizard.try_passage_body, kbd: "", tutorial: "passages" },
                 ].map((x, i) => (
                   <li key={i} className="flex items-start gap-3 rounded-xl border bg-card p-4">
                     <x.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    <div className="flex-1 text-sm">
+                    <div className="min-w-0 flex-1 text-sm">
                       <div className="font-medium">{x.title}</div>
                       <div className="text-muted-foreground">{x.body}</div>
+                      <Button
+                        variant="link"
+                        size="sm"
+                        className="mt-1 h-auto min-h-7 px-0 whitespace-normal"
+                        disabled={busy}
+                        data-testid={`wizard-tutorial-${x.tutorial}`}
+                        onClick={() => {
+                          tutorials.show(x.tutorial, tutorial(x.tutorial, s.lang)?.steps.length ?? 1);
+                          createVault();
+                        }}
+                      >
+                        {t.tutorials.show_me}
+                        <ArrowRight />
+                      </Button>
                     </div>
                     {x.kbd && <Kbd>{x.kbd}</Kbd>}
                   </li>

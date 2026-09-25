@@ -227,7 +227,7 @@ export function MapView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.map} icon={<MapPin />}>
+      <ViewHeader title={t.views.map} icon={<MapPin />} tutorials={{ kind: "map" }}>
         <span className="hidden truncate text-xs text-muted-foreground md:inline">{places.length === 0 ? t.no_places : t.map_hint}</span>
         <div className="ml-auto flex items-center gap-1">
           <div className="relative hidden lg:block">

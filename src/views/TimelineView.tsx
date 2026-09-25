@@ -291,7 +291,7 @@ export function TimelineView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.timeline} icon={<CalendarRange />}>
+      <ViewHeader title={t.views.timeline} icon={<CalendarRange />} tutorials={{ kind: "timeline" }}>
         <span className="hidden truncate text-xs text-muted-foreground md:inline">
           {lanes.length === 0 ? t.no_timeline : t.timeline_hint}
         </span>

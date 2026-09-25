@@ -159,7 +159,7 @@ export function LibraryView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ViewHeader title={t.views.library} icon={<LibraryBig />} />
+      <ViewHeader title={t.views.library} icon={<LibraryBig />} tutorials={{ kind: "library" }} />
       <div
         data-testid="library"
         className="min-h-0 flex-1 space-y-6 overflow-y-auto py-4"

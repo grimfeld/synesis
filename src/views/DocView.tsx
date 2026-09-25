@@ -24,6 +24,7 @@ import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { RightPanel } from "@/components/RightPanel";
+import { TutorialButton } from "@/components/TutorialPanel";
 import { TypeDot } from "@/components/DocLink";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -224,6 +225,7 @@ export function DocView({ id }: { id: string }) {
               </IconButton>
             </>
           )}
+          <TutorialButton place={showBoard ? { kind: "board" } : { kind: "editor", type: sum.type }} />
           <IconButton
             label={t.delete}
             className="text-muted-foreground hover:text-destructive"
