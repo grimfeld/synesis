@@ -142,14 +142,19 @@ export function DocView({ id }: { id: string }) {
           >
             <ArrowLeft />
           </IconButton>
-          <IconButton
-            label={t.forward}
-            shortcut={formatShortcut("Alt+ArrowRight").join(" ")}
-            disabled={!s.canForward}
-            onClick={s.forward}
-          >
-            <ArrowRight />
-          </IconButton>
+          {/* On a phone the header has no room to spare: a Composition's
+              « Discours / Tableau » tabs and the Tutorials "?" fill it, and
+              Forward is the one button a phone user does not miss. */}
+          {!isMobile && (
+            <IconButton
+              label={t.forward}
+              shortcut={formatShortcut("Alt+ArrowRight").join(" ")}
+              disabled={!s.canForward}
+              onClick={s.forward}
+            >
+              <ArrowRight />
+            </IconButton>
+          )}
           <TypeDot type={sum.type} className="mx-1.5" />
           <span
             className="min-w-0 flex-1 truncate text-sm text-muted-foreground"

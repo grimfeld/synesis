@@ -160,7 +160,12 @@ export function MapView() {
     mark();
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
+    // Leaflet only measures its box on a window resize; the Tutorial panel
+    // docking beside the Map, or the sidebar closing, changes it without one.
+    const ro = new ResizeObserver(() => map.current?.invalidateSize());
+    ro.observe(host.current);
     return () => {
+      ro.disconnect();
       map.current?.remove();
       map.current = null;
     };
