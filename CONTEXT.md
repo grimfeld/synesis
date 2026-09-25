@@ -197,6 +197,10 @@ _Avoid_: Canvas (that is the file format on disk), Mind map, Map (that is the Pl
 The few lines of a document's own text shown on the card that stands for it on a Board: a Clipping's quote, a Note's opening line, or the section a card points at. A snapshot taken when the Board is read, not a live view — a Board never renders the documents it holds. A Hub with nothing to quote shows how many documents mention it instead.
 _Avoid_: Embed (that is live, and belongs to Compositions), Preview, Summary, Snippet
 
+**Delivery view**:
+The full-screen view a Composition is given from: its text, its Board, or both side by side where the screen fits them, with a timer and nothing else. Nothing in it can be edited, and nothing in it navigates away: a Passage, a link or a card on the Board opens over the view rather than leaving it. The timer counts down from the Composition's duration when it has one, and up from zero when it does not.
+_Avoid_: Presentation mode, presenter view, slideshow, teleprompter
+
 **Map**:
 The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all.
 _Avoid_: Atlas, Globe, Geography view
