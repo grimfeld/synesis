@@ -9,6 +9,7 @@ import {
   ArrowRight,
   BookOpenText,
   CalendarRange,
+  CircleHelp,
   Code,
   Columns2,
   Lock,
@@ -33,13 +34,15 @@ import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
+import { tutorial, tutorialIds } from "@/lib/tutorials";
+import { useTutorials } from "@/lib/tutorialState";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
   useHasEditor,
 } from "@/editor/active";
 
-export type CommandGroup = "create" | "navigate" | "editor";
+export type CommandGroup = "create" | "navigate" | "editor" | "help";
 
 export interface Command {
   id: string;
@@ -66,13 +69,14 @@ export function useCommands(): Command[] {
   const s = useStore();
   const t = useT();
   const hasEditor = useHasEditor();
+  const tutorials = useTutorials();
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
     for (const type of CREATABLE_TYPES) {
       list.push({
         id: `create.${type}`,
-        title: `${t.new} ${t.types[type]}`,
+        title: t.new_type[type],
         group: "create",
         icon: TYPE_ICON[type] ?? FilePlus,
         shortcut: type === "note" ? "Mod+N" : undefined,
@@ -279,6 +283,45 @@ export function useCommands(): Command[] {
         });
       }
     }
+    // ---- help: every Tutorial, by its title in the app's language (PLAN §25.1).
+    for (const id of tutorialIds()) {
+      const tut = tutorial(id, s.lang);
+      if (!tut) continue;
+      list.push({
+        id: `tutorial.${id}`,
+        title: t.tutorials.command(tut.title),
+        group: "help",
+        icon: CircleHelp,
+        keywords: "tutorial help how",
+        run: () => tutorials.show(id, tut.steps.length),
+      });
+    }
     return list;
-  }, [s, t, hasEditor]);
+  }, [s, t, hasEditor, tutorials]);
+}
+
+/**
+ * Every Command id the registry can hold, whatever the current view. The
+ * registry itself only lists what applies now (the Board toggle on a
+ * Composition, editor commands with an editor), so a Tutorial's
+ * `command:` links are checked against this instead (PLAN §25.9).
+ */
+export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[] {
+  return [
+    ...creatable.map((type) => `create.${type}`),
+    "create.quick",
+    "nav.search",
+    "nav.commands",
+    ...["home", "graph", "library", "clippings", "map", "timeline", "coverage", "settings"].map((v) => `nav.${v}`),
+    "nav.back",
+    "nav.forward",
+    "nav.passage",
+    "nav.sync",
+    "nav.random",
+    "doc.board",
+    "doc.capture",
+    "editor.source",
+    ...EDITOR_COMMANDS.map((c) => c.id),
+    ...tutorialIds().map((id) => `tutorial.${id}`),
+  ];
 }

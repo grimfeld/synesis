@@ -9,7 +9,7 @@ import type { SyncLocations } from "@/lib/api";
 import { DEVICE_KINDS, METHODS, platformToKind, recommend, tutorial, tutorialKinds, type DeviceKind, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
-import { Markdown } from "@/components/Markdown";
+import { TutorialMarkdown } from "@/components/TutorialPanel";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -135,7 +135,7 @@ export function SyncSetup({ locations, onChange, className, pairing, foldersOpen
             )}
             {kinds.map((k) => (
               <TabsContent key={k} value={k}>
-                <Markdown source={tutorial(method, k, s.lang) ?? ""} className="rounded-xl border bg-card p-5" />
+                <TutorialMarkdown source={tutorial(method, k, s.lang) ?? ""} className="rounded-xl border bg-card p-5" />
               </TabsContent>
             ))}
           </Tabs>

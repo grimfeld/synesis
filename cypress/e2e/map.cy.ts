@@ -172,6 +172,44 @@ describe("Map", () => {
       .should("contain", "Mount Sinai");
   });
 
+  it("adds a Place the Vault holds as the last Stop", () => {
+    cy.openDoc("The Exodus route");
+    cy.get("[data-testid=journey-stop]").its("length").then((n) => {
+      cy.get("[data-testid=journey-add-stop]").click();
+      cy.get("[data-testid=journey-stop-input]").type("bab");
+      cy.get("[data-testid=journey-stop-option]").first().should("have.attr", "data-kind", "place").and("contain", "Babylon").click();
+      cy.get("[data-testid=journey-stop]").should("have.length", n + 1).last().should("contain", "Babylon").and("have.attr", "data-status", "ok");
+      // Still open for the next Stop, and empty.
+      cy.get("[data-testid=journey-stop-input]").should("have.value", "");
+    });
+    cy.wait(1000);
+    cy.docByTitle("The Exodus route").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.match(/places: \[.*"\[\[Babylon\]\]"\]/);
+      });
+    });
+  });
+
+  it("makes a Stop from the Bible-place gazetteer, coordinates and all", () => {
+    cy.openDoc("Paul's second missionary journey");
+    cy.get("[data-testid=journey-add-stop]").click();
+    cy.get("[data-testid=journey-stop-input]").type("philippi");
+    cy.get("[data-testid=journey-stop-option][data-kind=gazetteer]").first().should("contain", "Philippi").click();
+    cy.get("[data-testid=journey-stop]").last().should("contain", "Philippi").and("have.attr", "data-status", "ok");
+    cy.docByTitle("Philippi").then((d) => {
+      expect(d.type).to.equal("place");
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.match(/lat: 4\d\./);
+        expect(text).to.match(/lon: 2\d\./);
+      });
+    });
+    // A Place the Vault now holds is offered as itself, not created twice.
+    cy.get("[data-testid=journey-stop-input]").type("philippi");
+    cy.get("[data-testid=journey-stop-option]").first().should("have.attr", "data-kind", "place");
+    cy.get("[data-testid=journey-stop-close]").click();
+    cy.get("[data-testid=journey-add-stop]").should("exist");
+  });
+
   it("keeps the Book filter across a round-trip to a Hub", () => {
     cy.runCommand("Go to Map");
     cy.get("[data-testid=map-filter]").click();

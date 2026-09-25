@@ -36,6 +36,7 @@ import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
+import { gazetteerTitle } from "@/lib/map";
 import { quoteBody } from "@/lib/clippingBody";
 import { propertyLabel, useT } from "@/i18n";
 import {
@@ -363,10 +364,6 @@ function GazetteerPicker({
   );
 }
 
-/** Disambiguated gazetteer names ("Bethlehem 1") become plain titles. */
-function placeTitle(name: string): string {
-  return name.replace(/ \d+$/, "");
-}
 
 /** Pick a Place's coordinates on a map or from the gazetteer; the page applies them. */
 function SetLocation({
@@ -933,7 +930,7 @@ const TYPE_FIELDS: Record<
     <Field label={t.lookup_place}>
       <GazetteerPicker
         onPick={(h) => {
-          if (!title.trim()) setTitle(placeTitle(h.name));
+          if (!title.trim()) setTitle(gazetteerTitle(h.name));
           set("lat", String(h.lat));
           set("lon", String(h.lon));
           set("modern_name", h.modern_name);
@@ -1310,7 +1307,7 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
   );
 }
 
-const GROUP_ORDER: CommandGroup[] = ["create", "navigate", "editor"];
+const GROUP_ORDER: CommandGroup[] = ["create", "navigate", "editor", "help"];
 
 function matchesCommand(c: Command, q: string): boolean {
   const hay = `${c.title} ${c.keywords ?? ""} ${c.id}`.toLowerCase();

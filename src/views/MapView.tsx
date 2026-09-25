@@ -160,7 +160,12 @@ export function MapView() {
     mark();
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
+    // Leaflet only measures its box on a window resize; the Tutorial panel
+    // docking beside the Map, or the sidebar closing, changes it without one.
+    const ro = new ResizeObserver(() => map.current?.invalidateSize());
+    ro.observe(host.current);
     return () => {
+      ro.disconnect();
       map.current?.remove();
       map.current = null;
     };
@@ -235,7 +240,7 @@ export function MapView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.map} icon={<MapPin />}>
+      <ViewHeader title={t.views.map} icon={<MapPin />} tutorials={{ kind: "map" }}>
         <span className="hidden truncate text-xs text-muted-foreground md:inline">{places.length === 0 ? t.no_places : t.map_hint}</span>
         <div className="ml-auto flex items-center gap-1">
           <div className="relative hidden lg:block">

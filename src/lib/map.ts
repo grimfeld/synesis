@@ -6,7 +6,7 @@
 // here (everything is a Place) and its viewport cull is meaningless (the map is
 // a viewport; panning already culls), so the four are Tags, title search, the
 // Book a Place is mentioned in, and whether anything mentions it at all.
-import type { DocSummary } from "./api";
+import type { DocSummary, GazetteerHit } from "./api";
 import { fold } from "./names";
 
 /** What the Map's four filters currently restrict to (PLAN §19.5). */
@@ -213,4 +213,45 @@ export function routePoints(stops: StopLike[]): RoutePoint[] {
 /** How many Stops of a Journey cannot be drawn, for the Hub's warning. */
 export function undrawable(stops: StopLike[]): number {
   return stops.filter((s) => s.status !== "ok").length;
+}
+
+// ---- the Stop picker on a Journey's Hub (PLAN §19.11)
+
+/** Disambiguated gazetteer names ("Bethlehem 1") become plain titles. */
+export function gazetteerTitle(name: string): string {
+  return name.replace(/ \d+$/, "");
+}
+
+/** A choice in the Stop picker: a Place the Vault holds, or one to create from the gazetteer. */
+export type StopChoice = { kind: "place"; doc: DocSummary } | { kind: "gazetteer"; hit: GazetteerHit; title: string };
+
+/**
+ * What the Stop picker offers for a query: the Vault's Places first, best
+ * match first, then gazetteer entries the Vault does not already hold under
+ * that name. A twelve-Stop Journey must not mean twelve trips to the New
+ * Place dialog, and picking a gazetteer entry makes the Place (§19.11).
+ */
+export function stopChoices(query: string, places: DocSummary[], hits: GazetteerHit[], limit = 8): StopChoice[] {
+  const q = fold(query.trim());
+  if (!q) return [];
+  const score = (title: string) => {
+    const n = fold(title);
+    return n.startsWith(q) ? 3 : n.includes(" " + q) ? 2 : n.includes(q) ? 1 : 0;
+  };
+  const own = places
+    .map((doc) => ({ doc, s: score(doc.title) }))
+    .filter((x) => x.s > 0)
+    .sort((a, b) => b.s - a.s || a.doc.title.length - b.doc.title.length || a.doc.title.localeCompare(b.doc.title))
+    .map((x): StopChoice => ({ kind: "place", doc: x.doc }));
+  const held = new Set(places.map((p) => fold(p.title)));
+  const seen = new Set<string>();
+  const found: StopChoice[] = [];
+  for (const hit of hits) {
+    const title = gazetteerTitle(hit.name);
+    const key = fold(title);
+    if (held.has(key) || seen.has(`${key}|${hit.lat}|${hit.lon}`)) continue;
+    seen.add(`${key}|${hit.lat}|${hit.lon}`);
+    found.push({ kind: "gazetteer", hit, title });
+  }
+  return [...own, ...found].slice(0, limit);
 }

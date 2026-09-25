@@ -23,6 +23,8 @@ import { api } from "./lib/api";
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "sonner";
+import { TutorialProvider } from "./lib/tutorialState";
+import { TutorialPanel } from "./components/TutorialPanel";
 
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
@@ -124,7 +126,12 @@ function Shell() {
     >
       <AppSidebar />
       <SidebarInset className="h-full min-h-0 overflow-hidden">
-        {main}
+        {/* The Tutorial panel docks beside whatever view is showing and
+            outlives navigation (PLAN §25.6). */}
+        <div className="flex h-full min-h-0">
+          <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
+          <TutorialPanel />
+        </div>
       </SidebarInset>
       <Dialogs />
       <Shortcuts />
@@ -151,7 +158,9 @@ function LangBridge() {
     <LangContext.Provider value={s.lang}>
       <AppearanceProvider>
         <TooltipProvider delayDuration={400}>
-          <Shell />
+          <TutorialProvider>
+            <Shell />
+          </TutorialProvider>
         </TooltipProvider>
       </AppearanceProvider>
     </LangContext.Provider>

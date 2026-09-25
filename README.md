@@ -29,7 +29,7 @@ cargo test -p engine  # engine tests
 
 ## Sync
 
-Pair devices with a QR code / pairing code (Settings → Sync): paired devices sync directly over [Iroh](https://iroh.computer) whenever both are online, no account, no server storing data (ADR 0008). Alternatively put the vault in a folder you already sync (iCloud Drive, Syncthing, OneDrive / Google Drive / Dropbox); the wizard's tutorials live in `docs/sync/`. Both can be combined.
+Pair devices with a QR code / pairing code (Settings → Sync): paired devices sync directly over [Iroh](https://iroh.computer) whenever both are online, no account, no server storing data (ADR 0008). Alternatively put the vault in a folder you already sync (iCloud Drive, Syncthing, OneDrive / Google Drive / Dropbox); the wizard's tutorials live in `docs/tutorials/sync-*`. Both can be combined.
 
 ## Releasing
 

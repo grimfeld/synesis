@@ -47,7 +47,7 @@ describe("Onboarding wizard", () => {
     cy.get("[data-testid=route-folder]").click();
     cy.get("[data-testid=device-android]").click();
     cy.get("[data-testid=method-syncthing]").should("have.attr", "aria-pressed", "true");
-    cy.get("[data-testid=sync-tutorial]").should("contain", "Syncthing").and("contain", "Check that it works");
+    cy.get("[data-testid=sync-tutorial]").should("contain", "Syncthing").and("contain", "Try it once");
     cy.get("[data-testid=device-ios]").click();
     cy.get("[data-testid=sync-recommendation]").should("contain", "no free method");
     cy.get("[data-testid=sync-tutorial]").should("not.exist");
@@ -67,7 +67,7 @@ describe("Onboarding wizard", () => {
     cy.get("[data-testid=wizard-next]").click();
     cy.get("[data-testid=route-folder]").click();
     cy.get("[data-testid=device-android]").click();
-    cy.get("[data-testid=sync-tutorial]").should("contain", "Vérifier que ça marche");
+    cy.get("[data-testid=sync-tutorial]").should("contain", "Essayez une fois");
     cy.bridge("set_language", { lang: "en" });
   });
 

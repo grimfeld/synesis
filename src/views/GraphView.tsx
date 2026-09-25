@@ -575,11 +575,13 @@ export function GraphView() {
         title={t.views.graph}
         icon={<Waypoints />}
         className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5"
+        tutorials={{ kind: "graph" }}
       >
         <div className="relative ml-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-7 w-44 pl-7 text-xs"
+            data-testid="graph-search"
             placeholder={t.search}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -590,13 +592,14 @@ export function GraphView() {
             size="sm"
             className="h-7 text-xs"
             aria-label={t.graph_level}
+            data-testid="graph-level"
           >
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="book">{t.types.book}</SelectItem>
-            <SelectItem value="chapter">{t.types.chapter}</SelectItem>
-            <SelectItem value="verse">{t.types.verse}</SelectItem>
+            <SelectItem value="book" data-testid="graph-level-book">{t.types.book}</SelectItem>
+            <SelectItem value="chapter" data-testid="graph-level-chapter">{t.types.chapter}</SelectItem>
+            <SelectItem value="verse" data-testid="graph-level-verse">{t.types.verse}</SelectItem>
           </SelectContent>
         </Select>
         <ToggleGroup
@@ -614,6 +617,7 @@ export function GraphView() {
             <ToggleGroupItem
               key={ty}
               value={ty}
+              data-testid={`graph-type-${ty}`}
               className="h-7 gap-1.5 text-xs data-[state=off]:opacity-45"
             >
               <TypeDot type={ty} />

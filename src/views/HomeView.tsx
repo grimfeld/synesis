@@ -52,7 +52,7 @@ export function HomeView() {
 
   return (
     <div className="flex h-full flex-col">
-      <ViewHeader title={t.views.home} icon={<House />} />
+      <ViewHeader title={t.views.home} icon={<House />} tutorials={{ kind: "home" }} />
       <div className="thin-scroll min-h-0 flex-1 overflow-auto p-6">
         {/* `grid-cols-1` is `minmax(0, 1fr)`: an implicit track is `auto` and
             grows to the longest title, truncated or not, widening the pane

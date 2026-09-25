@@ -13,6 +13,7 @@ import {
   ArrowRight,
   CircleAlert,
   Code,
+  CircleHelp,
   Ellipsis,
   Lock,
   LockOpen,
@@ -35,6 +36,9 @@ import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { RightPanel } from "@/components/RightPanel";
+import { TutorialButton } from "@/components/TutorialPanel";
+import { tutorial, tutorialsFor, type TutorialPlace } from "@/lib/tutorials";
+import { useTutorials } from "@/lib/tutorialState";
 import { TypeDot } from "@/components/DocLink";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -65,6 +69,7 @@ export function DocView({ id }: { id: string }) {
   const t = useT();
   const d = useDocument(id);
   const isMobile = useIsMobile();
+  const tut = useTutorials();
   const [hover, setHover] = useState<HoverState | null>(null);
   const [detected, setDetected] = useState<DetectedRange[]>([]);
   // Set once by the editor, so a panel row can put the cursor on what it lists.
@@ -176,6 +181,13 @@ export function DocView({ id }: { id: string }) {
   const canSplit = splitFits(columnWidth);
   const split = hasBoard && s.docTab === "split" && canSplit;
   const showBoard = hasBoard && s.docTab === "board";
+  // The editor's Tutorials, or the Board's while the Board is all that shows
+  // (PLAN §25.1). On a phone they sit in the header's More menu.
+  const tutorialPlace: TutorialPlace = showBoard ? { kind: "board" } : { kind: "editor", type: sum.type };
+  const tutorialIdsHere = tutorialsFor(tutorialPlace);
+  const openTutorials = tutorialIdsHere.length
+    ? () => tut.showList(tutorialIdsHere, (i) => tutorial(i, s.lang)?.steps.length ?? 1)
+    : null;
   const tabs: DocTab[] = canSplit ? ["talk", "split", "board"] : ["talk", "board"];
   // The tab to mark as current: a split too narrow to draw reads as the talk.
   const activeTab: DocTab = s.docTab === "split" && !canSplit ? "talk" : s.docTab;
@@ -383,6 +395,12 @@ export function DocView({ id }: { id: string }) {
                     {s.sourceMode ? t.live_preview : t.source_mode}
                   </DropdownMenuItem>
                 )}
+                {openTutorials && (
+                  <DropdownMenuItem onSelect={openTutorials} data-testid="tutorial-menu-item">
+                    <CircleHelp />
+                    {t.tutorials.open}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => s.setDialog({ kind: "delete", id })}
@@ -393,6 +411,8 @@ export function DocView({ id }: { id: string }) {
               </DropdownMenuContent>
             </DropdownMenu>
           ) : (
+            <>
+            <TutorialButton place={tutorialPlace} />
             <IconButton
               label={t.delete}
               className="text-muted-foreground hover:text-destructive"
@@ -400,6 +420,7 @@ export function DocView({ id }: { id: string }) {
             >
               <Trash2 />
             </IconButton>
+            </>
           )}
         </header>
         {d.external && (

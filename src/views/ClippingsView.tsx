@@ -125,7 +125,7 @@ export function ClippingsView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ViewHeader title={t.views.clippings} icon={<Quote />}>
+      <ViewHeader title={t.views.clippings} icon={<Quote />} tutorials={{ kind: "clippings" }}>
         <span className="ml-auto shrink-0 text-xs text-muted-foreground tabular-nums">
           {shown.length}
         </span>

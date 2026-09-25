@@ -240,7 +240,7 @@ function DocumentsTab() {
             action={
               <SidebarGroupAction
                 className="top-2.5"
-                title={`${t.new} ${t.types[type]}`}
+                title={t.new_type[type]}
                 onClick={() => s.setDialog({ kind: "new", type })}
               >
                 <Plus />
