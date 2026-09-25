@@ -198,6 +198,9 @@ export const en = {
   board: "Board",
   board_tab_talk: "Talk",
   board_tab_board: "Board",
+  board_tab_split: "Split",
+  split_divider: "Resize talk and Board",
+  split_command: "Split talk and Board",
   board_empty:
     "Nothing on this Board yet. Add a note, or drag material in from the right.",
   board_note_empty: "Empty note",

@@ -113,15 +113,28 @@ type Gesture =
 export function BoardView({
   id,
   docs,
+  beside = false,
 }: {
   /** The Composition the Board belongs to. */
   id: string;
   /** Every document, for resolving `file` nodes to titles and excerpts. */
   docs: DocSummary[];
+  /**
+   * Shown beside the talk rather than on its own tab (PLAN §22). The editor
+   * keeps the focus it had, where on its own tab the Board takes focus so its
+   * keys work without a click first. And the Material drawer starts closed:
+   * the side panel's Candidates list the same material, and a 288px drawer
+   * would leave half a window's Board too narrow to fit its content.
+   */
+  beside?: boolean;
 }) {
   const s = useStore();
+  const { announceBoardSaved } = s;
   const t = useT();
   const isMobile = useIsMobile();
+  // The Board's own focus scope. Its keys act only while focus is inside it,
+  // so Backspace typed in the talk beside it never deletes a node (PLAN §22.6).
+  const rootRef = useRef<HTMLDivElement>(null);
   const hostRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const [board, setBoard] = useState<Board | null>(null);
@@ -230,6 +243,11 @@ export function BoardView({
     setView(fitAll(board.nodes, size.width, size.height));
   }, [board, size, id]);
 
+  const loaded = board !== null;
+  useEffect(() => {
+    if (loaded && !beside) rootRef.current?.focus({ preventScroll: true });
+  }, [loaded, beside]);
+
   // What a pending save would write, held so unmounting can flush it rather
   // than drop it. A debounce that cancels on unmount loses the last edit
   // whenever the user leaves straight after making one.
@@ -242,8 +260,8 @@ export function BoardView({
     }
     const p = pending.current;
     pending.current = null;
-    if (p) void api.saveBoard(p.id, p.board);
-  }, []);
+    if (p) void api.saveBoard(p.id, p.board).then(announceBoardSaved);
+  }, [announceBoardSaved]);
 
   const save = useCallback(
     (next: Board) => {
@@ -574,11 +592,15 @@ export function BoardView({
     }
   };
 
-  // Keyboard: delete removes the selection, escape clears it.
+  // Keyboard: delete removes the selection, escape clears it. Only while
+  // focus is on the Board: beside the talk, the editor is a `contenteditable`
+  // that neither check below would recognise, so a window-wide listener would
+  // delete nodes on the talk's Backspace and take its select-all (PLAN §22.6).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editing || labelling || reading) return;
       const el = document.activeElement;
+      if (!rootRef.current?.contains(el)) return;
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         return;
       }
@@ -613,7 +635,19 @@ export function BoardView({
   const empty = board.nodes.length === 0;
 
   return (
-    <div className="relative flex min-h-0 flex-1">
+    <div
+      ref={rootRef}
+      // Focusable so the keys above have somewhere to live; a press anywhere
+      // on the Board lands focus here unless it went to a field of its own.
+      tabIndex={-1}
+      className="relative flex min-h-0 flex-1 outline-none"
+      data-testid="board-root"
+      onPointerDownCapture={(e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest("input, textarea, button, [contenteditable=true]")) return;
+        rootRef.current?.focus({ preventScroll: true });
+      }}
+    >
       <div
         ref={hostRef}
         className={cn(
@@ -902,6 +936,8 @@ export function BoardView({
         {selected.size > 0 && !isMobile && !reading && (
           <div
             data-board-ui
+            data-testid="board-selection"
+            data-count={selected.size}
             className="absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm"
           >
             <span className="px-2 text-xs text-muted-foreground">
@@ -984,6 +1020,7 @@ export function BoardView({
           compositionId={id}
           onAdd={addDocument}
           onPath={(path) => board.nodes.some((n) => n.file === path)}
+          defaultOpen={!beside}
         />
       )}
     </div>

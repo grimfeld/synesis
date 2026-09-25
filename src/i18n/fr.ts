@@ -194,6 +194,9 @@ export const fr: Dict = {
   board: "Tableau",
   board_tab_talk: "Discours",
   board_tab_board: "Tableau",
+  board_tab_split: "Côte à côte",
+  split_divider: "Redimensionner le discours et le tableau",
+  split_command: "Discours et tableau côte à côte",
   board_empty:
     "Ce tableau est vide. Ajoutez une note ou faites glisser de la matière depuis la droite.",
   board_note_empty: "Note vide",

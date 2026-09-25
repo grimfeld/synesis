@@ -30,6 +30,10 @@ import {
 import { NO_FILTERS, type Filters } from "./timeline";
 import { NO_MAP_FILTERS, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
+import { DEFAULT_RATIO } from "./split";
+
+/** Which face of a Composition is showing (PLAN §22.2). */
+export type DocTab = "talk" | "split" | "board";
 
 export type View =
   | { kind: "home" }
@@ -108,10 +112,13 @@ interface Store {
   mapFilters: MapFilters;
   setMapFilters: (f: MapFilters) => void;
   /**
-   * Which face of a Composition is showing. Store state rather than a route,
-   * so the later split pane can show both at once (PLAN §17.9).
+   * Which face of a Composition is showing: the talk, the Board, or both side
+   * by side (PLAN §22). Store state rather than a route, so Back to a
+   * Composition returns to the same face (PLAN §17.9).
    */
-  docTab: "talk" | "board";
+  docTab: DocTab;
+  /** The talk's share of the width when split. Session-only (PLAN §22.4). */
+  splitRatio: number;
   openVault: (path?: string) => Promise<void>;
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
@@ -141,7 +148,13 @@ interface Store {
   setSidebarOpen: (b: boolean) => void;
   setPanelOpen: (b: boolean) => void;
   setSourceMode: (b: boolean) => void;
-  setDocTab: (tab: "talk" | "board") => void;
+  setDocTab: (tab: DocTab) => void;
+  setSplitRatio: (r: number) => void;
+  /**
+   * A Board was saved. Candidates and Board refs depend on it, and with the
+   * talk beside the Board they are on screen while it changes (PLAN §22.8).
+   */
+  announceBoardSaved: () => void;
   /** Declare or change a Property name's type, vault-wide. */
   setPropertyType: (name: string, t: PropertyType) => Promise<void>;
 }
@@ -210,7 +223,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sourceMode, setSourceModeState] = useState(readSourceMode);
   // A Board belongs to the Composition being read, so opening another
   // document starts on its text rather than on the Board of the last one.
-  const [docTab, setDocTab] = useState<"talk" | "board">("talk");
+  const [docTab, setDocTab] = useState<DocTab>("talk");
+  const [splitRatio, setSplitRatio] = useState(DEFAULT_RATIO);
   const viewRef = useRef(view);
   viewRef.current = view;
   const booted = useRef(false);
@@ -388,6 +402,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [openDoc, refresh],
   );
 
+  const announceBoardSaved = useCallback(() => {
+    // A Board is not a document: the Composition's own text and mtime are
+    // untouched, so naming it in `changed` would read as an edit to its text
+    // and could reload the editor. An empty change reaches exactly the queries
+    // that depend on anything (`deps: { any: true }`), which is where Board
+    // refs show up — the Candidates panel. The engine's own event would not
+    // reach the dev bridge or the web build, where events are stubbed.
+    setLastChange({ changed: [], removed: [] });
+  }, []);
+
   const setLang = useCallback(async (l: Lang) => {
     await api.setLanguage(l);
     setSettings(await api.getSettings());
@@ -481,6 +505,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     panelOpen,
     sourceMode,
     docTab,
+    splitRatio,
     openVault,
     attachVault,
     closeVault,
@@ -502,6 +527,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setPanelOpen,
     setSourceMode,
     setDocTab,
+    setSplitRatio,
+    announceBoardSaved,
     setPropertyType,
   };
   return (

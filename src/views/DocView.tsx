@@ -1,6 +1,13 @@
 // Writing page: Note, Clipping, Composition. Title and tags above the editor,
 // properties and backlinks in the right panel.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -38,6 +45,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { SplitPanes } from "@/components/SplitPanes";
+import type { DocTab } from "@/lib/store";
+import { splitFits } from "@/lib/split";
 
 export function DocView({ id }: { id: string }) {
   const s = useStore();
@@ -56,11 +66,27 @@ export function DocView({ id }: { id: string }) {
   );
 
   // A Board belongs to the Composition it is paired with, so moving to another
-  // document — including through back and forward — starts on the text.
+  // document — including through back and forward — starts on the text. A
+  // split already shows the text, so it stays: Back from a card opened in
+  // reading mode returns to the talk and Board side by side (PLAN §22.7).
   useEffect(() => {
-    s.setDocTab("talk");
+    if (s.docTab === "board") s.setDocTab("talk");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  // Whether the talk and the Board both fit side by side (PLAN §22.5). The
+  // column is measured rather than the window, since the sidebar and the
+  // side panel both take from it.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const [columnWidth, setColumnWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = columnRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setColumnWidth(e.contentRect.width));
+    ro.observe(el);
+    setColumnWidth(el.getBoundingClientRect().width);
+    return () => ro.disconnect();
+  }, [!!d.doc]);
 
   // A phone has no room for a column beside the editor: the panel is a sheet
   // there, and it starts closed so the toggle is the only way in and out.
@@ -107,7 +133,16 @@ export function DocView({ id }: { id: string }) {
   const sum = doc.summary;
   // Only a Composition has a Board, so a stale tab from a previous document
   // can never hide a Note's text.
-  const showBoard = s.docTab === "board" && sum.type === "composition";
+  const hasBoard = sum.type === "composition";
+  // Split is offered only where both sides fit; a split that no longer fits
+  // shows the talk, the deliverable, and comes back when there is room
+  // (PLAN §22.5). The stored tab is left as it is.
+  const canSplit = splitFits(columnWidth);
+  const split = hasBoard && s.docTab === "split" && canSplit;
+  const showBoard = hasBoard && s.docTab === "board";
+  const tabs: DocTab[] = canSplit ? ["talk", "split", "board"] : ["talk", "board"];
+  // The tab to mark as current: a split too narrow to draw reads as the talk.
+  const activeTab: DocTab = s.docTab === "split" && !canSplit ? "talk" : s.docTab;
   // A Clipping has no title, so its header is its Citation (ADR 0013): the
   // Source it names and where within it, read the way it would be said aloud.
   // The `source` property is a wikilink, and the brackets are not the name.
@@ -124,9 +159,40 @@ export function DocView({ id }: { id: string }) {
           .join(" · ")
       : undefined;
 
+  // The talk: title, Properties and the editor, scrolling as one. Shared by
+  // the Talk tab and the left side of a split.
+  const talk = (
+    <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
+      <DocHeader
+        doc={doc}
+        title={sum.title}
+        readOnlyTitle={false}
+        citation={citation}
+        onRename={d.rename}
+        fm={d.fm}
+        onFmChange={d.onFmChange}
+      />
+      <div>
+        <Editor
+          value={d.body}
+          revision={d.revision}
+          onChange={d.onBodyChange}
+          onDetected={setDetected}
+          onReady={onEditorReady}
+          env={env}
+          names={d.names}
+          tags={s.tags}
+          placeholder={t.empty_doc}
+          autofocus
+          sourceMode={s.sourceMode}
+        />
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1">
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div ref={columnRef} className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-background px-3">
           <SidebarTrigger className="-ml-1" />
           <Separator
@@ -135,6 +201,7 @@ export function DocView({ id }: { id: string }) {
           />
           <IconButton
             label={t.back}
+            data-testid="doc-back"
             shortcut={formatShortcut("Alt+ArrowLeft").join(" ")}
             disabled={!s.canBack}
             onClick={s.back}
@@ -175,33 +242,38 @@ export function DocView({ id }: { id: string }) {
               ""
             )}
           </span>
-          {sum.type === "composition" && (
+          {hasBoard && (
             <div
               className="mr-1 flex items-center rounded-md border p-0.5"
               role="tablist"
               aria-label={t.board}
             >
-              {(["talk", "board"] as const).map((tab) => (
+              {tabs.map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   role="tab"
-                  aria-selected={s.docTab === tab}
+                  aria-selected={activeTab === tab}
                   data-testid={`tab-${tab}`}
                   className={cn(
                     "rounded px-2 py-0.5 text-xs transition-colors",
-                    s.docTab === tab
+                    activeTab === tab
                       ? "bg-accent text-accent-foreground"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                   onClick={() => s.setDocTab(tab)}
                 >
-                  {tab === "talk" ? t.board_tab_talk : t.board_tab_board}
+                  {tab === "talk"
+                    ? t.board_tab_talk
+                    : tab === "split"
+                      ? t.board_tab_split
+                      : t.board_tab_board}
                 </button>
               ))}
             </div>
           )}
-          {/* Both act on the editor, which the Board replaces. */}
+          {/* Both act on the editor, which the Board tab replaces; beside the
+              Board it is still there, so they stay (PLAN §22.2). */}
           {!showBoard && (
             <>
               <IconButton
@@ -246,32 +318,13 @@ export function DocView({ id }: { id: string }) {
         {showBoard ? (
           <BoardView id={id} docs={s.docs} />
         ) : (
-        <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
-          <DocHeader
-            doc={doc}
-            title={sum.title}
-            readOnlyTitle={false}
-            citation={citation}
-            onRename={d.rename}
-            fm={d.fm}
-            onFmChange={d.onFmChange}
+          <SplitPanes
+            ratio={s.splitRatio}
+            onRatio={s.setSplitRatio}
+            width={columnWidth}
+            talk={talk}
+            board={split ? <BoardView id={id} docs={s.docs} beside /> : null}
           />
-          <div>
-            <Editor
-              value={d.body}
-              revision={d.revision}
-              onChange={d.onBodyChange}
-              onDetected={setDetected}
-              onReady={onEditorReady}
-              env={env}
-              names={d.names}
-              tags={s.tags}
-              placeholder={t.empty_doc}
-              autofocus
-              sourceMode={s.sourceMode}
-            />
-          </div>
-        </div>
         )}
       </div>
       {showBoard ? null : isMobile ? (

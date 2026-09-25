@@ -556,6 +556,11 @@ foreclosed; this section fills it in. No new vocabulary.
 3. **The side panel stays available**, as a third column: Talk | Board | panel.
    Split is where Candidates matter most, and backlinks and Properties live
    only in the panel. The user trades width for it with the existing toggle.
+   **Amended at build:** beside the talk, the Board's Material drawer starts
+   closed. Open, its 288px left a 1280px window's Board about 190px wide —
+   narrower than fit-all can frame at its minimum zoom, so cards sat under the
+   talk. The panel's Candidates list the same material, and the drawer's edge
+   reopens it with one click. The Board tab keeps it open, as before.
 4. **A draggable divider, 50/50 by default**, each side at least ~320px. The
    ratio lives in the store beside `docTab`, session-only: `docTab` is not
    persisted and §17.16 does not persist a Board's viewport either. The Board
@@ -576,20 +581,26 @@ foreclosed; this section fills it in. No new vocabulary.
    container, which becomes focusable and takes focus on click; a selection
    survives the editor taking focus, inert. A focus ring marks the active side.
 7. **A card pressed in reading mode opens its document, as on the Board tab.**
-   Back returns to the Composition still split, since `docTab` is in the store.
-8. **A Board save refreshes what depends on it.** `save_board` emits the same
-   change event a document save does, so the Candidates panel's "on the Board"
-   state and a Hub's "Boards" line update while both are on screen. Until now
-   the panel was hidden whenever the Board was shown, so the staleness never
-   surfaced. Engine-side rather than a UI invalidation, so a second window or a
-   paired Device sees it too. The 400ms save debounce keeps a drag from
-   refetching per frame.
+   Back returns to the Composition still split. **Amended at build:** this was
+   not free — `DocView` reset the tab to Talk on every document change. The
+   reset now applies to the Board tab only, which hides the text; a split
+   already shows it, so it stays across documents for the session.
+8. **A Board save refreshes what depends on it**, so the Candidates panel's
+   "on the Board" state updates while both are on screen. Until now the panel
+   was hidden whenever the Board was shown, so the staleness never surfaced.
+   The 400ms save debounce keeps a drag from refetching per frame.
+   **Amended at build: announced by the store, not emitted by the engine.** The
+   dev bridge and the web build stub events, so an engine `vault:changed` would
+   reach neither Cypress nor the preview; `createDoc` already announces its own
+   writes from the store for the same reason. A paired Device learns of the
+   Board through `apply_remote`, which already emits. The announcement is an
+   empty change: naming the Composition would read as an edit to its text and
+   could reload the editor, while an empty one reaches exactly the queries
+   that depend on anything — which is where the Candidates are.
 
 ### Build order
 
-1. **Engine:** `save_board` emits a change for its Composition; test that a
-   Candidate placed on the Board reports `on_board` through a change-driven
-   refetch.
+1. **Board saves announce themselves** from the store (decision 8).
 2. **Focus-scoped Board keys**, shipped first on their own: they fix nothing
    visible on the tabs today but are the precondition for everything else.
 3. **The Split tab, the layout and the divider**, with the width fallback.

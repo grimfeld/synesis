@@ -110,6 +110,29 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("hides Split on a phone and keeps the tabs in the header", () => {
+        // Two sides of 320px do not fit a 390px phone (PLAN §22.5).
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=tab-board]").should("exist");
+        cy.get("[data-testid=tab-split]").should("not.exist");
+        expectNoOverflow();
+      });
+
+      it("keeps the header and both sides of a split inside a desktop window", () => {
+        // "Côte à côte" is the longest tab, next to "Discours" and "Tableau".
+        cy.viewport(1280, 720);
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=tab-split]").click();
+        cy.get("[data-testid=split-board] [data-testid=board-canvas]").should("exist");
+        expectNoOverflow();
+        // The narrowest a split gets: the side panel open beside it.
+        cy.get("[data-testid=right-panel]").then(($p) => {
+          if (!$p.is(":visible")) cy.get("[data-testid=toggle-panel]").click();
+        });
+        expectNoOverflow();
+      });
+
       it("keeps a Hub's Events list, Dates included, inside the screen", () => {
         // An Event row carries its Date after the title; a span such as
         // "1034 BCE – 1027 BCE" is the longest row the demo vault produces.

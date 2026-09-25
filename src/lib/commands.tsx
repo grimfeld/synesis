@@ -10,6 +10,7 @@ import {
   BookOpenText,
   CalendarRange,
   Code,
+  Columns2,
   Dices,
   FilePlus,
   House,
@@ -179,6 +180,16 @@ export function useCommands(): Command[] {
           icon: Network,
           keywords: "board mind map canvas talk outline",
           run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
+        });
+        // Talk and Board side by side (PLAN §22.2). Offered even where the
+        // split does not fit: the talk shows until there is room.
+        list.push({
+          id: "doc.split",
+          title: s.docTab === "split" ? t.board_tab_talk : t.split_command,
+          group: "navigate",
+          icon: Columns2,
+          keywords: "split side by side board talk both columns pane",
+          run: () => s.setDocTab(s.docTab === "split" ? "talk" : "split"),
         });
       }
       // The capture box on a Source Hub. Reaching it by hand means scrolling

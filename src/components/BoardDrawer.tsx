@@ -17,14 +17,17 @@ export function BoardDrawer({
   compositionId,
   onAdd,
   onPath,
+  defaultOpen = true,
 }: {
   compositionId: string;
   onAdd: (doc: DocSummary) => void;
   /** Whether a path is already on the Board, so it can be marked. */
   onPath: (path: string) => boolean;
+  /** Whether it starts open. Beside the talk it does not (PLAN §22.3). */
+  defaultOpen?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
 
   // A Candidate is anything sharing a Tag or a Passage with the Composition,
@@ -59,6 +62,7 @@ export function BoardDrawer({
       <button
         type="button"
         data-board-ui
+        data-testid="board-drawer-open"
         className="flex w-8 shrink-0 items-center justify-center border-l bg-sidebar text-sidebar-foreground hover:bg-accent"
         aria-label={t.board_material}
         onClick={() => setOpen(true)}
