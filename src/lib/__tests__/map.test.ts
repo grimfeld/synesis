@@ -1,8 +1,10 @@
 // Map filtering (PLAN §19.5): four axes, AND across them, OR within each.
 import { describe, expect, it } from "vitest";
-import type { DocSummary } from "../api";
+import type { DocSummary, GazetteerHit } from "../api";
 import {
   activeCount,
+  gazetteerTitle,
+  stopChoices,
   bezierLeg,
   controlPoint,
   filterPlaces,
@@ -225,5 +227,43 @@ describe("chip lists", () => {
   it("offers nothing when no Place carries facts", () => {
     expect(placeTags(PLACES, NO_FACTS)).toEqual([]);
     expect(placeBooks(PLACES, NO_FACTS)).toEqual([]);
+  });
+});
+
+describe("stopChoices", () => {
+  const places = [place("a", "Antioch"), place("p", "Pisidian Antioch"), place("c", "Corinth")];
+  const hit = (name: string, lat = 1, lon = 2): GazetteerHit => ({ name, lat, lon, modern_name: "", verses: 1 });
+
+  it("offers nothing until something is typed", () => {
+    expect(stopChoices("  ", places, [hit("Antioch 1")])).toEqual([]);
+  });
+
+  it("puts the Vault's Places first, best match first", () => {
+    const got = stopChoices("antioch", places, [hit("Antioch 2", 36, 36)]);
+    expect(got.map((c) => (c.kind === "place" ? c.doc.title : `+${c.title}`))).toEqual(["Antioch", "Pisidian Antioch"]);
+  });
+
+  it("offers gazetteer entries the Vault does not hold, as a plain title", () => {
+    const got = stopChoices("phil", places, [hit("Philippi", 41, 24)]);
+    expect(got).toEqual([{ kind: "gazetteer", hit: hit("Philippi", 41, 24), title: "Philippi" }]);
+  });
+
+  it("does not offer to create a Place the Vault already holds", () => {
+    const got = stopChoices("cor", places, [hit("Corinth", 37.9, 22.9)]);
+    expect(got.map((c) => c.kind)).toEqual(["place"]);
+  });
+
+  it("keeps two gazetteer places that share a name but not a location", () => {
+    const got = stopChoices("beth", [], [hit("Bethlehem 1", 31.7, 35.2), hit("Bethlehem 2", 32.7, 35.2)]);
+    expect(got).toHaveLength(2);
+  });
+
+  it("folds accents and case", () => {
+    expect(stopChoices("CORÏNTH", places, []).map((c) => c.kind)).toEqual(["place"]);
+  });
+
+  it("gives disambiguated gazetteer names a plain title", () => {
+    expect(gazetteerTitle("Bethlehem 1")).toBe("Bethlehem");
+    expect(gazetteerTitle("Mount Sinai")).toBe("Mount Sinai");
   });
 });

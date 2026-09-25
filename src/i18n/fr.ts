@@ -335,7 +335,9 @@ export const fr: Dict = {
   journey_stops_hint:
     "Les Lieux que ce Voyage traverse, dans l’ordre du trajet.",
   journey_undrawable: (n: number) =>
-    `${n} Étape${n === 1 ? "" : "s"} ne peuvent pas être tracées sur la Carte.`,
+    n === 1
+      ? "1 Étape ne peut pas être tracée sur la Carte."
+      : `${n} Étapes ne peuvent pas être tracées sur la Carte.`,
   journey_stop_no_coords: "Pas encore de coordonnées",
   journey_stop_unresolved: "Page inexistante",
   journey_stop_not_a_place: "Pas un Lieu",
@@ -343,6 +345,10 @@ export const fr: Dict = {
   journey_remove_stop: "Supprimer cette Étape",
   journey_move_up: "Déplacer avant",
   journey_move_down: "Déplacer après",
+  journey_stop_search: "Chercher un Lieu, à vous ou biblique",
+  journey_stop_new: "Nouveau Lieu",
+  journey_stop_nothing: "Aucun Lieu de ce nom.",
+  journey_stop_done: "Terminé",
   no_journey_stops:
     "Aucune Étape. Ajoutez les Lieux que ce Voyage traverse.",
   language: "Langue",

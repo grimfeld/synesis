@@ -377,6 +377,14 @@ and `journeys()` in `index.rs` with `StopStatus` / `JourneyStop` / `Journey`;
 Map's first spec). Demo vault: Paul's second missionary journey (Antioch to
 Antioch, with Troas deliberately uncoordinated) and the Exodus route.
 
+The Stop picker (11) was not built then: Stops could only be reordered and
+removed, and added by typing links into `places`. Added on 2026-09-25 as
+`StopPicker` on the Journey Hub, with its ranking in `stopChoices`
+(`src/lib/map.ts`): the Vault's Places first, then gazetteer entries it does
+not hold, a gazetteer pick creating the Place with its coordinates. It appends,
+and stays open for the next Stop; order is fixed with the move buttons rather
+than by dragging, which the list already had.
+
 1. **`src/lib/map.ts` and a baseline `map.cy.ts`.** The filter predicate as a pure function under Vitest, and a spec pinning today's behaviour: eleven Places plot, a click opens the Hub.
 2. **Engine: Place-to-Books and mentioned-ness.** The query behind the Book axis, Rust test, Tauri command, `api.` mirror.
 3. **The filter popover.** Four axes, AND / OR, active-count badge, filtered-empty state naming the active filters, `mapFilters` in the store with the persistence split. Cypress per axis.

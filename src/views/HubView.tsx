@@ -32,6 +32,7 @@ import {
   type DocType,
   type DocumentPayload,
   type Journey,
+  type GazetteerHit,
   type TrailEntry,
   type UnlinkedMentions as UnlinkedMentionsData,
   type VerseCount,
@@ -43,6 +44,7 @@ import { formatShortcut, shortcut } from "@/lib/keys";
 import { childKindFor } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
 import { setField, splitFrontmatter } from "@/lib/frontmatter";
+import { stopChoices, type StopChoice } from "@/lib/map";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
@@ -824,18 +826,23 @@ function JourneySection({
               <span className="w-6 shrink-0 text-xs tabular-nums text-muted-foreground">
                 {i + 1}
               </span>
-              <button
-                type="button"
-                className="min-w-0 flex-1 truncate text-left text-sm hover:underline underline-offset-2"
-                onClick={() => s.openLink(linkTarget(stop.target))}
-              >
-                {stop.doc?.title ?? linkTarget(stop.target)}
-              </button>
-              {stop.status !== "ok" && (
-                <span className="shrink-0 text-[11px] text-muted-foreground">
-                  {why(stop.status)}
-                </span>
-              )}
+              {/* Why a Stop cannot be drawn goes under its name, not beside
+                  it: « Pas encore de coordonnées » beside a name on a phone
+                  left no room for the name. */}
+              <div className="min-w-0 flex-1">
+                <button
+                  type="button"
+                  className="block max-w-full truncate text-left text-sm hover:underline underline-offset-2"
+                  onClick={() => s.openLink(linkTarget(stop.target))}
+                >
+                  {stop.doc?.title ?? linkTarget(stop.target)}
+                </button>
+                {stop.status !== "ok" && (
+                  <span className="block text-[11px] text-muted-foreground">
+                    {why(stop.status)}
+                  </span>
+                )}
+              </div>
               <div className="flex shrink-0 items-center gap-0.5">
                 <Button
                   size="icon-sm"
@@ -868,6 +875,11 @@ function JourneySection({
           ))}
         </ol>
       )}
+      <StopPicker
+        onAdd={(title) =>
+          write([...stopList(doc.frontmatter.places), `[[${title}]]`])
+        }
+      />
       <Button
         size="sm"
         variant="outline"
@@ -882,6 +894,121 @@ function JourneySection({
         {t.show_on_map}
       </Button>
     </section>
+  );
+}
+
+/**
+ * "Add a Stop" (PLAN §19.11): search the Vault's Places first and the bundled
+ * gazetteer second; picking a gazetteer entry makes the Place, coordinates and
+ * all, so a twelve-Stop Journey is twelve picks rather than twelve trips to
+ * the New Place dialog. It stays open after a pick, because Stops come in
+ * runs, and appends: the move buttons put a Stop where it belongs.
+ */
+function StopPicker({ onAdd }: { onAdd: (title: string) => void }) {
+  const s = useStore();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const [active, setActive] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const { data: hits } = useQuery<GazetteerHit[]>({
+    key: [q.trim()],
+    deps: { none: true },
+    enabled: open && q.trim() !== "",
+    fetch: () => api.gazetteer(q, 8),
+  });
+  const places = useMemo(() => s.docs.filter((d) => d.type === "place"), [s.docs]);
+  const choices = useMemo(() => stopChoices(q, places, q.trim() ? (hits ?? []) : []), [q, places, hits]);
+  useEffect(() => setActive(0), [q]);
+
+  const pick = async (c: StopChoice) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (c.kind === "place") onAdd(c.doc.title);
+      else {
+        const d = await s.createDoc("place", c.title, { lat: c.hit.lat, lon: c.hit.lon, modern_name: c.hit.modern_name }, undefined, false);
+        onAdd(d.summary.title);
+      }
+      setQ("");
+      input.current?.focus();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open)
+    return (
+      <Button size="sm" variant="outline" className="mt-3 mr-2" data-testid="journey-add-stop" onClick={() => setOpen(true)}>
+        <Plus />
+        {t.journey_add_stop}
+      </Button>
+    );
+  return (
+    <div className="mt-3 grid gap-1.5" data-testid="journey-stop-picker">
+      <div className="flex min-w-0 items-center gap-2">
+        <Input
+          ref={input}
+          autoFocus
+          value={q}
+          placeholder={t.journey_stop_search}
+          aria-label={t.journey_add_stop}
+          data-testid="journey-stop-input"
+          className="min-w-0 flex-1"
+          onChange={(e) => setQ(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setActive((i) => Math.min(i + 1, choices.length - 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setActive((i) => Math.max(i - 1, 0));
+            } else if (e.key === "Enter" && choices[active]) {
+              e.preventDefault();
+              pick(choices[active]);
+            } else if (e.key === "Escape") {
+              setOpen(false);
+              setQ("");
+            }
+          }}
+        />
+        <Button size="sm" variant="ghost" className="h-auto min-h-8 shrink-0" data-testid="journey-stop-close" onClick={() => { setOpen(false); setQ(""); }}>
+          {t.journey_stop_done}
+        </Button>
+      </div>
+      {q.trim() !== "" && (
+        <ul className="grid gap-0.5 rounded-lg border bg-popover p-1 text-popover-foreground" role="listbox">
+          {choices.length === 0 ? (
+            <li className="px-2 py-1.5 text-xs text-muted-foreground">{t.journey_stop_nothing}</li>
+          ) : (
+            choices.map((c, i) => (
+              <li key={c.kind === "place" ? c.doc.id : `${c.hit.name}|${c.hit.lat}|${c.hit.lon}`} role="option" aria-selected={i === active}>
+                <button
+                  type="button"
+                  data-testid="journey-stop-option"
+                  data-kind={c.kind}
+                  disabled={busy}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => pick(c)}
+                  className={cn("flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm", i === active && "bg-accent")}
+                >
+                  <TypeDot type="place" />
+                  <span className="min-w-0 flex-1 truncate">{c.kind === "place" ? c.doc.title : c.title}</span>
+                  {c.kind === "gazetteer" && (
+                    <span className="shrink-0 text-xs text-muted-foreground">
+                      {c.hit.modern_name && c.hit.modern_name !== c.title ? `${c.hit.modern_name} · ` : ""}
+                      {t.journey_stop_new}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+      <p className="text-[11px] text-muted-foreground">{t.gazetteer_hint}</p>
+    </div>
   );
 }
 

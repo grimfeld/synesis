@@ -80,19 +80,35 @@ describe("Tutorial: Map & Journeys", () => {
 
     // 5. Do it once: a new Place looked up in the bundled list lands on the Map.
     cy.tutorialStep(4);
-    cy.tutorialCommand("create.place");
-    cy.get("[data-testid=new-doc-form]").should("contain", "Place");
-    cy.get("[data-testid=gazetteer] input").type("Philippi");
-    cy.get("[data-testid=gazetteer] button").contains(/^Philippi$/).click();
-    cy.get("[data-testid=new-doc-title]").should("have.value", "Philippi");
+    cy.tutorialCommand("create.journey");
+    cy.get("[data-testid=new-doc-title]").type("Paul's first journey");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
-    cy.hubTitle("Philippi");
-    cy.get("[data-testid=hub-map]").should("exist");
-    cy.runCommand("Go to Map");
-    cy.get("[data-testid=map-search]").type("Philippi");
-    markers().should("have.length", 1);
+    cy.hubTitle("Paul's first journey");
+    cy.get("[data-testid=journey-add-stop]").click();
+    // Places the Vault holds come first; a Bible place is created on the pick.
+    const add = (query: string, kind: "place" | "gazetteer", name: string) => {
+      cy.get("[data-testid=journey-stop-input]").type(query);
+      cy.get(`[data-testid=journey-stop-option][data-kind=${kind}]`).contains(name).click();
+      cy.get("[data-testid=journey-stop-input]").should("have.value", "");
+    };
+    add("antioch", "place", "Antioch");
+    add("corinth", "place", "Corinth");
+    add("philippi", "gazetteer", "Philippi");
+    // Philippi came before Corinth: fix the order with the arrows.
+    cy.get("[data-testid=journey-stop]").eq(2).find("button[aria-label='Move earlier']").click();
+    cy.get("[data-testid=journey-stop]").then((rows) => {
+      expect([...rows].map((r) => r.innerText.split("\n")[1])).to.deep.equal(["Antioch", "Philippi", "Corinth"]);
+    });
+    cy.get("[data-testid=journey-stop][data-status=ok]").should("have.length", 3);
+    cy.get("[data-testid=journey-stop-close]").click();
+    cy.get("[data-testid=journey-show-on-map]").click();
+    cy.get("[data-testid=map] .map-route").should("have.length.greaterThan", 0);
     cy.get("[data-testid=map] .map-label").should("contain", "Philippi");
-    cy.get("[data-testid=map-search]").clear();
+    cy.docByTitle("Paul's first journey").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.contain('places: ["[[Antioch]]", "[[Philippi]]", "[[Corinth]]"]');
+      });
+    });
     cy.tutorialDone();
   });
 });

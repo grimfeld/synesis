@@ -165,6 +165,17 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // « Pas encore de coordonnées » under a Stop's name, and the Stop
+      // picker's gazetteer rows carrying a modern name and « Nouveau Lieu ».
+      it("keeps a Journey's Stops and the Stop picker inside the screen", () => {
+        cy.openDoc("Paul's second missionary journey");
+        cy.get("[data-testid=journey-stop][data-status=no_coords]").should("be.visible");
+        cy.get("[data-testid=journey-add-stop]").click();
+        cy.get("[data-testid=journey-stop-input]").type("kadesh");
+        cy.get("[data-testid=journey-stop-option][data-kind=gazetteer]").should("exist");
+        expectNoOverflow();
+      });
+
       // Tutorials are the longest text in the app, in a 390px bottom sheet:
       // the folder-sync ones nest a provider's instructions two levels deep,
       // and French runs half again as long. Settings lists them all for this
