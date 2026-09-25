@@ -81,7 +81,7 @@ export function SettingsView() {
             </CardHeader>
             <CardContent>
               <Select value={s.lang} onValueChange={(v) => s.setLang(v as Lang)}>
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-48" data-testid="settings-language">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

@@ -104,7 +104,10 @@ describe("the bundled Tutorials", () => {
   });
 
   it("name only Commands that exist", () => {
-    const known = new Set(knownCommandIds());
+    // The type table arrives from the engine with a Vault; these are its
+    // creatable types (`DocType::is_creatable`), the ones with a New command.
+    const creatable: DocType[] = ["note", "clipping", "composition", "source", "place", "character", "concept", "event", "journey"];
+    const known = new Set(knownCommandIds(creatable));
     for (const [path, md] of files) for (const id of commandLinks(md)) expect(known.has(id), `${path}: command:${id}`).toBe(true);
   });
 

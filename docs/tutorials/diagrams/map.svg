@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img">
+  <!-- The Map: Places as pins, and a Journey drawn as a route through its Stops in order. -->
+  <path d="M10 120 C 40 90, 70 110, 100 84 S 150 40, 190 58 S 250 30, 310 50 L310 170 L10 170 Z" fill="#6aa27b" fill-opacity="0.14" stroke="#6aa27b" stroke-opacity="0.5" stroke-width="1.5"/>
+  <path d="M60 140 L118 104 L176 120 L236 82 L272 118" fill="none" stroke="#5b7fd1" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="7 4"/>
+  <g fill="#5b7fd1" stroke="#ffffff" stroke-width="2">
+    <circle cx="60" cy="140" r="6"/>
+    <circle cx="118" cy="104" r="6"/>
+    <circle cx="176" cy="120" r="6"/>
+    <circle cx="236" cy="82" r="6"/>
+    <circle cx="272" cy="118" r="6"/>
+  </g>
+  <g fill="#d18b5b">
+    <path d="M150 30 c-8 0 -13 6 -13 12 c0 9 13 22 13 22 s13 -13 13 -22 c0 -6 -5 -12 -13 -12 z"/>
+    <path d="M40 66 c-7 0 -11 5 -11 10 c0 8 11 19 11 19 s11 -11 11 -19 c0 -5 -4 -10 -11 -10 z"/>
+  </g>
+  <g fill="#ffffff"><circle cx="150" cy="42" r="4"/><circle cx="40" cy="76" r="3.5"/></g>
+</svg>

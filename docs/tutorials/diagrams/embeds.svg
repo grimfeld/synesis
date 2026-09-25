@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img">
+  <!-- A Composition showing a Clipping live: the quotation inside is the Clipping itself, with its Source. -->
+  <rect x="16" y="14" width="170" height="152" rx="8" fill="#8b8f97" fill-opacity="0.06" stroke="#8b8f97" stroke-width="1.5"/>
+  <rect x="30" y="28" width="90" height="9" rx="4" fill="#8b8f97" opacity="0.8"/>
+  <g fill="#8b8f97" opacity="0.45">
+    <rect x="30" y="48" width="140" height="6" rx="3"/>
+    <rect x="30" y="60" width="120" height="6" rx="3"/>
+    <rect x="30" y="140" width="130" height="6" rx="3"/>
+    <rect x="30" y="152" width="90" height="6" rx="3"/>
+  </g>
+  <rect x="30" y="76" width="142" height="54" rx="6" fill="#5b7fd1" fill-opacity="0.14" stroke="#5b7fd1" stroke-width="1.5"/>
+  <rect x="38" y="84" width="3" height="38" rx="1.5" fill="#5b7fd1"/>
+  <g fill="#5b7fd1" opacity="0.8">
+    <rect x="48" y="88" width="110" height="5" rx="2.5"/>
+    <rect x="48" y="98" width="96" height="5" rx="2.5"/>
+    <rect x="48" y="112" width="54" height="5" rx="2.5" opacity="0.6"/>
+  </g>
+  <path d="M172 103 C 205 103, 205 72, 224 72" fill="none" stroke="#5b7fd1" stroke-width="1.5" stroke-dasharray="4 3"/>
+  <rect x="224" y="42" width="84" height="60" rx="6" fill="#5b7fd1" fill-opacity="0.1" stroke="#5b7fd1" stroke-width="1.5"/>
+  <g fill="#5b7fd1" opacity="0.8">
+    <rect x="234" y="54" width="64" height="5" rx="2.5"/>
+    <rect x="234" y="64" width="54" height="5" rx="2.5"/>
+    <rect x="234" y="82" width="38" height="5" rx="2.5" opacity="0.6"/>
+  </g>
+  <rect x="236" y="118" width="60" height="44" rx="3" fill="#d18b5b"/>
+  <path d="M266 102 L266 118" stroke="#8b8f97" stroke-width="1.5"/>
+</svg>

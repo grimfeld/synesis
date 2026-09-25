@@ -255,9 +255,9 @@ export function useCommands(): Command[] {
  * Composition, editor commands with an editor), so a Tutorial's
  * `command:` links are checked against this instead (PLAN §22.9).
  */
-export function knownCommandIds(): string[] {
+export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[] {
   return [
-    ...CREATABLE_TYPES.map((type) => `create.${type}`),
+    ...creatable.map((type) => `create.${type}`),
     "create.quick",
     "nav.search",
     "nav.commands",
