@@ -677,6 +677,11 @@ a talk is not only written in the app, it is given from it.
    dismisses it. Reading a verse aloud is part of a Bible talk; losing your
    place mid-talk is this view's worst failure. The Board keeps pan and zoom,
    nothing on it moves.
+   **Amended at build:** the vault holds no Bible text, so a Passage's card
+   shows its reference and what the Vault has written about it, not the verse.
+   Every way out of the card — Open page, a row that opens a document, Create
+   page — is disabled there. The app's global shortcuts are off while the view
+   is open, so the palette and Back cannot act under it either.
 9. **The talk renders fully**: no line shows its markdown, whatever the cursor
    or Source mode. In Live Preview a tap moves the cursor, and the line under
    it would suddenly show `**` and `#` mid-talk.
@@ -696,10 +701,21 @@ a talk is not only written in the app, it is given from it.
     Command**, on the face that was showing (Talk, Split or Board), with the same
     switch in the bar. The talk starts at the top: a talk is given from its
     beginning. Exit (button, Escape, Android back) returns to the tab and place
-    that were showing.
+    that were showing. **Amended at build:** Android back is not handled
+    anywhere in the app yet, so it is left to that later work; the button and
+    Escape exit.
 13. **The screen stays awake** while the view is open: the Wake Lock API where
     the webview has it, a native keep-awake call where it does not. If neither
     is available the bar says so rather than letting the screen sleep silently.
+    **Amended at build:** the Wake Lock API only, for now. The native call needs
+    a Tauri plugin with Android and iOS code that could not be built or tried
+    here; until it lands, a webview without the API (Android's, at least) shows
+    "This screen may go to sleep" in the bar.
+14. **On a phone, Source mode and Delete move behind a "⋯" button** in the
+    page header (added at build). A Composition's header gained Deliver and
+    the lock beside its tabs, and at 390px Delete was pushed off the screen.
+    The two moved are the ones used least while reading; the panel toggle and
+    the lock stay in reach.
 
 ### Build order
 

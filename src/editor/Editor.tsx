@@ -35,6 +35,7 @@ import {
   type EditorEnv,
 } from "./decorations";
 import { livePreview } from "./livePreview";
+import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
 import { EDITOR_COMMANDS, setActiveEditor } from "./active";
 import { toCodeMirrorKey } from "@/lib/keys";
@@ -54,6 +55,21 @@ interface Props {
   autofocus?: boolean;
   /** Raw markdown when true; Live Preview otherwise. */
   sourceMode?: boolean;
+  /** Reading mode: the text cannot change, bar a checkbox (PLAN §23.5). */
+  readOnly?: boolean;
+  /** Locked, may a checkbox still be ticked? Not in the Delivery view (§23.7). */
+  checkboxes?: boolean;
+  /**
+   * Whether this is the editor Commands act on. Not the Delivery view's: it
+   * opens over the page's editor, and unregistering on close would leave the
+   * page with no active editor.
+   */
+  register?: boolean;
+  /**
+   * Prose size in CSS pixels, when not the editor's own: the Delivery view's
+   * adjustable size (PLAN §23.11).
+   */
+  fontSize?: number;
   /** Short bottom padding and full width, for an editor embedded in a page (Hub "About"). */
   compact?: boolean;
   /**
@@ -83,6 +99,10 @@ export function Editor({
   placeholder,
   autofocus,
   sourceMode = false,
+  readOnly = false,
+  checkboxes = true,
+  register = true,
+  fontSize,
   compact = false,
   onReady,
 }: Props) {
@@ -96,6 +116,7 @@ export function Editor({
   const detectTimer = useRef<number | undefined>(undefined);
   const envCompartment = useRef(new Compartment());
   const modeCompartment = useRef(new Compartment());
+  const lockCompartment = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -128,12 +149,15 @@ export function Editor({
       extensions: [
         envCompartment.current.of(envFacet.of(proxyEnv)),
         modeCompartment.current.of(sourceMode ? [] : livePreview),
+        lockCompartment.current.of(readOnly ? lock({ checkboxes }) : []),
         history(),
         drawSelection(),
         EditorView.lineWrapping,
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
-          "&": { fontSize: "15.5px" },
+          // Through variables, so a caller can size the prose from the host
+          // without a second theme racing this one (the Delivery view, §23.11).
+          "&": { fontSize: "var(--editor-size, 15.5px)" },
           ".cm-scroller": {
             fontFamily: "var(--font-prose)",
             lineHeight: "1.65",
@@ -143,7 +167,7 @@ export function Editor({
           ".cm-content": {
             flex: "0 0 auto",
             width: "100%",
-            maxWidth: compact ? "none" : "720px",
+            maxWidth: compact ? "none" : "var(--editor-measure, 720px)",
             margin: "0 auto",
             padding: compact ? "0 20px" : "0 32px",
             caretColor: "var(--foreground)",
@@ -190,12 +214,12 @@ export function Editor({
     });
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
-    setActiveEditor(view);
+    if (register) setActiveEditor(view);
     runDetect(value);
     if (autofocus) view.focus();
     return () => {
       window.clearTimeout(detectTimer.current);
-      setActiveEditor(null);
+      if (register) setActiveEditor(null);
       view.destroy();
       viewRef.current = null;
     };
@@ -211,12 +235,25 @@ export function Editor({
     });
   }, [sourceMode]);
 
-  // External value changes (reload from disk, a restored Version).
+  // Reading mode on and off.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: lockCompartment.current.reconfigure(
+        readOnly ? lock({ checkboxes }) : [],
+      ),
+    });
+  }, [readOnly, checkboxes]);
+
+  // External value changes (reload from disk, a restored Version). Through the
+  // lock: the text changing under a reader is not the reader editing it.
   useEffect(() => {
     const v = viewRef.current;
     if (!v || v.state.doc.toString() === value) return;
     lastValue.current = value;
-    v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: value } });
+    v.dispatch({
+      changes: { from: 0, to: v.state.doc.length, insert: value },
+      annotations: throughLock.of("external"),
+    });
   }, [value, revision]);
 
   useEffect(() => {
@@ -236,5 +273,13 @@ export function Editor({
     });
   }, [onReady]);
 
-  return <div ref={host} />;
+  // A set size also widens the column, in ems, so large type keeps a
+  // readable line rather than a few words.
+  const style = fontSize
+    ? ({
+        "--editor-size": `${fontSize}px`,
+        "--editor-measure": "36em",
+      } as React.CSSProperties)
+    : undefined;
+  return <div ref={host} style={style} />;
 }

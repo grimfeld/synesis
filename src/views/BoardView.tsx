@@ -114,6 +114,8 @@ export function BoardView({
   id,
   docs,
   beside = false,
+  delivering = false,
+  onPeek,
 }: {
   /** The Composition the Board belongs to. */
   id: string;
@@ -127,6 +129,13 @@ export function BoardView({
    * would leave half a window's Board too narrow to fit its content.
    */
   beside?: boolean;
+  /**
+   * In the Delivery view (PLAN §23.7-8): always reading, no mode toggle or
+   * tools, and a card press calls `onPeek` instead of leaving the view.
+   */
+  delivering?: boolean;
+  /** Show a card's document over the view, at a screen point. */
+  onPeek?: (target: string, x: number, y: number) => void;
 }) {
   const s = useStore();
   const { announceBoardSaved } = s;
@@ -150,7 +159,13 @@ export function BoardView({
   // a card hard to pick up, and a `file` node rendered as a button was ignored
   // by the canvas entirely, so it could not be dragged at all. One mode answers
   // both platforms, and touch gets the open gesture the desktop has.
-  const [reading, setReading] = useState(false);
+  //
+  // Reading mode opens the Board for reading too (PLAN §23.6), and the
+  // Delivery view never arranges. The toggle still switches for this visit.
+  const [reading, setReading] = useState(() => delivering || s.readingMode);
+  // Where the last press landed, so a card opened from the keyboard-free
+  // button path can still anchor its preview beside itself.
+  const lastPress = useRef({ x: 0, y: 0 });
   const [editing, setEditing] = useState<string | null>(null);
   const [labelling, setLabelling] = useState<string | null>(null);
   const gesture = useRef<Gesture>({ kind: "none" });
@@ -564,10 +579,17 @@ export function BoardView({
   const openNode = useCallback(
     (n: CanvasNode) => {
       if (n.type !== "file" || !n.file) return;
+      // Delivering, nothing navigates away: the card's document opens over
+      // the view instead (PLAN §23.8). A wikilink names a document by its
+      // path without the extension, whatever its title.
+      if (delivering) {
+        onPeek?.(n.file.replace(/\.md$/i, ""), lastPress.current.x, lastPress.current.y);
+        return;
+      }
       const doc = byPath.get(n.file);
       if (doc) s.navigate({ kind: "doc", id: doc.id });
     },
-    [byPath, s],
+    [byPath, s, delivering, onPeek],
   );
 
   const toggleReading = useCallback(() => {
@@ -643,6 +665,7 @@ export function BoardView({
       className="relative flex min-h-0 flex-1 outline-none"
       data-testid="board-root"
       onPointerDownCapture={(e) => {
+        lastPress.current = { x: e.clientX, y: e.clientY };
         const target = e.target as HTMLElement;
         if (target.closest("input, textarea, button, [contenteditable=true]")) return;
         rootRef.current?.focus({ preventScroll: true });
@@ -849,6 +872,7 @@ export function BoardView({
           data-board-ui
           className="absolute top-3 left-3 flex flex-wrap items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm"
         >
+          {!delivering && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -875,7 +899,8 @@ export function BoardView({
               {reading ? t.board_mode_read_hint : t.board_mode_edit_hint}
             </TooltipContent>
           </Tooltip>
-          <span className="mx-0.5 h-5 w-px bg-border" />
+          )}
+          {!delivering && <span className="mx-0.5 h-5 w-px bg-border" />}
           {!reading && (
             <IconButton
               label={t.board_add_note}
@@ -921,13 +946,15 @@ export function BoardView({
           >
             <ZoomOut />
           </IconButton>
-          <IconButton
-            label={t.board_export}
-            disabled={empty}
-            onClick={() => void exportBoard()}
-          >
-            <Download />
-          </IconButton>
+          {!delivering && (
+            <IconButton
+              label={t.board_export}
+              disabled={empty}
+              onClick={() => void exportBoard()}
+            >
+              <Download />
+            </IconButton>
+          )}
           <span className="px-1 text-xs tabular-nums text-muted-foreground">
             {Math.round(view.zoom * 100)}%
           </span>

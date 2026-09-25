@@ -82,6 +82,12 @@ interface Props {
   onRestore?: (text: string) => void;
   /** Save pending edits before a Version is named. */
   flush?: () => Promise<void>;
+  /**
+   * Reading mode: Properties are fixed, and nothing here writes the body —
+   * no Link on a Linkable name, no Version restore (PLAN §23.5). Everything
+   * that only reads stays.
+   */
+  locked?: boolean;
 }
 
 export function RightPanel({
@@ -95,6 +101,7 @@ export function RightPanel({
   onReveal,
   onRestore,
   flush,
+  locked = false,
 }: Props) {
   const t = useT();
   const id = doc.summary.id;
@@ -161,8 +168,8 @@ export function RightPanel({
         inSheet ? "h-full w-full" : "w-80 shrink-0 border-l",
       )}
     >
-      <Properties doc={doc} fm={fm} onFmChange={onFmChange} />
-      {writing && editorBody != null && onBodyChange && (
+      <Properties doc={doc} fm={fm} onFmChange={onFmChange} locked={locked} />
+      {writing && editorBody != null && onBodyChange && !locked && (
         <Linkables
           items={linkables}
           // Both actions resolve the position the same way, so the words the
@@ -188,7 +195,9 @@ export function RightPanel({
         <Versions
           id={id}
           mtime={doc.summary.mtime}
-          onRestore={onRestore}
+          // A Version can still be read and compared while locked; restoring
+          // it is an edit (PLAN §23.5).
+          onRestore={locked ? undefined : onRestore}
           flush={flush}
         />
       )}
@@ -236,11 +245,14 @@ export function Properties({
   onFmChange,
   inline,
   hide,
+  locked = false,
 }: {
   doc: DocumentPayload;
   fm: string;
   onFmChange: (fm: string) => void;
   inline?: boolean;
+  /** Reading mode: every value shown, none editable (PLAN §23.5). */
+  locked?: boolean;
   /**
    * Properties another part of this screen is editing, left out so the same
    * value is not offered twice.
@@ -273,8 +285,15 @@ export function Properties({
   const newName = adding.trim().replace(/[^\w-]/g, "");
   const knownType = newName ? s.schema.types[newName] : undefined;
   // Not a component defined inline: that would remount every input on each render.
+  // A disabled fieldset turns off every control inside it — inputs, selects,
+  // the type menus — so no widget needs to learn about the lock one by one.
   const body = (
-    <div className={inline ? "grid gap-1.5 sm:grid-cols-2" : "space-y-1.5"}>
+    <fieldset
+      disabled={locked}
+      data-testid="properties"
+      data-locked={locked || undefined}
+      className={inline ? "grid min-w-0 gap-1.5 sm:grid-cols-2" : "min-w-0 space-y-1.5"}
+    >
       <div className="flex items-center gap-2 text-sm">
         <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
           {t.type}
@@ -315,6 +334,7 @@ export function Properties({
             onFmChange={onFmChange}
           />
         ))}
+      {!locked && (
       <form
         className="flex items-center gap-1 pt-1"
         data-testid="add-property"
@@ -367,7 +387,8 @@ export function Properties({
             </Select>
           ))}
       </form>
-    </div>
+      )}
+    </fieldset>
   );
   return inline ? body : <Section title={t.properties}>{body}</Section>;
 }
@@ -1155,7 +1176,8 @@ function Versions({
 }: {
   id: string;
   mtime: number;
-  onRestore: (text: string) => void;
+  /** Absent while locked: the Version can be read, not restored. */
+  onRestore?: (text: string) => void;
   flush?: () => Promise<void>;
 }) {
   const s = useStore();

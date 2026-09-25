@@ -133,6 +133,24 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps the Delivery view's bar inside a phone", () => {
+        // "Réinitialiser", "Quitter" and the timer share one wrapping row.
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=deliver]").click();
+        cy.get("[data-testid=delivery-timer]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=delivery-exit]").click();
+      });
+
+      it("keeps a Composition's header inside a phone in Reading mode", () => {
+        // A Composition's header carries the most controls: the tabs, Deliver
+        // and the lock beside the editor's own.
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=reading-toggle]").click();
+        expectNoOverflow();
+        cy.get("[data-testid=reading-toggle]").click();
+      });
+
       it("keeps a Hub's Events list, Dates included, inside the screen", () => {
         // An Event row carries its Date after the title; a span such as
         // "1034 BCE – 1027 BCE" is the longest row the demo vault produces.

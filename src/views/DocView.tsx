@@ -13,7 +13,11 @@ import {
   ArrowRight,
   CircleAlert,
   Code,
+  Ellipsis,
+  Lock,
+  LockOpen,
   PanelRight,
+  Presentation,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -45,9 +49,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { SplitPanes } from "@/components/SplitPanes";
 import type { DocTab } from "@/lib/store";
 import { splitFits } from "@/lib/split";
+import { toast } from "sonner";
 
 export function DocView({ id }: { id: string }) {
   const s = useStore();
@@ -87,6 +98,31 @@ export function DocView({ id }: { id: string }) {
     setColumnWidth(el.getBoundingClientRect().width);
     return () => ro.disconnect();
   }, [!!d.doc]);
+
+  // Reading mode: a keystroke into a locked page says why nothing happens,
+  // since the lock outlives the session and is easy to forget (PLAN §23.4).
+  // Only printable keys with no field focused: shortcuts and typing into the
+  // palette or a dialog are not attempts to edit the page.
+  const locked = s.readingMode;
+  useEffect(() => {
+    if (!locked || s.delivery) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey || e.key.length !== 1) return;
+      const el = document.activeElement;
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        el instanceof HTMLSelectElement ||
+        (el instanceof HTMLElement && el.isContentEditable) ||
+        document.querySelector("[role=dialog]")
+      ) {
+        return;
+      }
+      toast(t.reading_locked, { id: "reading-locked" });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [locked, s.delivery, t]);
 
   // A phone has no room for a column beside the editor: the panel is a sheet
   // there, and it starts closed so the toggle is the only way in and out.
@@ -171,6 +207,7 @@ export function DocView({ id }: { id: string }) {
         onRename={d.rename}
         fm={d.fm}
         onFmChange={d.onFmChange}
+        locked={locked}
       />
       <div>
         <Editor
@@ -183,8 +220,11 @@ export function DocView({ id }: { id: string }) {
           names={d.names}
           tags={s.tags}
           placeholder={t.empty_doc}
-          autofocus
+          // Not while locked: focus on a read-only editor does nothing but
+          // put a caret where no text can go.
+          autofocus={!locked}
           sourceMode={s.sourceMode}
+          readOnly={locked}
         />
       </div>
     </div>
@@ -195,10 +235,12 @@ export function DocView({ id }: { id: string }) {
       <div ref={columnRef} className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center gap-1 border-b bg-background px-3">
           <SidebarTrigger className="-ml-1" />
-          <Separator
-            orientation="vertical"
-            className="mx-1 data-vertical:h-4 data-vertical:self-center"
-          />
+          {!isMobile && (
+            <Separator
+              orientation="vertical"
+              className="mx-1 data-vertical:h-4 data-vertical:self-center"
+            />
+          )}
           <IconButton
             label={t.back}
             data-testid="doc-back"
@@ -216,7 +258,7 @@ export function DocView({ id }: { id: string }) {
           >
             <ArrowRight />
           </IconButton>
-          <TypeDot type={sum.type} className="mx-1.5" />
+          {!isMobile && <TypeDot type={sum.type} className="mx-1.5" />}
           <span
             className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
             title={sum.path}
@@ -272,19 +314,41 @@ export function DocView({ id }: { id: string }) {
               ))}
             </div>
           )}
+          {hasBoard && (
+            <IconButton
+              label={t.deliver}
+              data-testid="deliver"
+              onClick={() => s.openDelivery(id)}
+            >
+              <Presentation />
+            </IconButton>
+          )}
+          {/* The Device's lock on every Writing (PLAN §23). Its state is always
+              on show, since it outlives the session. */}
+          <IconButton
+            label={locked ? t.reading_unlock : t.reading_mode}
+            data-testid="reading-toggle"
+            aria-pressed={locked}
+            className={cn(locked && "bg-accent text-accent-foreground")}
+            onClick={() => s.setReadingMode(!locked)}
+          >
+            {locked ? <Lock /> : <LockOpen />}
+          </IconButton>
           {/* Both act on the editor, which the Board tab replaces; beside the
               Board it is still there, so they stay (PLAN §22.2). */}
           {!showBoard && (
             <>
-              <IconButton
-                label={s.sourceMode ? t.live_preview : t.source_mode}
-                shortcut={formatShortcut("Mod+E").join("")}
-                aria-pressed={s.sourceMode}
-                className={cn(s.sourceMode && "bg-accent text-accent-foreground")}
-                onClick={() => s.setSourceMode(!s.sourceMode)}
-              >
-                <Code />
-              </IconButton>
+              {!isMobile && (
+                <IconButton
+                  label={s.sourceMode ? t.live_preview : t.source_mode}
+                  shortcut={formatShortcut("Mod+E").join("")}
+                  aria-pressed={s.sourceMode}
+                  className={cn(s.sourceMode && "bg-accent text-accent-foreground")}
+                  onClick={() => s.setSourceMode(!s.sourceMode)}
+                >
+                  <Code />
+                </IconButton>
+              )}
               <IconButton
                 label={t.toggle_panel}
                 data-testid="toggle-panel"
@@ -296,13 +360,47 @@ export function DocView({ id }: { id: string }) {
               </IconButton>
             </>
           )}
-          <IconButton
-            label={t.delete}
-            className="text-muted-foreground hover:text-destructive"
-            onClick={() => s.setDialog({ kind: "delete", id })}
-          >
-            <Trash2 />
-          </IconButton>
+          {isMobile ? (
+            // A phone's header cannot hold every control once a Composition
+            // adds its tabs, Deliver and the lock (PLAN §23): the two used
+            // least while reading move behind one button.
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={t.more}
+                  data-testid="doc-more"
+                >
+                  <Ellipsis />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {!showBoard && (
+                  <DropdownMenuItem onSelect={() => s.setSourceMode(!s.sourceMode)}>
+                    <Code />
+                    {s.sourceMode ? t.live_preview : t.source_mode}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  variant="destructive"
+                  onSelect={() => s.setDialog({ kind: "delete", id })}
+                >
+                  <Trash2 />
+                  {t.delete}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <IconButton
+              label={t.delete}
+              className="text-muted-foreground hover:text-destructive"
+              onClick={() => s.setDialog({ kind: "delete", id })}
+            >
+              <Trash2 />
+            </IconButton>
+          )}
         </header>
         {d.external && (
           <Alert className="mx-auto mt-3 w-[min(720px,calc(100%-2rem))]">
@@ -349,6 +447,7 @@ export function DocView({ id }: { id: string }) {
               onReveal={(from, to) => selectRange.current?.(from, to)}
               onRestore={d.replaceText}
               flush={d.flush}
+              locked={locked}
             />
           </SheetContent>
         </Sheet>
@@ -364,6 +463,7 @@ export function DocView({ id }: { id: string }) {
             onReveal={(from, to) => selectRange.current?.(from, to)}
             onRestore={d.replaceText}
             flush={d.flush}
+            locked={locked}
           />
         )
       )}

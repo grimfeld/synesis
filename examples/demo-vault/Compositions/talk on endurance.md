@@ -4,6 +4,7 @@ type: composition
 title: "Talk on endurance"
 created: "2026-08-20T19:00:00"
 occasion: "Public talk"
+duration: 25
 date: "2026-09-20"
 tags: ["endurance"]
 ---

@@ -11,6 +11,9 @@ import {
   CalendarRange,
   Code,
   Columns2,
+  Lock,
+  LockOpen,
+  Presentation,
   Dices,
   FilePlus,
   House,
@@ -26,7 +29,7 @@ import {
   Waypoints,
   Zap,
 } from "lucide-react";
-import { CREATABLE_TYPES, type DocType } from "@/lib/api";
+import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import {
@@ -191,6 +194,15 @@ export function useCommands(): Command[] {
           keywords: "split side by side board talk both columns pane",
           run: () => s.setDocTab(s.docTab === "split" ? "talk" : "split"),
         });
+        // The Delivery view (PLAN §23.12).
+        list.push({
+          id: "doc.deliver",
+          title: t.deliver_command,
+          group: "navigate",
+          icon: Presentation,
+          keywords: "deliver present presentation talk give timer lectern full screen",
+          run: () => s.openDelivery(doc.id),
+        });
       }
       // The capture box on a Source Hub. Reaching it by hand means scrolling
       // back up past a long list of Clippings, which is what the box exists to
@@ -212,7 +224,24 @@ export function useCommands(): Command[] {
       }
     }
     // ---- editor
-    if (hasEditor) {
+    // Reading mode is the Device's lock on every Writing (PLAN §23), so it is
+    // offered wherever one is open.
+    if (s.view.kind === "doc") {
+      const doc = s.docsById.get(s.view.id);
+      if (doc && WRITING_TYPES.includes(doc.type)) {
+        list.push({
+          id: "editor.reading",
+          title: s.readingMode ? t.reading_unlock : t.reading_mode,
+          group: "editor",
+          icon: s.readingMode ? LockOpen : Lock,
+          keywords: "reading read only lock locked keyboard edit unlock",
+          run: () => s.setReadingMode(!s.readingMode),
+        });
+      }
+    }
+    // Editing Commands are not offered on a locked page: the lock would drop
+    // their change anyway, and a Command that does nothing is a lie.
+    if (hasEditor && !s.readingMode) {
       list.push({
         id: "editor.source",
         title: s.sourceMode ? t.live_preview : t.source_mode,

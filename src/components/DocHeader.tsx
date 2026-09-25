@@ -22,10 +22,12 @@ interface Props {
    * editor below, so repeating them here would say the same thing twice.
    */
   citation?: string;
+  /** Reading mode: the title and Tags are fixed (PLAN §23.5). */
+  locked?: boolean;
 }
 
 /** Title heading and Tags row above the body of a Writing page. */
-export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange, citation }: Props) {
+export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange, citation, locked = false }: Props) {
   return (
     <div className="mx-auto w-full max-w-[720px] px-8 pt-8">
       {citation !== undefined ? (
@@ -33,9 +35,9 @@ export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange,
           {citation}
         </p>
       ) : (
-        <TitleEditor title={title} readOnly={readOnlyTitle} onRename={onRename} />
+        <TitleEditor title={title} readOnly={readOnlyTitle || locked} onRename={onRename} />
       )}
-      <TagsRow doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TagsRow doc={doc} fm={fm} onFmChange={onFmChange} readOnly={locked} />
     </div>
   );
 }
@@ -68,7 +70,7 @@ export function TitleEditor({ title, readOnly, onRename, className }: { title: s
     await onRename(v);
   };
   const cls = cn("font-prose w-full bg-transparent text-3xl leading-tight font-bold tracking-tight outline-none", className);
-  if (readOnly) return <h1 className={cls}>{title}</h1>;
+  if (readOnly) return <h1 data-testid="doc-title-fixed" className={cls}>{title}</h1>;
   return (
     <textarea
       ref={box}
@@ -118,10 +120,12 @@ interface ChipsProps {
   /** Normalise typed input (tags: spaces to dashes). */
   normalize?: (s: string) => string;
   className?: string;
+  /** Chips without remove or add, in Reading mode (PLAN §23.5). */
+  readOnly?: boolean;
 }
 
 /** An editable list property shown as chips: tags, aliases. */
-export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, linkable, suggestions = [], normalize, className }: ChipsProps) {
+export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, linkable, suggestions = [], normalize, className, readOnly = false }: ChipsProps) {
   const s = useStore();
   const t = useT();
   const values = useMemo(() => readList(doc.frontmatter[field]), [doc.frontmatter, field]);
@@ -161,12 +165,14 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
               {v}
             </span>
           )}
-          <button type="button" className="rounded-sm p-0.5 text-muted-foreground opacity-60 hover:bg-background hover:text-foreground hover:opacity-100" aria-label={`${t.delete} ${prefix}${v}`} onClick={() => write(values.filter((x) => x !== v))}>
-            <X className="size-3" />
-          </button>
+          {!readOnly && (
+            <button type="button" className="rounded-sm p-0.5 text-muted-foreground opacity-60 hover:bg-background hover:text-foreground hover:opacity-100" aria-label={`${t.delete} ${prefix}${v}`} onClick={() => write(values.filter((x) => x !== v))}>
+              <X className="size-3" />
+            </button>
+          )}
         </Badge>
       ))}
-      {adding ? (
+      {readOnly ? null : adding ? (
         <div className="relative">
           <input
             ref={inputRef}
@@ -208,9 +214,9 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
   );
 }
 
-export function TagsRow({ doc, fm, onFmChange, className }: { doc: DocumentPayload; fm: string; onFmChange: (fm: string) => void; className?: string }) {
+export function TagsRow({ doc, fm, onFmChange, className, readOnly }: { doc: DocumentPayload; fm: string; onFmChange: (fm: string) => void; className?: string; readOnly?: boolean }) {
   const s = useStore();
   const t = useT();
   const suggestions = useMemo(() => s.tags.map((x) => ({ value: x.tag, count: x.count })), [s.tags]);
-  return <ChipsRow doc={doc} fm={fm} onFmChange={onFmChange} field="tags" prefix="#" addLabel={t.add_tag} linkable suggestions={suggestions} normalize={(x) => x.replace(/\s+/g, "-")} className={cn("mt-2", className)} />;
+  return <ChipsRow doc={doc} fm={fm} onFmChange={onFmChange} field="tags" prefix="#" addLabel={t.add_tag} linkable suggestions={suggestions} normalize={(x) => x.replace(/\s+/g, "-")} className={cn("mt-2", className)} readOnly={readOnly} />;
 }

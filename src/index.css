@@ -249,7 +249,8 @@
 .thin-scroll { scrollbar-width: thin; }
 
 /* ------------------------------------------------------------------ editor */
-.cm-editor { height: auto; font-size: 15.5px; line-height: 1.65; background: transparent; }
+/* --editor-size: the Delivery view sizes its prose from the host (PLAN §23.11). */
+.cm-editor { height: auto; font-size: var(--editor-size, 15.5px); line-height: 1.65; background: transparent; }
 .cm-editor.cm-focused { outline: none; }
 .cm-line { padding: 0; }
 .cm-gutters { display: none; }
