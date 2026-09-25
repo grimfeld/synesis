@@ -21,6 +21,19 @@ describe("Editor (Writing page)", () => {
       .should("not.contain", "**");
   });
 
+  it("goes Back and Forward with Alt+arrows while the editor has focus", function () {
+    // Off macOS only: there Option+arrow is word motion in every text field,
+    // and the editor keeps it.
+    if (Cypress.platform === "darwin") this.skip();
+    cy.openDoc("Talk on endurance");
+    cy.openDoc("Endurance in trials");
+    // CodeMirror binds Alt+arrows to its own motion; the app's must win.
+    cy.get(".cm-content").click().type("{alt}{leftarrow}");
+    cy.get("[data-testid=doc-title]").should("have.value", "Talk on endurance");
+    cy.get(".cm-content").click().type("{alt}{rightarrow}");
+    cy.get("[data-testid=doc-title]").should("have.value", "Endurance in trials");
+  });
+
   it("toggles Source mode with Ctrl+E and the header button", () => {
     cy.get("body").type("{ctrl}e");
     cy.get(".cm-line").contains("## Cross-references").should("exist");
