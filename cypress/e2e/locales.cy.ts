@@ -21,7 +21,7 @@ describe("Locale layout", () => {
       it("keeps Settings inside its cards on a phone", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=nav-settings]").click();
-        cy.get("[data-testid=settings-sync]").should("be.visible");
+        cy.get("[data-testid=settings-sync]").scrollIntoView().should("be.visible");
         expectNoOverflow();
       });
 
@@ -43,6 +43,20 @@ describe("Locale layout", () => {
         cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
         cy.get("[data-testid=date-input-born]").should("be.visible");
         expectNoOverflow();
+      });
+
+      // The Skin editor packs colour rows, sliders and font pickers with
+      // long French labels ("Bordures des champs", "Taille d'écriture").
+      it("keeps the Skin editor inside its card on a phone", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-settings]").click();
+        cy.get("[data-testid=appearance-duplicate]").click();
+        cy.get("[data-testid=appearance-advanced-toggle]").click();
+        cy.get("[data-testid='appearance-token-line.input']").should("be.visible");
+        expectNoOverflow();
+        cy.screenshot(`appearance-${lang}-phone`, { capture: "fullPage" });
+        cy.get("[data-testid=appearance-delete]").click();
+        cy.get("[data-testid=appearance-delete-confirm]").click();
       });
 
       it("keeps the Leave dialog inside the screen", () => {

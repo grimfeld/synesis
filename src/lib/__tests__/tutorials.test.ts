@@ -1,4 +1,4 @@
-// Tutorials (PLAN §24): every one in every language, in the one shape, naming
+// Tutorials (PLAN §25): every one in every language, in the one shape, naming
 // only Commands and pictures that exist, and listed where the views say.
 import { describe, expect, it } from "vitest";
 import { knownCommandIds } from "@/lib/commands";

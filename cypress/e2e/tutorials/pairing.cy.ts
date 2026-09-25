@@ -1,6 +1,6 @@
 // Walks the Pairing Tutorial (docs/tutorials/pairing.en.md) as far as one
 // Device can: showing the Invite and reading the list of Devices. Joining
-// needs a second Device, so the last step is only marked done (PLAN §24.13);
+// needs a second Device, so the last step is only marked done (PLAN §25.13);
 // cypress/e2e/pairing.cy.ts covers the approval dialog.
 describe("Tutorial: Pairing", () => {
   beforeEach(() => cy.openApp());

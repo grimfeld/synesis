@@ -2,6 +2,7 @@
 // crates/engine and src-tauri/src/lib.rs. The UI never touches files.
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { AppearanceMode, Skin } from "./skin";
 
 export type DocType =
   | "note"
@@ -479,6 +480,15 @@ export interface Settings {
   map_books: number[];
   /** Map: hide Places nothing mentions. */
   map_mentioned_only: boolean;
+  /** This Device's side of the Vault's Skin (PLAN §24.5). */
+  appearance_mode: AppearanceMode;
+  /** This Device's Text scale, 1 = the Skin's own sizes. */
+  text_scale: number;
+}
+
+/** What the Vault wears (ADR 0017): a Skin id, or null for the default. */
+export interface Appearance {
+  skin: string | null;
 }
 
 export interface PairingMember {
@@ -504,7 +514,9 @@ export type PairingEvent =
   | { kind: "peer"; node: string; connected: boolean }
   | { kind: "synced"; files: number }
   | { kind: "membership" }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  /** Config files a peer delivered (ADR 0016), relative to `.bible-study/`. */
+  | { kind: "config"; names: string[] };
 
 export type SyncMethod =
   "pairing" | "icloud" | "syncthing" | "provider" | "none";
@@ -684,6 +696,18 @@ export const api = {
     invoke<void>("set_background_sync", { enabled }),
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> =>
     listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
+  setDeviceAppearance: (mode: AppearanceMode, textScale: number) =>
+    invoke<void>("set_device_appearance", { mode, textScale }),
+  skins: () => invoke<Skin[]>("skins"),
+  saveSkin: (skin: Skin) => invoke<Skin>("save_skin", { skin }),
+  deleteSkin: (id: string) => invoke<void>("delete_skin", { id }),
+  readSkinFile: (path: string) => invoke<Skin>("read_skin_file", { path }),
+  exportSkin: (skin: Skin, path: string) => invoke<void>("export_skin", { skin, path }),
+  appearance: () => invoke<Appearance>("appearance"),
+  setAppearance: (appearance: Appearance) => invoke<void>("set_appearance", { appearance }),
+  /** Config files another Device delivered (ADR 0016), relative to `.bible-study/`. */
+  onConfigChanged: (cb: (names: string[]) => void): Promise<UnlistenFn> =>
+    listen<string[]>("config:changed", (e) => cb(e.payload)),
   setGraphLevel: (level: GraphLevel) =>
     invoke<void>("set_graph_level", { level }),
   setTimelineFilters: (hiddenTypes: DocType[], inView: boolean) =>

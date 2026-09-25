@@ -29,7 +29,7 @@ interface Props {
 /** Title heading and Tags row above the body of a Writing page. */
 export function DocHeader({ doc, title, readOnlyTitle, onRename, fm, onFmChange, citation, locked = false }: Props) {
   return (
-    <div className="mx-auto w-full max-w-[720px] px-8 pt-8">
+    <div className="mx-auto w-full max-w-(--prose-width) px-8 pt-8">
       {citation !== undefined ? (
         <p className="font-prose text-sm text-muted-foreground" data-testid="doc-citation">
           {citation}

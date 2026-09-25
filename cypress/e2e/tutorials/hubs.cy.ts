@@ -1,6 +1,6 @@
 // Walks the Hubs & Backlinks Tutorial (docs/tutorials/hubs.en.md) step by step
 // on the demo vault, so a change to Hubs that outdates the Tutorial fails here
-// (PLAN §24.13).
+// (PLAN §25.13).
 describe("Tutorial: Hubs & Backlinks", () => {
   beforeEach(() => cy.openApp());
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { LangContext } from "./i18n";
 import { StoreProvider, useStore } from "./lib/store";
+import { AppearanceProvider } from "./lib/appearance";
 import { useCommands } from "./lib/commands";
 import { matchShortcut } from "./lib/keys";
 import { AppSidebar } from "./components/AppSidebar";
@@ -126,7 +127,7 @@ function Shell() {
       <AppSidebar />
       <SidebarInset className="h-full min-h-0 overflow-hidden">
         {/* The Tutorial panel docks beside whatever view is showing and
-            outlives navigation (PLAN §24.6). */}
+            outlives navigation (PLAN §25.6). */}
         <div className="flex h-full min-h-0">
           <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
           <TutorialPanel />
@@ -155,11 +156,13 @@ function LangBridge() {
   const s = useStore();
   return (
     <LangContext.Provider value={s.lang}>
-      <TooltipProvider delayDuration={400}>
-        <TutorialProvider>
-          <Shell />
-        </TutorialProvider>
-      </TooltipProvider>
+      <AppearanceProvider>
+        <TooltipProvider delayDuration={400}>
+          <TutorialProvider>
+            <Shell />
+          </TutorialProvider>
+        </TooltipProvider>
+      </AppearanceProvider>
     </LangContext.Provider>
   );
 }

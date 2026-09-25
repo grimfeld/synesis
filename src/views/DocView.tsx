@@ -163,7 +163,7 @@ export function DocView({ id }: { id: string }) {
           <SidebarTrigger className="-ml-1" />
           <Skeleton className="h-4 w-48" />
         </header>
-        <div className="mx-auto w-full max-w-[720px] space-y-3 px-8 py-8">
+        <div className="mx-auto w-full max-w-(--prose-width) space-y-3 px-8 py-8">
           <Skeleton className="h-8 w-1/2" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />
@@ -182,7 +182,7 @@ export function DocView({ id }: { id: string }) {
   const split = hasBoard && s.docTab === "split" && canSplit;
   const showBoard = hasBoard && s.docTab === "board";
   // The editor's Tutorials, or the Board's while the Board is all that shows
-  // (PLAN §24.1). On a phone they sit in the header's More menu.
+  // (PLAN §25.1). On a phone they sit in the header's More menu.
   const tutorialPlace: TutorialPlace = showBoard ? { kind: "board" } : { kind: "editor", type: sum.type };
   const tutorialIdsHere = tutorialsFor(tutorialPlace);
   const openTutorials = tutorialIdsHere.length

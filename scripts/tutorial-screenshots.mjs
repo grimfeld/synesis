@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Screenshots for Tutorials in "screenshots" mode (PLAN §24.12, on trial).
+// Screenshots for Tutorials in "screenshots" mode (PLAN §25.12, on trial).
 //
 // Drives the web test build (dist-web: the engine as WebAssembly on the demo
 // vault) in headless Chromium and writes one WebP per picture, language and

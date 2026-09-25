@@ -1,6 +1,6 @@
 // Walks the Compositions & Embeds Tutorial (docs/tutorials/compositions.en.md)
 // step by step, doing what each step says, so a change to Compositions or
-// Embeds that outdates the Tutorial fails here (PLAN §24.13).
+// Embeds that outdates the Tutorial fails here (PLAN §25.13).
 describe("Tutorial: Compositions & Embeds", () => {
   beforeEach(() => cy.openApp());
 

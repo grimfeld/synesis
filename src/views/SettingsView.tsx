@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { PairingPanel } from "@/components/Pairing";
+import { AppearanceCard } from "@/components/AppearanceCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,7 +59,7 @@ export function SettingsView() {
     setEvicted(await api.forgetDevice(d.id));
   };
   const method = s.settings?.sync_method ?? null;
-  // The folder-sync Tutorials the "?" offers are this Device's (PLAN §24.10).
+  // The folder-sync Tutorials the "?" offers are this Device's (PLAN §25.10).
   const { data: locations } = useQuery<SyncLocations>({ key: ["locations"], deps: { none: true }, fetch: () => api.syncLocations() });
   const deviceKind = locations ? platformToKind(locations.platform) : undefined;
   const mobile = /Android|iPhone|iPad/.test(navigator.userAgent);
@@ -91,13 +92,14 @@ export function SettingsView() {
               </Select>
             </CardContent>
           </Card>
-          <Card data-testid="settings-appearance">
+          <AppearanceCard />
+          {/* On trial (PLAN §25.12): which pictures Tutorials show. */}
+          <Card data-testid="settings-tutorial-images">
             <CardHeader>
-              <CardTitle>{t.appearance}</CardTitle>
+              <CardTitle>{t.tutorials.images_title}</CardTitle>
+              <CardDescription>{t.tutorials.images_body}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-2">
-              <div className="text-sm font-medium">{t.tutorials.images_title}</div>
-              <p className="text-xs text-muted-foreground">{t.tutorials.images_body}</p>
+            <CardContent>
               <Select value={tut.imageMode} onValueChange={(v) => tut.setImageMode(v as ImageMode)}>
                 <SelectTrigger className="w-48 max-w-full" data-testid="tutorial-image-mode">
                   <SelectValue />

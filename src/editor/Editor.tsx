@@ -156,18 +156,19 @@ export function Editor({
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
           // Through variables, so a caller can size the prose from the host
-          // without a second theme racing this one (the Delivery view, §23.11).
-          "&": { fontSize: "var(--editor-size, 15.5px)" },
+          // without a second theme racing this one (the Delivery view, §23.11);
+          // otherwise the Skin's size, which the Text scale reaches (§24.4).
+          "&": { fontSize: "var(--editor-size, calc(0.96875rem * var(--prose-scale)))" },
           ".cm-scroller": {
-            fontFamily: "var(--font-prose)",
-            lineHeight: "1.65",
+            fontFamily: "var(--font-prose-stack)",
+            lineHeight: "var(--prose-line-height)",
             overflow: "visible",
             padding: compact ? "14px 0 18px" : "12px 0 40vh",
           },
           ".cm-content": {
             flex: "0 0 auto",
             width: "100%",
-            maxWidth: compact ? "none" : "var(--editor-measure, 720px)",
+            maxWidth: compact ? "none" : "var(--editor-measure, var(--prose-width))",
             margin: "0 auto",
             padding: compact ? "0 20px" : "0 32px",
             caretColor: "var(--foreground)",

@@ -5,6 +5,7 @@
 pub mod api;
 pub mod attachments;
 pub mod canvas;
+pub mod config;
 pub mod dates;
 pub mod document;
 pub mod excerpt;
@@ -16,6 +17,7 @@ pub mod parser;
 pub mod properties;
 pub mod query;
 pub mod scripture;
+pub mod skin;
 pub mod sync;
 #[cfg(feature = "p2p")]
 pub mod p2p;

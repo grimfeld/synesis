@@ -24,12 +24,12 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 - `npm run typecheck` — typecheck the UI.
 - `npm run build:web` — build the web test build into `dist-web/` (fetches the wasm32-wasip1 target and wasi-sdk into `target/` on first run). Vercel runs this on every push and gives each branch a preview URL (`vercel.json`). `npm run dev:web` serves it with hot reload for the UI; rerun it after engine changes.
 - `npm run test:unit` — Vitest unit tests for pure TypeScript in `src/lib` (`src/**/*.test.ts`, jsdom, ~1s). Put logic that needs no engine here rather than in Cypress.
-- `npm run tutorials:screenshots` — regenerate the Tutorial screenshots (`docs/tutorials/screenshots/`) from `dist-web/`; run `npm run build:web` first. Only while the pictures trial lasts (PLAN §24.12).
+- `npm run tutorials:screenshots` — regenerate the Tutorial screenshots (`docs/tutorials/screenshots/`) from `dist-web/`; run `npm run build:web` first. Only while the pictures trial lasts (PLAN §25.12).
 - `npm run test:e2e` — Cypress UI end-to-end suite. Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge and reopens your vault afterwards. Each test reloads the page through `cy.openApp()`; that reload is cheap (measured: an in-place reset via the palette was slower), the time goes into the tests' own UI steps. Run one spec while iterating: `npx cypress run --spec cypress/e2e/editor.cy.ts`. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
 
 ## Tutorials
 
-Every feature has a Tutorial (PLAN §24): `docs/tutorials/<id>.<lang>.md`, in every language, listed by the views in `tutorialsFor` (`src/lib/tutorials.ts`) and walked by `cypress/e2e/tutorials/<id>.cy.ts`. When you add a feature, add its Tutorial; when you change how one behaves, reread its Tutorial and walk. The shape is checked by `npm run test:unit`: `# Title`, intro, exactly one numbered list of steps (the last is "Try it once", done for real in the user's Vault), then reference. Name actions as Command links, `[New Note](command:create.note)`, never as hand-written labels or shortcuts.
+Every feature has a Tutorial (PLAN §25): `docs/tutorials/<id>.<lang>.md`, in every language, listed by the views in `tutorialsFor` (`src/lib/tutorials.ts`) and walked by `cypress/e2e/tutorials/<id>.cy.ts`. When you add a feature, add its Tutorial; when you change how one behaves, reread its Tutorial and walk. The shape is checked by `npm run test:unit`: `# Title`, intro, exactly one numbered list of steps (the last is "Try it once", done for real in the user's Vault), then reference. Name actions as Command links, `[New Note](command:create.note)`, never as hand-written labels or shortcuts.
 
 ## Locales
 

@@ -283,7 +283,7 @@ export function useCommands(): Command[] {
         });
       }
     }
-    // ---- help: every Tutorial, by its title in the app's language (PLAN §24.1).
+    // ---- help: every Tutorial, by its title in the app's language (PLAN §25.1).
     for (const id of tutorialIds()) {
       const tut = tutorial(id, s.lang);
       if (!tut) continue;
@@ -304,7 +304,7 @@ export function useCommands(): Command[] {
  * Every Command id the registry can hold, whatever the current view. The
  * registry itself only lists what applies now (the Board toggle on a
  * Composition, editor commands with an editor), so a Tutorial's
- * `command:` links are checked against this instead (PLAN §24.9).
+ * `command:` links are checked against this instead (PLAN §25.9).
  */
 export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[] {
   return [

@@ -1,6 +1,6 @@
 // Walks the folder-sync Tutorials (docs/tutorials/sync-<method>.<kind>.en.md)
 // that Settings' "?" lists for this machine's Device kind (on Linux CI:
-// sync-syncthing.linux and sync-provider.linux), step by step (PLAN §24.13).
+// sync-syncthing.linux and sync-provider.linux), step by step (PLAN §25.13).
 // Syncing needs a second device and a third-party tool, so the walk checks
 // what one machine can: every step is reachable, every Command link in the
 // steps is live, and the do-it-once step's Quick capture makes the test Note.

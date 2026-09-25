@@ -1,6 +1,6 @@
 // Walks the Versions Tutorial (docs/tutorials/versions.en.md) step by step on
 // the demo vault's "Talk on endurance", so a change to Versions that outdates
-// the Tutorial fails here (PLAN §24.13).
+// the Tutorial fails here (PLAN §25.13).
 describe("Tutorial: Versions", () => {
   beforeEach(() => cy.openApp());
 

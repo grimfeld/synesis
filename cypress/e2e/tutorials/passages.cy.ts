@@ -1,7 +1,7 @@
 // Walks the Passages Tutorial (docs/tutorials/passages.en.md) step by step,
 // doing what each step says, so a change to Passage detection, the hover card
 // or the Open a Passage dialog that outdates the Tutorial fails here
-// (PLAN §24.13).
+// (PLAN §25.13).
 describe("Tutorial: Passages", () => {
   beforeEach(() => cy.openApp());
 
