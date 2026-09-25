@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { PairingPanel } from "@/components/Pairing";
+import { AppearanceCard } from "@/components/AppearanceCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -84,6 +85,7 @@ export function SettingsView() {
               </Select>
             </CardContent>
           </Card>
+          <AppearanceCard />
           <Card>
             <CardHeader>
               <CardTitle>{t.vault}</CardTitle>

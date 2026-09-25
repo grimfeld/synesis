@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { MapPin, Plus, Search } from "lucide-react";
 import {
@@ -166,6 +166,14 @@ export function MapView() {
     };
   }, []);
 
+  // Markers and routes carry resolved colours: redraw when the Skin changes.
+  const [skinTick, setSkinTick] = useState(0);
+  useEffect(() => {
+    const on = () => setSkinTick((n) => n + 1);
+    window.addEventListener("skin:applied", on);
+    return () => window.removeEventListener("skin:applied", on);
+  }, []);
+
   useEffect(() => {
     const m = map.current;
     const g = layer.current;
@@ -223,7 +231,7 @@ export function MapView() {
       fitted.current = key;
       m.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 9 });
     }
-  }, [shown, routes, routeColorOf, numbersOf]);
+  }, [shown, routes, routeColorOf, numbersOf, skinTick]);
 
   return (
     <div className="flex h-full flex-col">

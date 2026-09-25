@@ -42,7 +42,7 @@ pub struct Typography {
     /// Unitless, as CSS `line-height`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_height: Option<f64>,
-    /// Width of the writing column, in `ch`.
+    /// Width of the writing column, in CSS px at 100% Text scale (720 by default).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub line_width: Option<f64>,
     /// Prose size relative to the default (1 = unchanged). The Device's Text
