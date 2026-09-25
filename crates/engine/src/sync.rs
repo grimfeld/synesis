@@ -62,7 +62,10 @@ pub fn this_device() -> (String, String) {
 
 fn this_device_card() -> DeviceCard {
     let os = std::env::consts::OS;
+    #[cfg(not(target_os = "wasi"))]
     let host = hostname::get().ok().and_then(|h| h.into_string().ok());
+    #[cfg(target_os = "wasi")]
+    let host = None;
     DeviceCard { name: device_name(host, product_name(), os), platform: os.to_string() }
 }
 

@@ -39,3 +39,28 @@ jobs:
       - run: npm run build
       - run: cargo test -p engine
       - run: cargo check -p synesis
+
+  web:
+    name: Web test build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: web
+
+      - run: npm ci --no-audit --no-fund
+        env:
+          CYPRESS_INSTALL_BINARY: 0
+      - run: npm run build:web

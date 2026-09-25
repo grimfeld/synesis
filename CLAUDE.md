@@ -12,7 +12,8 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 ## Layout
 
 - `crates/engine` — Rust library: versification, book names, Passage parser, document parser, SQLite index, vault.
-- `src-tauri` — Tauri shell exposing engine commands.
+- `src-tauri` — Tauri shell exposing engine commands. Command logic that is not Tauri-specific lives in `engine::api`, so the web build shares it.
+- `crates/web` — the web test build: the engine compiled to `wasm32-wasip1` behind one `invoke` export, loaded by `src/lib/webengine.ts` on an in-memory copy of `examples/demo-vault`. Pairing, native dialogs and network commands answer with an error. Test-only; never shipped in the app.
 - `src` — React UI. `src/editor` is CodeMirror, `src/views` are whole-pane views, `src/i18n` are UI strings (en, fr).
 
 ## Commands
@@ -21,6 +22,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 - `npm run tauri dev` — run the desktop app.
 - `npm run icons:mobile` — after `tauri android init` / `tauri ios init`, copy the app icons from `src-tauri/icons/{android,ios}` into the generated project (the templates ship Tauri's default icon). The release workflow does this.
 - `npm run typecheck` — typecheck the UI.
+- `npm run build:web` — build the web test build into `dist-web/` (fetches the wasm32-wasip1 target and wasi-sdk into `target/` on first run). Vercel runs this on every push and gives each branch a preview URL (`vercel.json`). `npm run dev:web` serves it with hot reload for the UI; rerun it after engine changes.
 - `npm run test:unit` — Vitest unit tests for pure TypeScript in `src/lib` (`src/**/*.test.ts`, jsdom, ~1s). Put logic that needs no engine here rather than in Cypress.
 - `npm run test:e2e` — Cypress UI end-to-end suite. Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge and reopens your vault afterwards. Each test reloads the page through `cy.openApp()`; that reload is cheap (measured: an in-place reset via the palette was slower), the time goes into the tests' own UI steps. Run one spec while iterating: `npx cypress run --spec cypress/e2e/editor.cy.ts`. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
 
