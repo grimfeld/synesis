@@ -1,4 +1,4 @@
-//! Skins (PLAN §22, ADR 0017): named looks for the app, kept in the Vault at
+//! Skins (PLAN §24, ADR 0017): named looks for the app, kept in the Vault at
 //! `.bible-study/skins/<name>.json`, with the one the Vault wears named in
 //! `.bible-study/appearance.json`. Both are config files, so Pairing carries
 //! them (ADR 0016).

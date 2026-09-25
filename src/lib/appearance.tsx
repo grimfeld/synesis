@@ -1,4 +1,4 @@
-// Appearance (PLAN §22): which Skin the app wears and which side of it shows,
+// Appearance (PLAN §24): which Skin the app wears and which side of it shows,
 // applied as inline CSS variables on <html> over the built-in palette in
 // index.css. Skins and the Vault's choice come from the engine (ADR 0017);
 // the Appearance mode and Text scale are this Device's settings.

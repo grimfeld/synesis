@@ -1,4 +1,4 @@
-// Skins (PLAN §22): colour math and how a Skin side becomes CSS variables.
+// Skins (PLAN §24): colour math and how a Skin side becomes CSS variables.
 // The base palette is passed in, so these run without a browser.
 import { describe, expect, it } from "vitest";
 import { contrast, ensureContrast, parseColor, toHex } from "../color";

@@ -197,6 +197,10 @@ _Avoid_: Canvas (that is the file format on disk), Mind map, Map (that is the Pl
 The few lines of a document's own text shown on the card that stands for it on a Board: a Clipping's quote, a Note's opening line, or the section a card points at. A snapshot taken when the Board is read, not a live view — a Board never renders the documents it holds. A Hub with nothing to quote shows how many documents mention it instead.
 _Avoid_: Embed (that is live, and belongs to Compositions), Preview, Summary, Snippet
 
+**Delivery view**:
+The full-screen view a Composition is given from: its text, its Board, or both side by side where the screen fits them, with a timer and nothing else. Nothing in it can be edited, and nothing in it navigates away: a Passage, a link or a card on the Board opens over the view rather than leaving it. The timer counts down from the Composition's duration when it has one, and up from zero when it does not.
+_Avoid_: Presentation mode, presenter view, slideshow, teleprompter
+
 **Map**:
 The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all.
 _Avoid_: Atlas, Globe, Geography view
@@ -228,3 +232,7 @@ _Avoid_: Theme (that word belongs to Concept), Style, Palette
 **Text scale**:
 How large this Device draws text, as a percentage applied on top of the active Skin's sizes. Set per Device, because it is about the screen and the reader's eyes rather than the look.
 _Avoid_: Zoom, font size (that belongs to the Skin)
+
+**Reading mode**:
+A lock on a Writing that stops it being edited, whichever of Live Preview or Source mode is showing. Nothing can be typed, and a phone's keyboard never comes up; the title, Tags and Properties are fixed. Links, Passages and Embeds still open, the text can be selected and copied, and a checkbox can still be ticked, so a checklist stays usable. A Board opens for reading too, rather than for arranging. Set once per Device and kept, since a phone is mostly for reading and a desktop for writing.
+_Avoid_: Read-only mode, Reading view, locked mode

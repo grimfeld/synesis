@@ -1,4 +1,4 @@
-// Settings -> Appearance (PLAN §22.9): this Device's mode and Text scale, the
+// Settings -> Appearance (PLAN §24.9): this Device's mode and Text scale, the
 // Vault's Skin, and the editor for it. Edits paint the whole app at once and
 // save after a pause; "Undo changes" goes back to the Skin as it was when the
 // editor opened.

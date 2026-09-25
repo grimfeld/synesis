@@ -480,7 +480,7 @@ export interface Settings {
   map_books: number[];
   /** Map: hide Places nothing mentions. */
   map_mentioned_only: boolean;
-  /** This Device's side of the Vault's Skin (PLAN §22.5). */
+  /** This Device's side of the Vault's Skin (PLAN §24.5). */
   appearance_mode: AppearanceMode;
   /** This Device's Text scale, 1 = the Skin's own sizes. */
   text_scale: number;

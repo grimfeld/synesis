@@ -1,4 +1,4 @@
-// Settings -> Appearance (PLAN §22): the Device's mode and Text scale, the
+// Settings -> Appearance (PLAN §24): the Device's mode and Text scale, the
 // Vault's Skin, and the Skin editor painting the app as it goes.
 
 type Skin = { id: string; name: string; light: { seeds: Record<string, string> }; dark: { seeds: Record<string, string> } };

@@ -68,6 +68,9 @@ pub const BUILTIN: &[(&str, PropertyType)] = &[
     ("created", PropertyType::Calendar),
     ("date", PropertyType::Calendar),
     ("died", PropertyType::Date),
+    // A Composition's length in minutes, which the Delivery view counts down
+    // from (PLAN §23.10).
+    ("duration", PropertyType::Number),
     ("end", PropertyType::Date),
     ("kind", PropertyType::Text),
     ("lat", PropertyType::Number),
@@ -168,6 +171,7 @@ mod tests {
         assert_eq!(s.type_of("lat"), PropertyType::Number);
         assert_eq!(s.type_of("born"), PropertyType::Date);
         assert_eq!(s.type_of("source"), PropertyType::Link);
+        assert_eq!(s.type_of("duration"), PropertyType::Number);
         assert_eq!(s.type_of("whatever"), PropertyType::Text);
     }
 

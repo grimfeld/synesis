@@ -7,6 +7,7 @@ import { matchShortcut } from "./lib/keys";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dialogs } from "./components/Dialogs";
 import { DocView } from "./views/DocView";
+import { DeliveryView } from "./views/DeliveryView";
 import { HubView } from "./views/HubView";
 import { TimelineView } from "./views/TimelineView";
 import { HUB_TYPES } from "./lib/api";
@@ -26,7 +27,12 @@ import { Toaster } from "sonner";
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
   const commands = useCommands();
+  const s = useStore();
+  // The Delivery view owns the keyboard: nothing under it may be opened,
+  // navigated or edited mid-talk (PLAN §23.8).
+  const delivering = s.delivery !== null;
   useEffect(() => {
+    if (delivering) return;
     const onKey = (e: KeyboardEvent) => {
       // The editor's own keymap (bound from the same registry) runs first and prevents default.
       if (e.defaultPrevented) return;
@@ -39,7 +45,7 @@ function Shortcuts() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [commands]);
+  }, [commands, delivering]);
   return null;
 }
 
@@ -107,6 +113,9 @@ function Shell() {
       </SidebarInset>
       <Dialogs />
       <Shortcuts />
+      {s.delivery && (
+        <DeliveryView key={s.delivery.id} id={s.delivery.id} />
+      )}
       <Toaster
         position="bottom-right"
         toastOptions={{

@@ -69,4 +69,11 @@ describe("Views", () => {
     cy.get("[role=option]").contains("English").click();
     cy.get("h1").should("contain", "Settings");
   });
+
+  it("Settings shows the version and commit the app was built from", () => {
+    cy.get("[data-testid=nav-settings]").click();
+    cy.get("[data-testid=settings-about]").scrollIntoView().should("be.visible");
+    cy.get("[data-testid=about-version]").invoke("text").should("match", /^\d+\.\d+\.\d+/);
+    cy.get("[data-testid=about-commit]").invoke("text").should("match", /^[0-9a-f]{7}$/);
+  });
 });

@@ -61,10 +61,10 @@ pub struct Settings {
     /// Map: hide Places nothing mentions.
     #[serde(default)]
     pub map_mentioned_only: bool,
-    /// Which side of the Vault's Skin this Device shows (PLAN §22.5).
+    /// Which side of the Vault's Skin this Device shows (PLAN §24.5).
     #[serde(default)]
     pub appearance_mode: AppearanceMode,
-    /// This Device's Text scale, 1 = the Skin's own sizes (PLAN §22.5).
+    /// This Device's Text scale, 1 = the Skin's own sizes (PLAN §24.5).
     #[serde(default = "default_text_scale")]
     pub text_scale: f64,
 }
@@ -714,7 +714,7 @@ fn set_property_type(
 }
 
 // ------------------------------------------------------------------ Skins
-// PLAN §22. Skins and the active one live in the Vault (ADR 0017), and every
+// PLAN §24. Skins and the active one live in the Vault (ADR 0017), and every
 // write pushes to Paired Devices (ADR 0016).
 
 #[tauri::command]

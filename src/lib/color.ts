@@ -1,4 +1,4 @@
-// Colour math for Skins (PLAN §22): parse what the palette and a colour picker
+// Colour math for Skins (PLAN §24): parse what the palette and a colour picker
 // write (hex, oklch()), move colours in OKLCH, and measure WCAG contrast.
 // OKLab conversion after Björn Ottosson, https://bottosson.github.io/posts/oklab/
 

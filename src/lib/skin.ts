@@ -1,4 +1,4 @@
-// Skins (PLAN §22): what a seed, an override and a font name mean, and how a
+// Skins (PLAN §24): what a seed, an override and a font name mean, and how a
 // Skin side becomes CSS variables. Pure: the base palette comes in as input
 // (read from index.css at runtime by src/lib/appearance.tsx), so every rule
 // here is pinned by Vitest without a browser.

@@ -4,7 +4,7 @@ status: accepted
 
 # Pairing carries the Vault's config files whole, last writer wins
 
-Pairing (ADR 0008) mirrors only `.bible-study/sync/<device>/`, the Loro snapshots of documents. Everything else in `.bible-study/` — `properties.json` (ADR 0006) today, Skins and `appearance.json` from PLAN §22 — travelled only by folder sync, so a Paired phone never saw a Property type or a Skin chosen on the desktop. We decided Pairing also carries the Vault's config files, `.bible-study/*.json` and `.bible-study/skins/*.json`, each as a whole file: the newest write wins, with no merge.
+Pairing (ADR 0008) mirrors only `.bible-study/sync/<device>/`, the Loro snapshots of documents. Everything else in `.bible-study/` — `properties.json` (ADR 0006) today, Skins and `appearance.json` from PLAN §24 — travelled only by folder sync, so a Paired phone never saw a Property type or a Skin chosen on the desktop. We decided Pairing also carries the Vault's config files, `.bible-study/*.json` and `.bible-study/skins/*.json`, each as a whole file: the newest write wins, with no merge.
 
 These files are small, edited on one Device at a time, and edited by deliberate action in Settings, so two Devices changing the same file between syncs is rare and losing the older edit is a cheap outcome. A document is the opposite on every count, which is why it gets a CRDT.
 
