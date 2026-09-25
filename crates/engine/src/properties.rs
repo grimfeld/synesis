@@ -128,10 +128,8 @@ impl PropertySchema {
             .iter()
             .filter(|(k, t)| builtin.types.get(*k) != Some(*t))
             .collect();
-        let text = serde_json::to_string_pretty(&serde_json::json!({ "types": custom }))?;
-        fs::create_dir_all(hidden_dir)?;
-        fs::write(Self::file(hidden_dir), text + "\n")?;
-        Ok(())
+        // Stamped, so Pairing can tell the newest copy (ADR 0016).
+        crate::config::write(hidden_dir, FILE_NAME, serde_json::json!({ "types": custom }))
     }
 
     pub fn type_of(&self, name: &str) -> PropertyType {
