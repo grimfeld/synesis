@@ -535,3 +535,86 @@ worse than either end of it.
 - **Three steps instead of four.** Vault creation stops having its own screen
   on mobile, but renumbering the header per branch makes the progress indicator
   lie about where the user is.
+
+## 22. Tutorials for every feature (grilling session, 2026-09-25)
+
+Reverses part of §14: that section declined a standalone Help view and coach
+marks, and still does. A Tutorial is not a place to go; it opens from the view
+it explains.
+
+### Decided
+
+1. **Where**: every view's `ViewHeader` gets a "?" when it lists at least one
+   Tutorial; the Command Palette opens any Tutorial by name. Which Tutorials a
+   view lists is a table in code, not in the markdown, so a Tutorial may be
+   listed on several views (*Properties & Dates* on the editor and the Hub).
+2. **Unit**: one Tutorial per feature, not per view and not per task.
+3. **Term**: *Tutorial* (CONTEXT.md). The sync tutorials are Tutorials, with a
+   variant per platform, and follow every rule below.
+4. **Languages**: exactly the app's `Lang`s, en and fr. Every Tutorial ships in
+   every language; no fallback to English (the current fallback in
+   `src/lib/sync.ts` goes). A new language is its own piece of work: book
+   names in the engine, UI strings, then Tutorials.
+5. **Do it once, for real**: the last step has the user use the feature in
+   their own Vault. A step may add to what the user has or create something
+   new, saying so and how to remove it; it never changes what the user already
+   wrote. No step-completion detection.
+6. **Panel**: one app-level Tutorial panel, docked right, non-modal, staying
+   open across navigation (several Tutorials cross views). In the editor it
+   sits beside `RightPanel`. At phone width it is a bottom sheet that
+   collapses to a strip ("Step 3 of 4 · Embeds"). It tracks steps: current
+   step highlighted, next and back.
+7. **Files**: `docs/tutorials/<id>.<lang>.md`; sync ones become
+   `docs/tutorials/sync-<method>.<platform>.<lang>.md`. Bundled with
+   `import.meta.glob` like today.
+8. **Shape**, by structure not heading text: `# Title`, intro prose, exactly
+   one top-level numbered list (the steps, the last being the do-it-once
+   step), then anything after it as reference. The sync files are rewritten to
+   it: *Set up* and *Check that it works* merge into the one list; the
+   provider alternatives become sub-bullets of one step.
+9. **Command links**: a step names a Command as `[Quick capture](command:create.quick)`.
+   The panel renders it with the Command's current localized title and the
+   platform's shortcut, as a button that runs the Command. The link text is a
+   fallback for readers outside the app. UI with no Command is named in words.
+10. **Catalogue**, all shipped at once (views listing each in brackets):
+    Quick capture & Notes (Home, editor); Passages (editor, Scripture Hubs,
+    Coverage); Mentions & Tags (editor, Hub); Linkables & Unlinked mentions
+    (editor, Hub); Properties & Dates (editor, Hub); Live Preview & Source mode
+    (editor); Sources & the Library (Library, Source Hub); Clippings
+    (Clippings, Source Hub); Compositions & Embeds (Composition editor, Home);
+    Candidates (Composition editor); Boards (Board, Composition editor);
+    Versions (Composition editor); Hubs & Backlinks (Hub); Timeline (Timeline,
+    Hub); Map & Journeys (Map, Place and Journey Hubs); Graph (Graph);
+    Coverage (Coverage); Command Palette (every view); Pairing (Settings,
+    Welcome); and the folder-sync Tutorials (Settings, Welcome).
+11. **Progress**: per Device, in app settings, keyed by Tutorial id (not
+    language): the step reached and whether it was finished. Finished
+    Tutorials carry a check in the "?" list. Nothing ever prompts: no dots, no
+    badges. The Welcome wizard's Done step links three Tutorials: Quick
+    capture & Notes, Passages, Command Palette.
+12. **Pictures, on trial**: a setting in Settings → Appearance chooses *none*,
+    *diagrams* (language-neutral images, no text, one file for both languages)
+    or *screenshots* (generated per language and theme from the web test build
+    on `examples/demo-vault` by headless Chromium; French screenshots show
+    English demo content). The bundle weight each adds is measured, and one
+    mode is kept once both have been tried.
+13. **Tests**: Vitest checks every Tutorial exists in every `Lang`, has the
+    shape in 8, names only existing Command ids, and that every listed id
+    exists. `cypress/e2e/tutorials.cy.ts` covers the panel (open from "?", the
+    list, next/back, a Command link runs, progress survives reload, the check,
+    staying open across views, the phone sheet). `locales.cy.ts` opens the
+    longest French Tutorial at phone width. Each Tutorial's steps are walked
+    by a scripted Cypress test in English only: the words differ by language,
+    the steps do not.
+
+### Declined
+
+- A tutorial Vault per language (deferred, not rejected: a single tour Vault
+  may come later).
+- One Tutorial per view (the writing features have no view); task-shaped
+  Tutorials as the unit.
+- A modal dialog or a split pane for the panel.
+- Steps marked by heading text or HTML comments.
+- `{{i18n.key}}` placeholders; hand-written labels and shortcuts.
+- A dot or badge on an unopened "?".
+- New languages as part of this work.
