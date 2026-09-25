@@ -378,6 +378,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return () => un?.();
   }, [refresh]);
 
+  // A Paired Device sent its Property schema (ADR 0016).
+  useEffect(() => {
+    let un: (() => void) | undefined;
+    api
+      .onConfigChanged((names) => {
+        if (names.includes("properties.json")) api.propertySchema().then(setSchema).catch(console.error);
+      })
+      .then((u) => (un = u))
+      .catch(() => {});
+    return () => un?.();
+  }, []);
+
   const navigate = useCallback((v: View) => {
     setHistory((h) => ({
       back: [...h.back.slice(-49), viewRef.current],

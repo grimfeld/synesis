@@ -48,6 +48,8 @@ fn default_settings() -> Map<String, Value> {
         "timeline_in_view": true,
         "map_books": [],
         "map_mentioned_only": false,
+        "appearance_mode": "system",
+        "text_scale": 1.0,
     });
     match v {
         Value::Object(m) => m,
@@ -116,6 +118,12 @@ impl State {
                 if let Some(v) = self.vault.as_mut() {
                     v.set_lang(lang);
                 }
+                ok(())
+            }
+            "set_device_appearance" => {
+                self.set("appearance_mode", arg(&a, "mode")?);
+                let scale: f64 = arg(&a, "textScale")?;
+                self.set("text_scale", json!(scale.clamp(0.75, 2.0)));
                 ok(())
             }
             "set_graph_level" => {
@@ -260,6 +268,20 @@ impl State {
                 let (name, t): (String, engine::properties::PropertyType) =
                     (arg(&a, "name")?, arg(&a, "propType")?);
                 ok(self.vault_mut()?.set_property_type(&name, t).map_err(err)?)
+            }
+            "skins" => ok(engine::skin::list(self.vault()?.root())),
+            "save_skin" => {
+                let skin: engine::skin::Skin = arg(&a, "skin")?;
+                ok(engine::skin::save(self.vault()?.root(), skin).map_err(err)?)
+            }
+            "delete_skin" => {
+                let id: String = arg(&a, "id")?;
+                ok(engine::skin::delete(self.vault()?.root(), &id).map_err(err)?)
+            }
+            "appearance" => ok(engine::skin::appearance(self.vault()?.root())),
+            "set_appearance" => {
+                let ap: engine::skin::Appearance = arg(&a, "appearance")?;
+                ok(engine::skin::set_appearance(self.vault()?.root(), &ap).map_err(err)?)
             }
             "gazetteer" => {
                 let (q, limit): (String, Option<usize>) = (arg(&a, "query")?, arg(&a, "limit")?);

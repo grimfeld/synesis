@@ -7,9 +7,9 @@ import App from "./App";
 import "./index.css";
 import "leaflet/dist/leaflet.css";
 import { invoke } from "@tauri-apps/api/core";
-import { initTheme } from "./lib/theme";
+import { initAppearance } from "./lib/appearance";
 
-initTheme();
+initAppearance();
 
 // Forward runtime errors to the terminal during development.
 if (import.meta.env.DEV) {

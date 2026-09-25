@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { LangContext } from "./i18n";
 import { StoreProvider, useStore } from "./lib/store";
+import { AppearanceProvider } from "./lib/appearance";
 import { useCommands } from "./lib/commands";
 import { matchShortcut } from "./lib/keys";
 import { AppSidebar } from "./components/AppSidebar";
@@ -148,9 +149,11 @@ function LangBridge() {
   const s = useStore();
   return (
     <LangContext.Provider value={s.lang}>
-      <TooltipProvider delayDuration={400}>
-        <Shell />
-      </TooltipProvider>
+      <AppearanceProvider>
+        <TooltipProvider delayDuration={400}>
+          <Shell />
+        </TooltipProvider>
+      </AppearanceProvider>
     </LangContext.Provider>
   );
 }

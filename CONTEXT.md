@@ -221,6 +221,18 @@ _Avoid_: WYSIWYG, rich text, rendered mode
 The editing mode that shows the raw markdown of a document exactly as stored.
 _Avoid_: Raw mode, text mode, code view
 
+**Appearance mode**:
+Whether the app shows the light or the dark side of the active Skin, or follows the operating system's setting.
+_Avoid_: Theme, colour scheme, dark mode (that is one value of it)
+
+**Skin**:
+A named, shareable look for the app: colours and typography for a light side and a dark side, either of which may be left to the default. A Device holds several and wears one at a time. The built-in Skin cannot be edited; editing it makes a copy.
+_Avoid_: Theme (that word belongs to Concept), Style, Palette
+
+**Text scale**:
+How large this Device draws text, as a percentage applied on top of the active Skin's sizes. Set per Device, because it is about the screen and the reader's eyes rather than the look.
+_Avoid_: Zoom, font size (that belongs to the Skin)
+
 **Reading mode**:
 A lock on a Writing that stops it being edited, whichever of Live Preview or Source mode is showing. Nothing can be typed, and a phone's keyboard never comes up; the title, Tags and Properties are fixed. Links, Passages and Embeds still open, the text can be selected and copied, and a checkbox can still be ticked, so a checklist stays usable. A Board opens for reading too, rather than for arranging. Set once per Device and kept, since a phone is mostly for reading and a desktop for writing.
 _Avoid_: Read-only mode, Reading view, locked mode

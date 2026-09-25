@@ -158,7 +158,7 @@ export function DocView({ id }: { id: string }) {
           <SidebarTrigger className="-ml-1" />
           <Skeleton className="h-4 w-48" />
         </header>
-        <div className="mx-auto w-full max-w-[720px] space-y-3 px-8 py-8">
+        <div className="mx-auto w-full max-w-(--prose-width) space-y-3 px-8 py-8">
           <Skeleton className="h-8 w-1/2" />
           <Skeleton className="h-4 w-full" />
           <Skeleton className="h-4 w-5/6" />

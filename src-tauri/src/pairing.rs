@@ -40,6 +40,15 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                     }
                 }
             }
+            // Config files that just arrived (ADR 0016): the schema is held in
+            // memory, the rest is read by the UI on demand.
+            if let Event::Config { names } = &ev {
+                let state = forward.state::<AppState>();
+                if names.iter().any(|n| n == engine::properties::FILE_NAME) {
+                    let _ = state.with_vault_mut(|v| v.reload_property_schema());
+                }
+                let _ = forward.emit("config:changed", names);
+            }
             let _ = forward.emit("pairing:event", &ev);
         }
     });

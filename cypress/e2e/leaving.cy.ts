@@ -17,7 +17,7 @@ describe("Leaving a vault", () => {
 
   it("offers Leave for the open vault, and Forget only for the others", () => {
     cy.get("[data-testid=nav-settings]").click();
-    cy.get("[data-testid=settings-vaults]").should("be.visible");
+    cy.get("[data-testid=settings-vaults]").scrollIntoView().should("be.visible");
     cy.get("[data-testid=vault-leave]").should("have.length", 1);
   });
 

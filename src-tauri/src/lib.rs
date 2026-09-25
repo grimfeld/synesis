@@ -9,6 +9,7 @@ use engine::index::{DocSummary, GraphLevel, Linkable};
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
 use engine::scripture::Lang;
+use engine::skin::{self, Appearance, Skin};
 use engine::sync::{HistoryPoint, Version};
 use engine::vault::{VaultInfo, HIDDEN_DIR};
 use engine::Vault;
@@ -60,10 +61,29 @@ pub struct Settings {
     /// Map: hide Places nothing mentions.
     #[serde(default)]
     pub map_mentioned_only: bool,
+    /// Which side of the Vault's Skin this Device shows (PLAN §24.5).
+    #[serde(default)]
+    pub appearance_mode: AppearanceMode,
+    /// This Device's Text scale, 1 = the Skin's own sizes (PLAN §24.5).
+    #[serde(default = "default_text_scale")]
+    pub text_scale: f64,
 }
 
 fn default_true() -> bool {
     true
+}
+
+fn default_text_scale() -> f64 {
+    1.0
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AppearanceMode {
+    Light,
+    Dark,
+    #[default]
+    System,
 }
 
 /// A Vault this Device holds (ADR 0014).
@@ -125,6 +145,17 @@ fn set_language(state: State<AppState>, lang: Lang) -> CmdResult<()> {
     state.settings.lock().map_err(err)?.lang = lang;
     if let Some(v) = state.vault.lock().map_err(err)?.as_mut() {
         v.set_lang(lang);
+    }
+    state.save_settings()
+}
+
+/// Appearance mode and Text scale: this Device's, not the Vault's (ADR 0017).
+#[tauri::command]
+fn set_device_appearance(state: State<AppState>, mode: AppearanceMode, text_scale: f64) -> CmdResult<()> {
+    {
+        let mut s = state.settings.lock().map_err(err)?;
+        s.appearance_mode = mode;
+        s.text_scale = text_scale.clamp(0.75, 2.0);
     }
     state.save_settings()
 }
@@ -677,7 +708,54 @@ fn set_property_type(
     name: String,
     prop_type: PropertyType,
 ) -> CmdResult<PropertySchema> {
-    state.with_vault_mut(|v| v.set_property_type(&name, prop_type))
+    let schema = state.with_vault_mut(|v| v.set_property_type(&name, prop_type))?;
+    pairing::notify(&state);
+    Ok(schema)
+}
+
+// ------------------------------------------------------------------ Skins
+// PLAN §24. Skins and the active one live in the Vault (ADR 0017), and every
+// write pushes to Paired Devices (ADR 0016).
+
+#[tauri::command]
+fn skins(state: State<AppState>) -> CmdResult<Vec<Skin>> {
+    state.with_vault(|v| Ok(skin::list(v.root())))
+}
+
+#[tauri::command]
+fn save_skin(state: State<AppState>, skin: Skin) -> CmdResult<Skin> {
+    let saved = state.with_vault(|v| skin::save(v.root(), skin))?;
+    pairing::notify(&state);
+    Ok(saved)
+}
+
+#[tauri::command]
+fn delete_skin(state: State<AppState>, id: String) -> CmdResult<()> {
+    state.with_vault(|v| skin::delete(v.root(), &id))?;
+    pairing::notify(&state);
+    Ok(())
+}
+
+#[tauri::command]
+fn read_skin_file(path: String) -> CmdResult<Skin> {
+    skin::read_file(Path::new(&path)).map_err(err)
+}
+
+#[tauri::command]
+fn export_skin(skin: Skin, path: String) -> CmdResult<()> {
+    skin::write_file(&skin, Path::new(&path)).map_err(err)
+}
+
+#[tauri::command]
+fn appearance(state: State<AppState>) -> CmdResult<Appearance> {
+    state.with_vault(|v| Ok(skin::appearance(v.root())))
+}
+
+#[tauri::command]
+fn set_appearance(state: State<AppState>, appearance: Appearance) -> CmdResult<()> {
+    state.with_vault(|v| skin::set_appearance(v.root(), &appearance))?;
+    pairing::notify(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1013,7 +1091,9 @@ fn load_settings(p: &Path) -> Settings {
     std::fs::read_to_string(p)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        // Through serde rather than `Default`, so a first run gets the same
+        // field defaults (`text_scale` 1, `background_sync` on) as an old file.
+        .unwrap_or_else(|| serde_json::from_str("{}").expect("every Settings field has a default"))
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1122,6 +1202,14 @@ pub fn run() {
             set_map_filters,
             property_schema,
             set_property_type,
+            set_device_appearance,
+            skins,
+            save_skin,
+            delete_skin,
+            read_skin_file,
+            export_skin,
+            appearance,
+            set_appearance,
             gazetteer,
             versions,
             save_version,

@@ -24,6 +24,7 @@
 //! remembered in `peers.json`, so the next dial goes straight to it instead
 //! of waiting on address lookup.
 
+use crate::config::{self, ConfigEntry};
 use crate::sync::SYNC_DIR;
 use crate::vault::HIDDEN_DIR;
 use base64::Engine as _;
@@ -176,6 +177,11 @@ enum Request {
     /// The dialler's own address; the reply carries the responder's. Last in
     /// the enum so older peers still decode every other request.
     Hello(EndpointAddr),
+    /// The Vault's config files (ADR 0016), after `Hello` for the same reason:
+    /// an older peer fails only this request and the snapshot round stands.
+    ConfigManifest(Vec<ConfigEntry>),
+    GetConfig(String),
+    PutConfig { name: String, bytes: Vec<u8> },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -188,6 +194,7 @@ enum Response {
     File(Option<Vec<u8>>),
     Ok,
     Hello(EndpointAddr),
+    ConfigManifest(Vec<ConfigEntry>),
 }
 
 /// What the UI hears from the node.
@@ -201,6 +208,8 @@ pub enum Event {
     Synced { files: usize },
     Membership,
     Error { message: String },
+    /// Config files a peer delivered (ADR 0016), named relative to `.bible-study/`.
+    Config { names: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -230,6 +239,8 @@ pub struct Node {
     /// Which Vault this node is pairing for, so an Invite can name it.
     vault: crate::meta::VaultMeta,
     sync_dir: PathBuf,
+    /// `.bible-study/`, where the config files live.
+    hidden_dir: PathBuf,
     local_dir: PathBuf,
     me: Member,
     state: Arc<Mutex<State>>,
@@ -321,6 +332,7 @@ impl Node {
             endpoint,
             vault: crate::meta::VaultMeta::adopt(vault_root)?,
             sync_dir: vault_root.join(HIDDEN_DIR).join(SYNC_DIR),
+            hidden_dir: vault_root.join(HIDDEN_DIR),
             local_dir: local_dir.to_path_buf(),
             me,
             state: Arc::new(Mutex::new(State { membership, pending: HashMap::new(), conns: HashMap::new(), dialing: HashSet::new(), addrs: load_addrs(local_dir), joining: None })),
@@ -590,6 +602,14 @@ impl Node {
                 self.emit(Event::Synced { files: 1 }).await;
                 Response::Ok
             }
+            Request::ConfigManifest(_) => Response::ConfigManifest(config::manifest(&self.hidden_dir)),
+            Request::GetConfig(name) => Response::File(config::read(&self.hidden_dir, &name)),
+            Request::PutConfig { name, bytes } => {
+                if config::accept(&self.hidden_dir, &name, &bytes) {
+                    self.emit(Event::Config { names: vec![name] }).await;
+                }
+                Response::Ok
+            }
         };
         let out = postcard::to_allocvec(&resp).map_err(|e| e.to_string())?;
         send.write_all(&out).await.map_err(|e| e.to_string())?;
@@ -830,6 +850,41 @@ impl Node {
         }
         if pulled > 0 {
             self.emit(Event::Synced { files: pulled }).await;
+        }
+        // A peer on an older version cannot answer this; its snapshots synced
+        // all the same, so the round still counts.
+        let _ = self.config_round(conn).await;
+        Ok(())
+    }
+
+    /// Config files both ways, whole, newest stamp wins (ADR 0016).
+    async fn config_round(&self, conn: &Connection) -> Result<(), String> {
+        let mine = config::manifest(&self.hidden_dir);
+        let theirs = match request(conn, &Request::ConfigManifest(mine.clone())).await? {
+            Response::ConfigManifest(t) => t,
+            _ => return Err("bad config manifest reply".into()),
+        };
+        let mine_by: HashMap<_, _> = mine.iter().map(|e| (e.name.as_str(), e)).collect();
+        let theirs_by: HashMap<_, _> = theirs.iter().map(|e| (e.name.as_str(), e)).collect();
+        let mut got = Vec::new();
+        for e in &theirs {
+            if config::is_newer(e, mine_by.get(e.name.as_str()).copied()) {
+                if let Response::File(Some(bytes)) = request(conn, &Request::GetConfig(e.name.clone())).await? {
+                    if config::accept(&self.hidden_dir, &e.name, &bytes) {
+                        got.push(e.name.clone());
+                    }
+                }
+            }
+        }
+        for e in &mine {
+            if config::is_newer(e, theirs_by.get(e.name.as_str()).copied()) {
+                if let Some(bytes) = config::read(&self.hidden_dir, &e.name) {
+                    request(conn, &Request::PutConfig { name: e.name.clone(), bytes }).await?;
+                }
+            }
+        }
+        if !got.is_empty() {
+            self.emit(Event::Config { names: got }).await;
         }
         Ok(())
     }
@@ -1105,6 +1160,18 @@ mod tests {
         })
         .await
         .expect("B mirrors A's snapshot");
+
+        // Config files travel too (ADR 0016): a Skin written on B reaches A.
+        config::write(&vault_b.join(HIDDEN_DIR), "skins/sepia.json", serde_json::json!({ "name": "Sepia" })).unwrap();
+        b.notify_changed();
+        let skin = vault_a.join(HIDDEN_DIR).join("skins").join("sepia.json");
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !fs::read_to_string(&skin).unwrap_or_default().contains("Sepia") {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("A receives B's Skin");
 
         // Each remembers the other's own address for the next dial.
         for (local, peer) in [("local-a", &hex_b), ("local-b", &hex_a)] {

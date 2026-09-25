@@ -225,6 +225,18 @@ impl Vault {
         Ok(self.schema.clone())
     }
 
+    /// Re-read the Property schema after another Device's copy arrived
+    /// (ADR 0016). Re-indexes when the set of Date names moved.
+    pub fn reload_property_schema(&mut self) -> Result<()> {
+        let fresh = PropertySchema::load(&self.root.join(HIDDEN_DIR));
+        let dates_moved = fresh.date_names() != self.schema.date_names();
+        self.schema = fresh;
+        if dates_moved {
+            self.reindex_all()?;
+        }
+        Ok(())
+    }
+
     /// Re-parse every file regardless of mtime.
     pub fn reindex_all(&mut self) -> Result<()> {
         for path in self.index.all_paths()? {
