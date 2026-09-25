@@ -587,17 +587,22 @@ it explains.
     Hub); Map & Journeys (Map, Place and Journey Hubs); Graph (Graph);
     Coverage (Coverage); Command Palette (every view); Pairing (Settings,
     Welcome); and the folder-sync Tutorials (Settings, Welcome).
-11. **Progress**: per Device, in app settings, keyed by Tutorial id (not
-    language): the step reached and whether it was finished. Finished
+11. **Progress**: per Device, keyed by Tutorial id (not language): the step
+    reached and whether it was finished. Kept in the webview's local storage,
+    like Source mode, not in the engine's settings: it is a convenience of the
+    Device's UI, nothing reads it but the panel, and losing it costs a click. Finished
     Tutorials carry a check in the "?" list. Nothing ever prompts: no dots, no
     badges. The Welcome wizard's Done step links three Tutorials: Quick
     capture & Notes, Passages, Command Palette.
-12. **Pictures, on trial**: a setting in Settings → Appearance chooses *none*,
+12. **Pictures, on trial**: a setting in Settings → Appearance (local
+    storage, as 11) chooses *none*,
     *diagrams* (language-neutral images, no text, one file for both languages)
     or *screenshots* (generated per language and theme from the web test build
-    on `examples/demo-vault` by headless Chromium; French screenshots show
-    English demo content). The bundle weight each adds is measured, and one
-    mode is kept once both have been tried.
+    on `examples/demo-vault` by headless Chromium,
+    `npm run tutorials:screenshots`; French screenshots show English demo
+    content). A Tutorial names a picture once, `![alt](image:<name>)`, and the
+    mode decides which file it is. The bundle weight each adds is measured,
+    and one mode is kept once both have been tried.
 13. **Tests**: Vitest checks every Tutorial exists in every `Lang`, has the
     shape in 8, names only existing Command ids, and that every listed id
     exists. `cypress/e2e/tutorials.cy.ts` covers the panel (open from "?", the

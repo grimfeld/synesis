@@ -9,6 +9,22 @@ export const en = {
   search: "Search",
   search_placeholder: "Search notes, sources, verses…",
   new: "New",
+  /** "New Note": its own string per type, because French agrees it with the type's gender. */
+  new_type: {
+    note: "New Note",
+    clipping: "New Clipping",
+    composition: "New Composition",
+    source: "New Source",
+    book: "New Book",
+    chapter: "New Chapter",
+    verse: "New Verse",
+    place: "New Place",
+    character: "New Character",
+    concept: "New Concept",
+    event: "New Event",
+    journey: "New Journey",
+    other: "New document",
+  },
   types: {
     note: "Note",
     clipping: "Clipping",

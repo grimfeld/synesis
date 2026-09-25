@@ -65,7 +65,7 @@ export function useCommands(): Command[] {
     for (const type of CREATABLE_TYPES) {
       list.push({
         id: `create.${type}`,
-        title: `${t.new} ${t.types[type]}`,
+        title: t.new_type[type],
         group: "create",
         icon: TYPE_ICON[type] ?? FilePlus,
         shortcut: type === "note" ? "Mod+N" : undefined,

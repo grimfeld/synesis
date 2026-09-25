@@ -37,7 +37,7 @@ export function CoverageView() {
           .filter((b) => b.hebrew_aramaic === hebrew)
           .map((b) => (
             <div key={b.number} className="flex items-center gap-3">
-              <button type="button" className="w-36 shrink-0 truncate text-left text-sm text-foreground/80 hover:text-foreground hover:underline underline-offset-4" onClick={() => s.openScripture(b.number)} title={b.name}>
+              <button type="button" data-testid="coverage-book" className="w-36 shrink-0 truncate text-left text-sm text-foreground/80 hover:text-foreground hover:underline underline-offset-4" onClick={() => s.openScripture(b.number)} title={b.name}>
                 {b.name}
               </button>
               <div className="flex flex-wrap gap-[3px]">
