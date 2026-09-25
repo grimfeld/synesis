@@ -150,7 +150,7 @@ function VersionDialog({
   id: string;
   frontier: string;
   label: string;
-  onRestore: (text: string) => void;
+  onRestore?: (text: string) => void;
   onClose: () => void;
 }) {
   const t = useT();
@@ -283,16 +283,19 @@ function VersionDialog({
         <Button type="button" variant="outline" onClick={onClose}>
           {t.cancel}
         </Button>
-        <Button
-          type="button"
-          disabled={old == null || old === current}
-          onClick={() => {
-            if (old != null) onRestore(old);
-            onClose();
-          }}
-        >
-          {t.restore_version}
-        </Button>
+        {onRestore && (
+          <Button
+            type="button"
+            data-testid="version-restore"
+            disabled={old == null || old === current}
+            onClick={() => {
+              if (old != null) onRestore(old);
+              onClose();
+            }}
+          >
+            {t.restore_version}
+          </Button>
+        )}
       </DialogFooter>
     </Shell>
   );

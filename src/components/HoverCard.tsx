@@ -20,8 +20,14 @@ function usePosition(x: number, y: number) {
   return { left, top, width: W, maxHeight: H };
 }
 
-/** Floating preview anchored to a Passage or wikilink under the cursor in the editor. */
-export function HoverCard({ state, excludeId, onClose }: { state: HoverState; excludeId?: string; onClose: () => void }) {
+/**
+ * Floating preview anchored to a Passage or wikilink under the cursor in the editor.
+ *
+ * `stay` is the Delivery view's card (PLAN §23.8): the same preview with
+ * every way out removed — no Open page, no row that opens a document, no
+ * Create page — because nothing there may leave the talk.
+ */
+export function HoverCard({ state, excludeId, onClose, stay = false }: { state: HoverState; excludeId?: string; onClose: () => void; stay?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const pos = usePosition(state.x, state.y);
   useEffect(() => {
@@ -38,7 +44,7 @@ export function HoverCard({ state, excludeId, onClose }: { state: HoverState; ex
   }, [onClose]);
   return (
     <div ref={ref} data-testid="hover-card" className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
-      {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} /> : <LinkCard target={state.target} onClose={onClose} />}
+      {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} stay={stay} /> : <LinkCard target={state.target} onClose={onClose} stay={stay} />}
     </div>
   );
 }
@@ -53,7 +59,7 @@ function Loading() {
   );
 }
 
-function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]; excludeId?: string; onClose: () => void }) {
+function PassageCard({ passages, excludeId, onClose, stay }: { passages: PassageInfo[]; excludeId?: string; onClose: () => void; stay: boolean }) {
   const s = useStore();
   const t = useT();
   const p = passages[0];
@@ -73,6 +79,7 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="font-semibold text-passage">{passages.map((x) => x.display).join("; ")}</div>
+        {!stay && (
         <Button
           size="sm"
           variant="outline"
@@ -84,6 +91,7 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
           {t.open_page}
           <ArrowUpRight />
         </Button>
+        )}
       </div>
       {items === null ? (
         <Loading />
@@ -97,7 +105,8 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
               <li key={i}>
                 <button
                   type="button"
-                  className="w-full rounded-md px-2 py-1 text-left transition-colors hover:bg-accent"
+                  disabled={stay}
+                  className="w-full rounded-md px-2 py-1 text-left transition-colors enabled:hover:bg-accent"
                   onClick={() => {
                     onClose();
                     s.openDoc(b.doc.id);
@@ -124,7 +133,7 @@ function PassageCard({ passages, excludeId, onClose }: { passages: PassageInfo[]
   );
 }
 
-function LinkCard({ target, onClose }: { target: string; onClose: () => void }) {
+function LinkCard({ target, onClose, stay }: { target: string; onClose: () => void; stay: boolean }) {
   const s = useStore();
   const t = useT();
   // The document this link names, and the opening of its body: one answer, so
@@ -150,6 +159,7 @@ function LinkCard({ target, onClose }: { target: string; onClose: () => void }) 
     return (
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 truncate font-semibold text-unresolved">{target}</div>
+        {!stay && (
         <Button
           size="sm"
           onClick={() => {
@@ -160,13 +170,15 @@ function LinkCard({ target, onClose }: { target: string; onClose: () => void }) 
           <Plus />
           {t.create_page}
         </Button>
+        )}
       </div>
     );
   return (
     <div>
       <button
         type="button"
-        className="mb-0.5 flex w-full items-center gap-2 text-left font-semibold hover:underline underline-offset-4"
+        disabled={stay}
+        className="mb-0.5 flex w-full items-center gap-2 text-left font-semibold enabled:hover:underline underline-offset-4"
         onClick={() => {
           onClose();
           s.openDoc(doc.id);

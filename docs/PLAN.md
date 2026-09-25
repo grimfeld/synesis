@@ -535,3 +535,216 @@ worse than either end of it.
 - **Three steps instead of four.** Vault creation stops having its own screen
   on mobile, but renumbering the header per branch makes the progress indicator
   lie about where the user is.
+
+## 22. Talk and Board side by side (grilling session, 2026-09-25)
+
+Writing the talk while looking at its Board means flipping tabs today. §17.9
+kept the tab in the store rather than the route so this split would not be
+foreclosed; this section fills it in. No new vocabulary.
+
+### Decided
+
+1. **Only a Composition and its own Board.** Not a general split pane: that
+   needs per-pane history, a second current document for the side panel and the
+   palette, and a rule for which pane Back acts on. The side panel and the
+   HoverCard already cover reading a Note while writing.
+2. **A third state of the existing tab control: Talk | Split | Board.**
+   `docTab` becomes `"talk" | "split" | "board"`, with a "Split Talk and Board"
+   Command beside the existing toggle. One control, one piece of state, no
+   ambiguous combinations. Source mode and the panel toggle stay in the header
+   while split, because the editor is still there.
+3. **The side panel stays available**, as a third column: Talk | Board | panel.
+   Split is where Candidates matter most, and backlinks and Properties live
+   only in the panel. The user trades width for it with the existing toggle.
+   **Amended at build:** beside the talk, the Board's Material drawer starts
+   closed. Open, its 288px left a 1280px window's Board about 190px wide —
+   narrower than fit-all can frame at its minimum zoom, so cards sat under the
+   talk. The panel's Candidates list the same material, and the drawer's edge
+   reopens it with one click. The Board tab keeps it open, as before.
+4. **A draggable divider, 50/50 by default**, each side at least ~320px. The
+   ratio lives in the store beside `docTab`, session-only: `docTab` is not
+   persisted and §17.16 does not persist a Board's viewport either. The Board
+   fits-all when the split is entered, not on every divider drag, so dragging
+   does not undo the user's pan and zoom.
+5. **Split is offered only where both sides fit.** Below the width that holds
+   both minimums — every phone — the option is hidden, and a `"split"` state
+   renders as Talk, returning to split when there is room again. Talk, not
+   Board, because the prose is the deliverable; §17.15 already makes the phone a
+   place to review a Board, not to write beside one. Stacking vertically was
+   rejected: half a phone is too little for either CodeMirror with a keyboard up
+   or a Board.
+6. **Keyboard input follows focus.** The Board's `window` keydown listener
+   (`BoardView.tsx`) exempts only `<input>` and `<textarea>`, and CodeMirror is
+   `contenteditable`: in split, Backspace in the talk would delete the selected
+   Board nodes, and Mod+A would select every node and swallow the editor's
+   select-all. The Board's shortcuts fire only when focus is inside the Board
+   container, which becomes focusable and takes focus on click; a selection
+   survives the editor taking focus, inert. A focus ring marks the active side.
+7. **A card pressed in reading mode opens its document, as on the Board tab.**
+   Back returns to the Composition still split. **Amended at build:** this was
+   not free — `DocView` reset the tab to Talk on every document change. The
+   reset now applies to the Board tab only, which hides the text; a split
+   already shows it, so it stays across documents for the session.
+8. **A Board save refreshes what depends on it**, so the Candidates panel's
+   "on the Board" state updates while both are on screen. Until now the panel
+   was hidden whenever the Board was shown, so the staleness never surfaced.
+   The 400ms save debounce keeps a drag from refetching per frame.
+   **Amended at build: announced by the store, not emitted by the engine.** The
+   dev bridge and the web build stub events, so an engine `vault:changed` would
+   reach neither Cypress nor the preview; `createDoc` already announces its own
+   writes from the store for the same reason. A paired Device learns of the
+   Board through `apply_remote`, which already emits. The announcement is an
+   empty change: naming the Composition would read as an edit to its text and
+   could reload the editor, while an empty one reaches exactly the queries
+   that depend on anything — which is where the Candidates are.
+
+### Build order
+
+1. **Board saves announce themselves** from the store (decision 8).
+2. **Focus-scoped Board keys**, shipped first on their own: they fix nothing
+   visible on the tabs today but are the precondition for everything else.
+3. **The Split tab, the layout and the divider**, with the width fallback.
+4. **Tests.** `cypress/e2e/board.cy.ts` (or a new `split.cy.ts`): enter split,
+   both panes present; select a node, Backspace in the talk, node survives;
+   Mod+A in the talk does not select nodes; place a Candidate, the panel moves
+   it to "on the Board"; below the width threshold the Split tab is gone and the
+   talk shows. `locales.cy.ts`: the three-way tab control fits the header in
+   French at phone width, where the Split tab is hidden, and at a desktop width.
+   The divider clamp as Vitest in `src/lib`.
+
+### Declined
+
+- **Two-way sync between the talk and its Board** (prose generating a map and
+  the map generating prose). It reverses §17.1 and the declined Outline mirror,
+  writes into the user's text against the hard constraint that the app never
+  rewrites it, collapses the Board ref / Mention distinction (§17.6), and needs a
+  tree that JSON Canvas cannot hold without custom fields (§17.7, ADR 0003).
+- **Dragging a card from the Board into the talk to insert a `[[link]]`.**
+  Turning a Board ref into a Mention deserves its own decision, not a side
+  effect of a layout change.
+- **A general split pane** (decision 1), **a vertical stack on narrow screens**
+  (decision 5), **a persisted divider** (decision 4).
+
+### Deferred
+
+- In split, a reading-mode press showing the document in the HoverCard beside
+  the card, keeping the talk in view.
+
+## 23. Reading mode and the Delivery view (grilling session, 2026-09-25)
+
+Giving a talk from Synesis means holding an editor: a tap on the text brings
+up a phone's keyboard, and a stray keystroke changes the talk. New vocabulary
+in [CONTEXT.md](../CONTEXT.md): **Reading mode**, **Delivery view**. This
+reverses §12.2's "No Reading view" for the reason §12.2 could not see yet:
+a talk is not only written in the app, it is given from it.
+
+### Decided
+
+1. **Two features, both built now.** Reading mode is the lock that stops a
+   Writing being edited; the Delivery view is the full-screen place a
+   Composition is given from, with a timer. The lock answers "the keyboard is
+   in the way" on its own; the Delivery view answers the lectern.
+2. **Reading mode covers every Writing** (Note, Clipping, Composition). Reading
+   a Note on a phone has the same keyboard problem as reading a talk, and the
+   mechanism is identical. Hubs are already views (§13).
+3. **A lock beside the editor mode, not a third mode.** Live Preview and Source
+   mode stay what they are; Reading mode combines with either, so read-only raw
+   markdown is possible.
+4. **Set once per Device and kept**, in `localStorage` like Source mode. A
+   phone is mostly for reading and a desktop for writing; the lock is about the
+   Device, not the document. Rejected: a per-document Property (a display
+   preference in the user's files, synced to Devices that do not want it) and
+   session-only (locking again before every talk, which is when it is
+   forgotten). Because the lock outlives the session, its state is always
+   visible in the header, and a keystroke into a locked Writing says so.
+5. **The lock covers everything that edits, except checkboxes**: body, title,
+   Tags, Properties, and panel actions that write the body (Link on an
+   Unlinked mention, Version restore). What does not write still works —
+   links, Passages, Embeds, the HoverCard, selection and copy, reading the
+   panel. A checkbox stays tickable so a checklist is usable while locked.
+   Delete stays in the header: it confirms, and it removes rather than edits.
+6. **Reading mode opens the Board for reading.** With the lock on, the Board
+   starts in its reading mode (§17.15 amendment) instead of arranging; its own
+   toggle still switches for that visit. Not merged with it: the Board's modes
+   also change what a press means, which is not what the lock is about.
+7. **The Delivery view shows the talk, the Board, or both, and a timer.**
+   Nothing else: no header, sidebar, panel or tabs. Side by side follows §22's
+   fit rule. Some speakers give a talk from its Board, so the Board is a face
+   of the view, not a preparation tool left behind. Always locked, whatever the
+   Device's Reading mode.
+8. **Nothing in the Delivery view navigates away.** A tap on a Passage, a link
+   or a Board card opens the HoverCard over the view; Escape or a tap elsewhere
+   dismisses it. Reading a verse aloud is part of a Bible talk; losing your
+   place mid-talk is this view's worst failure. The Board keeps pan and zoom,
+   nothing on it moves.
+   **Amended at build:** the vault holds no Bible text, so a Passage's card
+   shows its reference and what the Vault has written about it, not the verse.
+   Every way out of the card — Open page, a row that opens a document, Create
+   page — is disabled there. The app's global shortcuts are off while the view
+   is open, so the palette and Back cannot act under it either.
+9. **The talk renders fully**: no line shows its markdown, whatever the cursor
+   or Source mode. In Live Preview a tap moves the cursor, and the line under
+   it would suddenly show `**` and `#` mid-talk.
+10. **The timer counts down from the Composition's `duration`** Property (a
+    number of minutes, a new built-in in the vault-wide schema, ADR 0006), amber
+    for the last two minutes, red at zero, then overtime as `+1:30`. Without a
+    duration it counts up from 0:00. It starts on Start, never on open (the view
+    opens before the speaker is introduced), pauses, and resets. It survives
+    leaving and re-entering the view for the session, so an accidental exit
+    costs nothing. A talk's length is set by whoever invited the speaker, a fact
+    about the talk, so it is set once while preparing rather than typed at the
+    lectern.
+11. **Text size: large by default, A−/A+ in the bar and pinch on touch**, kept
+    per Device. Reading distance varies more than anything else here. The Board
+    ignores it; it has its own zoom.
+12. **Entered from a "Deliver" button on a Composition's header and a
+    Command**, on the face that was showing (Talk, Split or Board), with the same
+    switch in the bar. The talk starts at the top: a talk is given from its
+    beginning. Exit (button, Escape, Android back) returns to the tab and place
+    that were showing. **Amended at build:** Android back is not handled
+    anywhere in the app yet, so it is left to that later work; the button and
+    Escape exit.
+13. **The screen stays awake** while the view is open: the Wake Lock API where
+    the webview has it, a native keep-awake call where it does not. If neither
+    is available the bar says so rather than letting the screen sleep silently.
+    **Amended at build:** the Wake Lock API only, for now. The native call needs
+    a Tauri plugin with Android and iOS code that could not be built or tried
+    here; until it lands, a webview without the API (Android's, at least) shows
+    "This screen may go to sleep" in the bar.
+14. **On a phone, Source mode and Delete move behind a "⋯" button** in the
+    page header (added at build). A Composition's header gained Deliver and
+    the lock beside its tabs, and at 390px Delete was pushed off the screen.
+    The two moved are the ones used least while reading; the panel toggle and
+    the lock stay in reach.
+
+### Build order
+
+1. **Reading mode.** The Device lock in the store beside Source mode; the
+   editor read-only through a compartment, with checkboxes still live; title,
+   Tags and Properties locked; panel actions that write the body disabled; the
+   header toggle and a Command; the "locked" hint on a keystroke; the Board
+   opening for reading. Cypress: typing changes nothing, the title and Tags do
+   not edit, a checkbox ticks, links open, the lock survives a reload.
+2. **`duration` Property**: built-in in `crates/engine/src/properties.rs` and
+   the UI's schema; `duration: 25` on the demo "Talk on endurance".
+3. **Timer logic** in `src/lib/delivery.ts` — countdown, overtime, colour
+   thresholds, pause and reset — as Vitest.
+4. **The Delivery view**: full-screen layout, the face switch, full rendering,
+   HoverCard on tap for Passages, links and Board cards, text size, wake lock,
+   exit and return. Cypress `delivery.cy.ts`, and a `locales.cy.ts` case for the
+   bar at phone width in French.
+
+### Declined
+
+- **A third editor mode** (decision 3) and **a per-document or session lock**
+  (decision 4).
+- **The side panel in the Delivery view**: nothing at a lectern should invite
+  interaction.
+- **Navigating from the Delivery view**, even with Back to return (decision 8).
+- **A per-Composition choice of face**: the face showing when Deliver is
+  pressed is the better guess, and needs no setting.
+
+### Open
+
+- Jumping between a talk's headings from the bar.
+- Whether the timer's amber threshold should scale with the duration.
