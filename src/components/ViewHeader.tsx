@@ -10,7 +10,7 @@ export function ViewHeader({ title, icon, children, className }: { title?: React
       <SidebarTrigger className="-ml-1" />
       <Separator orientation="vertical" className="mr-1 data-vertical:h-4 data-vertical:self-center" />
       {icon && <span className="text-muted-foreground [&_svg]:size-4">{icon}</span>}
-      {title && <h1 className="truncate text-sm font-semibold">{title}</h1>}
+      {title && <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>}
       {children}
     </header>
   );

@@ -143,9 +143,10 @@ export function SettingsView() {
                     <li key={d.id} className="flex items-center gap-3 px-3 py-2" data-testid="sync-device">
                       <RefreshCw className="size-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">
-                          {d.name || t.sync.unknown_device}
-                          {d.is_self && <span className="ml-2 text-xs font-normal text-muted-foreground">({t.sync.this_device})</span>}
+                        {/* The name gives way, not the marker: a long name must not hide which row is this Device. */}
+                        <span className="flex min-w-0 items-baseline gap-2 font-medium">
+                          <span className="truncate">{d.name || t.sync.unknown_device}</span>
+                          {d.is_self && <span className="shrink-0 text-xs font-normal text-muted-foreground">({t.sync.this_device})</span>}
                         </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           {d.platform} · {t.sync.last_snapshot} {ago(d.last_snapshot)}

@@ -162,10 +162,21 @@ export function buildLanes(
   return [...(events.marks.length ? [events] : []), ...subjects];
 }
 
-export function niceStep(span: number): number {
+/** Room one axis label needs: "1513 av. n. è." at 11px, with a gap. */
+export const TICK_LABEL_PX = 90;
+
+/**
+ * The largest round step giving at least five ticks across the span, then
+ * coarser until the labels fit the plot: on a phone five years side by side
+ * run into each other.
+ */
+export function niceStep(span: number, plotW = Infinity): number {
   const steps = [10000, 5000, 2000, 1000, 500, 200, 100, 50, 20, 10, 5, 2, 1];
-  for (const s of steps) if (span / s >= 5) return s;
-  return 1;
+  let i = steps.findIndex((s) => span / s >= 5);
+  if (i < 0) i = steps.length - 1;
+  const fits = Math.max(2, Math.floor(plotW / TICK_LABEL_PX));
+  while (i > 0 && Math.floor(span / steps[i]) + 1 > fits) i--;
+  return steps[i];
 }
 
 /** The extent a set of Lanes covers, padded, with a floor so a lone point still has width. */

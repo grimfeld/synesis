@@ -148,7 +148,7 @@ describe("Hub pages", () => {
     cy.get("[data-testid=goto-passage] input").type("John 3:16");
     cy.get("[data-testid=goto-passage]").contains("button", "Open").click();
     cy.hubTitle("John 3:16");
-    cy.get("[data-testid=hub-header] input[aria-label=Title]").should(
+    cy.get("[data-testid=hub-header] [data-testid=doc-title]").should(
       "not.exist",
     );
     cy.get("button[aria-label=Delete]").should("not.exist");

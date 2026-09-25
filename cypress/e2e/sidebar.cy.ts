@@ -44,7 +44,7 @@ describe("Sidebar", () => {
       .should("contain", "Endurance in trials")
       .and("contain", "Talk on endurance");
     cy.get("[data-testid=tag-doc]").contains("Talk on endurance").click();
-    cy.get("input[aria-label=Title]").should("have.value", "Talk on endurance");
+    cy.get("[data-testid=doc-title]").should("have.value", "Talk on endurance");
   });
 
   it("navigates to views and toggles with the keyboard", () => {

@@ -14,7 +14,7 @@ describe("Command Palette", () => {
 
   it("opens a document from the results", () => {
     cy.openDoc("Psalm 23 reflections");
-    cy.get("input[aria-label=Title]").should(
+    cy.get("[data-testid=doc-title]").should(
       "have.value",
       "Psalm 23 reflections",
     );
@@ -82,7 +82,7 @@ describe("Command Palette", () => {
 
   it("opens a random Note", () => {
     cy.runCommand("Open a random Note");
-    cy.get("input[aria-label=Title]").should("exist");
+    cy.get("[data-testid=doc-title]").should("exist");
     cy.get("[data-testid=right-panel]").should("contain", "Note");
   });
 });

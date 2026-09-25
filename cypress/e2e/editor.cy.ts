@@ -95,10 +95,10 @@ describe("Editor (Writing page)", () => {
   });
 
   it("renames through the title, lowercasing the file", () => {
-    cy.get("input[aria-label=Title]")
+    cy.get("[data-testid=doc-title]")
       .clear()
       .type("Endurance In Trials Renamed{enter}");
-    cy.get("input[aria-label=Title]").should(
+    cy.get("[data-testid=doc-title]").should(
       "have.value",
       "Endurance In Trials Renamed",
     );
@@ -110,10 +110,10 @@ describe("Editor (Writing page)", () => {
     });
     // Links elsewhere were rewritten.
     cy.docByTitle("Talk on endurance");
-    cy.get("input[aria-label=Title]")
+    cy.get("[data-testid=doc-title]")
       .clear()
       .type("Endurance in trials{enter}");
-    cy.get("input[aria-label=Title]").should(
+    cy.get("[data-testid=doc-title]").should(
       "have.value",
       "Endurance in trials",
     );

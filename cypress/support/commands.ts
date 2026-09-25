@@ -66,7 +66,7 @@ Cypress.Commands.add("shortcut", (keys) => {
 
 Cypress.Commands.add("hubTitle", (title) => {
   cy.get("[data-testid=hub-header]").should(($h) => {
-    const input = $h.find("input[aria-label=Title]");
+    const input = $h.find("[data-testid=doc-title]");
     if (input.length) expect(input.val()).to.equal(title);
     else expect($h.find("h1").text()).to.contain(title);
   });

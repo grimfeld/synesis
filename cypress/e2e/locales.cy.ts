@@ -2,53 +2,9 @@
 // button that cannot shrink pushes its container past the screen and the app clips
 // the overflow (Card is overflow-hidden). Every view must stay inside its box in
 // every language, at phone width as well as on a desktop window.
+import { expectNoOverflow } from "../support/layout";
+
 const LANGS = ["en", "fr"] as const;
-
-/** Elements laid out wider than the nearest ancestor that clips them. */
-const overflowing = (win: Window) => {
-  const bad: string[] = [];
-  // A fixed or absolutely positioned box is not laid out inside the scroller
-  // above it, so the search for a clipping ancestor stops there.
-  const clipper = (el: HTMLElement) => {
-    if (win.getComputedStyle(el).position === "fixed") return null;
-    for (let p = el.parentElement; p; p = p.parentElement) {
-      const s = win.getComputedStyle(p);
-      if (s.position === "fixed" || s.position === "absolute") return null;
-      if (s.overflowX !== "visible") return p;
-    }
-    return win.document.documentElement;
-  };
-  for (const el of Array.from(win.document.querySelectorAll<HTMLElement>("body *"))) {
-    const r = el.getBoundingClientRect();
-    if (r.width === 0 || r.height === 0) continue;
-    if (el.classList.contains("sr-only")) continue;
-    // Leaflet paints tiles, markers and labels outside the pane on purpose.
-    if (el.closest(".leaflet-container")) continue;
-    // A Board is a pannable canvas: its nodes and edges are meant to extend
-    // past the frame, and what is off-screen is reached by panning, not by
-    // making the window wider. Its toolbar sits outside the SVG and is still
-    // checked.
-    if (el.closest("[data-testid=board-canvas]")) continue;
-    // Sheets and popovers that are closing are still in the DOM, parked off-screen.
-    if (el.closest("[data-state=closed],[aria-hidden=true],[hidden]")) continue;
-    const box = clipper(el);
-    if (!box) continue;
-    // A scroller is allowed to hold content wider than itself; a clipped box is not.
-    const o = win.getComputedStyle(box).overflowX;
-    if (o !== "hidden" && o !== "clip") continue;
-    const pr = box.getBoundingClientRect();
-    if (r.right > pr.right + 1 || r.left < pr.left - 1) {
-      bad.push(`${el.tagName.toLowerCase()}.${el.className.toString().slice(0, 50)} — "${(el.textContent ?? "").trim().slice(0, 40)}"`);
-    }
-  }
-  return bad;
-};
-
-const expectNoOverflow = () =>
-  cy.window().then((win) => {
-    const bad = overflowing(win);
-    expect(bad.join("\n"), "elements wider than their container").to.equal("");
-  });
 
 describe("Locale layout", () => {
   // Every other spec asserts English strings, so never leave the app in French.
@@ -124,7 +80,7 @@ describe("Locale layout", () => {
       });
 
       it("keeps every view inside the screen", () => {
-        for (const view of ["home", "timeline", "coverage", "graph", "library", "map"]) {
+        for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map"]) {
           cy.get("[data-sidebar=trigger]").first().click();
           cy.get(`[data-testid=nav-${view}]`).click();
           cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { cn } from "cn";
 import { fmString, type DocumentPayload } from "@/lib/api";
@@ -44,6 +44,21 @@ export function TitleEditor({ title, readOnly, onRename, className }: { title: s
   const t = useT();
   const [value, setValue] = useState(title);
   useEffect(() => setValue(title), [title]);
+  // A textarea, not an input, so a long title wraps on a phone instead of
+  // being cut mid-word; it grows to its text (`field-sizing` is not in WebKit).
+  const box = useRef<HTMLTextAreaElement>(null);
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const fit = () => {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    };
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [value]);
   const commit = async () => {
     const v = value.trim();
     if (!v || v === title) {
@@ -55,13 +70,16 @@ export function TitleEditor({ title, readOnly, onRename, className }: { title: s
   const cls = cn("font-prose w-full bg-transparent text-3xl leading-tight font-bold tracking-tight outline-none", className);
   if (readOnly) return <h1 className={cls}>{title}</h1>;
   return (
-    <input
+    <textarea
+      ref={box}
       data-testid="doc-title"
-      className={cn(cls, "rounded-md placeholder:text-muted-foreground/50 focus:bg-accent/40")}
+      rows={1}
+      className={cn(cls, "block resize-none overflow-hidden rounded-md placeholder:text-muted-foreground/50 focus:bg-accent/40")}
       value={value}
       placeholder={t.title_placeholder}
       aria-label={t.title}
-      onChange={(e) => setValue(e.target.value)}
+      // A title is one line; a pasted line break becomes a space.
+      onChange={(e) => setValue(e.target.value.replace(/\s*\n\s*/g, " "))}
       onBlur={commit}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
@@ -131,14 +149,14 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
   return (
     <div data-testid={`chips-${field}`} className={cn("flex min-h-7 flex-wrap items-center gap-1.5", className)}>
       {values.map((v) => (
-        <Badge key={v} data-testid="chip" variant="secondary" className={cn("group h-6 gap-1 pr-1 pl-2 font-normal", linkable && "text-tag")}>
+        <Badge key={v} data-testid="chip" variant="secondary" className={cn("group h-6 max-w-full gap-1 pr-1 pl-2 font-normal", linkable && "text-tag")}>
           {linkable ? (
-            <button type="button" className="hover:underline underline-offset-2" onClick={() => s.openLink(v)}>
+            <button type="button" className="min-w-0 truncate hover:underline underline-offset-2" title={`${prefix}${v}`} onClick={() => s.openLink(v)}>
               {prefix}
               {v}
             </button>
           ) : (
-            <span>
+            <span className="min-w-0 truncate" title={`${prefix}${v}`}>
               {prefix}
               {v}
             </span>

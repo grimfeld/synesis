@@ -6,6 +6,7 @@ import {
   extentOf,
   formatYear,
   niceStep,
+  TICK_LABEL_PX,
   placeMarks,
   resolveLabels,
   yearOf,
@@ -86,6 +87,14 @@ describe("niceStep", () => {
     expect(niceStep(40000)).to.equal(5000);
     expect(niceStep(600)).to.equal(100);
     expect(niceStep(3)).to.equal(1);
+  });
+
+  it("thins the ticks until their labels fit a narrow plot", () => {
+    // 5000 years on a 250px phone plot: two labels fit, not five.
+    const step = niceStep(5000, 250);
+    expect(Math.floor(5000 / step) + 1).to.be.at.most(Math.floor(250 / TICK_LABEL_PX));
+    // A desktop plot keeps the five-tick step.
+    expect(niceStep(5000, 1200)).to.equal(1000);
   });
 });
 

@@ -12,6 +12,8 @@ before(() => {
     original = s.vault_path;
     originalLang = s.lang;
   });
+  // Specs assert English strings; the app may have been left in another language.
+  cy.bridge("set_language", { lang: "en" });
   cy.task<string>("vault:seed").then((dir) => {
     vault = dir;
     Cypress.env("vault", dir);

@@ -156,9 +156,10 @@ function Members({ status, onDone }: { status: PairingStatus; onDone: () => void
           <li key={id} className="flex items-center gap-3 px-3 py-2">
             <span className={cn("size-2 shrink-0 rounded-full", on ? "bg-type-scripture" : "bg-muted-foreground/40")} title={on ? t.pairing.online : t.pairing.offline} />
             <span className="min-w-0 flex-1">
-              <span className="block truncate font-medium">
-                {m.name || t.sync.unknown_device}
-                {self && <span className="ml-2 text-xs font-normal text-muted-foreground">({t.sync.this_device})</span>}
+              {/* The name gives way, not the marker: a long name must not hide which row is this Device. */}
+              <span className="flex min-w-0 items-baseline gap-2 font-medium">
+                <span className="truncate">{m.name || t.sync.unknown_device}</span>
+                {self && <span className="shrink-0 text-xs font-normal text-muted-foreground">({t.sync.this_device})</span>}
               </span>
               <span className="block truncate text-xs text-muted-foreground">{m.platform}</span>
             </span>

@@ -5,7 +5,7 @@ describe("Dialogs", () => {
     cy.get("[data-testid=sidebar-new]").click();
     cy.get("[data-testid=new-doc-title]").type("Cypress note");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
-    cy.get("input[aria-label=Title]").should("have.value", "Cypress note");
+    cy.get("[data-testid=doc-title]").should("have.value", "Cypress note");
     cy.docByTitle("Cypress note")
       .its("path")
       .should("equal", "Notes/cypress note.md");

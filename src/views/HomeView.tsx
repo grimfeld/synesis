@@ -54,15 +54,18 @@ export function HomeView() {
     <div className="flex h-full flex-col">
       <ViewHeader title={t.views.home} icon={<House />} />
       <div className="thin-scroll min-h-0 flex-1 overflow-auto p-6">
-        <div className="mx-auto grid max-w-4xl gap-6 lg:grid-cols-[1fr_320px]">
-          <div className="grid content-start gap-6">
+        {/* `grid-cols-1` is `minmax(0, 1fr)`: an implicit track is `auto` and
+            grows to the longest title, truncated or not, widening the pane
+            past a phone's screen. */}
+        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="grid grid-cols-1 content-start gap-6">
             <QuickCapture />
             <section data-testid="home-progress">
               <PanelTitle className="mb-2">{t.in_progress}</PanelTitle>
               {compositions.length === 0 ? (
                 <Empty />
               ) : (
-                <ul className="grid gap-2 sm:grid-cols-2">
+                <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {compositions.map((d) => (
                     <CompositionCard key={d.id} doc={d} when={rel(d.mtime)} />
                   ))}
@@ -166,9 +169,9 @@ function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
         className="flex w-full flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent"
         onClick={() => s.openDoc(doc.id)}
       >
-        <span className="flex items-center gap-2 text-sm font-medium">
+        <span className="flex w-full items-center gap-2 text-sm font-medium">
           <PenLine className="size-4 shrink-0 text-type-composition" />
-          <span className="truncate">{doc.label}</span>
+          <span className="min-w-0 truncate">{doc.label}</span>
         </span>
         <span className="text-xs text-muted-foreground">
           {t.edited_ago(when)}

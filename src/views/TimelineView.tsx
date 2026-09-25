@@ -281,7 +281,7 @@ export function TimelineView() {
   );
   const propChips = useMemo(() => propertyNames(rows), [rows]);
 
-  const step = niceStep(to - from);
+  const step = niceStep(to - from, plotW);
   const ticks: number[] = [];
   for (let y = Math.ceil(from / step) * step; y <= to; y += step) ticks.push(y);
   // A floor of three Lanes' worth, so an empty result still leaves a plot the
@@ -342,10 +342,13 @@ export function TimelineView() {
           <Button
             size="sm"
             variant="outline"
+            aria-label={t.types.event}
             onClick={() => s.setDialog({ kind: "new", type: "event" })}
           >
             <Plus />
-            {t.types.event}
+            {/* Icon-only below 360px: beside four icon buttons, "Événement"
+                pushes the row past the smallest phones. */}
+            <span className="hidden min-[360px]:inline">{t.types.event}</span>
           </Button>
         </div>
       </ViewHeader>
@@ -394,6 +397,7 @@ export function TimelineView() {
                     strokeDasharray="2 4"
                   />
                   <text
+                    data-testid="tl-year"
                     y={AXIS_H - 14}
                     textAnchor="middle"
                     className="tabular-nums"
