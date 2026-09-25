@@ -535,3 +535,20 @@ worse than either end of it.
 - **Three steps instead of four.** Vault creation stops having its own screen
   on mobile, but renumbering the header per branch makes the progress indicator
   lie about where the user is.
+
+## 22. Skins: a light and a dark look, fully customisable and shareable (grilling session, 2026-09-25)
+
+Today `src/lib/theme.ts` only follows the OS; the palette in `src/index.css` is fixed.
+
+1. **A Skin** is a named, shareable look with a light side and a dark side. Each side holds three **seeds** (Background, Text, Accent), a **type-colour chroma** knob (tames or vivifies document-type, route and decoration colours in oklch while keeping their hues, so Places stay recognisably Place-coloured on any background), **Advanced overrides** and **typography**. A side left empty falls back to the default.
+2. **Layering:** built-in base for the side -> tokens derived from the seeds (card, popover, sidebar, muted, border, input, ring, hover) -> Advanced overrides. Derived foregrounds (button labels, muted text) are computed to reach 4.5:1 against their surface. The user's own seeds and overrides are never corrected, only badged with their contrast ratio.
+3. **Advanced token names are Synesis-owned and curated** (`surface.card`, `text.muted`, `type.place`, `route.2`, `cover.4`, `editor.passage`, …, about 45), mapped to CSS variables by the app, so a shadcn rename never breaks a shared Skin. Dead or duplicated tokens (`chart-*`, `sidebar-primary` = primary) are not exposed. The file has a `version`; unknown keys are ignored with a note, missing keys fall back. Slots can be added later; removing one is breaking.
+4. **Typography:** prose and UI families, line height, line width, relative prose size. Families come from a bundled curated set (serif, sans, mono; e.g. Source Serif 4, Literata, iA Writer Quattro, Inter, Geist) or name a system family. Bundling fixes today's silent fallback to Georgia.
+5. **Per Device:** **Appearance mode** (Light, Dark, System) and **Text scale** (percentage on top of the Skin's sizes). Both in `settings.json`.
+6. **Per Vault (ADR 0017):** Skins at `.bible-study/skins/<name>.json`, each with a ULID `id`, `name`, optional `author`, `version`, `light`, `dark`. The active Skin at `.bible-study/appearance.json`, by id. Pairing carries both (ADR 0016).
+7. **Built-in Skins**, app-side and read-only: **Synesis** (today's palette), **Sepia** (warm reading), **High contrast** (WCAG AAA). Editing a built-in makes a copy. A missing active Skin falls back to Synesis.
+8. **Import / export** a Skin as its JSON file. Same id already present -> "Replace or keep both" (keep both gets a new id and "Name 2"); same name, other id -> renamed "Name 2". Community Skins are PRs to a `skins/` folder in the repo; no in-app gallery yet.
+9. **Settings -> Appearance:** mode, Text scale, Skin list (New, Duplicate, Import, Export, Delete), and the editor for the active Skin with Light / Dark tabs. Selecting a tab shows the app in that side while Settings is open. Changes apply live to the whole app and save debounced (~500 ms); **Revert** restores the Skin as it was when Settings opened.
+10. **Everything follows the Skin:** graph, Map routes, Board export, Covers and CodeMirror re-resolve colours on Skin change, not only on the `.dark` toggle. The mobile status and navigation bars follow Background. Each Device caches the last resolved Skin and applies it before first paint, including the Welcome screen.
+
+**Declined:** raw CSS snippets (every class rename breaks them, and the UI would read CSS from the Vault outside the engine); every token as the only editing surface; font files shipped inside a Skin (licensing, binary sync); an in-app Skin gallery.

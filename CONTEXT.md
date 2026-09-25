@@ -216,3 +216,15 @@ _Avoid_: WYSIWYG, rich text, rendered mode
 **Source mode**:
 The editing mode that shows the raw markdown of a document exactly as stored.
 _Avoid_: Raw mode, text mode, code view
+
+**Appearance mode**:
+Whether the app shows the light or the dark side of the active Skin, or follows the operating system's setting.
+_Avoid_: Theme, colour scheme, dark mode (that is one value of it)
+
+**Skin**:
+A named, shareable look for the app: colours and typography for a light side and a dark side, either of which may be left to the default. A Device holds several and wears one at a time. The built-in Skin cannot be edited; editing it makes a copy.
+_Avoid_: Theme (that word belongs to Concept), Style, Palette
+
+**Text scale**:
+How large this Device draws text, as a percentage applied on top of the active Skin's sizes. Set per Device, because it is about the screen and the reader's eyes rather than the look.
+_Avoid_: Zoom, font size (that belongs to the Skin)
