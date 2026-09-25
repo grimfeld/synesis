@@ -209,6 +209,10 @@ _Avoid_: Action, verb, hotkey
 The single search box that finds documents by default and runs Commands when the query starts with `>`.
 _Avoid_: Quick switcher, launcher, omnibox
 
+**Tutorial**:
+A short explanation of one feature, in the app's language, opened from the views where that feature is used or from the Command Palette. Every Tutorial ends by having the user do the thing once, so they leave having used the feature rather than read about it. Setting up sync is a feature like any other, so its Tutorials are Tutorials too, with a variant per platform.
+_Avoid_: Help page, guide, walkthrough, docs
+
 **Live Preview**:
 The default editing mode: markdown syntax is hidden and rendered except on the line being edited. The text underneath is unchanged.
 _Avoid_: WYSIWYG, rich text, rendered mode
