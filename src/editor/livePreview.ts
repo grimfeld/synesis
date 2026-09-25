@@ -4,6 +4,7 @@
 import { syntaxTree } from "@codemirror/language";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type ViewUpdate } from "@codemirror/view";
 import { type EditorState, type Range } from "@codemirror/state";
+import { revealActiveLine, throughLock } from "./lock";
 
 class BulletWidget extends WidgetType {
   eq() {
@@ -46,7 +47,8 @@ class TaskWidget extends WidgetType {
     i.addEventListener("mousedown", (e) => {
       e.preventDefault();
       const at = this.pos + 1;
-      view.dispatch({ changes: { from: at, to: at + 1, insert: this.checked ? " " : "x" } });
+      // Through the lock: a checklist stays usable in Reading mode (PLAN §23.5).
+      view.dispatch({ changes: { from: at, to: at + 1, insert: this.checked ? " " : "x" }, annotations: throughLock.of("checkbox") });
     });
     return i;
   }
@@ -65,6 +67,8 @@ const headingLine = [1, 2, 3, 4, 5, 6].map((n) => Decoration.line({ class: `cm-m
 /** Line numbers that any selection range touches: syntax stays visible there. */
 function activeLines(state: EditorState): Set<number> {
   const out = new Set<number>();
+  // Locked, nothing is being edited: every line renders (PLAN §23.9).
+  if (!state.facet(revealActiveLine)) return out;
   for (const r of state.selection.ranges) {
     const a = state.doc.lineAt(r.from).number;
     const b = state.doc.lineAt(r.to).number;
@@ -171,7 +175,7 @@ export const livePreview = ViewPlugin.fromClass(
       this.decorations = build(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || u.selectionSet) this.decorations = build(u.view);
+      if (u.docChanged || u.viewportChanged || u.selectionSet || u.startState.facet(revealActiveLine) !== u.state.facet(revealActiveLine)) this.decorations = build(u.view);
     }
   },
   { decorations: (v) => v.decorations },

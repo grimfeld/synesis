@@ -1,7 +1,7 @@
 // Walks the Quick capture & Notes Tutorial (docs/tutorials/capture.en.md)
 // step by step, doing what each step says, so a change to Home, the capture
 // dialog or the New Note dialog that outdates the Tutorial fails here
-// (PLAN §22.13).
+// (PLAN §24.13).
 describe("Tutorial: Quick capture & Notes", () => {
   beforeEach(() => cy.openApp());
 

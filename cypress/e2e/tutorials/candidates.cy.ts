@@ -1,6 +1,6 @@
 // Walks the Candidates Tutorial (docs/tutorials/candidates.en.md) step by
 // step, doing what each step says, so a change to the Candidates panel that
-// outdates the Tutorial fails here (PLAN §22.13).
+// outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Candidates", () => {
   beforeEach(() => cy.openApp());
 

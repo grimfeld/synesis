@@ -1,5 +1,5 @@
 // Which Tutorial the panel shows, and the Device's progress through each
-// (PLAN §22.6, §22.11). Above the Welcome wizard as well as the app, so the
+// (PLAN §24.6, §24.11). Above the Welcome wizard as well as the app, so the
 // wizard's Done step can hand a Tutorial to the panel that opens after it.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import { finish, goToStep, loadImageMode, loadProgress, resumeAt, saveImageMode, saveProgress, type ImageMode, type Progress } from "./tutorials";

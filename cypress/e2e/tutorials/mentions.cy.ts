@@ -1,6 +1,6 @@
 // Walks the Mentions & Tags Tutorial (docs/tutorials/mentions.en.md) step by
 // step, doing what each step says, so a change to links, Tags or Backlinks
-// that outdates the Tutorial fails here (PLAN §22.13).
+// that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Mentions & Tags", () => {
   beforeEach(() => cy.openApp());
 

@@ -1,4 +1,4 @@
-// Tutorials (PLAN §22, CONTEXT "Tutorial"): bundled markdown, one file per
+// Tutorials (PLAN §24, CONTEXT "Tutorial"): bundled markdown, one file per
 // Tutorial per language, `docs/tutorials/<id>.<lang>.md`. This module loads
 // them, checks their shape, says which views list which, and keeps the
 // Device's progress through them. Pure apart from the bundling and the
@@ -129,7 +129,7 @@ export function tutorialIds(): string[] {
   return [...known, ...[...ids].filter((id) => !known.includes(id)).sort()];
 }
 
-/** The feature Tutorials, in the order the catalogue gives them (PLAN §22.10). */
+/** The feature Tutorials, in the order the catalogue gives them (PLAN §24.10). */
 export const FEATURE_TUTORIALS = [
   "capture",
   "passages",
@@ -167,7 +167,7 @@ export type TutorialPlace =
 const SCRIPTURE: DocType[] = ["book", "chapter", "verse"];
 
 /**
- * Which Tutorials a view lists (PLAN §22.1, §22.10). The table lives here, not
+ * Which Tutorials a view lists (PLAN §24.1, §24.10). The table lives here, not
  * in the markdown, so one Tutorial can stand on several views. The Command
  * Palette's Tutorial is everywhere, so it is last on every list.
  */
@@ -215,7 +215,7 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
   return out.filter((id, i) => out.indexOf(id) === i && ids.has(id));
 }
 
-// ---- progress (PLAN §22.11): per Device, keyed by id, never by language.
+// ---- progress (PLAN §24.11): per Device, keyed by id, never by language.
 
 export interface TutorialProgress {
   /** The step the user was on, 0-based. */
@@ -265,7 +265,7 @@ export function resumeAt(p: Progress, id: string, total: number): number {
   return Math.max(0, Math.min(at.step, total - 1));
 }
 
-// ---- pictures (PLAN §22.12): on trial, chosen in Settings → Appearance.
+// ---- pictures (PLAN §24.12): on trial, chosen in Settings → Appearance.
 
 export type ImageMode = "none" | "diagrams" | "screenshots";
 export const IMAGE_MODES: ImageMode[] = ["none", "diagrams", "screenshots"];

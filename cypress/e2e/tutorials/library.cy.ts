@@ -1,6 +1,6 @@
 // Walks the Sources & the Library Tutorial (docs/tutorials/library.en.md)
 // step by step, doing what each step says, so a change to the Library or a
-// Source's page that outdates the Tutorial fails here (PLAN §22.13).
+// Source's page that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Sources & the Library", () => {
   beforeEach(() => cy.openApp());
 

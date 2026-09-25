@@ -1,6 +1,6 @@
 // Walks the Coverage Tutorial (docs/tutorials/coverage.en.md) step by step,
 // doing what each step says, so a change to Coverage that outdates the
-// Tutorial fails here (PLAN §22.13).
+// Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Coverage", () => {
   beforeEach(() => cy.openApp());
 

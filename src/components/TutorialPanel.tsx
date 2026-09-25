@@ -1,10 +1,10 @@
-// The Tutorial panel (PLAN §22.6): one for the whole app, docked on the right
+// The Tutorial panel (PLAN §24.6): one for the whole app, docked on the right
 // and never modal, so the user can do each step in the view beside it. It
 // stays open across navigation because several Tutorials cross views. At
 // phone width it is a bottom sheet that shrinks to a one-line strip.
 //
-// And the "?" that opens it from a view (§22.1), and the Command links its
-// steps are written with (§22.9).
+// And the "?" that opens it from a view (§24.1), and the Command links its
+// steps are written with (§24.9).
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, Check, ChevronDown, ChevronUp, CircleHelp, RotateCcw, X } from "lucide-react";
 import { cn } from "cn";

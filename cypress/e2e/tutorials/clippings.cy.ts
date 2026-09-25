@@ -1,6 +1,6 @@
 // Walks the Clippings Tutorial (docs/tutorials/clippings.en.md) step by step,
 // doing what each step says, so a change to the Clippings view or the capture
-// box that outdates the Tutorial fails here (PLAN §22.13).
+// box that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Clippings", () => {
   beforeEach(() => cy.openApp());
 

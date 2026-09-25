@@ -1,6 +1,6 @@
 // Walks the Command Palette Tutorial (docs/tutorials/palette.en.md) step by
 // step, doing what each step says, so a change to the palette that outdates
-// the Tutorial fails here (PLAN §22.13).
+// the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: The Command Palette", () => {
   beforeEach(() => cy.openApp());
 

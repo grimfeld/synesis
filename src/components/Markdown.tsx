@@ -5,7 +5,7 @@
 //
 // A caller may take over links and pictures by scheme: Tutorials render
 // `command:` links as buttons that run the Command and `image:` pictures from
-// the chosen image mode (PLAN §22.9, §22.12).
+// the chosen image mode (PLAN §24.9, §24.12).
 import { createContext, useContext, type ReactNode } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { cn } from "cn";

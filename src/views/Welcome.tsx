@@ -322,7 +322,7 @@ export function Welcome() {
                 <p className="mt-2 text-muted-foreground">{t.wizard.done_body}</p>
               </div>
               <ul className="grid gap-3">
-                {/* Each opens the Vault with its Tutorial beside it (PLAN §22.11). */}
+                {/* Each opens the Vault with its Tutorial beside it (PLAN §24.11). */}
                 {[
                   { icon: Zap, title: t.wizard.try_capture, body: t.wizard.try_capture_body, kbd: shortcut("⇧N"), tutorial: "capture" },
                   { icon: Search, title: t.wizard.try_palette, body: t.wizard.try_palette_body, kbd: shortcut("K"), tutorial: "palette" },

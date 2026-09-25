@@ -8,7 +8,7 @@ import type { DeviceKind } from "@/lib/syncRules";
 
 /**
  * Top bar shared by every whole-pane view: sidebar toggle, title, then any
- * controls, then the view's Tutorials behind a "?" (PLAN §22.1).
+ * controls, then the view's Tutorials behind a "?" (PLAN §24.1).
  */
 export function ViewHeader({ title, icon, children, className, tutorials, deviceKind }: { title?: ReactNode; icon?: ReactNode; children?: ReactNode; className?: string; tutorials?: TutorialPlace; deviceKind?: DeviceKind }) {
   return (

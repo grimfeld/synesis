@@ -1,6 +1,6 @@
 // Walks the Graph Tutorial (docs/tutorials/graph.en.md) step by step, doing
 // what each step says, so a change to the Graph that outdates the Tutorial
-// fails here (PLAN §22.13). The Graph is a canvas: where the DOM cannot say
+// fails here (PLAN §24.13). The Graph is a canvas: where the DOM cannot say
 // what is drawn, the spec reads the pixels, as cypress/e2e/graph.cy.ts does.
 export {};
 

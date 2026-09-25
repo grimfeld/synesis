@@ -1,7 +1,7 @@
 // Walks the Linkables & Unlinked mentions Tutorial
 // (docs/tutorials/linkables.en.md) step by step, doing what each step says,
 // so a change to either list that outdates the Tutorial fails here
-// (PLAN §22.13).
+// (PLAN §24.13).
 describe("Tutorial: Linkables & Unlinked mentions", () => {
   beforeEach(() => cy.openApp());
 

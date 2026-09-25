@@ -1,6 +1,6 @@
 // Walks the Boards Tutorial (docs/tutorials/boards.en.md) step by step, doing
 // what each step says on the demo vault's "Talk on endurance", so a change to
-// the Board that outdates the Tutorial fails here (PLAN §22.13).
+// the Board that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Boards", () => {
   beforeEach(() => cy.openApp());
 

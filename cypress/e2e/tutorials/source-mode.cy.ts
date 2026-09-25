@@ -1,6 +1,6 @@
 // Walks the Live Preview & Source mode Tutorial
 // (docs/tutorials/source-mode.en.md) step by step, doing what each step says,
-// so a change to the editor that outdates the Tutorial fails here (PLAN §22.13).
+// so a change to the editor that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Live Preview & Source mode", () => {
   beforeEach(() => cy.openApp());
 

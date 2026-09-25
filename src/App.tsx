@@ -6,6 +6,7 @@ import { matchShortcut } from "./lib/keys";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dialogs } from "./components/Dialogs";
 import { DocView } from "./views/DocView";
+import { DeliveryView } from "./views/DeliveryView";
 import { HubView } from "./views/HubView";
 import { TimelineView } from "./views/TimelineView";
 import { HUB_TYPES } from "./lib/api";
@@ -27,20 +28,40 @@ import { TutorialPanel } from "./components/TutorialPanel";
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
   const commands = useCommands();
+  const s = useStore();
+  // The Delivery view owns the keyboard: nothing under it may be opened,
+  // navigated or edited mid-talk (PLAN §23.8).
+  const delivering = s.delivery !== null;
   useEffect(() => {
+    if (delivering) return;
     const onKey = (e: KeyboardEvent) => {
       // The editor's own keymap (bound from the same registry) runs first and prevents default.
       if (e.defaultPrevented) return;
       const c = commands.find(
-        (c) => c.shortcut && matchShortcut(e, c.shortcut),
+        (c) => c.shortcut && !c.overEditor && matchShortcut(e, c.shortcut),
       );
       if (!c) return;
       e.preventDefault();
       c.run();
     };
+    // Commands that win over the editor are caught on the way down, before
+    // CodeMirror sees the key and handles it as its own.
+    const onKeyFirst = (e: KeyboardEvent) => {
+      const c = commands.find(
+        (c) => c.shortcut && c.overEditor && matchShortcut(e, c.shortcut),
+      );
+      if (!c) return;
+      e.preventDefault();
+      e.stopPropagation();
+      c.run();
+    };
+    window.addEventListener("keydown", onKeyFirst, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [commands]);
+    return () => {
+      window.removeEventListener("keydown", onKeyFirst, true);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [commands, delivering]);
   return null;
 }
 
@@ -105,7 +126,7 @@ function Shell() {
       <AppSidebar />
       <SidebarInset className="h-full min-h-0 overflow-hidden">
         {/* The Tutorial panel docks beside whatever view is showing and
-            outlives navigation (PLAN §22.6). */}
+            outlives navigation (PLAN §24.6). */}
         <div className="flex h-full min-h-0">
           <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
           <TutorialPanel />
@@ -113,6 +134,9 @@ function Shell() {
       </SidebarInset>
       <Dialogs />
       <Shortcuts />
+      {s.delivery && (
+        <DeliveryView key={s.delivery.id} id={s.delivery.id} />
+      )}
       <Toaster
         position="bottom-right"
         toastOptions={{

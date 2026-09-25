@@ -1,4 +1,4 @@
-// The Tutorial panel (PLAN §22.6, §22.9, §22.11): opened from a view's "?",
+// The Tutorial panel (PLAN §24.6, §24.9, §24.11): opened from a view's "?",
 // docked beside the view and staying open across navigation, stepping with
 // next and back, running a step's Command links, and remembering where the
 // user was. Each Tutorial's own steps are walked in cypress/e2e/tutorials/.

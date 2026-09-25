@@ -1,6 +1,6 @@
 // Walks the Properties & Dates Tutorial (docs/tutorials/properties.en.md)
 // step by step, doing what each step says, so a change to typed Properties,
-// Dates or the Timeline that outdates the Tutorial fails here (PLAN §22.13).
+// Dates or the Timeline that outdates the Tutorial fails here (PLAN §24.13).
 describe("Tutorial: Properties & Dates", () => {
   beforeEach(() => cy.openApp());
 

@@ -1,6 +1,6 @@
 // Walks the Timeline Tutorial (docs/tutorials/timeline.en.md) step by step on
 // the demo vault, so a change to the Timeline that outdates the Tutorial fails
-// here (PLAN §22.13).
+// here (PLAN §24.13).
 describe("Tutorial: Timeline", () => {
   // Kinds and the cull persist in settings, so start and end unfiltered, as
   // timeline.cy.ts does.

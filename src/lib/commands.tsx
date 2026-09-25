@@ -11,6 +11,10 @@ import {
   CalendarRange,
   CircleHelp,
   Code,
+  Columns2,
+  Lock,
+  LockOpen,
+  Presentation,
   Dices,
   FilePlus,
   House,
@@ -26,8 +30,9 @@ import {
   Waypoints,
   Zap,
 } from "lucide-react";
-import { CREATABLE_TYPES, type DocType } from "@/lib/api";
+import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
@@ -46,6 +51,12 @@ export interface Command {
   icon?: LucideIcon;
   /** Spec like "Mod+Shift+P"; see src/lib/keys.ts. */
   shortcut?: string;
+  /**
+   * The shortcut wins over the editor's own binding for the same keys. For
+   * Back and Forward: CodeMirror binds Alt+←/→ to a syntax motion off macOS,
+   * and handling the key there left Back dead whenever a page had focus.
+   */
+  overEditor?: boolean;
   keywords?: string;
   run: () => void;
 }
@@ -134,6 +145,9 @@ export function useCommands(): Command[] {
       group: "navigate",
       icon: ArrowLeft,
       shortcut: "Alt+ArrowLeft",
+      // Not on macOS, where Option+← is word-left in every text field and
+      // taking it from the editor would break ordinary editing.
+      overEditor: !IS_MAC,
       run: s.back,
     });
     list.push({
@@ -142,6 +156,7 @@ export function useCommands(): Command[] {
       group: "navigate",
       icon: ArrowRight,
       shortcut: "Alt+ArrowRight",
+      overEditor: !IS_MAC,
       run: s.forward,
     });
     list.push({
@@ -184,6 +199,25 @@ export function useCommands(): Command[] {
           keywords: "board mind map canvas talk outline",
           run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
         });
+        // Talk and Board side by side (PLAN §22.2). Offered even where the
+        // split does not fit: the talk shows until there is room.
+        list.push({
+          id: "doc.split",
+          title: s.docTab === "split" ? t.board_tab_talk : t.split_command,
+          group: "navigate",
+          icon: Columns2,
+          keywords: "split side by side board talk both columns pane",
+          run: () => s.setDocTab(s.docTab === "split" ? "talk" : "split"),
+        });
+        // The Delivery view (PLAN §23.12).
+        list.push({
+          id: "doc.deliver",
+          title: t.deliver_command,
+          group: "navigate",
+          icon: Presentation,
+          keywords: "deliver present presentation talk give timer lectern full screen",
+          run: () => s.openDelivery(doc.id),
+        });
       }
       // The capture box on a Source Hub. Reaching it by hand means scrolling
       // back up past a long list of Clippings, which is what the box exists to
@@ -205,7 +239,24 @@ export function useCommands(): Command[] {
       }
     }
     // ---- editor
-    if (hasEditor) {
+    // Reading mode is the Device's lock on every Writing (PLAN §23), so it is
+    // offered wherever one is open.
+    if (s.view.kind === "doc") {
+      const doc = s.docsById.get(s.view.id);
+      if (doc && WRITING_TYPES.includes(doc.type)) {
+        list.push({
+          id: "editor.reading",
+          title: s.readingMode ? t.reading_unlock : t.reading_mode,
+          group: "editor",
+          icon: s.readingMode ? LockOpen : Lock,
+          keywords: "reading read only lock locked keyboard edit unlock",
+          run: () => s.setReadingMode(!s.readingMode),
+        });
+      }
+    }
+    // Editing Commands are not offered on a locked page: the lock would drop
+    // their change anyway, and a Command that does nothing is a lie.
+    if (hasEditor && !s.readingMode) {
       list.push({
         id: "editor.source",
         title: s.sourceMode ? t.live_preview : t.source_mode,
@@ -232,7 +283,7 @@ export function useCommands(): Command[] {
         });
       }
     }
-    // ---- help: every Tutorial, by its title in the app's language (PLAN §22.1).
+    // ---- help: every Tutorial, by its title in the app's language (PLAN §24.1).
     for (const id of tutorialIds()) {
       const tut = tutorial(id, s.lang);
       if (!tut) continue;
@@ -253,7 +304,7 @@ export function useCommands(): Command[] {
  * Every Command id the registry can hold, whatever the current view. The
  * registry itself only lists what applies now (the Board toggle on a
  * Composition, editor commands with an editor), so a Tutorial's
- * `command:` links are checked against this instead (PLAN §22.9).
+ * `command:` links are checked against this instead (PLAN §24.9).
  */
 export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[] {
   return [

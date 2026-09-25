@@ -30,6 +30,21 @@ import {
 import { NO_FILTERS, type Filters } from "./timeline";
 import { NO_MAP_FILTERS, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
+import { DEFAULT_RATIO } from "./split";
+import {
+  clampSize,
+  DEFAULT_SIZE,
+  newTimer,
+  type TimerState,
+} from "./delivery";
+
+/** Which face of a Composition is showing (PLAN §22.2). */
+export type DocTab = "talk" | "split" | "board";
+
+/** The Delivery view: which Composition is being given (PLAN §23). */
+export interface Delivery {
+  id: string;
+}
 
 export type View =
   | { kind: "home" }
@@ -61,7 +76,8 @@ export type Dialog =
       id: string;
       frontier: string;
       label: string;
-      onRestore: (text: string) => void;
+      /** Absent in Reading mode: the Version is read, not restored. */
+      onRestore?: (text: string) => void;
     }
   | {
       kind: "set-location";
@@ -81,6 +97,8 @@ export type Dialog =
     };
 
 const SOURCE_MODE_KEY = "synesis.sourceMode";
+const READING_MODE_KEY = "synesis.readingMode";
+const DELIVERY_SIZE_KEY = "synesis.deliverySize";
 
 interface Store {
   settings: Settings | null;
@@ -101,6 +119,17 @@ interface Store {
   sidebarOpen: boolean;
   panelOpen: boolean;
   sourceMode: boolean;
+  /**
+   * Reading mode: the Device's lock on every Writing (PLAN §23.3-5). Kept in
+   * `localStorage`, so each Device keeps its own.
+   */
+  readingMode: boolean;
+  /** The Delivery view, when it is open (PLAN §23.7). */
+  delivery: Delivery | null;
+  /** The Delivery view's text size, in CSS pixels, per Device (§23.11). */
+  deliverySize: number;
+  /** The Delivery view's timer. Lives here so leaving the view keeps it (§23.10). */
+  deliveryTimer: TimerState;
   /** The Timeline's filters (PLAN §17.5): here, not in the view, so that a
    *  round-trip to a Hub and back does not lose them. */
   timelineFilters: Filters;
@@ -108,10 +137,13 @@ interface Store {
   mapFilters: MapFilters;
   setMapFilters: (f: MapFilters) => void;
   /**
-   * Which face of a Composition is showing. Store state rather than a route,
-   * so the later split pane can show both at once (PLAN §17.9).
+   * Which face of a Composition is showing: the talk, the Board, or both side
+   * by side (PLAN §22). Store state rather than a route, so Back to a
+   * Composition returns to the same face (PLAN §17.9).
    */
-  docTab: "talk" | "board";
+  docTab: DocTab;
+  /** The talk's share of the width when split. Session-only (PLAN §22.4). */
+  splitRatio: number;
   openVault: (path?: string) => Promise<void>;
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
@@ -141,7 +173,18 @@ interface Store {
   setSidebarOpen: (b: boolean) => void;
   setPanelOpen: (b: boolean) => void;
   setSourceMode: (b: boolean) => void;
-  setDocTab: (tab: "talk" | "board") => void;
+  setReadingMode: (b: boolean) => void;
+  openDelivery: (id: string) => void;
+  closeDelivery: () => void;
+  setDeliverySize: (px: number) => void;
+  setDeliveryTimer: (t: TimerState) => void;
+  setDocTab: (tab: DocTab) => void;
+  setSplitRatio: (r: number) => void;
+  /**
+   * A Board was saved. Candidates and Board refs depend on it, and with the
+   * talk beside the Board they are on screen while it changes (PLAN §22.8).
+   */
+  announceBoardSaved: () => void;
   /** Declare or change a Property name's type, vault-wide. */
   setPropertyType: (name: string, t: PropertyType) => Promise<void>;
 }
@@ -155,6 +198,7 @@ const BUILTIN_SCHEMA: PropertySchema = {
     created: "calendar",
     date: "calendar",
     died: "date",
+    duration: "number",
     end: "date",
     kind: "text",
     lat: "number",
@@ -177,6 +221,31 @@ export function useStore(): Store {
   const s = useContext(StoreContext);
   if (!s) throw new Error("store missing");
   return s;
+}
+
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, b: boolean) {
+  try {
+    localStorage.setItem(key, b ? "1" : "0");
+  } catch {
+    /* preference only */
+  }
+}
+
+function readDeliverySize(): number {
+  try {
+    const n = Number(localStorage.getItem(DELIVERY_SIZE_KEY));
+    return n ? clampSize(n) : DEFAULT_SIZE;
+  } catch {
+    return DEFAULT_SIZE;
+  }
 }
 
 function readSourceMode(): boolean {
@@ -208,9 +277,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     useState<MapFilters>(NO_MAP_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
   const [sourceMode, setSourceModeState] = useState(readSourceMode);
+  const [readingMode, setReadingModeState] = useState(() =>
+    readFlag(READING_MODE_KEY),
+  );
+  const [delivery, setDelivery] = useState<Delivery | null>(null);
+  const [deliverySize, setDeliverySizeState] = useState(readDeliverySize);
+  const [deliveryTimer, setDeliveryTimerState] = useState<TimerState>(
+    () => newTimer(null),
+  );
   // A Board belongs to the Composition being read, so opening another
   // document starts on its text rather than on the Board of the last one.
-  const [docTab, setDocTab] = useState<"talk" | "board">("talk");
+  const [docTab, setDocTab] = useState<DocTab>("talk");
+  const [splitRatio, setSplitRatio] = useState(DEFAULT_RATIO);
   const viewRef = useRef(view);
   viewRef.current = view;
   const booted = useRef(false);
@@ -388,6 +466,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [openDoc, refresh],
   );
 
+  const announceBoardSaved = useCallback(() => {
+    // A Board is not a document: the Composition's own text and mtime are
+    // untouched, so naming it in `changed` would read as an edit to its text
+    // and could reload the editor. An empty change reaches exactly the queries
+    // that depend on anything (`deps: { any: true }`), which is where Board
+    // refs show up — the Candidates panel. The engine's own event would not
+    // reach the dev bridge or the web build, where events are stubbed.
+    setLastChange({ changed: [], removed: [] });
+  }, []);
+
   const setLang = useCallback(async (l: Lang) => {
     await api.setLanguage(l);
     setSettings(await api.getSettings());
@@ -449,6 +537,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const setReadingMode = useCallback((b: boolean) => {
+    setReadingModeState(b);
+    writeFlag(READING_MODE_KEY, b);
+  }, []);
+
+  // The Delivery view opens on the face that was showing (§23.12), and the
+  // timer belongs to the Composition it was started for: opening another
+  // Composition's view starts a fresh one, re-opening the same keeps it.
+  const openDelivery = useCallback((id: string) => {
+    setDelivery({ id });
+    setDeliveryTimerState((t) => (t.for === id ? t : newTimer(id)));
+  }, []);
+  const closeDelivery = useCallback(() => setDelivery(null), []);
+  const setDeliverySize = useCallback((px: number) => {
+    const n = clampSize(px);
+    setDeliverySizeState(n);
+    try {
+      localStorage.setItem(DELIVERY_SIZE_KEY, String(n));
+    } catch {
+      /* preference only */
+    }
+  }, []);
+  const setDeliveryTimer = useCallback((t: TimerState) => {
+    setDeliveryTimerState(t);
+  }, []);
+
   const setSourceMode = useCallback((b: boolean) => {
     setSourceModeState(b);
     try {
@@ -480,7 +594,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     mapFilters,
     panelOpen,
     sourceMode,
+    readingMode,
+    delivery,
+    deliverySize,
+    deliveryTimer,
     docTab,
+    splitRatio,
     openVault,
     attachVault,
     closeVault,
@@ -501,7 +620,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setMapFilters,
     setPanelOpen,
     setSourceMode,
+    setReadingMode,
+    openDelivery,
+    closeDelivery,
+    setDeliverySize,
+    setDeliveryTimer,
     setDocTab,
+    setSplitRatio,
+    announceBoardSaved,
     setPropertyType,
   };
   return (

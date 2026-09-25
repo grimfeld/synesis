@@ -1,6 +1,6 @@
 // Walks the Map & Journeys Tutorial (docs/tutorials/map.en.md) step by step
 // on the demo vault, so a change to the Map that outdates the Tutorial fails
-// here (PLAN §22.13). Tiles are blocked offline, so the walk asserts on
+// here (PLAN §24.13). Tiles are blocked offline, so the walk asserts on
 // markers, labels and routes, never on the map background.
 describe("Tutorial: Map & Journeys", () => {
   beforeEach(() => cy.openApp());
