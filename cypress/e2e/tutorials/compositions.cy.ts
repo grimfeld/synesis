@@ -38,13 +38,10 @@ describe("Tutorial: Compositions & Embeds", () => {
     cy.get(".cm-content").type("{enter}");
     cy.tutorialCommand("editor.embed");
     cy.get(".cm-tooltip-autocomplete").should("exist");
-    // The Clipping's name, typed whole between the brackets the Command put
-    // in. Picking it from the list is not driven here: the list keeps the
-    // options it opened with while typing continues (filter: false with
-    // validFor in src/editor/autocomplete.ts), so which row is first depends
-    // on timing.
-    cy.focused().type("Keep enduring with joy par. 12 2026-08-05 20.10");
-    cy.get("body").type("{esc}");
+    // A few words of the Source, at a person's pace, then the Clipping picked
+    // from the list: the Source itself ranks first, the Clipping under it.
+    cy.focused().type("keep enduring", { delay: 150 });
+    cy.get(".cm-tooltip-autocomplete li").contains("par. 12").click();
     cy.get(".cm-embed-box").should("contain", "Endurance is not merely putting up");
     cy.wait(1000);
     cy.docByTitle("A Talk of My Own").then((d) => {

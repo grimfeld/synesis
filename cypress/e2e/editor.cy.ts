@@ -71,11 +71,13 @@ describe("Editor (Writing page)", () => {
     cy.get("body").type("{ctrl}e");
   });
 
+  // Typed at a person's pace: the list opens after CodeMirror's activation
+  // delay, so typing faster than that hid a list that never narrowed.
   it("autocompletes wikilinks and tags", () => {
-    cy.get(".cm-content").click().type("{ctrl}{end}").type("{enter}See [[Geth");
+    cy.get(".cm-content").click().type("{ctrl}{end}").type("{enter}See [[Geth", { delay: 150 });
     cy.get(".cm-tooltip-autocomplete").should("contain", "Gethsemane");
     cy.get("body").type("{esc}");
-    cy.get(".cm-content").type("{enter}#pra");
+    cy.get(".cm-content").type("{enter}#pra", { delay: 150 });
     cy.get(".cm-tooltip-autocomplete").should("contain", "prayer");
   });
 

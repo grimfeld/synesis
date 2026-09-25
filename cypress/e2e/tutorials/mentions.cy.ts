@@ -44,7 +44,7 @@ describe("Tutorial: Mentions & Tags", () => {
     cy.get(".cm-content").click().type("{ctrl}{end}{enter}Jesus prayed in ");
     cy.tutorialCommand("editor.link");
     // The Command types `[[`, keeps the editor focused and opens the list.
-    cy.focused().type("Geth");
+    cy.focused().type("Geth", { delay: 150 });
     cy.get(".cm-tooltip-autocomplete").should("contain", "Gethsemane");
     cy.focused().type("{enter}");
     saved();

@@ -18,7 +18,10 @@ export function makeAutocomplete(getNames: () => NameIndex, getTags: () => TagCo
           view.dispatch({ changes: { from: from + 2, to: to + after, insert: e.name + "]]" }, selection: { anchor: from + 2 + e.name.length + 2 } });
         },
       }));
-    return { from: m.from, options: opts, filter: false, validFor: /^\[\[[^\[\]]*$/ };
+    // No `validFor`: the options are ranked here, not filtered by CodeMirror
+    // (`filter: false`), so a list that stayed valid would stay the one for
+    // the empty query. Asking again on each keystroke is what narrows it.
+    return { from: m.from, options: opts, filter: false };
   };
   const tag = (ctx: CompletionContext): CompletionResult | null => {
     const m = ctx.matchBefore(/(?:^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]*)$/u);
@@ -39,7 +42,8 @@ export function makeAutocomplete(getNames: () => NameIndex, getTags: () => TagCo
       seen.add(asTag.toLowerCase());
       options.push({ label: asTag, detail: e.type, apply: "#" + asTag });
     }
-    return { from: m.from + hashAt, options: options.slice(0, 14), filter: false, validFor: /^#[\p{L}\p{N}_/-]*$/u };
+    // Asked again on each keystroke, as above.
+    return { from: m.from + hashAt, options: options.slice(0, 14), filter: false };
   };
   return autocompletion({ override: [wikilink, tag], icons: false, activateOnTyping: true });
 }
