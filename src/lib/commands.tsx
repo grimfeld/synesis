@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import {
   EDITOR_COMMANDS,
@@ -47,6 +48,12 @@ export interface Command {
   icon?: LucideIcon;
   /** Spec like "Mod+Shift+P"; see src/lib/keys.ts. */
   shortcut?: string;
+  /**
+   * The shortcut wins over the editor's own binding for the same keys. For
+   * Back and Forward: CodeMirror binds Alt+←/→ to a syntax motion off macOS,
+   * and handling the key there left Back dead whenever a page had focus.
+   */
+  overEditor?: boolean;
   keywords?: string;
   run: () => void;
 }
@@ -134,6 +141,9 @@ export function useCommands(): Command[] {
       group: "navigate",
       icon: ArrowLeft,
       shortcut: "Alt+ArrowLeft",
+      // Not on macOS, where Option+← is word-left in every text field and
+      // taking it from the editor would break ordinary editing.
+      overEditor: !IS_MAC,
       run: s.back,
     });
     list.push({
@@ -142,6 +152,7 @@ export function useCommands(): Command[] {
       group: "navigate",
       icon: ArrowRight,
       shortcut: "Alt+ArrowRight",
+      overEditor: !IS_MAC,
       run: s.forward,
     });
     list.push({

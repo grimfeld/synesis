@@ -36,14 +36,29 @@ function Shortcuts() {
       // The editor's own keymap (bound from the same registry) runs first and prevents default.
       if (e.defaultPrevented) return;
       const c = commands.find(
-        (c) => c.shortcut && matchShortcut(e, c.shortcut),
+        (c) => c.shortcut && !c.overEditor && matchShortcut(e, c.shortcut),
       );
       if (!c) return;
       e.preventDefault();
       c.run();
     };
+    // Commands that win over the editor are caught on the way down, before
+    // CodeMirror sees the key and handles it as its own.
+    const onKeyFirst = (e: KeyboardEvent) => {
+      const c = commands.find(
+        (c) => c.shortcut && c.overEditor && matchShortcut(e, c.shortcut),
+      );
+      if (!c) return;
+      e.preventDefault();
+      e.stopPropagation();
+      c.run();
+    };
+    window.addEventListener("keydown", onKeyFirst, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKeyFirst, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, [commands, delivering]);
   return null;
 }
