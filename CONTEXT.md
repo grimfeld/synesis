@@ -222,5 +222,5 @@ The editing mode that shows the raw markdown of a document exactly as stored.
 _Avoid_: Raw mode, text mode, code view
 
 **Reading mode**:
-A lock on a Writing that stops it being edited, whichever of Live Preview or Source mode is showing. Nothing can be typed, and a phone's keyboard never comes up; the title, Tags and Properties are fixed. Links, Passages and Embeds still open, the text can be selected and copied, and a checkbox can still be ticked, so a checklist stays usable. Set once per Device and kept, since a phone is mostly for reading and a desktop for writing.
+A lock on a Writing that stops it being edited, whichever of Live Preview or Source mode is showing. Nothing can be typed, and a phone's keyboard never comes up; the title, Tags and Properties are fixed. Links, Passages and Embeds still open, the text can be selected and copied, and a checkbox can still be ticked, so a checklist stays usable. A Board opens for reading too, rather than for arranging. Set once per Device and kept, since a phone is mostly for reading and a desktop for writing.
 _Avoid_: Read-only mode, Reading view, locked mode

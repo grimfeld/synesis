@@ -629,3 +629,106 @@ foreclosed; this section fills it in. No new vocabulary.
 
 - In split, a reading-mode press showing the document in the HoverCard beside
   the card, keeping the talk in view.
+
+## 23. Reading mode and the Delivery view (grilling session, 2026-09-25)
+
+Giving a talk from Synesis means holding an editor: a tap on the text brings
+up a phone's keyboard, and a stray keystroke changes the talk. New vocabulary
+in [CONTEXT.md](../CONTEXT.md): **Reading mode**, **Delivery view**. This
+reverses §12.2's "No Reading view" for the reason §12.2 could not see yet:
+a talk is not only written in the app, it is given from it.
+
+### Decided
+
+1. **Two features, both built now.** Reading mode is the lock that stops a
+   Writing being edited; the Delivery view is the full-screen place a
+   Composition is given from, with a timer. The lock answers "the keyboard is
+   in the way" on its own; the Delivery view answers the lectern.
+2. **Reading mode covers every Writing** (Note, Clipping, Composition). Reading
+   a Note on a phone has the same keyboard problem as reading a talk, and the
+   mechanism is identical. Hubs are already views (§13).
+3. **A lock beside the editor mode, not a third mode.** Live Preview and Source
+   mode stay what they are; Reading mode combines with either, so read-only raw
+   markdown is possible.
+4. **Set once per Device and kept**, in `localStorage` like Source mode. A
+   phone is mostly for reading and a desktop for writing; the lock is about the
+   Device, not the document. Rejected: a per-document Property (a display
+   preference in the user's files, synced to Devices that do not want it) and
+   session-only (locking again before every talk, which is when it is
+   forgotten). Because the lock outlives the session, its state is always
+   visible in the header, and a keystroke into a locked Writing says so.
+5. **The lock covers everything that edits, except checkboxes**: body, title,
+   Tags, Properties, and panel actions that write the body (Link on an
+   Unlinked mention, Version restore). What does not write still works —
+   links, Passages, Embeds, the HoverCard, selection and copy, reading the
+   panel. A checkbox stays tickable so a checklist is usable while locked.
+   Delete stays in the header: it confirms, and it removes rather than edits.
+6. **Reading mode opens the Board for reading.** With the lock on, the Board
+   starts in its reading mode (§17.15 amendment) instead of arranging; its own
+   toggle still switches for that visit. Not merged with it: the Board's modes
+   also change what a press means, which is not what the lock is about.
+7. **The Delivery view shows the talk, the Board, or both, and a timer.**
+   Nothing else: no header, sidebar, panel or tabs. Side by side follows §22's
+   fit rule. Some speakers give a talk from its Board, so the Board is a face
+   of the view, not a preparation tool left behind. Always locked, whatever the
+   Device's Reading mode.
+8. **Nothing in the Delivery view navigates away.** A tap on a Passage, a link
+   or a Board card opens the HoverCard over the view; Escape or a tap elsewhere
+   dismisses it. Reading a verse aloud is part of a Bible talk; losing your
+   place mid-talk is this view's worst failure. The Board keeps pan and zoom,
+   nothing on it moves.
+9. **The talk renders fully**: no line shows its markdown, whatever the cursor
+   or Source mode. In Live Preview a tap moves the cursor, and the line under
+   it would suddenly show `**` and `#` mid-talk.
+10. **The timer counts down from the Composition's `duration`** Property (a
+    number of minutes, a new built-in in the vault-wide schema, ADR 0006), amber
+    for the last two minutes, red at zero, then overtime as `+1:30`. Without a
+    duration it counts up from 0:00. It starts on Start, never on open (the view
+    opens before the speaker is introduced), pauses, and resets. It survives
+    leaving and re-entering the view for the session, so an accidental exit
+    costs nothing. A talk's length is set by whoever invited the speaker, a fact
+    about the talk, so it is set once while preparing rather than typed at the
+    lectern.
+11. **Text size: large by default, A−/A+ in the bar and pinch on touch**, kept
+    per Device. Reading distance varies more than anything else here. The Board
+    ignores it; it has its own zoom.
+12. **Entered from a "Deliver" button on a Composition's header and a
+    Command**, on the face that was showing (Talk, Split or Board), with the same
+    switch in the bar. The talk starts at the top: a talk is given from its
+    beginning. Exit (button, Escape, Android back) returns to the tab and place
+    that were showing.
+13. **The screen stays awake** while the view is open: the Wake Lock API where
+    the webview has it, a native keep-awake call where it does not. If neither
+    is available the bar says so rather than letting the screen sleep silently.
+
+### Build order
+
+1. **Reading mode.** The Device lock in the store beside Source mode; the
+   editor read-only through a compartment, with checkboxes still live; title,
+   Tags and Properties locked; panel actions that write the body disabled; the
+   header toggle and a Command; the "locked" hint on a keystroke; the Board
+   opening for reading. Cypress: typing changes nothing, the title and Tags do
+   not edit, a checkbox ticks, links open, the lock survives a reload.
+2. **`duration` Property**: built-in in `crates/engine/src/properties.rs` and
+   the UI's schema; `duration: 25` on the demo "Talk on endurance".
+3. **Timer logic** in `src/lib/delivery.ts` — countdown, overtime, colour
+   thresholds, pause and reset — as Vitest.
+4. **The Delivery view**: full-screen layout, the face switch, full rendering,
+   HoverCard on tap for Passages, links and Board cards, text size, wake lock,
+   exit and return. Cypress `delivery.cy.ts`, and a `locales.cy.ts` case for the
+   bar at phone width in French.
+
+### Declined
+
+- **A third editor mode** (decision 3) and **a per-document or session lock**
+  (decision 4).
+- **The side panel in the Delivery view**: nothing at a lectern should invite
+  interaction.
+- **Navigating from the Delivery view**, even with Back to return (decision 8).
+- **A per-Composition choice of face**: the face showing when Deliver is
+  pressed is the better guess, and needs no setting.
+
+### Open
+
+- Jumping between a talk's headings from the bar.
+- Whether the timer's amber threshold should scale with the duration.
