@@ -1,3 +1,5 @@
+// The web test build first: in `vite --mode web` it, not the dev bridge, answers `invoke`.
+import "./lib/webengine";
 import "./lib/devbridge";
 import React from "react";
 import ReactDOM from "react-dom/client";

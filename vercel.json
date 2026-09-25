@@ -1,0 +1,13 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "CYPRESS_INSTALL_BINARY=0 npm ci --no-audit --no-fund",
+  "buildCommand": "npm run build:web",
+  "outputDirectory": "dist-web",
+  "headers": [
+    {
+      "source": "/(synesis.wasm|demo-vault.json)",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }]
+    }
+  ]
+}
