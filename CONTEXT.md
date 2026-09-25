@@ -216,3 +216,7 @@ _Avoid_: WYSIWYG, rich text, rendered mode
 **Source mode**:
 The editing mode that shows the raw markdown of a document exactly as stored.
 _Avoid_: Raw mode, text mode, code view
+
+**Reading mode**:
+A lock on a Writing that stops it being changed, whichever of Live Preview or Source mode is showing. Links, Passages and Embeds still open; the text can be selected and copied; nothing can be typed, and a phone's keyboard never comes up. Set once per Device and kept, since a phone is mostly for reading and a desktop for writing.
+_Avoid_: Read-only mode, Reading view, locked mode
