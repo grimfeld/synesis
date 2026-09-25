@@ -4,6 +4,11 @@ version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 
+[features]
+default = ["p2p"]
+# Pairing over iroh (ADR 0008). Off for the browser build, which has no network.
+p2p = ["dep:iroh", "dep:tokio"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
@@ -20,12 +25,14 @@ unicode-normalization = "0.1"
 loro = "1"
 sha2 = "0.10"
 hex = "0.4"
-hostname = "0.4"
-iroh = "1.2"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
+iroh = { version = "1.2", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"], optional = true }
 postcard = { version = "1", features = ["use-std"] }
 rand = "0.8"
 base64 = "0.22"
+
+[target.'cfg(not(target_os = "wasi"))'.dependencies]
+hostname = "0.4"
 
 [dev-dependencies]
 tempfile = "3"

@@ -16,6 +16,7 @@ pub mod properties;
 pub mod query;
 pub mod scripture;
 pub mod sync;
+#[cfg(feature = "p2p")]
 pub mod p2p;
 pub mod templates;
 pub mod unlinked;
