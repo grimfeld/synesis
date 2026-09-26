@@ -36,6 +36,7 @@ import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
+import { useAppearance } from "@/lib/appearance";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -70,6 +71,7 @@ export function useCommands(): Command[] {
   const t = useT();
   const hasEditor = useHasEditor();
   const tutorials = useTutorials();
+  const appearance = useAppearance();
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -174,6 +176,17 @@ export function useCommands(): Command[] {
       icon: RefreshCw,
       keywords: "sync icloud syncthing dropbox onedrive drive devices",
       run: () => s.setDialog({ kind: "sync" }),
+    });
+    list.push({
+      id: "skins.gallery",
+      title: t.appearance.gallery_command,
+      group: "navigate",
+      icon: LayoutGrid,
+      keywords: "skin theme look colours nord paper appearance",
+      run: () => {
+        s.navigate({ kind: "settings" });
+        appearance.setGalleryOpen(true);
+      },
     });
     list.push({
       id: "nav.random",
@@ -297,7 +310,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen]);
 }
 
 /**
@@ -318,6 +331,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "nav.passage",
     "nav.sync",
     "nav.random",
+    "skins.gallery",
     "doc.board",
     "doc.capture",
     "editor.source",
