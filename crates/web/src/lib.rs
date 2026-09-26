@@ -322,6 +322,14 @@ impl State {
                 let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
                 ok(format!("data:{media};base64,{b64}"))
             }
+            "attach_picture" => {
+                let (title, name, data): (String, String, String) =
+                    (arg(&a, "title")?, arg(&a, "name")?, arg(&a, "data")?);
+                ok(api::attach_picture(self.vault()?.root(), &title, &name, &data).map_err(err)?)
+            }
+            "read_picture" => {
+                ok(api::read_picture(self.vault()?.root(), &arg::<String>(&a, "target")?).map_err(err)?)
+            }
             "find_source_by_url" => {
                 ok(self.vault()?.find_by_url(&arg::<String>(&a, "url")?).map_err(err)?)
             }

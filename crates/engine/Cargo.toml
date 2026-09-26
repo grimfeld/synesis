@@ -28,6 +28,14 @@ hex = "0.4"
 iroh = { version = "1.2", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"], optional = true }
 postcard = { version = "1", features = ["use-std"] }
+# Downscaling pictures on the way into `Attachments/` (ADR 0012, 0018). Only
+# the formats we are prepared to serve in a `data:` URL.
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+] }
 rand = "0.8"
 base64 = "0.22"
 

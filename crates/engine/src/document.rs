@@ -202,7 +202,7 @@ static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
 static TAG_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?:^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/\-]+)").unwrap());
 static SKIP_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+").unwrap());
+    Lazy::new(|| Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).unwrap());
 static FM_KEY_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^([A-Za-z0-9_\-]+)\s*:").unwrap());
 
 /// Split a file into its YAML frontmatter (raw) and the byte offset of the body.
@@ -684,6 +684,18 @@ no frontmatter
         assert!(d.links[0].embed);
         assert_eq!(d.links[1].alias.as_deref(), Some("the apostle"));
         assert_eq!(d.links[2].target, "Notes/Deep");
+    }
+
+    #[test]
+    fn a_picture_is_not_a_link() {
+        // No backlink, no Mention, never "unresolved" (ADR 0018).
+        let d = parse(
+            "N.md",
+            "![[Attachments/athens.png]]\n![[athens.JPG|300]]\n![map](Attachments/a%20b.webp)\n![[Clip one]] #tag",
+        );
+        let targets: Vec<_> = d.links.iter().map(|l| l.target.as_str()).collect();
+        assert_eq!(targets, vec!["Clip one"]);
+        assert_eq!(d.tags.len(), 1);
     }
 
     #[test]

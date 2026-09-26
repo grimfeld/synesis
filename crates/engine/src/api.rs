@@ -271,6 +271,37 @@ pub fn books(lang: Lang) -> Vec<BookMeta> {
         .collect()
 }
 
+/// Copy a dropped, pasted or picked picture into `Attachments/` and return the
+/// vault-relative path to write inside `![[…]]` (ADR 0018). `title` is the
+/// document the Picture goes into; `file_name` only lends its extension.
+pub fn attach_picture(
+    root: &std::path::Path,
+    title: &str,
+    file_name: &str,
+    data: &str,
+) -> crate::Result<String> {
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(data.as_bytes())
+        .map_err(|e| crate::Error::Invalid(format!("not an image: {e}")))?;
+    let now = chrono::Local::now().naive_local();
+    crate::attachments::store_picture(root, title, file_name, &bytes, now)
+}
+
+/// A Picture's file as a data URL, or `None` when the vault does not hold it
+/// (the editor draws "Picture not found" rather than failing).
+pub fn read_picture(root: &std::path::Path, target: &str) -> crate::Result<Option<String>> {
+    use base64::Engine as _;
+    let Some(rel) = crate::attachments::locate_picture(root, target) else {
+        return Ok(None);
+    };
+    let media = crate::attachments::media_type(&rel)
+        .ok_or_else(|| crate::Error::Invalid(format!("not an image: {rel}")))?;
+    let bytes = std::fs::read(crate::attachments::safe_relative(root, &rel)?)?;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(Some(format!("data:{media};base64,{b64}")))
+}
+
 /// Make the vault folder and the folders each document type is written to.
 pub fn prepare_vault_folder(root: &std::path::Path) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
@@ -285,8 +316,8 @@ pub fn prepare_vault_folder(root: &std::path::Path) -> std::io::Result<()> {
         "Concepts",
         "Events",
         "Journeys",
-        // Pictures the vault owns (ADR 0012). Referenced by `cover`, never
-        // indexed: the scanner still reads `.md` only.
+        // Pictures the vault owns (ADR 0012, 0018). Referenced by `cover` or
+        // `![[…]]`, never indexed: the scanner still reads `.md` only.
         "Attachments",
     ] {
         std::fs::create_dir_all(root.join(folder))?;

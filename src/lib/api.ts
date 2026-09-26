@@ -516,7 +516,9 @@ export type PairingEvent =
   | { kind: "membership" }
   | { kind: "error"; message: string }
   /** Config files a peer delivered (ADR 0016), relative to `.bible-study/`. */
-  | { kind: "config"; names: string[] };
+  | { kind: "config"; names: string[] }
+  /** Pictures a peer delivered (ADR 0019), vault-relative paths. */
+  | { kind: "attachments"; names: string[] };
 
 export type SyncMethod =
   "pairing" | "icloud" | "syncthing" | "provider" | "none";
@@ -882,6 +884,14 @@ export const api = {
     invoke<string>("save_remote_cover", { title, url }),
   /** Read a stored picture back as a data URL. */
   readAttachment: (path: string) => invoke<string>("read_attachment", { path }),
+  /**
+   * Copy a dropped, pasted or picked picture into `Attachments/`, named after
+   * `title`; returns the path to write in `![[…]]` (ADR 0018). `data` is base64.
+   */
+  attachPicture: (title: string, name: string, data: string) =>
+    invoke<string>("attach_picture", { title, name, data }),
+  /** A Picture's file as a data URL, or null when the vault does not hold it. */
+  readPicture: (target: string) => invoke<string | null>("read_picture", { target }),
   sourceTrail: (id: string) => query<TrailEntry[]>({ kind: "sourceTrail", id }),
   /**
    * Every Clipping with the Citation it names, newest first (ADR 0013).

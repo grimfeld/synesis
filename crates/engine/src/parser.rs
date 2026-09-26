@@ -54,7 +54,7 @@ static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+").expect("skip regex")
+    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
@@ -507,5 +507,18 @@ mod tests {
     #[test]
     fn inside_wikilink_still_detected() {
         assert_eq!(refs("[[John 3:16]]"), vec!["John 3:16"]);
+    }
+
+    #[test]
+    fn a_picture_named_like_a_passage_is_not_one() {
+        // Pictures are named after their document (ADR 0018), and "1 john 3"
+        // passes the digit-first rule, so the file name must be stepped over.
+        assert!(refs("![[Attachments/1 john 3 notes.png]]").is_empty());
+        assert!(refs("![[Attachments/1 john 3 notes.png|300]]").is_empty());
+        assert!(refs("![Map](Attachments/1 John 3.png)").is_empty());
+        // The rest of the line is still read.
+        assert_eq!(refs("![[1 john 3.jpg]] see John 3:16"), vec!["John 3:16"]);
+        // A document named like a Passage is not a Picture.
+        assert_eq!(refs("[[1 John 3]]"), vec!["1 John 3"]);
     }
 }

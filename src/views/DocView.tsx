@@ -194,15 +194,13 @@ export function DocView({ id }: { id: string }) {
   // A Clipping has no title, so its header is its Citation (ADR 0013): the
   // Source it names and where within it, read the way it would be said aloud.
   // The `source` property is a wikilink, and the brackets are not the name.
+  const sourceName = fmString(doc.frontmatter.source)
+    .replace(/^\[\[|\]\]$/g, "")
+    .split("|")[0]
+    .trim();
   const citation =
     sum.type === "clipping"
-      ? [
-          fmString(doc.frontmatter.source)
-            .replace(/^\[\[|\]\]$/g, "")
-            .split("|")[0]
-            .trim(),
-          fmString(doc.frontmatter.locator).trim(),
-        ]
+      ? [sourceName, fmString(doc.frontmatter.locator).trim()]
           .filter(Boolean)
           .join(" · ")
       : undefined;
@@ -237,6 +235,8 @@ export function DocView({ id }: { id: string }) {
           autofocus={!locked}
           sourceMode={s.sourceMode}
           readOnly={locked}
+          // A Clipping has no title, so its Pictures take its Source's (ADR 0018).
+          pictureTitle={sum.type === "clipping" ? sourceName : sum.title}
         />
       </div>
     </div>

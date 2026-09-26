@@ -16,6 +16,11 @@
 //! files each side lacks. Rounds run on connect, on local change, and every
 //! 30 seconds.
 //!
+//! A round also carries the Vault's config files whole (ADR 0016) and every
+//! picture in `Attachments/` (ADR 0019). An attachment is immutable once
+//! written, so it is matched by content hash and fetched when missing; nothing
+//! is ever deleted or overwritten.
+//!
 //! One connection per peer is kept open and reused by both sides' rounds, so a
 //! peer is online for as long as it is reachable, not just during a round. An
 //! unreachable peer is retried soon (1s, doubling up to 30s), each dial is
@@ -182,6 +187,11 @@ enum Request {
     ConfigManifest(Vec<ConfigEntry>),
     GetConfig(String),
     PutConfig { name: String, bytes: Vec<u8> },
+    /// Pictures in `Attachments/` (ADR 0019), last again: an older peer fails
+    /// only these and the rest of the round stands.
+    AttachmentManifest(Vec<AttachmentEntry>),
+    GetAttachment(String),
+    PutAttachment { entry: AttachmentEntry, bytes: Vec<u8> },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -195,6 +205,17 @@ enum Response {
     Ok,
     Hello(EndpointAddr),
     ConfigManifest(Vec<ConfigEntry>),
+    AttachmentManifest(Vec<AttachmentEntry>),
+}
+
+/// One picture in `Attachments/`, as a peer advertises it (ADR 0019).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttachmentEntry {
+    /// The file name, directly inside `Attachments/`.
+    pub name: String,
+    pub size: u64,
+    /// SHA-256 of the bytes: what makes two files the same picture.
+    pub hash: [u8; 32],
 }
 
 /// What the UI hears from the node.
@@ -210,6 +231,8 @@ pub enum Event {
     Error { message: String },
     /// Config files a peer delivered (ADR 0016), named relative to `.bible-study/`.
     Config { names: Vec<String> },
+    /// Pictures a peer delivered (ADR 0019), vault-relative paths.
+    Attachments { names: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -249,6 +272,12 @@ pub struct Node {
     relay: Option<RelayUrl>,
     /// False when relays are disabled (tests): there is no home relay to wait for.
     relays: bool,
+    /// `Attachments/`, whose pictures travel whole (ADR 0019).
+    attachments_dir: PathBuf,
+    /// Each attachment's hash, keyed by name and kept while its size and
+    /// modification time stand, so a round every 30 seconds does not reread
+    /// every picture in the Vault.
+    hashes: Mutex<HashMap<String, (u64, i64, [u8; 32])>>,
 }
 
 pub fn node_id_hex(id: &NodeId) -> String {
@@ -340,6 +369,8 @@ impl Node {
             changed: Arc::new(Notify::new()),
             relay: relay_url,
             relays: relay.as_deref() != Some(""),
+            attachments_dir: vault_root.join(crate::attachments::FOLDER),
+            hashes: Mutex::new(HashMap::new()),
         });
         tokio::spawn(Node::accept_loop(node.clone()));
         tokio::spawn(Node::dial_loop(node.clone()));
@@ -610,6 +641,14 @@ impl Node {
                 }
                 Response::Ok
             }
+            Request::AttachmentManifest(_) => Response::AttachmentManifest(self.attachment_manifest()),
+            Request::GetAttachment(name) => Response::File(self.read_attachment(&name)),
+            Request::PutAttachment { entry, bytes } => {
+                if let Some(name) = self.accept_attachment(&entry, &bytes) {
+                    self.emit(Event::Attachments { names: vec![name] }).await;
+                }
+                Response::Ok
+            }
         };
         let out = postcard::to_allocvec(&resp).map_err(|e| e.to_string())?;
         send.write_all(&out).await.map_err(|e| e.to_string())?;
@@ -854,6 +893,47 @@ impl Node {
         // A peer on an older version cannot answer this; its snapshots synced
         // all the same, so the round still counts.
         let _ = self.config_round(conn).await;
+        // Likewise for attachments (ADR 0019).
+        let _ = self.attachment_round(conn).await;
+        Ok(())
+    }
+
+    /// Pictures both ways, whole (ADR 0019). A picture is the same picture
+    /// when its bytes are, whatever it is called: a side fetches every hash it
+    /// does not hold, so a file saved under another name after a clash is not
+    /// fetched again on the next round.
+    async fn attachment_round(&self, conn: &Connection) -> Result<(), String> {
+        let mine = self.attachment_manifest();
+        let theirs = match request(conn, &Request::AttachmentManifest(mine.clone())).await? {
+            Response::AttachmentManifest(t) => t,
+            _ => return Err("bad attachment manifest reply".into()),
+        };
+        let my_hashes: HashSet<[u8; 32]> = mine.iter().map(|e| e.hash).collect();
+        let their_hashes: HashSet<[u8; 32]> = theirs.iter().map(|e| e.hash).collect();
+        let mut got = Vec::new();
+        let mut seen = HashSet::new();
+        for e in &theirs {
+            if my_hashes.contains(&e.hash) || !seen.insert(e.hash) || !Self::attachment_name_ok(&e.name) {
+                continue;
+            }
+            if let Response::File(Some(bytes)) = request(conn, &Request::GetAttachment(e.name.clone())).await? {
+                if let Some(name) = self.accept_attachment(e, &bytes) {
+                    got.push(name);
+                }
+            }
+        }
+        let mut sent = HashSet::new();
+        for e in &mine {
+            if their_hashes.contains(&e.hash) || !sent.insert(e.hash) {
+                continue;
+            }
+            if let Some(bytes) = self.read_attachment(&e.name) {
+                request(conn, &Request::PutAttachment { entry: e.clone(), bytes }).await?;
+            }
+        }
+        if !got.is_empty() {
+            self.emit(Event::Attachments { names: got }).await;
+        }
         Ok(())
     }
 
@@ -955,9 +1035,106 @@ impl Node {
         }
     }
 
+    // ---------------------------------------------------------- attachments
+
+    /// A plain picture name directly inside `Attachments/`: no separators, no
+    /// dot-dot, not hidden, and a type we serve (ADR 0012).
+    fn attachment_name_ok(name: &str) -> bool {
+        Self::safe(name) && !name.starts_with('.') && !name.contains("..") && crate::attachments::is_supported(name)
+    }
+
+    fn attachment_manifest(&self) -> Vec<AttachmentEntry> {
+        let mut out = Vec::new();
+        let Ok(files) = fs::read_dir(&self.attachments_dir) else { return out };
+        let mut cache = self.hashes.lock().unwrap();
+        let mut present = HashSet::new();
+        for f in files.flatten() {
+            let p = f.path();
+            let name = f.file_name().to_string_lossy().to_string();
+            if !Self::attachment_name_ok(&name) {
+                continue;
+            }
+            let Ok(meta) = fs::metadata(&p) else { continue };
+            if !meta.is_file() || meta.len() as usize > MAX_FILE {
+                continue;
+            }
+            let (size, mtime) = (meta.len(), mtime_ms(&p));
+            let hash = match cache.get(&name) {
+                Some(&(s, m, h)) if s == size && m == mtime => h,
+                _ => {
+                    let Ok(bytes) = fs::read(&p) else { continue };
+                    let h = sha256(&bytes);
+                    cache.insert(name.clone(), (size, mtime, h));
+                    h
+                }
+            };
+            present.insert(name.clone());
+            out.push(AttachmentEntry { name, size, hash });
+        }
+        cache.retain(|n, _| present.contains(n));
+        out
+    }
+
+    fn read_attachment(&self, name: &str) -> Option<Vec<u8>> {
+        if !Self::attachment_name_ok(name) {
+            return None;
+        }
+        fs::read(self.attachments_dir.join(name)).ok().filter(|b| b.len() <= MAX_FILE)
+    }
+
+    /// Store a picture a peer sent, and return the vault-relative path it was
+    /// stored under, or `None` when nothing was written.
+    ///
+    /// Never overwrites: a name this Device already uses for other bytes keeps
+    /// them, and the incoming picture takes the next free name, `name 2.ext`
+    /// (ADR 0019). Bytes that do not match the advertised hash are refused.
+    fn accept_attachment(&self, e: &AttachmentEntry, bytes: &[u8]) -> Option<String> {
+        if !Self::attachment_name_ok(&e.name) || bytes.len() > MAX_FILE || sha256(bytes) != e.hash {
+            return None;
+        }
+        let _ = fs::create_dir_all(&self.attachments_dir);
+        let name = free_attachment_name(&self.attachments_dir, &e.name, &e.hash)?;
+        let dest = self.attachments_dir.join(&name);
+        if dest.exists() {
+            // Already here under that name, byte for byte.
+            return None;
+        }
+        // Hidden and not a picture type, so a half-written file is never
+        // advertised or shown.
+        let tmp = self.attachments_dir.join(format!(".{name}.part"));
+        if fs::write(&tmp, bytes).is_err() || fs::rename(&tmp, &dest).is_err() {
+            let _ = fs::remove_file(&tmp);
+            return None;
+        }
+        Some(format!("{}/{name}", crate::attachments::FOLDER))
+    }
+
     pub async fn shutdown(&self) {
         self.endpoint.close().await;
     }
+}
+
+fn sha256(bytes: &[u8]) -> [u8; 32] {
+    use sha2::Digest as _;
+    sha2::Sha256::digest(bytes).into()
+}
+
+/// The name an incoming picture is stored under: its own when free or already
+/// holding the same bytes, else the first `stem N.ext` that is (ADR 0019).
+fn free_attachment_name(dir: &Path, name: &str, hash: &[u8; 32]) -> Option<String> {
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, e),
+        _ => return None,
+    };
+    for n in 1..10_000 {
+        let candidate = if n == 1 { name.to_string() } else { format!("{stem} {n}.{ext}") };
+        match fs::read(dir.join(&candidate)) {
+            Err(_) => return Some(candidate),
+            Ok(existing) if &sha256(&existing) == hash => return Some(candidate),
+            Ok(_) => continue,
+        }
+    }
+    None
 }
 
 async fn request(conn: &Connection, req: &Request) -> Result<Response, String> {
@@ -1172,6 +1349,36 @@ mod tests {
         })
         .await
         .expect("A receives B's Skin");
+
+        // Pictures travel too (ADR 0019): A's reaches B; B's own picture of
+        // the same name is kept and A's lands beside it; a non-picture stays.
+        let att_a = vault_a.join(crate::attachments::FOLDER);
+        let att_b = vault_b.join(crate::attachments::FOLDER);
+        fs::create_dir_all(&att_a).unwrap();
+        fs::create_dir_all(&att_b).unwrap();
+        fs::write(att_b.join("athens.png"), b"B's athens").unwrap();
+        fs::write(att_a.join("athens.png"), b"A's athens").unwrap();
+        fs::write(att_a.join("paul.jpg"), b"paul bytes").unwrap();
+        fs::write(att_a.join("page.html"), b"<html>").unwrap();
+        a.notify_changed();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !(att_b.join("paul.jpg").exists() && att_b.join("athens 2.png").exists()) {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("B receives A's pictures");
+        assert_eq!(fs::read(att_b.join("paul.jpg")).unwrap(), b"paul bytes");
+        assert_eq!(fs::read(att_b.join("athens.png")).unwrap(), b"B's athens", "B's own picture is never overwritten");
+        assert_eq!(fs::read(att_b.join("athens 2.png")).unwrap(), b"A's athens");
+        assert!(!att_b.join("page.html").exists(), "only pictures travel");
+        // The next rounds settle: nothing is fetched again under yet another name.
+        a.notify_changed();
+        b.notify_changed();
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        assert!(!att_b.join("athens 3.png").exists());
+        assert!(!att_a.join("athens 3.png").exists());
+        assert_eq!(fs::read(att_a.join("athens.png")).unwrap(), b"A's athens");
 
         // Each remembers the other's own address for the next dial.
         for (local, peer) in [("local-a", &hex_b), ("local-b", &hex_a)] {
