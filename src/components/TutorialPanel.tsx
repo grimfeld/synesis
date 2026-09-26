@@ -88,7 +88,11 @@ function TutorialList({ ids }: { ids: string[] }) {
   const s = useStore();
   const tut = useTutorials();
   return (
-    <ul className="grid gap-1.5 p-3" data-testid="tutorial-list">
+    // Its own scroll area, like the body: a list taller than the panel would
+    // otherwise overflow it, and focusing an entry below the fold scrolls the
+    // app's overflow-hidden main pane instead, sliding the whole interface up
+    // with no way back.
+    <ul className="thin-scroll grid min-h-0 flex-1 content-start gap-1.5 overflow-y-auto p-3" data-testid="tutorial-list">
       {ids.map((id) => {
         const x = tutorial(id, s.lang);
         if (!x) return null;

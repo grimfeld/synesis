@@ -100,6 +100,21 @@ describe("Tutorials", () => {
     cy.get("[data-testid=tutorial-image]").should("not.exist");
   });
 
+  it("scrolls a long list inside the panel, never the view behind it", () => {
+    // A Composition lists more Tutorials than a short window holds. Going back
+    // to the list and reaching its last entry used to scroll the app's
+    // overflow-hidden main pane, sliding the whole interface out of reach.
+    cy.viewport(1280, 500);
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=tutorial-button]").first().click();
+    cy.get('[data-testid=tutorial-list-item][data-id="source-mode"]').click();
+    cy.get("[data-testid=tutorial-to-list]").click();
+    cy.get('[data-testid=tutorial-list-item][data-id="palette"]').focus().should("be.visible");
+    cy.get("[data-testid=tutorial-list]").should(($l) => expect($l[0].scrollTop).to.be.greaterThan(0));
+    cy.get("main").should(($m) => expect($m[0].scrollTop).to.equal(0));
+    cy.get("[data-testid=tutorial-close]").should("be.visible");
+  });
+
   it("is a bottom sheet on a phone, and shrinks to a strip", () => {
     cy.viewport(390, 844);
     cy.reload();
