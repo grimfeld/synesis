@@ -132,15 +132,31 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
   const [adding, setAdding] = useState(false);
   const [q, setQ] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  /** Set once the input is done with, so the blur of its removal adds nothing. */
+  const closed = useRef(false);
   useEffect(() => {
-    if (adding) inputRef.current?.focus();
+    if (adding) {
+      closed.current = false;
+      inputRef.current?.focus();
+    }
   }, [adding]);
   const write = (next: string[]) => onFmChange(setField(fm, field, next.length ? next : null));
   const add = (raw: string) => {
-    let n = raw.trim();
-    if (prefix && n.startsWith(prefix)) n = n.slice(prefix.length);
-    if (normalize) n = normalize(n);
-    if (n && !values.some((x) => x.toLowerCase() === n.toLowerCase())) write([...values, n]);
+    if (closed.current) return;
+    // "a, b" is two values, the way readList reads a comma-separated property.
+    const next = [...values];
+    for (const part of raw.split(",")) {
+      let n = part.trim();
+      if (prefix && n.startsWith(prefix)) n = n.slice(prefix.length);
+      if (normalize) n = normalize(n);
+      if (n && !next.some((x) => x.toLowerCase() === n.toLowerCase())) next.push(n);
+    }
+    if (next.length > values.length) write(next);
+    close();
+  };
+  /** Always clears the input, so text left in it never joins the next value. */
+  const close = () => {
+    closed.current = true;
     setQ("");
     setAdding(false);
   };
@@ -180,19 +196,30 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
             value={q}
             placeholder={addLabel}
             onChange={(e) => setQ(e.target.value)}
-            onBlur={() => setTimeout(() => setAdding(false), 150)}
+            enterKeyHint="done"
+            // Leaving the input keeps what was typed: tapping elsewhere or
+            // closing a phone's keyboard used to drop it without a word.
+            onBlur={() => add(q)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
                 add(q || matches[0]?.value || "");
-              } else if (e.key === "Escape") setAdding(false);
+              } else if (e.key === "Escape") close();
             }}
           />
           {matches.length > 0 && (
             <ul className="absolute top-full left-0 z-20 mt-1 w-48 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
               {matches.map((x) => (
                 <li key={x.value}>
-                  <button type="button" className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-accent" onMouseDown={() => add(x.value)}>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-md px-2 py-1 text-left text-xs hover:bg-accent"
+                    // Keep focus in the input, so its blur does not add the typed text first.
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      add(x.value);
+                    }}
+                  >
                     <span className="truncate">
                       {prefix}
                       {x.value}
