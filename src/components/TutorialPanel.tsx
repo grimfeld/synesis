@@ -124,15 +124,28 @@ function TutorialBody({ id, step, from }: { id: string; step: number; from?: str
   const tut = useTutorials();
   const renderers = useRenderers();
   const x = tutorial(id, s.lang);
+  const scroller = useRef<HTMLDivElement>(null);
   const current = useRef<HTMLLIElement>(null);
-  useEffect(() => current.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), [step, id]);
+  // Bring the current step into view by scrolling the body alone. Not
+  // scrollIntoView: that scrolls every ancestor too, the overflow-hidden
+  // main pane and the page included, and in the app's webview it slid the
+  // whole interface out of reach with no way back.
+  useEffect(() => {
+    const box = scroller.current;
+    const li = current.current;
+    if (!box || !li) return;
+    const b = box.getBoundingClientRect();
+    const r = li.getBoundingClientRect();
+    const top = r.top < b.top ? r.top - b.top : r.bottom > b.bottom ? Math.min(r.bottom - b.bottom, r.top - b.top) : 0;
+    if (top) box.scrollBy({ top, behavior: "smooth" });
+  }, [step, id]);
   if (!x) return null;
   const total = x.steps.length;
   const done = tut.progress[id]?.done ?? false;
   const last = step === total - 1;
   return (
     <>
-      <div className="thin-scroll min-h-0 flex-1 overflow-y-auto p-4" data-testid="tutorial-body" data-id={id}>
+      <div ref={scroller} className="thin-scroll min-h-0 flex-1 overflow-y-auto p-4" data-testid="tutorial-body" data-id={id}>
         <Markdown source={x.intro} renderers={renderers} className="text-muted-foreground" />
         <ol className="mt-4 grid gap-2">
           {x.steps.map((md, i) => (
