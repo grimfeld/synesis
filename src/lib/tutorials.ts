@@ -149,6 +149,7 @@ export const FEATURE_TUTORIALS = [
   "graph",
   "coverage",
   "palette",
+  "skins",
   "pairing",
 ] as const;
 export type FeatureTutorial = (typeof FEATURE_TUTORIALS)[number];
@@ -192,7 +193,7 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["boards"];
       case "settings": {
         const sync = deviceKind ? (["icloud", "syncthing", "provider"] as Method[]).map((m) => syncTutorialId(m, deviceKind)) : [];
-        return ["pairing", ...sync];
+        return ["skins", "pairing", ...sync];
       }
       case "editor": {
         const writing = ["capture", "passages", "mentions", "linkables", "properties", "source-mode"];
