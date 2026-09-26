@@ -469,6 +469,15 @@ impl Vault {
     /// Parse one file into the index, assigning an id if it has none and
     /// materialising any Scripture pages it mentions.
     pub fn index_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
+        self.index_file_as(rel, false)
+    }
+
+    /// `index_file`, told whether the file was just written by this app from
+    /// the user's own text. Such a file is never a stale copy, whatever the
+    /// snapshots' mtimes say: those carry the sending Device's clock, and a
+    /// clock that runs ahead would otherwise have the save replaced by the
+    /// older merged text.
+    fn index_file_as(&mut self, rel: &str, own_write: bool) -> Result<Option<DocSummary>> {
         let abs = self.abs(rel);
         let text = match fs::read_to_string(&abs) {
             Ok(t) => t,
@@ -484,7 +493,10 @@ impl Vault {
             // A file older than another device's snapshot is a stale copy the
             // cloud has not finished replacing: prefer the merged CRDT text.
             if let Some(crdt) = sync.text_of(&id) {
-                if crdt != text && sync.remote_mtime(&id).map_or(false, |m| m > mtime) {
+                if !own_write
+                    && crdt != text
+                    && sync.remote_mtime(&id).map_or(false, |m| m > mtime)
+                {
                     write_atomic(&abs, &crdt)?;
                     text = crdt;
                     parsed = document::parse(rel, &text);
@@ -569,7 +581,7 @@ impl Vault {
         // Never let a save drop the id.
         let text = document::with_frontmatter_fields(text, &[("id", id)]);
         write_atomic(&self.abs(&summary.path), &text)?;
-        self.index_file(&summary.path)?;
+        self.index_file_as(&summary.path, true)?;
         self.read(id)
     }
 
@@ -812,10 +824,11 @@ impl Vault {
             "title",
             Self::needs_title_field(&new_rel, &new_title).then_some(new_title.as_str()),
         );
-        if updated != text {
+        let written = updated != text;
+        if written {
             write_atomic(&p, &updated)?;
         }
-        self.index_file(&new_rel)?;
+        self.index_file_as(&new_rel, written)?;
         // Update links in every document that pointed at the old title.
         let old = regex::escape(&summary.title);
         let re = Regex::new(&format!(
@@ -838,7 +851,7 @@ impl Vault {
             });
             if updated != text {
                 write_atomic(&p, &updated)?;
-                self.index_file(&bl.doc.path)?;
+                self.index_file_as(&bl.doc.path, true)?;
             }
         }
         if new_rel != summary.path {

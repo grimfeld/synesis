@@ -22,9 +22,12 @@ export function useDocument(id: string) {
   const latest = useRef({ fm: "", body: "" });
   const saveTimer = useRef<number | undefined>(undefined);
   const saving = useRef(false);
+  /** The text as this page last read or wrote it, to tell an echo of its own save from an edit made elsewhere. */
+  const known = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    const d = await api.getDocument(id);
+  /** Show `d` as the document, replacing the text in the editor. */
+  const apply = useCallback((d: DocumentPayload) => {
+    known.current = d.text;
     const sp = splitFrontmatter(d.text);
     setDoc(d);
     setFm(sp.fm);
@@ -33,7 +36,11 @@ export function useDocument(id: string) {
     latest.current = sp;
     dirty.current = false;
     setExternal(false);
-  }, [id]);
+  }, []);
+
+  const load = useCallback(async () => {
+    apply(await api.getDocument(id));
+  }, [id, apply]);
 
   useEffect(() => {
     load().catch(console.error);
@@ -53,6 +60,7 @@ export function useDocument(id: string) {
     const text = joinFrontmatter(latest.current.fm, latest.current.body);
     try {
       const d = await api.saveDocument(id, text);
+      known.current = d.text;
       dirty.current =
         joinFrontmatter(latest.current.fm, latest.current.body) !== text;
       setDoc(d);
@@ -169,14 +177,36 @@ export function useDocument(id: string) {
     [id, load, s, save],
   );
 
-  // External edits to this file.
+  // External edits to this file. The mtime alone cannot tell: the watcher
+  // also reports this page's own saves, and on Android it can do so while the
+  // next save is in flight or with an mtime the save did not return. Reloading
+  // then threw away what was typed since and put the caret at the start, so
+  // the text on disk decides.
   useEffect(() => {
     const ch = s.lastChange;
     if (!ch || !doc) return;
     const mine = ch.changed.find((d) => d.id === id);
     if (!mine || mine.mtime === doc.summary.mtime) return;
-    if (dirty.current || saving.current) setExternal(true);
-    else load().catch(console.error);
+    let stale = false;
+    api
+      .getDocument(id)
+      .then((d) => {
+        if (stale) return;
+        const current = joinFrontmatter(latest.current.fm, latest.current.body);
+        if (d.text === known.current || d.text === current) {
+          // Our own save, or already what the page shows.
+          if (!saving.current) setDoc(d);
+          return;
+        }
+        // Checked now rather than before the read, so a keystroke made
+        // while it was on its way is never overwritten.
+        if (dirty.current || saving.current) setExternal(true);
+        else apply(d);
+      })
+      .catch(console.error);
+    return () => {
+      stale = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.lastChange]);
 
