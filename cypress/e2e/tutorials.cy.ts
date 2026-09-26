@@ -100,6 +100,41 @@ describe("Tutorials", () => {
     cy.get("[data-testid=tutorial-image]").should("not.exist");
   });
 
+  it("scrolls a long list inside the panel, never the view behind it", () => {
+    // A Composition lists more Tutorials than a short window holds. Going back
+    // to the list and reaching its last entry used to scroll the app's
+    // overflow-hidden main pane, sliding the whole interface out of reach.
+    cy.viewport(1280, 500);
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=tutorial-button]").first().click();
+    cy.get('[data-testid=tutorial-list-item][data-id="source-mode"]').click();
+    cy.get("[data-testid=tutorial-to-list]").click();
+    cy.get('[data-testid=tutorial-list-item][data-id="palette"]').focus().should("be.visible");
+    cy.get("[data-testid=tutorial-list]").should(($l) => expect($l[0].scrollTop).to.be.greaterThan(0));
+    cy.get("main").should(($m) => expect($m[0].scrollTop).to.equal(0));
+    cy.get("[data-testid=tutorial-close]").should("be.visible");
+  });
+
+  it("keeps the current step in view without scrolling the app behind it", () => {
+    cy.viewport(1280, 500);
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=tutorial-button]").first().click();
+    cy.get('[data-testid=tutorial-list-item][data-id="compositions"]').click();
+    cy.tutorialNext();
+    cy.tutorialNext();
+    cy.get("[data-testid=tutorial-body]").should(($b) => {
+      const box = $b[0].getBoundingClientRect();
+      const cur = $b[0].querySelector("[data-current=true]")!.getBoundingClientRect();
+      expect(cur.top).to.be.at.least(box.top - 1);
+      expect(cur.top).to.be.lessThan(box.bottom);
+    });
+    cy.get("main").should(($m) => expect($m[0].scrollTop).to.equal(0));
+    // Even a scroll forced from code cannot move the app's frame.
+    cy.get("main").then(($m) => ($m[0].scrollTop = 300));
+    cy.get("main").should(($m) => expect($m[0].scrollTop).to.equal(0));
+    cy.get("[data-testid=tutorial-close]").should("be.visible");
+  });
+
   it("is a bottom sheet on a phone, and shrinks to a strip", () => {
     cy.viewport(390, 844);
     cy.reload();

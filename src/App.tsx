@@ -123,10 +123,13 @@ function Shell() {
     <SidebarProvider
       open={s.sidebarOpen}
       onOpenChange={s.setSidebarOpen}
-      className="h-full min-h-0 overflow-hidden"
+      // Clip, not hidden: an overflow-hidden box can still be scrolled by the
+      // browser (focus, scrollIntoView), which slides the whole interface up
+      // with no scrollbar to bring it back. A clipped box cannot scroll.
+      className="h-full min-h-0 overflow-clip"
     >
       <AppSidebar />
-      <SidebarInset className="h-full min-h-0 overflow-hidden">
+      <SidebarInset className="h-full min-h-0 overflow-clip">
         {/* The Tutorial panel docks beside whatever view is showing and
             outlives navigation (PLAN §25.6); the Skin gallery docks beside
             Settings, left of it (§26.6). */}
