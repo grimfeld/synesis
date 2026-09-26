@@ -1141,20 +1141,6 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(storage::plugin());
-    #[cfg(desktop)]
-    let builder = builder.plugin(
-        tauri_plugin_global_shortcut::Builder::new()
-            .with_handler(|app, _shortcut, event| {
-                if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
-                    if let Some(w) = app.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                    let _ = app.emit("quick-capture", ());
-                }
-            })
-            .build(),
-    );
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
     builder
@@ -1184,11 +1170,6 @@ pub fn run() {
             #[cfg(desktop)]
             pairing::setup_tray(app.handle())?;
             pairing::autostart(app.handle().clone());
-            #[cfg(desktop)]
-            {
-                use tauri_plugin_global_shortcut::GlobalShortcutExt;
-                let _ = app.global_shortcut().register("CmdOrCtrl+Shift+N");
-            }
             #[cfg(debug_assertions)]
             devbridge::start(app.handle().clone());
             Ok(())

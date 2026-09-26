@@ -71,16 +71,13 @@ function Shell() {
   const s = useStore();
 
   useEffect(() => {
-    let un: (() => void) | undefined;
     let unPair: (() => void) | undefined;
-    api.onQuickCapture(() => s.setDialog({ kind: "quick" })).then((u) => (un = u));
     api
       .onPairingEvent((e) => {
         if (e.kind === "join_request") s.setDialog({ kind: "pairing-request", node: e.node, name: e.member.name, platform: e.member.platform });
       })
       .then((u) => (unPair = u));
     return () => {
-      un?.();
       unPair?.();
     };
   }, [s]);

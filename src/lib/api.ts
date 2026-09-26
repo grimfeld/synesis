@@ -905,8 +905,6 @@ export const api = {
 
   onVaultChanged: (cb: (p: ChangedPayload) => void): Promise<UnlistenFn> =>
     listen<ChangedPayload>("vault:changed", (e) => cb(e.payload)),
-  onQuickCapture: (cb: () => void): Promise<UnlistenFn> =>
-    listen("quick-capture", () => cb()),
 };
 
 /** Book / chapter / verse of a packed VerseId. */
