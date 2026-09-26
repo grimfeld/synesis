@@ -22,3 +22,7 @@ A Skin that isn't here can still be shared as a file and brought in with **Impor
 - `index.json` is exactly what `npm run skins:index` writes.
 
 Review also looks at what the checks can't: the accent's contrast, how Passages, links and Tags read in the editor, and a name that doesn't pass the Skin off as someone else's product.
+
+## Credits
+
+- **Nord**: palette by Arctic Ice Studio and Sven Greb, [nordtheme.com](https://www.nordtheme.com), MIT licence.

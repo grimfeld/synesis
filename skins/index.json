@@ -1,4 +1,37 @@
 {
   "version": 1,
-  "skins": []
+  "skins": [
+    {
+      "id": "01M3EFJMEM1DGWXDHJNM7S0XKH",
+      "name": "Nord",
+      "author": "grimfeld",
+      "file": "nord.json",
+      "light": {
+        "background": "#eceff4",
+        "text": "#2e3440",
+        "accent": "#5e81ac"
+      },
+      "dark": {
+        "background": "#2e3440",
+        "text": "#d8dee9",
+        "accent": "#88c0d0"
+      }
+    },
+    {
+      "id": "01M3EFJMEM168TATWVR2D9BMEW",
+      "name": "Paper",
+      "author": "grimfeld",
+      "file": "paper.json",
+      "light": {
+        "background": "#f8f6f1",
+        "text": "#1c1b19",
+        "accent": "#9e2b25"
+      },
+      "dark": {
+        "background": "#1e1c19",
+        "text": "#e6dfd0",
+        "accent": "#d98b7a"
+      }
+    }
+  ]
 }

@@ -4,7 +4,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { basePalettes, buildGalleryIndex, checkGallerySkin, formatIndex, INDEX_FILE, readIndex } from "../skinGallery";
+import { basePalettes, buildGalleryIndex, checkGallerySkin, formatIndex, INDEX_FILE, ratio, readIndex } from "../skinGallery";
+import { normalizeSkin, resolveSide } from "../skin";
 
 const root = path.resolve(__dirname, "../../..");
 const dir = path.join(root, "skins");
@@ -97,5 +98,19 @@ describe("readIndex", () => {
     const good = { id: ID, name: "Dusk", file: "dusk.json", light: sw, dark: sw };
     expect(readIndex({ version: 1, skins: [good, { ...good, file: "../x.json" }, { name: "No id" }] })).toEqual([good]);
     expect(() => readIndex({ nope: true })).toThrow();
+  });
+});
+
+describe("the first gallery Skins (PLAN §26.8-9)", () => {
+  // Passages, links, Tags and danger are read as text, so they reach 4.5:1 on
+  // the page on both sides; inferred Passages and unresolved links stay faint
+  // on purpose, as in the built-in palette.
+  const read = ["--foreground", "--muted-foreground", "--destructive", "--passage", "--link", "--tag"];
+  it.each(["nord.json", "paper.json"])("%s keeps text and editor colours readable on both sides", (file) => {
+    const s = normalizeSkin(JSON.parse(readFileSync(path.join(dir, file), "utf8")));
+    for (const side of ["light", "dark"] as const) {
+      const p = { ...BASE[side], ...resolveSide(BASE[side], s[side]) };
+      for (const v of read) expect(ratio(p[v], p["--background"]), `${file} ${side} ${v}`).toBeGreaterThanOrEqual(4.5);
+    }
   });
 });

@@ -1,0 +1,40 @@
+{
+  "id": "01M3EFJMEM168TATWVR2D9BMEW",
+  "name": "Paper",
+  "author": "grimfeld",
+  "version": 1,
+  "light": {
+    "seeds": {
+      "background": "#F8F6F1",
+      "text": "#1C1B19",
+      "accent": "#9E2B25"
+    },
+    "typeChroma": 0.75,
+    "overrides": {
+      "surface.card": "#FDFCF9",
+      "surface.popover": "#FDFCF9",
+      "line.border": "#D9D5CC",
+      "line.input": "#D9D5CC",
+      "editor.passage": "#5D7747"
+    },
+    "typography": {
+      "proseFont": "source-serif",
+      "lineHeight": 1.7,
+      "lineWidth": 600
+    }
+  },
+  "dark": {
+    "seeds": {
+      "background": "#1E1C19",
+      "text": "#E6DFD0",
+      "accent": "#D98B7A"
+    },
+    "typeChroma": 0.75,
+    "overrides": {},
+    "typography": {
+      "proseFont": "source-serif",
+      "lineHeight": 1.7,
+      "lineWidth": 600
+    }
+  }
+}
