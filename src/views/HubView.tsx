@@ -560,7 +560,14 @@ function HubHeader({
   const t = useT();
   const type = doc.summary.type;
   const isScripture = type === "book" || type === "chapter" || type === "verse";
-  const hasAliases = type === "character" || type === "concept";
+  // Every Topical Subject may go by other names. Scripture generates its
+  // own, and a Source's other names are not something it links by.
+  const hasAliases =
+    type === "place" ||
+    type === "character" ||
+    type === "concept" ||
+    type === "event" ||
+    type === "journey";
   // Properties this page edits somewhere of its own, so the Properties grid
   // leaves them out rather than offering the same value a second time.
   const owned = useMemo(
