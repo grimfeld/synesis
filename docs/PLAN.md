@@ -80,7 +80,7 @@ Features:
 6. Candidate-material sidebar on Compositions (shared Tags / Passages).
 7. Source page as a reading trail, ordered by Locator; parent Source rolls up descendants.
 8. Templates per type.
-9. Quick capture (global hotkey, desktop).
+9. Quick capture (Ctrl/⌘+Shift+N, only while the app has focus: an OS-wide hotkey took the chord from every other app).
 10. Clipping capture: paste + URL enrichment, Source deduped by URL.
 
 ## 8. Later
