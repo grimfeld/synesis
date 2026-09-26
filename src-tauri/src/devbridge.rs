@@ -190,6 +190,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         // `sourceId` is optional: absent means every Clipping in the vault.
         "attach_image" => ok(attach_image(state, arg(&a, "title")?, arg(&a, "path")?)?),
         "read_attachment" => ok(read_attachment(state, arg(&a, "path")?)?),
+        "attach_picture" => ok(attach_picture(state, arg(&a, "title")?, arg(&a, "name")?, arg(&a, "data")?)?),
+        "read_picture" => ok(read_picture(state, arg(&a, "target")?)?),
         "save_remote_cover" => ok(tauri::async_runtime::block_on(save_remote_cover(
             app.clone(),
             arg(&a, "title")?,

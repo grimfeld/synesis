@@ -870,39 +870,9 @@ fn export_board(path: String, data: String, base64: bool) -> CmdResult<()> {
     std::fs::write(&path, bytes).map_err(|e| e.to_string())
 }
 
-/// Compositions whose Board references this document.
-/// Shrink a picture to a Cover and encode it, or hand back the original bytes
-/// when it is already small enough and in a format we serve (ADR 0012).
+/// Shrink a picture to a Cover (ADR 0012).
 fn to_cover(bytes: &[u8], ext: &str) -> Result<(Vec<u8>, String), String> {
-    let img = image::load_from_memory(bytes).map_err(|e| format!("not an image: {e}"))?;
-    let (w, h) = (img.width(), img.height());
-    // Re-encode as PNG or JPEG only: a resized GIF loses its animation and a
-    // WebP would need an encoder we do not ship, so the output format is not
-    // always the input's.
-    let keep_jpeg = matches!(ext, "jpg" | "jpeg");
-    match engine::attachments::target_size(w, h, engine::attachments::MAX_EDGE) {
-        None if keep_jpeg || ext == "png" => Ok((bytes.to_vec(), ext.to_string())),
-        size => {
-            let img = match size {
-                Some((tw, th)) => img.resize(tw, th, image::imageops::FilterType::Lanczos3),
-                None => img,
-            };
-            let mut out = std::io::Cursor::new(Vec::new());
-            let (fmt, ext) = if keep_jpeg {
-                (image::ImageFormat::Jpeg, "jpg")
-            } else {
-                (image::ImageFormat::Png, "png")
-            };
-            // JPEG has no alpha; flatten rather than fail on a transparent source.
-            let img = if fmt == image::ImageFormat::Jpeg {
-                image::DynamicImage::ImageRgb8(img.to_rgb8())
-            } else {
-                img
-            };
-            img.write_to(&mut out, fmt).map_err(err)?;
-            Ok((out.into_inner(), ext.to_string()))
-        }
-    }
+    engine::attachments::shrink(bytes, ext, engine::attachments::MAX_EDGE, false).map_err(err)
 }
 
 /// Copy a picture into `Attachments/`, downscaled, and return its
@@ -1009,6 +979,21 @@ fn read_attachment(state: State<AppState>, path: String) -> CmdResult<String> {
     })?;
     let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
     Ok(format!("data:{media};base64,{b64}"))
+}
+
+/// Copy a dropped or pasted Picture into `Attachments/`, named after the
+/// document it goes into, and return the path to write in `![[…]]`
+/// (ADR 0018). The bytes come from the webview as base64: a drop hands the
+/// page a `File`, not a path.
+#[tauri::command]
+fn attach_picture(state: State<AppState>, title: String, name: String, data: String) -> CmdResult<String> {
+    state.with_vault(|v| api::attach_picture(v.root(), &title, &name, &data))
+}
+
+/// A Picture's file as a data URL, or `None` when the vault does not hold it.
+#[tauri::command]
+fn read_picture(state: State<AppState>, target: String) -> CmdResult<Option<String>> {
+    state.with_vault(|v| api::read_picture(v.root(), &target))
 }
 
 #[tauri::command]
@@ -1262,6 +1247,8 @@ pub fn run() {
             attach_image,
             save_remote_cover,
             read_attachment,
+            attach_picture,
+            read_picture,
             find_source_by_url,
             detect_passages,
             books,
@@ -1275,82 +1262,11 @@ pub fn run() {
         .expect("error while running tauri application");
 }
 
-/// The pure parts of this layer: turning a picked picture into a Cover
-/// (ADR 0012) and reading a page's own description of itself. Neither needs a
-/// vault, a window or the network, and until now neither had a test.
+/// The pure parts of this layer: reading a page's own description of itself.
+/// Shrinking pictures is tested where it lives, in `engine::attachments`.
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// A solid image of the given size, as PNG bytes.
-    fn png(w: u32, h: u32) -> Vec<u8> {
-        let img = image::RgbImage::from_pixel(w, h, image::Rgb([10, 20, 30]));
-        let mut out = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgb8(img)
-            .write_to(&mut out, image::ImageFormat::Png)
-            .unwrap();
-        out.into_inner()
-    }
-
-    /// A half-transparent image, to prove JPEG gets a flattened copy.
-    fn png_with_alpha(w: u32, h: u32) -> Vec<u8> {
-        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 128]));
-        let mut out = std::io::Cursor::new(Vec::new());
-        image::DynamicImage::ImageRgba8(img)
-            .write_to(&mut out, image::ImageFormat::Png)
-            .unwrap();
-        out.into_inner()
-    }
-
-    fn size_of(bytes: &[u8]) -> (u32, u32) {
-        let img = image::load_from_memory(bytes).unwrap();
-        (img.width(), img.height())
-    }
-
-    #[test]
-    fn a_small_picture_is_stored_exactly_as_it_arrived() {
-        // Nothing to gain by re-encoding: the bytes the user picked are kept.
-        let bytes = png(100, 80);
-        let (out, ext) = to_cover(&bytes, "png").unwrap();
-        assert_eq!(ext, "png");
-        assert_eq!(out, bytes);
-    }
-
-    #[test]
-    fn an_oversize_picture_is_shrunk_to_the_longest_edge() {
-        let bytes = png(1800, 900);
-        let (out, _) = to_cover(&bytes, "png").unwrap();
-        let (w, h) = size_of(&out);
-        assert_eq!(w, engine::attachments::MAX_EDGE);
-        // The aspect ratio is kept, so a 2:1 picture stays 2:1.
-        assert_eq!(h, engine::attachments::MAX_EDGE / 2);
-    }
-
-    #[test]
-    fn a_jpeg_stays_a_jpeg_and_everything_else_becomes_a_png() {
-        // A resized GIF would lose its animation and a WebP would need an
-        // encoder we do not ship, so the output format is not the input's.
-        let (_, ext) = to_cover(&png(1800, 900), "jpg").unwrap();
-        assert_eq!(ext, "jpg");
-        let (_, ext) = to_cover(&png(1800, 900), "gif").unwrap();
-        assert_eq!(ext, "png");
-        let (_, ext) = to_cover(&png(1800, 900), "webp").unwrap();
-        assert_eq!(ext, "png");
-    }
-
-    #[test]
-    fn a_transparent_picture_can_still_be_written_as_a_jpeg() {
-        // JPEG has no alpha; flattening rather than failing is the rule.
-        let (out, ext) = to_cover(&png_with_alpha(1200, 1200), "jpg").unwrap();
-        assert_eq!(ext, "jpg");
-        assert_eq!(size_of(&out).0, engine::attachments::MAX_EDGE);
-    }
-
-    #[test]
-    fn something_that_is_not_a_picture_is_refused() {
-        let err = to_cover(b"<html>not an image</html>", "png").unwrap_err();
-        assert!(err.contains("not an image"), "{err}");
-    }
 
     #[test]
     fn a_meta_tag_is_read_in_either_attribute_order() {

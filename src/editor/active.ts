@@ -5,6 +5,7 @@ import { useSyncExternalStore } from "react";
 import { EditorSelection, type ChangeSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { startCompletion } from "@codemirror/autocomplete";
+import { pickPictures } from "./pictures";
 
 let active: EditorView | null = null;
 const listeners = new Set<() => void>();
@@ -132,5 +133,6 @@ export const EDITOR_COMMANDS: EditorCommandSpec[] = [
   { id: "editor.task", shortcut: "Mod+L", run: toggleTask },
   { id: "editor.link", run: (v) => insertAndComplete(v, "[[", "]]") },
   { id: "editor.embed", run: (v) => insertAndComplete(v, "![[", "]]") },
+  { id: "editor.picture", run: pickPictures },
   { id: "editor.tag", run: (v) => insertAndComplete(v, "#") },
 ];

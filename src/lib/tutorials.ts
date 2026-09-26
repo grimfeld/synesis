@@ -196,13 +196,13 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["skins", "pairing", ...sync];
       }
       case "editor": {
-        const writing = ["capture", "passages", "mentions", "linkables", "properties", "source-mode"];
+        const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode"];
         if (place.type === "composition") return ["compositions", "candidates", "boards", "versions", ...writing];
         return writing;
       }
       case "hub": {
-        const base = ["hubs", "mentions", "linkables", "properties"];
-        if (SCRIPTURE.includes(place.type)) return ["passages", "hubs"];
+        const base = ["hubs", "mentions", "linkables", "properties", "pictures"];
+        if (SCRIPTURE.includes(place.type)) return ["passages", "hubs", "pictures"];
         if (place.type === "source") return ["library", "clippings", ...base];
         if (place.type === "place" || place.type === "journey") return ["map", ...base];
         if (place.type === "event" || place.type === "character") return ["timeline", ...base];

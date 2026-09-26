@@ -383,6 +383,9 @@ export const en = {
   empty_doc:
     "Start writing. Scripture references like Ro 8:28 become links as you type.",
   embed_missing: (t: string) => `Embed not found: ${t}`,
+  picture_missing: (t: string) => `Picture not found: ${t}`,
+  picture_refused: "Only pictures (jpg, png, gif, webp) can go in text.",
+  picture_failed: (e: string) => `Could not add the picture: ${e}`,
   book_order: "In Bible order",
   other_docs: "Other",
   today: "Today",
@@ -462,6 +465,7 @@ export const en = {
     task: "Toggle checkbox",
     link: "Insert link",
     embed: "Insert embed",
+    picture: "Insert picture",
     tag: "Insert tag",
   },
   recent_docs: "Recent",

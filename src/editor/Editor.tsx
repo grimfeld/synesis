@@ -35,6 +35,8 @@ import {
   type EditorEnv,
 } from "./decorations";
 import { livePreview } from "./livePreview";
+import { pictureDisplay, pictureHost, pictureInput } from "./pictures";
+import { useT } from "@/i18n";
 import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
 import { EDITOR_COMMANDS, setActiveEditor } from "./active";
@@ -78,6 +80,11 @@ interface Props {
    * the editor's own text.
    */
   onReady?: (select: (from: number, to: number) => void) => void;
+  /**
+   * The title a Picture dropped here is named after (ADR 0018): the
+   * document's, its Hub's for an About, its Source's for a Clipping.
+   */
+  pictureTitle?: string;
 }
 
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
@@ -105,7 +112,13 @@ export function Editor({
   fontSize,
   compact = false,
   onReady,
+  pictureTitle = "",
 }: Props) {
+  const t = useT();
+  const pictureTitleRef = useRef(pictureTitle);
+  pictureTitleRef.current = pictureTitle;
+  const tRef = useRef(t);
+  tRef.current = t;
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const lastValue = useRef(value);
@@ -148,7 +161,16 @@ export function Editor({
       doc: value,
       extensions: [
         envCompartment.current.of(envFacet.of(proxyEnv)),
-        modeCompartment.current.of(sourceMode ? [] : livePreview),
+        modeCompartment.current.of(sourceMode ? [] : [livePreview, pictureDisplay]),
+        pictureHost.of({
+          title: () => pictureTitleRef.current,
+          text: () => ({
+            missing: tRef.current.picture_missing,
+            refused: tRef.current.picture_refused,
+            failed: tRef.current.picture_failed,
+          }),
+        }),
+        pictureInput,
         lockCompartment.current.of(readOnly ? lock({ checkboxes }) : []),
         history(),
         drawSelection(),
@@ -231,7 +253,7 @@ export function Editor({
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: modeCompartment.current.reconfigure(
-        sourceMode ? [] : livePreview,
+        sourceMode ? [] : [livePreview, pictureDisplay],
       ),
     });
   }, [sourceMode]);

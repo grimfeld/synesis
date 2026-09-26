@@ -68,6 +68,11 @@ pub fn unique_path(root: &Path, title: &str, ext: &str) -> Result<String> {
             "a Cover needs the Source's title to be named after".into(),
         ));
     }
+    Ok(free_path(root, &base, ext))
+}
+
+/// The first of `base.ext`, `base 2.ext`, `base 3.ext`… that no file holds.
+fn free_path(root: &Path, base: &str, ext: &str) -> String {
     let mut n = 1;
     loop {
         let name = if n == 1 {
@@ -77,10 +82,136 @@ pub fn unique_path(root: &Path, title: &str, ext: &str) -> Result<String> {
         };
         let rel = format!("{FOLDER}/{name}");
         if !root.join(&rel).exists() {
-            return Ok(rel);
+            return rel;
         }
         n += 1;
     }
+}
+
+/// The longest edge a stored Picture keeps (ADR 0018).
+///
+/// A Cover is a thumbnail; a Picture is read, and a map or a scanned page has
+/// small print. 1600 covers the prose column on a high-density screen while
+/// keeping a Picture near a megabyte, since every one is carried to every
+/// Device and read back as a data URL.
+pub const PICTURE_MAX_EDGE: u32 = 1600;
+
+/// A Picture as it appears in text: `![[…]]` naming a picture file, or
+/// markdown's `![alt](path)`. Passage detection, Tags and links all step
+/// around it, so a Picture named `1 john 3.png` is not a Mention of 1 John 3.
+pub const PICTURE_SYNTAX: &str =
+    r"!\[\[[^\[\]\n]*\.(?i:png|jpe?g|gif|webp)(?:\|[^\[\]\n]*)?\]\]|!\[[^\]\n]*\]\([^)\n]*\)";
+
+/// Whether a `![[…]]` target names a Picture rather than a document.
+///
+/// Decided by extension alone: a Picture is not indexed (ADR 0018), so there
+/// is nothing to look it up in, and no document ends in `.png`.
+pub fn is_picture_target(target: &str) -> bool {
+    let target = target.split('|').next().unwrap_or(target).trim();
+    is_supported(target)
+}
+
+/// A vault-relative path for a new Picture, named after the document that
+/// holds it (ADR 0018). A document with no title yet, a Quick capture say,
+/// names it after the moment it was dropped instead: `2026-09-26 101512.png`.
+///
+/// Brackets, `#` and `^` are dropped as well as what a file name cannot hold,
+/// because the name is written inside `![[…]]`, where they mean something.
+pub fn picture_path(root: &Path, title: &str, ext: &str, now: chrono::NaiveDateTime) -> String {
+    let cleaned: String = title
+        .chars()
+        .map(|c| if matches!(c, '[' | ']' | '#' | '^') { ' ' } else { c })
+        .collect();
+    let base = crate::vault::sanitize_title(&cleaned).to_lowercase();
+    let base = if cleaned.trim().is_empty() || base == "untitled" {
+        now.format("%Y-%m-%d %H%M%S").to_string()
+    } else {
+        base
+    };
+    free_path(root, &base, ext)
+}
+
+/// Shrink a picture so its longest edge is at most `max`, or hand back the
+/// original bytes when it is already small enough and in a format we serve.
+///
+/// Re-encodes as PNG or JPEG only: a WebP would need an encoder we do not
+/// ship. A GIF is kept whole when `keep_gif` is set, because resizing drops
+/// its animation — a Picture wants the animation, a Cover wants the size.
+pub fn shrink(bytes: &[u8], ext: &str, max: u32, keep_gif: bool) -> Result<(Vec<u8>, String)> {
+    let not_an_image = |e: image::ImageError| Error::Invalid(format!("not an image: {e}"));
+    if keep_gif && ext == "gif" {
+        // Checked, not trusted: the bytes must really be a GIF.
+        return match image::guess_format(bytes) {
+            Ok(image::ImageFormat::Gif) => Ok((bytes.to_vec(), "gif".into())),
+            _ => Err(Error::Invalid("not an image: not a GIF".into())),
+        };
+    }
+    let img = image::load_from_memory(bytes).map_err(not_an_image)?;
+    let keep_jpeg = matches!(ext, "jpg" | "jpeg");
+    match target_size(img.width(), img.height(), max) {
+        None if keep_jpeg || ext == "png" => Ok((bytes.to_vec(), ext.to_string())),
+        size => {
+            let img = match size {
+                Some((tw, th)) => img.resize(tw, th, image::imageops::FilterType::Lanczos3),
+                None => img,
+            };
+            let mut out = std::io::Cursor::new(Vec::new());
+            let (fmt, ext) = if keep_jpeg {
+                (image::ImageFormat::Jpeg, "jpg")
+            } else {
+                (image::ImageFormat::Png, "png")
+            };
+            // JPEG has no alpha; flatten rather than fail on a transparent source.
+            let img = if fmt == image::ImageFormat::Jpeg {
+                image::DynamicImage::ImageRgb8(img.to_rgb8())
+            } else {
+                img
+            };
+            img.write_to(&mut out, fmt).map_err(not_an_image)?;
+            Ok((out.into_inner(), ext.to_string()))
+        }
+    }
+}
+
+/// The vault-relative path of the file a Picture names, if there is one.
+///
+/// The app writes the full path, but Obsidian writes the shortest one, so
+/// `![[athens.png]]` is looked for in `Attachments/` too (ADR 0018). Nothing
+/// indexes pictures, so this is a look at the disk, not a query.
+pub fn locate_picture(root: &Path, target: &str) -> Option<String> {
+    let target = target.split('|').next().unwrap_or(target).trim().replace('\\', "/");
+    let name = target.rsplit('/').next().unwrap_or(&target).to_string();
+    [target.clone(), format!("{FOLDER}/{name}")]
+        .into_iter()
+        .find(|rel| safe_relative(root, rel).is_ok_and(|abs| abs.is_file()))
+}
+
+/// Copy a Picture into `Attachments/`, shrunk, and return the vault-relative
+/// path to write inside `![[…]]` (ADR 0018). `file_name` is only read for its
+/// extension; the name comes from `title`.
+pub fn store_picture(
+    root: &Path,
+    title: &str,
+    file_name: &str,
+    bytes: &[u8],
+    now: chrono::NaiveDateTime,
+) -> Result<String> {
+    if !is_supported(file_name) {
+        return Err(Error::Invalid(format!("not a picture we can store: {file_name}")));
+    }
+    let ext = Path::new(file_name)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let (bytes, ext) = shrink(bytes, &ext, PICTURE_MAX_EDGE, true)?;
+    let rel = picture_path(root, title, &ext, now);
+    let abs = root.join(&rel);
+    if let Some(dir) = abs.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    std::fs::write(&abs, &bytes)?;
+    Ok(rel)
 }
 
 /// Guard a vault-relative path read from a `cover` property.
@@ -190,5 +321,156 @@ mod tests {
         assert!(unique_path(dir.path(), "   ", "png").is_err());
         // A title that sanitises away to nothing is the same case.
         assert!(unique_path(dir.path(), "///", "png").is_err());
+    }
+
+    /// A solid image of the given size, as PNG bytes.
+    fn png(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbImage::from_pixel(w, h, image::Rgb([10, 20, 30]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgb8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    /// A half-transparent image, to prove JPEG gets a flattened copy.
+    fn png_with_alpha(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 128]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut out, image::ImageFormat::Png)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn gif(w: u32, h: u32) -> Vec<u8> {
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba([10, 20, 30, 255]));
+        let mut out = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(img)
+            .write_to(&mut out, image::ImageFormat::Gif)
+            .unwrap();
+        out.into_inner()
+    }
+
+    fn size_of(bytes: &[u8]) -> (u32, u32) {
+        let img = image::load_from_memory(bytes).unwrap();
+        (img.width(), img.height())
+    }
+
+    fn noon() -> chrono::NaiveDateTime {
+        chrono::NaiveDate::from_ymd_opt(2026, 9, 26)
+            .unwrap()
+            .and_hms_opt(10, 15, 12)
+            .unwrap()
+    }
+
+    #[test]
+    fn a_small_picture_is_stored_exactly_as_it_arrived() {
+        // Nothing to gain by re-encoding: the bytes the user picked are kept.
+        let bytes = png(100, 80);
+        let (out, ext) = shrink(&bytes, "png", MAX_EDGE, false).unwrap();
+        assert_eq!(ext, "png");
+        assert_eq!(out, bytes);
+    }
+
+    #[test]
+    fn an_oversize_picture_is_shrunk_to_the_longest_edge() {
+        let (out, _) = shrink(&png(1800, 900), "png", MAX_EDGE, false).unwrap();
+        // The aspect ratio is kept, so a 2:1 picture stays 2:1.
+        assert_eq!(size_of(&out), (MAX_EDGE, MAX_EDGE / 2));
+    }
+
+    #[test]
+    fn a_jpeg_stays_a_jpeg_and_everything_else_becomes_a_png() {
+        // A WebP would need an encoder we do not ship, so the output format
+        // is not always the input's.
+        let (_, ext) = shrink(&png(1800, 900), "jpg", MAX_EDGE, false).unwrap();
+        assert_eq!(ext, "jpg");
+        let (_, ext) = shrink(&png(1800, 900), "gif", MAX_EDGE, false).unwrap();
+        assert_eq!(ext, "png");
+        let (_, ext) = shrink(&png(1800, 900), "webp", MAX_EDGE, false).unwrap();
+        assert_eq!(ext, "png");
+    }
+
+    #[test]
+    fn a_transparent_picture_can_still_be_written_as_a_jpeg() {
+        // JPEG has no alpha; flattening rather than failing is the rule.
+        let (out, ext) = shrink(&png_with_alpha(1200, 1200), "jpg", MAX_EDGE, false).unwrap();
+        assert_eq!(ext, "jpg");
+        assert_eq!(size_of(&out).0, MAX_EDGE);
+    }
+
+    #[test]
+    fn something_that_is_not_a_picture_is_refused() {
+        let err = shrink(b"<html>not an image</html>", "png", MAX_EDGE, false).unwrap_err();
+        assert!(err.to_string().contains("not an image"), "{err}");
+        // Nor does naming it .gif let it through untouched.
+        assert!(shrink(b"<html>", "gif", PICTURE_MAX_EDGE, true).is_err());
+    }
+
+    #[test]
+    fn a_picture_keeps_more_than_a_cover_and_a_gif_keeps_its_animation() {
+        let (out, _) = shrink(&png(3200, 1600), "png", PICTURE_MAX_EDGE, true).unwrap();
+        assert_eq!(size_of(&out), (1600, 800));
+        let bytes = gif(2000, 100);
+        let (out, ext) = shrink(&bytes, "gif", PICTURE_MAX_EDGE, true).unwrap();
+        assert_eq!((out, ext.as_str()), (bytes, "gif"));
+    }
+
+    #[test]
+    fn a_picture_is_named_after_the_document_that_holds_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let first = store_picture(root, "Paul in Athens", "IMG_2031.PNG", &png(10, 10), noon()).unwrap();
+        assert_eq!(first, "Attachments/paul in athens.png");
+        let second = store_picture(root, "Paul in Athens", "x.png", &png(10, 10), noon()).unwrap();
+        assert_eq!(second, "Attachments/paul in athens 2.png");
+        // What means something inside `![[…]]` never reaches the file name.
+        assert_eq!(
+            picture_path(root, "Acts 17 [draft] #1", "png", noon()),
+            "Attachments/acts 17 draft 1.png"
+        );
+    }
+
+    #[test]
+    fn an_untitled_document_names_its_picture_after_the_moment() {
+        let dir = tempfile::tempdir().unwrap();
+        for title in ["", "  ", "Untitled", "[]"] {
+            assert_eq!(
+                picture_path(dir.path(), title, "png", noon()),
+                "Attachments/2026-09-26 101512.png",
+                "{title:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_file_that_is_not_a_picture_is_refused_before_anything_is_written() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(store_picture(dir.path(), "Athens", "notes.pdf", b"%PDF", noon()).is_err());
+        assert!(!dir.path().join(FOLDER).exists());
+    }
+
+    #[test]
+    fn a_picture_target_is_told_apart_from_a_document() {
+        assert!(is_picture_target("Attachments/athens.png"));
+        assert!(is_picture_target("athens.JPG|300"));
+        assert!(!is_picture_target("Paul"));
+        assert!(!is_picture_target("Notes/1 John 3.md"));
+        assert!(!is_picture_target("diagram.svg"));
+    }
+
+    #[test]
+    fn the_short_path_obsidian_writes_is_found_in_attachments() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(FOLDER)).unwrap();
+        std::fs::write(root.join("Attachments/athens.png"), b"x").unwrap();
+        std::fs::write(root.join("map.png"), b"x").unwrap();
+        assert_eq!(locate_picture(root, "Attachments/athens.png").as_deref(), Some("Attachments/athens.png"));
+        assert_eq!(locate_picture(root, "athens.png|300").as_deref(), Some("Attachments/athens.png"));
+        assert_eq!(locate_picture(root, "map.png").as_deref(), Some("map.png"));
+        assert_eq!(locate_picture(root, "rome.png"), None);
+        assert_eq!(locate_picture(root, "../athens.png"), Some("Attachments/athens.png".into()));
     }
 }

@@ -384,6 +384,9 @@ export const fr: Dict = {
   empty_doc:
     "Commencez à écrire. Les références comme Ro 8:28 deviennent des liens en tapant.",
   embed_missing: (t: string) => `Extrait introuvable : ${t}`,
+  picture_missing: (t: string) => `Image introuvable : ${t}`,
+  picture_refused: "Seules les images (jpg, png, gif, webp) peuvent aller dans le texte.",
+  picture_failed: (e: string) => `Impossible d’ajouter l’image : ${e}`,
   book_order: "Dans l’ordre biblique",
   other_docs: "Autres",
   today: "Aujourd’hui",
@@ -463,6 +466,7 @@ export const fr: Dict = {
     task: "Case à cocher",
     link: "Insérer un lien",
     embed: "Insérer une incorporation",
+    picture: "Insérer une image",
     tag: "Insérer un tag",
   },
   recent_docs: "Récents",

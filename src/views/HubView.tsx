@@ -49,6 +49,7 @@ import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
+import { attachPictures } from "@/editor/pictures";
 import type { EditorEnv } from "@/editor/decorations";
 import { stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
@@ -1733,6 +1734,23 @@ function About({
     doc.summary.type === "source"
       ? t.about_prompt.source
       : t.about_prompt.subject(title);
+  // The empty About takes a dropped Picture too, and opens with it as its
+  // first line: the same writing as a Note, before a word is typed (ADR 0018).
+  const [dragging, setDragging] = useState(false);
+  const onDrop = async (e: React.DragEvent) => {
+    setDragging(false);
+    const files = [...e.dataTransfer.files];
+    if (!files.length) return;
+    e.preventDefault();
+    const lines = await attachPictures(title, files, {
+      missing: t.picture_missing,
+      refused: t.picture_refused,
+      failed: t.picture_failed,
+    });
+    if (!lines.length) return;
+    onBodyChange(lines.join("\n") + "\n");
+    setOpen(true);
+  };
   return (
     <section data-testid="hub-about">
       <PanelTitle className="mb-3">{t.about}</PanelTitle>
@@ -1748,13 +1766,25 @@ function About({
             autofocus={!body.trim()}
             sourceMode={s.sourceMode}
             compact
+            pictureTitle={title}
           />
         </div>
       ) : (
         <button
           type="button"
-          className="w-full rounded-xl border border-dashed px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground"
+          data-testid="hub-about-empty"
+          className={cn(
+            "w-full rounded-xl border border-dashed px-4 py-3 text-left text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-accent hover:text-foreground",
+            dragging && "border-solid border-primary bg-accent text-foreground",
+          )}
           onClick={() => setOpen(true)}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={onDrop}
         >
           {prompt}
         </button>

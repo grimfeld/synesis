@@ -4,6 +4,8 @@ import { Decoration, EditorView, ViewPlugin, ViewUpdate, WidgetType, type Decora
 import { RangeSetBuilder, StateEffect, StateField, Facet } from "@codemirror/state";
 import type { DetectedRange, PassageInfo } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
+import { api } from "@/lib/api";
+import { PICTURE_RE, findPictures, isPictureTarget } from "./pictures";
 
 export const WIKILINK_RE = /(!?)\[\[([^\[\]|#]+?)(?:#[^\[\]|]*)?(?:\|([^\[\]]*))?\]\]/g;
 export const TAG_RE = /(^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]+)/gu;
@@ -21,7 +23,8 @@ export const envFacet = Facet.define<EditorEnv, EditorEnv>({ combine: (v) => v[0
 
 function skipZones(text: string): [number, number][] {
   const out: [number, number][] = [];
-  const re = /```[\s\S]*?(?:```|$)|`[^`\n]*`|https?:\/\/[^\s)>\]]+/g;
+  // A Picture is not a link, and its file name is not a Tag (ADR 0018).
+  const re = new RegExp(/```[\s\S]*?(?:```|$)|`[^`\n]*`|https?:\/\/[^\s)>\]]+|/.source + PICTURE_RE.source, "gi");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) out.push([m.index, m.index + m[0].length]);
   return out;
@@ -138,9 +141,7 @@ class EmbedWidget extends WidgetType {
       h.textContent = r.title;
       h.onclick = () => env.onOpenLink(this.target);
       box.appendChild(h);
-      const p = document.createElement("div");
-      p.textContent = r.body.trim();
-      box.appendChild(p);
+      box.appendChild(clippingBody(r.body.trim()));
     });
     return box;
   }
@@ -166,11 +167,35 @@ function buildEmbeds(text: string): DecorationSet {
   while ((m = re.exec(text))) {
     const lineEnd = text.indexOf("\n", m.index);
     const pos = lineEnd === -1 ? text.length : lineEnd;
-    if (seen.includes(pos)) continue;
+    if (seen.includes(pos) || isPictureTarget(m[1])) continue;
     seen.push(pos);
     b.add(pos, pos, Decoration.widget({ widget: new EmbedWidget(m[1].trim()), block: true, side: 1 }));
   }
   return b.finish();
+}
+
+/**
+ * A Clipping's text as an Embed shows it: plain text, with its Pictures drawn
+ * where they are named, since a quotation can carry a map.
+ */
+function clippingBody(body: string): HTMLElement {
+  const out = document.createElement("div");
+  let at = 0;
+  for (const p of findPictures(body)) {
+    out.append(body.slice(at, p.from));
+    const img = document.createElement("img");
+    img.className = "cm-embed-picture";
+    img.alt = "";
+    if (p.width) img.style.width = `${p.width}px`;
+    api.readPicture(p.target).then(
+      (url) => (url ? (img.src = url) : img.remove()),
+      () => img.remove(),
+    );
+    out.append(img);
+    at = p.to;
+  }
+  out.append(body.slice(at));
+  return out;
 }
 
 /** Clicks and hovers on decorated ranges. */

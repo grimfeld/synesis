@@ -65,7 +65,7 @@ const quoteLine = Decoration.line({ class: "cm-md-quote-line" });
 const headingLine = [1, 2, 3, 4, 5, 6].map((n) => Decoration.line({ class: `cm-md-heading-line cm-md-heading-line-${n}` }));
 
 /** Line numbers that any selection range touches: syntax stays visible there. */
-function activeLines(state: EditorState): Set<number> {
+export function activeLines(state: EditorState): Set<number> {
   const out = new Set<number>();
   // Locked, nothing is being edited: every line renders (PLAN §23.9).
   if (!state.facet(revealActiveLine)) return out;
