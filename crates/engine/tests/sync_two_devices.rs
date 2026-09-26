@@ -828,3 +828,58 @@ fn forgetting_a_device_survives_the_folder_coming_back() {
     let mut again = open(&root, &da);
     assert!(again.apply_remote().unwrap().is_empty(), "the retirement did not persist");
 }
+
+/// A paired Device whose clock runs ahead stamps its snapshots in this
+/// Device's future (P2P keeps the sender's mtime). A save made through the app
+/// is the user's newest text all the same: it must not be mistaken for a stale
+/// copy and replaced by the older merged text. On Android this read as typing
+/// that vanished, then a reload from disk with the caret at the start.
+#[test]
+fn a_save_survives_a_snapshot_from_a_clock_that_runs_ahead() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let a = open(&root, &tmp.path().join("devA"));
+    let summary = {
+        let mut a = a;
+        let s = a
+            .create(DocType::Note, "Skew", &Map::new(), "First.")
+            .unwrap()
+            .summary;
+        // A edits once more so it has a published snapshot of its own.
+        let text = a.read(&s.id).unwrap().text;
+        a.write(&s.id, &text.replace("First.", "First, from A.")).unwrap();
+        s
+    };
+    let (id, file) = (summary.id, root.join(&summary.path));
+
+    let mut b = open(&root, &tmp.path().join("devB"));
+    b.apply_remote().unwrap();
+    // A's snapshots carry A's clock, a minute ahead of B's.
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(60);
+    let sync_dir = root.join(engine::vault::HIDDEN_DIR).join("sync");
+    for dev in fs::read_dir(&sync_dir).unwrap().flatten() {
+        let snap = dev.path().join(format!("{id}.loro"));
+        if dev.file_name().to_string_lossy() != b.device_id().unwrap() && snap.is_file() {
+            fs::File::options()
+                .write(true)
+                .open(&snap)
+                .unwrap()
+                .set_modified(ahead)
+                .unwrap();
+        }
+    }
+
+    let before = b.read(&id).unwrap().text;
+    let typed = before.replace("First, from A.", "First, from A. Then B typed this.");
+    let saved = b.write(&id, &typed).unwrap();
+    assert!(saved.text.contains("Then B typed this."), "{}", saved.text);
+    assert!(
+        fs::read_to_string(&file).unwrap().contains("Then B typed this."),
+        "the save was replaced by the older merged text"
+    );
+    // A second save in the same window, with the CRDT now a step behind again.
+    let more = typed.replace("typed this.", "typed this, and more.");
+    b.write(&id, &more).unwrap();
+    assert!(fs::read_to_string(&file).unwrap().contains("and more."));
+}
