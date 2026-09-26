@@ -703,6 +703,9 @@ export const api = {
   deleteSkin: (id: string) => invoke<void>("delete_skin", { id }),
   readSkinFile: (path: string) => invoke<Skin>("read_skin_file", { path }),
   exportSkin: (skin: Skin, path: string) => invoke<void>("export_skin", { skin, path }),
+  /** The Skin gallery's index as published (PLAN §26); read it with `readIndex`. */
+  skinGallery: () => invoke<unknown>("skin_gallery"),
+  gallerySkin: (file: string) => invoke<Skin>("gallery_skin", { file }),
   appearance: () => invoke<Appearance>("appearance"),
   setAppearance: (appearance: Appearance) => invoke<void>("set_appearance", { appearance }),
   /** Config files another Device delivered (ADR 0016), relative to `.bible-study/`. */

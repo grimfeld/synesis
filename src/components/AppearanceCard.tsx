@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { ChevronDown, Copy, Download, RotateCcw, Trash2, Upload } from "lucide-react";
+import { ChevronDown, Copy, Download, LayoutGrid, RotateCcw, Trash2, Upload } from "lucide-react";
 import { api } from "@/lib/api";
 import { useAppearance } from "@/lib/appearance";
 import { parseColor, toHex } from "@/lib/color";
@@ -26,6 +26,7 @@ import {
   type TokenGroup,
 } from "@/lib/skin";
 import { useFormat, useT } from "@/i18n";
+import { useSkinImport } from "@/components/SkinImport";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -54,8 +55,8 @@ export function AppearanceCard() {
   const skinName = (s: Skin) => ta.builtin_names[s.id] ?? s.name;
   const builtin = isBuiltin(a.active.id);
   const [deleting, setDeleting] = useState<Skin | null>(null);
-  const [importing, setImporting] = useState<Skin | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const skinImport = useSkinImport();
 
   const copy = async (from: Skin, name: string) => {
     const saved = await a.save({ ...normalizeSkin(from), id: "", name: freeName(name, a.skins.map(skinName)) });
@@ -67,19 +68,10 @@ export function AppearanceCard() {
     const path = await openDialog({ multiple: false, filters: [{ name: "JSON", extensions: ["json"] }] });
     if (typeof path !== "string") return;
     try {
-      const skin = normalizeSkin(await api.readSkinFile(path));
-      if (skin.id && !isBuiltin(skin.id) && a.skins.some((s) => s.id === skin.id)) return setImporting(skin);
-      await finishImport(skin, false);
+      await skinImport.bring(await api.readSkinFile(path));
     } catch (e) {
       setError(ta.import_failed(String(e)));
     }
-  };
-  const finishImport = async (skin: Skin, replace: boolean) => {
-    setImporting(null);
-    const others = a.skins.filter((s) => !(replace && s.id === skin.id)).map(skinName);
-    const id = replace ? skin.id : isBuiltin(skin.id) || a.skins.some((s) => s.id === skin.id) ? "" : skin.id;
-    const saved = await a.save({ ...skin, id, name: freeName(skin.name, others) });
-    await a.select(saved.id);
   };
 
   const exportFile = async () => {
@@ -141,6 +133,9 @@ export function AppearanceCard() {
             >
               <Copy /> {builtin ? ta.customize : ta.duplicate}
             </Button>
+            <Button variant="outline" size="sm" className="min-h-8 h-auto" onClick={() => a.setGalleryOpen(true)} data-testid="appearance-gallery">
+              <LayoutGrid /> {ta.gallery}
+            </Button>
             <Button variant="outline" size="sm" className="min-h-8 h-auto" onClick={importFile} data-testid="appearance-import">
               <Upload /> {ta.import}
             </Button>
@@ -184,23 +179,7 @@ export function AppearanceCard() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={!!importing} onOpenChange={(o) => !o && setImporting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{importing && ta.import_same_title(importing.name)}</AlertDialogTitle>
-            <AlertDialogDescription>{ta.import_same_body}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t.cancel}</AlertDialogCancel>
-            <Button variant="outline" onClick={() => importing && finishImport(importing, false).catch(console.error)}>
-              {ta.import_keep_both}
-            </Button>
-            <AlertDialogAction onClick={() => importing && finishImport(importing, true).catch(console.error)}>
-              {ta.import_replace}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {skinImport.dialog}
     </Card>
   );
 }

@@ -126,6 +126,17 @@ export interface AppearanceApi {
   preview: (side: Side | null) => void;
   /** Paint a Skin being edited before it is saved. null to go back to the saved one. */
   draft: (skin: Skin | null) => void;
+  /**
+   * Wear any Skin over the whole app without saving or caching it, whatever
+   * its id: the Skin gallery's try-on (PLAN §26.7). `active` stays the saved
+   * Skin. null to stop.
+   */
+  trial: (skin: Skin | null) => void;
+  /** The Skin being tried on, if any. */
+  trying: Skin | null;
+  /** Whether the Skin gallery is open. It lives beside the view, not in it. */
+  galleryOpen: boolean;
+  setGalleryOpen: (open: boolean) => void;
   reload: () => Promise<void>;
 }
 
@@ -149,6 +160,8 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const [systemDark, setSystemDark] = useState(() => darkQuery().matches);
   const [previewSide, setPreviewSide] = useState<Side | null>(null);
   const [draftSkin, setDraftSkin] = useState<Skin | null>(null);
+  const [trialSkin, setTrialSkin] = useState<Skin | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [palette, setPalette] = useState<Palette>({});
 
   useEffect(() => {
@@ -206,9 +219,9 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   const side = previewSide ?? sideFor(mode, systemDark);
 
   useEffect(() => {
-    setPalette(applySkin(active, side, scale));
+    setPalette(applySkin(trialSkin ?? active, side, scale));
     if (!draftSkin) writeCache({ skin: active, mode, scale });
-  }, [active, side, scale, mode, draftSkin]);
+  }, [active, side, scale, mode, draftSkin, trialSkin]);
 
   const setMode = useCallback(
     (m: AppearanceMode) => {
@@ -226,6 +239,7 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
   );
   const select = useCallback(async (id: string) => {
     setDraftSkin(null);
+    setTrialSkin(null);
     setActiveId(id);
     await api.setAppearance({ skin: id === DEFAULT_SKIN_ID ? null : id });
   }, []);
@@ -262,9 +276,13 @@ export function AppearanceProvider({ children }: { children: ReactNode }) {
       remove,
       preview: setPreviewSide,
       draft: setDraftSkin,
+      trial: setTrialSkin,
+      trying: trialSkin,
+      galleryOpen,
+      setGalleryOpen,
       reload,
     }),
-    [mode, scale, side, skins, active, palette, setMode, setScale, select, save, remove, reload],
+    [mode, scale, side, skins, active, palette, setMode, setScale, select, save, remove, reload, trialSkin, galleryOpen],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

@@ -1,0 +1,55 @@
+{
+  "id": "01M3EFJMEM1DGWXDHJNM7S0XKH",
+  "name": "Nord",
+  "author": "grimfeld",
+  "version": 1,
+  "light": {
+    "seeds": {
+      "background": "#ECEFF4",
+      "text": "#2E3440",
+      "accent": "#5E81AC"
+    },
+    "typeChroma": 0.7,
+    "overrides": {
+      "surface.card": "#E5E9F0",
+      "surface.popover": "#E5E9F0",
+      "surface.sidebar": "#E5E9F0",
+      "surface.muted": "#D8DEE9",
+      "surface.hover": "#D8DEE9",
+      "surface.sidebarHover": "#D8DEE9",
+      "line.border": "#D8DEE9",
+      "status.danger": "#A94E58",
+      "editor.passage": "#5A7243",
+      "editor.passageInferred": "#779061",
+      "editor.link": "#4B6D97",
+      "editor.tag": "#83607D",
+      "editor.unresolved": "#7B88A1"
+    },
+    "typography": {}
+  },
+  "dark": {
+    "seeds": {
+      "background": "#2E3440",
+      "text": "#D8DEE9",
+      "accent": "#88C0D0"
+    },
+    "typeChroma": 0.7,
+    "overrides": {
+      "surface.card": "#3B4252",
+      "surface.popover": "#3B4252",
+      "surface.sidebar": "#3B4252",
+      "surface.muted": "#434C5E",
+      "surface.hover": "#434C5E",
+      "surface.sidebarHover": "#434C5E",
+      "line.border": "#4C566A",
+      "line.input": "#4C566A",
+      "status.danger": "#E3828A",
+      "editor.passage": "#A3BE8C",
+      "editor.passageInferred": "#7F9A6D",
+      "editor.link": "#88C0D0",
+      "editor.tag": "#B892B1",
+      "editor.unresolved": "#616E88"
+    },
+    "typography": {}
+  }
+}

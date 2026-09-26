@@ -201,6 +201,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "fetch_url_metadata" => ok(tauri::async_runtime::block_on(fetch_url_metadata(arg(
             &a, "url",
         )?))?),
+        "skin_gallery" => ok(tauri::async_runtime::block_on(skin_gallery())?),
+        "gallery_skin" => ok(tauri::async_runtime::block_on(gallery_skin(arg(&a, "file")?))?),
         "hidden_dir" => ok(hidden_dir()),
         "ui_log" => {
             ui_log(arg(&a, "level")?, arg(&a, "message")?);

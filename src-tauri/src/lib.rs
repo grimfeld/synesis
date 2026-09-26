@@ -746,6 +746,45 @@ fn export_skin(skin: Skin, path: String) -> CmdResult<()> {
     skin::write_file(&skin, Path::new(&path)).map_err(err)
 }
 
+/// The Skin gallery (PLAN §26): community Skins merged into the repo's
+/// `skins/` folder, fetched from `main` only when the gallery is opened.
+const SKIN_GALLERY: &str = "https://raw.githubusercontent.com/grimfeld/synesis/main/skins/";
+
+async fn fetch_gallery_file(file: &str) -> CmdResult<String> {
+    let client = reqwest::Client::builder()
+        .user_agent("Synesis/0.1 (+https://github.com/grimfeld/synesis)")
+        .timeout(std::time::Duration::from_secs(12))
+        .build()
+        .map_err(err)?;
+    client
+        .get(format!("{SKIN_GALLERY}{file}"))
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(err)?
+        .text()
+        .await
+        .map_err(err)
+}
+
+/// The gallery's `index.json`, as published. The UI reads what it knows of it.
+#[tauri::command]
+async fn skin_gallery() -> CmdResult<Value> {
+    serde_json::from_str(&fetch_gallery_file("index.json").await?).map_err(err)
+}
+
+/// One Skin from the gallery, by its file name in the index. Its id is kept,
+/// so installing it follows Import's rules.
+#[tauri::command]
+async fn gallery_skin(file: String) -> CmdResult<Skin> {
+    // Lower-case words joined by hyphens, as the gallery's gate requires: never a path.
+    let stem = file.strip_suffix(".json").unwrap_or("");
+    if stem.is_empty() || !stem.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+        return Err(format!("not a Skin gallery file: {file}"));
+    }
+    skin::parse(&fetch_gallery_file(&file).await?).map_err(err)
+}
+
 #[tauri::command]
 fn appearance(state: State<AppState>) -> CmdResult<Appearance> {
     state.with_vault(|v| Ok(skin::appearance(v.root())))
@@ -1227,6 +1266,8 @@ pub fn run() {
             detect_passages,
             books,
             fetch_url_metadata,
+            skin_gallery,
+            gallery_skin,
             hidden_dir,
             ui_log
         ])

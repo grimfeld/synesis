@@ -29,6 +29,11 @@ declare global {
       tutorialCommand(id: string): Chainable<void>;
       /** Say the last step is done, and check the Tutorial is finished. */
       tutorialDone(): Chainable<void>;
+      /**
+       * Answer the Skin gallery's commands from the repo's own `skins/` folder,
+       * so no spec reaches GitHub (PLAN §26.11). `fail` makes the index fetch fail.
+       */
+      stubSkinGallery(opts?: { fail?: boolean }): Chainable<void>;
       /** Find a document summary by title in the engine. */
       docByTitle<T = { id: string; path: string; title: string; type: string }>(title: string): Chainable<T>;
     }
@@ -116,4 +121,20 @@ Cypress.Commands.add("tutorialCommand", (id) => {
 Cypress.Commands.add("tutorialDone", () => {
   cy.get("[data-testid=tutorial-done]").click();
   cy.get("[data-testid=tutorial-again]").should("exist");
+});
+
+Cypress.Commands.add("stubSkinGallery", (opts = {}) => {
+  if (opts.fail) {
+    cy.intercept("POST", "**/invoke/skin_gallery", { statusCode: 500, body: { error: "offline" } }).as("skinGallery");
+    return;
+  }
+  cy.readFile<{ skins: { file: string }[] }>("skins/index.json").then((index) => {
+    const files: Record<string, unknown> = {};
+    for (const s of index.skins) cy.readFile(`skins/${s.file}`).then((skin) => (files[s.file] = skin));
+    cy.intercept("POST", "**/invoke/skin_gallery", { body: index }).as("skinGallery");
+    cy.intercept("POST", "**/invoke/gallery_skin", (req) => {
+      const skin = files[(req.body as { file: string }).file];
+      req.reply(skin ? { body: skin } : { statusCode: 500, body: { error: "not in the gallery" } });
+    }).as("gallerySkin");
+  });
 });

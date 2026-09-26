@@ -59,6 +59,22 @@ describe("Locale layout", () => {
         cy.get("[data-testid=appearance-delete-confirm]").click();
       });
 
+      // The Skin gallery's sheet puts "Installer", "Réinstaller" and the
+      // community blurb in a phone-wide bottom sheet (PLAN §26.11).
+      it("keeps the Skin gallery inside its sheet on a phone", () => {
+        cy.stubSkinGallery();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-settings]").click();
+        cy.get("[data-testid=appearance-gallery]").click();
+        cy.get("[data-testid=skin-gallery]").should("have.attr", "data-layout", "sheet");
+        cy.get("[data-testid=skin-gallery-item]").first().find("[data-testid=skin-gallery-install]").click();
+        cy.get("[data-testid=skin-gallery-reinstall]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=skin-gallery-close]").click();
+        cy.get("[data-testid=appearance-delete]").click();
+        cy.get("[data-testid=appearance-delete-confirm]").click();
+      });
+
       it("keeps the Leave dialog inside the screen", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=nav-settings]").click();

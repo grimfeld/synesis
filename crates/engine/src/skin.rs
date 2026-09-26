@@ -201,8 +201,13 @@ pub fn delete(root: &Path, id: &str) -> Result<()> {
 /// Parse a Skin file from outside the Vault, for import. Its id is kept, so
 /// the caller can tell a Skin already here from a new one.
 pub fn read_file(path: &Path) -> Result<Skin> {
-    let text = fs::read_to_string(path)?;
-    let skin: Skin = serde_json::from_str(&text)
+    parse(&fs::read_to_string(path)?)
+}
+
+/// Parse a Skin file's text, as `read_file` does; for Skins that arrive
+/// without a file, such as the Skin gallery's (PLAN §26.3).
+pub fn parse(text: &str) -> Result<Skin> {
+    let skin: Skin = serde_json::from_str(text)
         .map_err(|e| Error::Invalid(format!("not a Skin file: {e}")))?;
     if skin.name.trim().is_empty() {
         return Err(Error::Invalid("not a Skin file: it has no name".into()));
@@ -250,6 +255,15 @@ mod tests {
         assert_eq!(all[0].name, "Late");
         assert_eq!(all[0].dark.seeds.background.as_deref(), Some("#101010"));
         assert!(d.path().join(".bible-study/skins/night-reading.json").exists(), "a rename moved the file");
+    }
+
+    #[test]
+    fn parse_keeps_the_id_and_refuses_a_file_without_a_name() {
+        let s = parse(r#"{"id":"01J9Z3Q4N5P6R7S8T9V0W1X2Y3","name":"Nord","updated":1}"#).unwrap();
+        assert_eq!(s.id, "01J9Z3Q4N5P6R7S8T9V0W1X2Y3");
+        assert!(!s.extra.contains_key("updated"), "a file key came along");
+        assert!(parse(r#"{"name":" "}"#).is_err());
+        assert!(parse("<html>").is_err());
     }
 
     #[test]

@@ -233,6 +233,10 @@ _Avoid_: Theme, colour scheme, dark mode (that is one value of it)
 A named, shareable look for the app: colours and typography for a light side and a dark side, either of which may be left to the default. A Device holds several and wears one at a time. The built-in Skin cannot be edited; editing it makes a copy.
 _Avoid_: Theme (that word belongs to Concept), Style, Palette
 
+**Skin gallery**:
+The list of community Skins accepted into the Synesis repository, browsed from Settings when the user opens it and installed into the Vault from there. Only Skins submitted and merged there appear; a Skin from anywhere else comes in by Import.
+_Avoid_: Theme store, marketplace, community themes
+
 **Text scale**:
 How large this Device draws text, as a percentage applied on top of the active Skin's sizes. Set per Device, because it is about the screen and the reader's eyes rather than the look.
 _Avoid_: Zoom, font size (that belongs to the Skin)
