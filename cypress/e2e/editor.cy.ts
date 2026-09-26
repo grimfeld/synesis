@@ -109,6 +109,22 @@ describe("Editor (Writing page)", () => {
     cy.get("[data-testid=chips-tags]").should("not.contain", "#cypress-tag");
   });
 
+  it("keeps a tag typed without Enter, and never carries text over", () => {
+    // Leaving the input adds what was typed.
+    cy.get("[data-testid=chips-tags] [data-testid=chip-add]").click();
+    cy.get("[data-testid=chips-tags] input").type("left-by-blur").blur();
+    cy.get("[data-testid=chips-tags] [data-testid=chip]").should("contain", "#left-by-blur");
+    // Escape drops it, and the next input starts empty.
+    cy.get("[data-testid=chips-tags] [data-testid=chip-add]").click();
+    cy.get("[data-testid=chips-tags] input").type("dropped{esc}");
+    cy.get("[data-testid=chips-tags] [data-testid=chip-add]").click();
+    cy.get("[data-testid=chips-tags] input").should("have.value", "");
+    // A comma separates two tags.
+    cy.get("[data-testid=chips-tags] input").type("one, two{enter}");
+    cy.get("[data-testid=chips-tags] [data-testid=chip]").should("contain", "#one").and("contain", "#two");
+    cy.get("[data-testid=chips-tags]").should("not.contain", "dropped").and("not.contain", "#one,");
+  });
+
   it("renames through the title, lowercasing the file", () => {
     cy.get("[data-testid=doc-title]")
       .clear()
