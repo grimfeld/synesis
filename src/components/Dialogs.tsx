@@ -934,7 +934,7 @@ const TYPE_FIELDS: Record<
           set("lat", String(h.lat));
           set("lon", String(h.lon));
           set("modern_name", h.modern_name);
-          if (h.kind) set("kind", h.kind);
+          if (h.kind) set("place_kind", h.kind);
         }}
       />
     </Field>
@@ -960,7 +960,9 @@ const TYPE_FIELDS: Record<
     </div>
     {/* Filled by a gazetteer pick; chosen or changed here (PLAN §27.12). */}
     <Field label={t.kind}>
-      <KindPicker value={f.kind ?? ""} onChange={(k) => set("kind", k ?? "")} />
+      {/* Its own key: the dialog's fields are shared across types, and a
+          Source's `kind` (article, book…) must not become a Place's. */}
+      <KindPicker value={f.place_kind ?? ""} onChange={(k) => set("place_kind", k ?? "")} />
     </Field>
     </>
   ),

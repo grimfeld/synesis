@@ -6,6 +6,7 @@ use engine::api::{self, BookMeta, DetectedRange, DocumentPayload, LinkResult, Me
 use engine::canvas::Canvas;
 use engine::document::DocType;
 use engine::place_kinds::{self, CustomKind};
+use engine::vault::{FillResult, KindSuggestion};
 use engine::index::{DocSummary, GraphLevel, Linkable};
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
@@ -682,6 +683,16 @@ fn link_mentions(
     r
 }
 
+/// Write the Place kinds the user confirmed from the gazetteer (PLAN §27.13).
+#[tauri::command]
+fn fill_kinds(state: State<AppState>, fills: Vec<KindSuggestion>) -> CmdResult<FillResult> {
+    let r = state.with_vault_mut(|v| Ok(v.fill_kinds(&fills)));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
 /// Put back the text of documents a batch of links rewrote.
 #[tauri::command]
 fn undo_link_mentions(state: State<AppState>, texts: Vec<(String, String)>) -> CmdResult<()> {
@@ -1257,6 +1268,7 @@ pub fn run() {
             linkables,
             link_mentions,
             undo_link_mentions,
+            fill_kinds,
             ensure_scripture_page,
             set_map_filters,
             property_schema,

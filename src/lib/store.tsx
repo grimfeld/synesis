@@ -110,6 +110,7 @@ interface Store {
   tags: TagCount[];
   /** Property schema of the open vault (built-ins until a vault is open). */
   schema: PropertySchema;
+  announceChanged: (ids: string[]) => Promise<void>;
   /** The Vault's custom Place kinds (PLAN §27.4); the built-ins ship in `map.ts`. */
   placeKinds: CustomKind[];
   setPlaceKinds: (kinds: CustomKind[]) => Promise<void>;
@@ -490,6 +491,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [openDoc, refresh],
   );
 
+  /**
+   * Tell the queries that these documents were rewritten by a batch the app
+   * ran itself (filling in Place kinds, PLAN §27.13). The engine's own event
+   * does not reach the dev bridge or the web build, where events are stubbed.
+   */
+  const announceChanged = useCallback(async (ids: string[]) => {
+    const fresh = await api.listDocuments();
+    setDocs(fresh);
+    const byId = new Map(fresh.map((d) => [d.id, d]));
+    setLastChange({ changed: ids.map((id) => byId.get(id)).filter((d): d is DocSummary => !!d), removed: [] });
+    setChangeTick((n) => n + 1);
+  }, []);
+
   const announceBoardSaved = useCallback(() => {
     // A Board is not a document: the Composition's own text and mtime are
     // untouched, so naming it in `changed` would read as an edit to its text
@@ -613,6 +627,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     schema,
     placeKinds,
     setPlaceKinds,
+    announceChanged,
     view,
     canBack: history.back.length > 0,
     canForward: history.forward.length > 0,

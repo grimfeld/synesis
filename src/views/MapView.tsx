@@ -5,8 +5,10 @@ import {
   api,
   type DocSummary,
   type Journey,
+  type KindSuggestion,
   type PlaceFact,
 } from "@/lib/api";
+import { useFillKinds } from "@/lib/fillKinds";
 import {
   activeCount,
   bezierLeg,
@@ -167,6 +169,13 @@ export function MapView() {
     deps: { types: ["journey"] },
     fetch: () => api.journeys(),
   });
+  // Places the gazetteer could give a kind (PLAN §27.13), for the legend's offer.
+  const { data: fillableData } = useQuery<KindSuggestion[]>({
+    key: [],
+    deps: { types: ["place"] },
+    fetch: () => api.kindSuggestions(),
+  });
+  const fillKinds = useFillKinds();
   const places = useMemo(() => placesData ?? [], [placesData]);
   const rawFacts = useMemo(() => factsData ?? [], [factsData]);
   const journeys = useMemo(() => journeysData ?? [], [journeysData]);
@@ -455,6 +464,8 @@ export function MapView() {
               s.setMapFilters({ ...mf, colored: mf.colored.filter((x) => x !== v) })
             }
             journeys={routes.map((r) => ({ id: r.id, title: r.title, token: r.color }))}
+            fillable={fillableData?.length ?? 0}
+            onFill={() => fillKinds().catch(console.error)}
           />
         )}
         {places.length > 0 && shown.length === 0 && (

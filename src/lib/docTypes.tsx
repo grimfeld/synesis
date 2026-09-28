@@ -118,7 +118,8 @@ export const FRONTMATTER: Record<
   },
   place: (f) => {
     const out: Frontmatter = {};
-    if (f.kind) out.kind = f.kind;
+    // `place_kind` in the dialog, so a Source's default `kind` cannot leak in.
+    if (f.place_kind) out.kind = f.place_kind;
     if (f.lat) out.lat = Number(f.lat);
     if (f.lon) out.lon = Number(f.lon);
     if (f.modern_name) out.modern_name = f.modern_name;

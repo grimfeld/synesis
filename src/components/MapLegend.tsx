@@ -51,6 +51,8 @@ export function MapLegend({
   colored,
   onUncolor,
   journeys,
+  fillable,
+  onFill,
 }: {
   kinds: KindDef[];
   /** Some Place on screen has no kind the app knows. */
@@ -61,6 +63,9 @@ export function MapLegend({
   colored: { value: string; name: string }[];
   onUncolor: (value: string) => void;
   journeys: { id: string; title: string; token: string }[];
+  /** Places the gazetteer could give a kind (PLAN §27.13). */
+  fillable: number;
+  onFill: () => void;
 }) {
   const t = useT();
   const [open, setOpenState] = useState(initiallyOpen);
@@ -141,6 +146,17 @@ export function MapLegend({
               </Row>
             )}
           </ul>
+          {fillable > 0 && (
+            <Button
+              size="sm"
+              variant="link"
+              data-testid="map-fill-kinds"
+              className="h-auto min-h-6 whitespace-normal p-0 text-left text-xs"
+              onClick={onFill}
+            >
+              {t.fill_kinds_short(fillable)}
+            </Button>
+          )}
         </div>
       )}
 

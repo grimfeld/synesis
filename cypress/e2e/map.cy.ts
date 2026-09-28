@@ -344,4 +344,29 @@ describe("Map", () => {
     cy.get("[data-testid=new-doc-title]").should("have.value", "Mount Tabor");
     cy.get("[data-testid=new-doc-form] [data-testid=kind-picker]").should("have.attr", "data-kind", "mountain");
   });
+
+  it("fills in kinds from the gazetteer only after naming every Place it will touch", () => {
+    // A Place made by hand, with coordinates and no kind: the plain pin.
+    cy.runCommand("Go to Map");
+    cy.get("header").contains("button", "Place").click();
+    cy.get("[data-testid=new-doc-title]").type("Tarsus");
+    cy.get("[data-testid=new-doc-form] input[placeholder='31.7683']").type("36.9165");
+    cy.get("[data-testid=new-doc-form] input[placeholder='35.2137']").type("34.8951");
+    cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
+    cy.hubTitle("Tarsus");
+    // A new Place must not inherit the dialog's Source default (`kind: article`).
+    cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "");
+    cy.runCommand("Go to Map");
+    cy.contains("[data-testid=map-pin]", "Tarsus").should("have.attr", "data-kind", "");
+    cy.get("[data-testid=map-fill-kinds]").should("contain", "1").click();
+    cy.get("[role=alertdialog]").should("contain", "Tarsus — Settlement");
+    cy.get("[data-testid=confirm-batch]").click();
+    cy.contains("[data-testid=map-pin]", "Tarsus").should("have.attr", "data-kind", "settlement");
+    cy.get("[data-testid=map-fill-kinds]").should("not.exist");
+    cy.docByTitle("Tarsus").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.match(/^kind: settlement$/m);
+      });
+    });
+  });
 });

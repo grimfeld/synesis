@@ -313,6 +313,18 @@ export interface PlaceFact {
   mentions: number;
 }
 
+/** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
+export interface KindSuggestion {
+  id: string;
+  title: string;
+  kind: string;
+}
+
+export interface FillResult {
+  filled: string[];
+  skipped: string[];
+}
+
 /** Why a Stop cannot be drawn, or "ok" when it can (PLAN §19.8). */
 export type StopStatus = "ok" | "no_coords" | "unresolved" | "not_a_place";
 
@@ -658,7 +670,8 @@ export type Query =
   | { kind: "eventLinks" }
   | { kind: "timelineTags" }
   | { kind: "journeys" }
-  | { kind: "placeFacts" };
+  | { kind: "placeFacts" }
+  | { kind: "kindSuggestions" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -854,6 +867,10 @@ export const api = {
   eventLinks: () => query<EventLink[]>({ kind: "eventLinks" }),
   timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
+  /** Places without a kind the gazetteer can name (PLAN §27.13). */
+  kindSuggestions: () => query<KindSuggestion[]>({ kind: "kindSuggestions" }),
+  /** Write the kinds the user confirmed; only ever adds a missing one. */
+  fillKinds: (fills: KindSuggestion[]) => invoke<FillResult>("fill_kinds", { fills }),
   journeys: () => query<Journey[]>({ kind: "journeys" }),
   setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
     invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),

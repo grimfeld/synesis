@@ -251,6 +251,10 @@ impl State {
                 let mentions: Vec<api::MentionRef> = arg(&a, "mentions")?;
                 ok(api::link_mentions(self.vault_mut()?, &target, &mentions))
             }
+            "fill_kinds" => {
+                let fills: Vec<engine::vault::KindSuggestion> = arg(&a, "fills")?;
+                ok(self.vault_mut()?.fill_kinds(&fills))
+            }
             "undo_link_mentions" => {
                 let texts: Vec<(String, String)> = arg(&a, "texts")?;
                 ok(self.vault_mut()?.restore_texts(&texts).map_err(err)?)

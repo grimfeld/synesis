@@ -341,7 +341,7 @@
 .map-pin-disc { position: absolute; inset: 0; display: block; border-radius: 50%; overflow: hidden; }
 .map-pin-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; pointer-events: none; }
 .map-pin-glyph svg { width: 13px; height: 13px; }
-.map-pin-dot { width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.map-pin-dot { display: block; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
 .map-pin-more { position: absolute; right: -7px; bottom: -6px; padding: 1px 3px; border-radius: 6px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 0 0 1px var(--border); font-size: 10px; font-weight: 700; line-height: 1; }
 .map-pin-stop { position: absolute; left: 12px; top: -12px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; box-shadow: 0 0 0 1.5px var(--halo); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .map-name { position: absolute; left: 15px; top: 0; transform: translateY(-50%); white-space: nowrap; color: var(--foreground); font-size: 12px; font-weight: 500; line-height: 1.2; cursor: pointer;
