@@ -116,6 +116,7 @@ export function MapFilters({
         )}
         <hr className="border-border" />
         <Chips
+          testid="map-filter-journeys"
           label={t.map_filter_journeys}
           values={journeys.map((j) => j.id)}
           selected={filters.journeys}
@@ -123,6 +124,7 @@ export function MapFilters({
           name={(id) => journeys.find((j) => j.id === id)?.title ?? id}
         />
         <Chips
+          testid="map-filter-books"
           label={t.map_filter_books}
           values={books.map(String)}
           selected={filters.books.map(String)}
@@ -130,6 +132,7 @@ export function MapFilters({
           name={(v) => bookName(Number(v))}
         />
         <Chips
+          testid="map-filter-tags"
           label={t.tl_filter_tags}
           values={tags}
           selected={filters.tags}
