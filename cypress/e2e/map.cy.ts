@@ -295,4 +295,53 @@ describe("Map", () => {
     cy.get("[data-testid=map-color-by-tag]").should("have.attr", "data-state", "on");
     cy.get("[data-testid=map-color-by-kind]").click();
   });
+
+  it("sets a Place's kind from its Hub, and makes a custom kind in place", () => {
+    cy.openDoc("Corinth");
+    cy.hubTitle("Corinth");
+    cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "settlement").click();
+    cy.get("[data-testid=kind-option][data-kind=site]").click();
+    cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "site");
+    cy.get("[data-testid=kind-picker]").click();
+    cy.get("[data-testid=kind-new]").click();
+    cy.get("[data-testid=kind-new-name]").type("Harbour");
+    cy.get("[data-testid=kind-icon][data-icon=anchor]").click();
+    cy.get("[data-testid=kind-new-save]").click();
+    cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "Harbour");
+    cy.wait(1000);
+    cy.docByTitle("Corinth").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.match(/^kind: Harbour$/m);
+      });
+    });
+    // Kept in the Vault's config, so Paired Devices draw the same pin (§27.4).
+    cy.task<string>("file:read", `${Cypress.env("vault")}/.bible-study/place-kinds.json`).then((text) => {
+      expect(JSON.parse(text).kinds).to.deep.equal([{ name: "Harbour", label: "Harbour", icon: "anchor" }]);
+    });
+    cy.runCommand("Go to Map");
+    cy.contains("[data-testid=map-pin]", "Corinth")
+      .should("have.attr", "data-kind", "Harbour")
+      .and("have.attr", "data-colors", "--c-kind-custom-1");
+    cy.get("[data-testid=map-legend-kind]").should("contain", "Harbour");
+    // Deleting the kind never rewrites the Place: it keeps its text, and the plain pin.
+    cy.get("[data-testid=nav-settings]").click();
+    cy.get("[data-testid=place-kind-row][data-kind=Harbour] [data-testid=place-kind-delete]").click();
+    cy.get("[data-testid=place-kind-row]").should("not.exist");
+    cy.runCommand("Go to Map");
+    cy.contains("[data-testid=map-pin]", "Corinth").should("have.attr", "data-kind", "").find(".map-pin-dot").should("exist");
+    cy.docByTitle("Corinth").then((d) => {
+      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+        expect(text).to.match(/^kind: Harbour$/m);
+      });
+    });
+  });
+
+  it("fills the kind from the gazetteer in the New Place dialog", () => {
+    cy.runCommand("Go to Map");
+    cy.get("header").contains("button", "Place").click();
+    cy.get("[data-testid=new-doc-form] [data-testid=gazetteer] input").type("Mount Tabor");
+    cy.get("[data-testid=new-doc-form] [data-testid=gazetteer] li button").first().click();
+    cy.get("[data-testid=new-doc-title]").should("have.value", "Mount Tabor");
+    cy.get("[data-testid=new-doc-form] [data-testid=kind-picker]").should("have.attr", "data-kind", "mountain");
+  });
 });

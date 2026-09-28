@@ -37,6 +37,7 @@ import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { gazetteerTitle } from "@/lib/map";
+import { KindPicker } from "@/components/KindPicker";
 import { quoteBody } from "@/lib/clippingBody";
 import { propertyLabel, useT } from "@/i18n";
 import {
@@ -958,6 +959,10 @@ const TYPE_FIELDS: Record<
         />
       </Field>
     </div>
+    {/* Filled by a gazetteer pick; chosen or changed here (PLAN §27.12). */}
+    <Field label={t.kind}>
+      <KindPicker value={f.kind ?? ""} onChange={(k) => set("kind", k ?? "")} />
+    </Field>
     </>
   ),
   // A Source's and a Clipping's fields are bound up with the URL lookup and

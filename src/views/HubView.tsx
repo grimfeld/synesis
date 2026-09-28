@@ -52,6 +52,7 @@ import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
 import { stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
+import { KindPicker } from "@/components/KindPicker";
 import { EventDate, TypeDot } from "@/components/DocLink";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
@@ -564,9 +565,15 @@ function HubHeader({
   // Properties this page edits somewhere of its own, so the Properties grid
   // leaves them out rather than offering the same value a second time.
   const owned = useMemo(
-    () => [...(SPAN[type] ?? []), ...(hasAliases ? ["aliases"] : [])],
+    () => [
+      ...(SPAN[type] ?? []),
+      ...(hasAliases ? ["aliases"] : []),
+      // A Place's kind has its own picker (PLAN §27.12), not a text field.
+      ...(type === "place" ? ["kind"] : []),
+    ],
     [type, hasAliases],
   );
+  const kindText = typeof doc.frontmatter.kind === "string" ? doc.frontmatter.kind : "";
   const isPlace =
     type === "place" && doc.summary.lat != null && doc.summary.lon != null;
   const aliasSuggestions = useMemo(() => [] as { value: string }[], []);
@@ -598,6 +605,15 @@ function HubHeader({
               field="aliases"
               addLabel={t.add_alias}
               suggestions={aliasSuggestions}
+            />
+          </div>
+        )}
+        {type === "place" && (
+          <div className="mt-2 flex items-center gap-2" data-testid="hub-kind">
+            <span className="w-14 shrink-0 text-xs text-muted-foreground">{t.kind}</span>
+            <KindPicker
+              value={kindText}
+              onChange={(k) => onFmChange(setField(fm, "kind", k))}
             />
           </div>
         )}
