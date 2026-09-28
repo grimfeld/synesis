@@ -72,6 +72,18 @@
   --c-route-3: #6a4c93;
   --c-route-4: #1b7f4b;
   --c-route-5: #a8326e;
+  /* Place kinds, the colours of a printed atlas (PLAN §27.5); custom kinds
+     take the next of the custom colours; muted is "not what I'm comparing". */
+  --c-kind-settlement: #b5533c;
+  --c-kind-mountain: #7a5a3a;
+  --c-kind-water: #2f6fa3;
+  --c-kind-region: #a87a22;
+  --c-kind-site: #7b4fa0;
+  --c-kind-custom-1: #2f7f68;
+  --c-kind-custom-2: #a8475f;
+  --c-kind-custom-3: #4f6a94;
+  --c-kind-custom-4: #857521;
+  --c-place-muted: #a09a8f;
   /* Generated Cover spines, cycled by Source id (ADR 0012). Unlike the route
      palette these are fills behind white text, so they stay deep in both
      themes rather than lightening for the dark one. */
@@ -139,6 +151,16 @@
   --c-route-3: #b9a0e8;
   --c-route-4: #6ad39a;
   --c-route-5: #f086bc;
+  --c-kind-settlement: #e8907a;
+  --c-kind-mountain: #caa47e;
+  --c-kind-water: #82b6e2;
+  --c-kind-region: #e2bb62;
+  --c-kind-site: #c3a0e4;
+  --c-kind-custom-1: #7cc7ae;
+  --c-kind-custom-2: #ec8ea4;
+  --c-kind-custom-3: #a3b5da;
+  --c-kind-custom-4: #d6c66c;
+  --c-place-muted: #6f6a62;
   /* Lifted just enough to sit above the dark background; still deep enough to
      carry white title text (ADR 0012). */
   --c-cover-1: #3c5a6e;
