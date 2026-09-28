@@ -1064,7 +1064,47 @@ language) and a case in `locales.cy.ts` for the legend and the kind picker.
 - **A legend inside the filter popover**, and **a legend listing every kind**.
 - **Filling in kinds automatically** on upgrade.
 
+All seven steps were built on 2026-09-28. Engine: the gazetteer's `kind`
+column (`scripts/gazetteer-kinds.mjs`; 1,264 of 1,335 entries get one),
+`kind` in the Place template and in `place_facts()`, `place_kinds.rs` for the
+synced `.bible-study/place-kinds.json`, `map_color_by` in the Device
+settings, and `kind_suggestions()` / `fill_kinds()` on the Vault. UI: kinds,
+colour, split wedges, label collisions and the legend's kinds in
+`src/lib/map.ts` under Vitest; the curated icons in `src/lib/pinIcons.tsx`;
+`MapView.tsx` redrawn with HTML pins; `MapLegend.tsx`, `KindPicker.tsx`,
+`PlaceKindsCard.tsx`, `src/lib/atlas.ts` and `src/lib/fillKinds.ts`; the
+atlas in `public/atlas/` from `scripts/atlas.mjs`. Where the build departs
+from the decisions above:
+
+- **(6) Values to colour are picked from their own chip list** in the Colour
+  by section, not by clicking the filter chips: one chip meaning both "show
+  only" and "colour" would make every click ambiguous. The five colours are
+  the route palette, so a Tag coloured first and the first Journey share a
+  hue; the legend names both. The chosen values are session-only, like the
+  Tag chips (§19.13); Colour by itself persists.
+- **(9) The atlas is zooms 3–7, not 3–8, and its relief comes from Mapzen's
+  Terrain Tiles**, not Natural Earth's raster (unreachable, and too coarse
+  past zoom 6). 9 MB of relief and 434 KB of shapes. ADR 0018 is amended.
+  The atlas colours are a fifth Skin group, *Map atlas*, not tinted by
+  Colour intensity.
+- **(10) A name also hides when it would cover someone else's pin, or when
+  its own pin is buried under a busier one's** (Gethsemane under Jerusalem at
+  zoom 7), since a name beside the visible pin would label the wrong Place.
+  More-mentioned pins sit on top.
+- **(12) The New Place dialog carries the kind picker too**, filled by a
+  gazetteer pick. Its field is `place_kind`: the dialog's fields are shared
+  across types, and a Source's default `kind: article` had leaked into new
+  Places. Settings edits a custom kind's label and icon, never its name,
+  which is the text in the Places.
+- **(13) Matching**: a Place's title against gazetteer names without their
+  number; when several entries share it, the one nearest the Place within
+  half a degree, and none when there are no coordinates and they disagree.
+  The offer sits under the legend's "No kind" row and as a Command,
+  `map.fill_kinds`. A batch the app writes itself now announces the change to
+  its queries (`announceChanged`), since engine events do not reach the dev
+  bridge or the web build.
+
 ### Open
 
-- The atlas's real size; drop zoom 8 before accepting much over 25 MB.
-- Which online layer serves the close-up detail, and its terms.
+- Which online layer serves the close-up detail from zoom 8, and on what
+  terms: it is still OpenStreetMap's standard tiles, as before this session.
