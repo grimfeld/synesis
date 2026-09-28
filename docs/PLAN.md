@@ -951,3 +951,120 @@ High contrast.
 - A hand-maintained index, and listing the folder through the GitHub API.
 - A modal gallery dialog (it would hide what is being previewed).
 - A credit field in the Skin format for one Skin.
+
+## 27. Map: Place kinds, colour rules and an atlas look (grilling session, 2026-09-28)
+
+The Map drew every Place as the same 7px circle in `--c-place`, over standard
+OpenStreetMap tiles, with a boxed permanent label each. Mount Sinai, Egypt and
+Gethsemane were indistinguishable, and the base layer showed motorways and
+modern names, ignored the Skin and needed the network. This session gives pins
+meaning and the Map an atlas look. Vocabulary in [CONTEXT.md](../CONTEXT.md)
+(Place, Map); base layer is ADR 0018.
+
+### Decided
+
+1. **Shape says what a Place is; colour answers a question the reader picks.**
+   Nothing is coloured by hand, per Place: §19.10's "nothing has to be chosen
+   before anything is visible" holds for Places as it does for routes.
+2. **A Place has a `kind`**, reusing the Source Property of that name (ADR
+   0006: Text, vault-wide, "what sort of this thing it is"). The vocabulary
+   lives in the UI, as §20.3 does for Sources: an unknown value is not an
+   error, it draws the plain pin.
+3. **Five built-in kinds**: `settlement` (city, town, village), `mountain`
+   (mountain, hill, range), `water` (river, sea, lake, spring, well), `region`
+   (land, territory, province, wilderness), `site` (one spot: garden, tomb,
+   altar, gate). Road and valley are not kinds; they draw the plain pin.
+   Labelled in every locale.
+4. **Custom kinds**: a name, a label, and one icon from a curated set of ~40
+   Lucide icons, stored in the Vault under `.bible-study/` like Skins (ADR
+   0017), so every Paired Device draws the same pins. No emoji (per-OS
+   rendering, cannot be tinted) and no uploaded SVG (an attachment to sync, no
+   stroke rules, a security surface). A custom kind takes the next free
+   colour of the kind palette; there is no colour picker.
+5. **"Colour by"** in the filter popover: **Kind** (default), **Tag**,
+   **Book**, **None**, persisted through engine settings like the Book chips
+   (§19.13). Kind colours are Skin tokens (`--c-kind-*`) in the `type` token
+   group, so they follow dark mode, the Skin and `typeChroma`.
+6. **Under Tag or Book, the reader picks up to five values to colour**, by
+   clicking the same chips the filters use; everything else is muted grey.
+   Colour highlights and never hides; filtering stays the filters' job. A
+   Place matching several chosen values gets a **split pin**: the disc divided
+   between their colours, up to three segments, "+" beyond. Rejected:
+   first-match-wins (Jerusalem would read as Genesis-only) and automatic
+   top-five (answers a question nobody asked).
+7. **A Stop on a Journey being drawn keeps its route colour** under every rule
+   (§19.7), and its number moves to a small badge on the pin's edge, so the
+   glyph and the label stay.
+8. **Pins are round badges**: a ~22px disc in the rule's colour, the kind's
+   glyph in white, a thin ring in the land colour. No kind: the same disc with
+   a dot. Hover and focus lift the pin and its label. Muted: grey, lower
+   opacity. Rejected: teardrops (tall, app-like, hide the label, cannot split)
+   and bare glyphs (lost on relief, nowhere for a split).
+9. **Base layer: a bundled Natural Earth shaded-relief atlas**, zooms 3–8 over
+   the eastern Mediterranean to Mesopotamia, toned from Skin tokens; beyond
+   zoom 8 a muted online layer fades in when there is a network. ADR 0018.
+10. **Atlas labels**: no boxes; text with a halo in the land colour, typeset
+    by kind: settlements and sites regular, water italic in the water colour,
+    mountains small italic, regions spaced capitals, larger and fainter.
+    Colliding labels hide the less-mentioned Place (`place_facts().mentions`)
+    and return on zoom; Stop numbers never hide.
+11. **A region has no pin.** It is an area, shown by its name alone, centred
+    on its coordinates; the name is tappable and opens the Hub.
+12. **How a Place gets its kind.** `gazetteer.tsv` is rebuilt with a `kind`
+    column mapping OpenBible's types onto the five (unclear ones blank), so
+    the New Place dialog and the Stop picker (§19.11) fill it. On the Place
+    Hub, `kind` is a picker: the five, the Vault's custom kinds, and
+    "New kind…", which creates one in place. Settings lists custom kinds for
+    rename, icon change and delete; deleting never rewrites a Place, whose
+    `kind:` text then draws the plain pin.
+13. **Existing Places are never filled in silently.** A "Fill in kinds from
+    the gazetteer" action on the Map offers, with a count and a confirmation,
+    to set `kind` on Places without one whose title matches a gazetteer
+    entry. It only adds a missing Property (ADR 0011 precedent for a
+    confirmed action writing other documents).
+14. **The legend** is a card at the Map's bottom-left: the kinds present on
+    screen (not the catalogue), what colour means now (merged with kinds under
+    "Kind"; under Tag or Book the chosen values with ✕ to remove, and
+    "Other"), and a line per Journey drawn. Open on desktop, a "Legend" chip
+    on phone, the choice remembered per Device.
+15. **Everything else follows**: the Place Hub mini-map uses the same atlas,
+    badges and labels; routes keep §19.10's geometry and gain a halo in the
+    land colour to read on relief.
+
+### Build order
+
+1. **Engine: `kind` in the gazetteer** — rebuild script and `kind` column,
+   `GazetteerHit.kind`, Rust tests on the mapping. `kind` added to the Place
+   template.
+2. **`src/lib/map.ts`: kinds and colour** — built-in kinds, custom-kind
+   merge, the colour rule and split-pin segments as pure functions under
+   Vitest.
+3. **Badges and labels** on the existing tiles: glyph discs, split pins,
+   Stop badges, atlas labels with collision hiding, regions without pins.
+4. **Colour by** in the popover and **the legend**; Cypress per rule.
+5. **Custom kinds**: Vault storage and engine commands, the Hub picker with
+   "New kind…", the Settings list.
+6. **The atlas**: measure the tile set first, then the build script, bundling,
+   Skin toning and the online detail fade; the Hub mini-map follows.
+7. **Fill in kinds** action; demo vault Places given kinds, plus the Jordan as
+   a `water` Place.
+
+Each step ships its Tutorial changes (the Map & Journeys Tutorials, in every
+language) and a case in `locales.cy.ts` for the legend and the kind picker.
+
+### Declined
+
+- **Per-Place colour and pin Properties**, **emoji** and **uploaded SVG**
+  pins, and a colour picker for custom kinds.
+- **First-match-wins colouring** and **automatic top-five values**.
+- **Teardrop** and **bare-glyph** pins.
+- **Keeping OSM tiles**, a **muted online style** alone, and the **atlas
+  alone** without online detail.
+- **Boxed labels with collision hiding**, and **names on hover only**.
+- **A legend inside the filter popover**, and **a legend listing every kind**.
+- **Filling in kinds automatically** on upgrade.
+
+### Open
+
+- The atlas's real size; drop zoom 8 before accepting much over 25 MB.
+- Which online layer serves the close-up detail, and its terms.
