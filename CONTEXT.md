@@ -202,7 +202,7 @@ The full-screen view a Composition is given from: its text, its Board, or both s
 _Avoid_: Presentation mode, presenter view, slideshow, teleprompter
 
 **Map**:
-The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all. Each pin's shape shows its Place's kind; its colour answers a question the reader picks — kind (the default), Tag or Book — except that a Stop on a Journey being drawn wears the route's colour.
+The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all. Each pin's shape shows its Place's kind, except a region, which is an area rather than a point and is shown by its name alone. A pin's colour answers a question the reader picks — kind (the default), Tag or Book — except that a Stop on a Journey being drawn wears the route's colour.
 _Avoid_: Atlas, Globe, Geography view
 
 **Command**:
