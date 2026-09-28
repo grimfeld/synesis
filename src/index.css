@@ -84,6 +84,11 @@
   --c-kind-custom-3: #4f6a94;
   --c-kind-custom-4: #857521;
   --c-place-muted: #a09a8f;
+  /* The Map's atlas (ADR 0018): parchment land on a quiet sea. */
+  --c-atlas-land: #f1ebdd;
+  --c-atlas-water: #c9dbe1;
+  --c-atlas-coast: #9db3ba;
+  --c-atlas-river: #7ea2b2;
   /* Generated Cover spines, cycled by Source id (ADR 0012). Unlike the route
      palette these are fills behind white text, so they stay deep in both
      themes rather than lightening for the dark one. */
@@ -161,6 +166,10 @@
   --c-kind-custom-3: #a3b5da;
   --c-kind-custom-4: #d6c66c;
   --c-place-muted: #6f6a62;
+  --c-atlas-land: #34322c;
+  --c-atlas-water: #182127;
+  --c-atlas-coast: #3d4c53;
+  --c-atlas-river: #3f6272;
   /* Lifted just enough to sit above the dark background; still deep enough to
      carry white title text (ADR 0012). */
   --c-cover-1: #3c5a6e;
@@ -353,7 +362,14 @@
 .map-route { pointer-events: stroke; }
 .map-arrow { background: none; border: none; }
 .map-arrow span { display: block; width: 0; height: 0; transform: rotate(var(--a, 0deg)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid var(--c, currentColor); }
-.dark .leaflet-tile { filter: brightness(.7) contrast(1.05) saturate(.8); }
+/* The atlas (ADR 0018): the sea is the container, land and water are Skin-filled
+   shapes, and relief is a grey hillshade blended onto them. The online layer
+   past zoom 7 is muted so it reads as a closer look at the same atlas. */
+.leaflet-container.atlas { background: var(--c-atlas-water); }
+.atlas-relief { mix-blend-mode: hard-light; opacity: .55; }
+.dark .atlas-relief { mix-blend-mode: overlay; opacity: .55; }
+.atlas-online { filter: saturate(.35) sepia(.15) contrast(.95); opacity: .92; }
+.dark .atlas-online { filter: brightness(.62) saturate(.3) contrast(1.05); }
 .leaflet-bar a { background: var(--popover); color: var(--popover-foreground); border-bottom-color: var(--border); }
 .leaflet-bar a:hover { background: var(--accent); }
 

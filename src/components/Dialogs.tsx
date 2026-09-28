@@ -38,6 +38,7 @@ import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { gazetteerTitle } from "@/lib/map";
 import { KindPicker } from "@/components/KindPicker";
+import { addAtlas } from "@/lib/atlas";
 import { quoteBody } from "@/lib/clippingBody";
 import { propertyLabel, useT } from "@/i18n";
 import {
@@ -399,9 +400,7 @@ function SetLocation({
         zoom: doc?.lat != null ? 8 : 6,
         zoomControl: true,
       });
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        maxZoom: 18,
-      }).addTo(m);
+      addAtlas(m);
       const color =
         getComputedStyle(document.documentElement)
           .getPropertyValue("--c-place")

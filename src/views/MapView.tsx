@@ -31,6 +31,7 @@ import {
   type RoutePoint,
 } from "@/lib/map";
 import { pinIconSvg } from "@/lib/pinIcons";
+import { addAtlas, type Atlas } from "@/lib/atlas";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -137,6 +138,7 @@ export function MapView() {
   const map = useRef<L.Map | null>(null);
   const relabel = () => relabelIn(drawnPlaces.current);
   const layer = useRef<L.LayerGroup | null>(null);
+  const atlas = useRef<Atlas | null>(null);
   // The drawn Places, so labels can be re-laid-out on zoom without a redraw.
   const drawnPlaces = useRef<{ id: string; title: string; el: () => HTMLElement | undefined; weight: number; pinned: boolean }[]>([]);
   // Opening a Place must not re-run the marker effect: the store object changes
@@ -284,7 +286,7 @@ export function MapView() {
     map.current.on("moveend zoomend", mark);
     mark();
     map.current.on("zoomend", () => relabel());
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(map.current);
+    atlas.current = addAtlas(map.current);
     layer.current = L.layerGroup().addTo(map.current);
     // Leaflet only measures its box on a window resize; the Tutorial panel
     // docking beside the Map, or the sidebar closing, changes it without one.
@@ -303,7 +305,10 @@ export function MapView() {
   // Markers and routes carry resolved colours: redraw when the Skin changes.
   const [skinTick, setSkinTick] = useState(0);
   useEffect(() => {
-    const on = () => setSkinTick((n) => n + 1);
+    const on = () => {
+      atlas.current?.restyle();
+      setSkinTick((n) => n + 1);
+    };
     window.addEventListener("skin:applied", on);
     return () => window.removeEventListener("skin:applied", on);
   }, []);

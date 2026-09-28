@@ -44,7 +44,9 @@ import { formatShortcut, shortcut } from "@/lib/keys";
 import { childKindFor } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
 import { setField, splitFrontmatter } from "@/lib/frontmatter";
-import { stopChoices, type StopChoice } from "@/lib/map";
+import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
+import { addAtlas } from "@/lib/atlas";
+import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
@@ -574,6 +576,7 @@ function HubHeader({
     [type, hasAliases],
   );
   const kindText = typeof doc.frontmatter.kind === "string" ? doc.frontmatter.kind : "";
+  const placeKind = useMemo(() => kindOf(kindText, kindCatalogue(s.placeKinds)), [kindText, s.placeKinds]);
   const isPlace =
     type === "place" && doc.summary.lat != null && doc.summary.lon != null;
   const aliasSuggestions = useMemo(() => [] as { value: string }[], []);
@@ -645,7 +648,7 @@ function HubHeader({
           onClick={() => s.navigate({ kind: "map" })}
           title={t.show_on_map}
         >
-          <MiniMap lat={doc.summary.lat!} lon={doc.summary.lon!} />
+          <MiniMap lat={doc.summary.lat!} lon={doc.summary.lon!} kind={placeKind} />
           <span className="absolute right-2 bottom-2 flex items-center gap-1 rounded-md bg-popover/90 px-1.5 py-0.5 text-[11px] text-popover-foreground opacity-0 transition-opacity group-hover:opacity-100">
             <MapPin className="size-3" />
             {t.show_on_map}
@@ -656,7 +659,18 @@ function HubHeader({
   );
 }
 
-function MiniMap({ lat, lon }: { lat: number; lon: number }) {
+/** A pin as the Map draws it, without a name: the mini-map is about one Place. */
+function miniPin(kind: KindDef | null): string {
+  const color =
+    getComputedStyle(document.documentElement).getPropertyValue(kind?.token ?? "--c-place").trim() || "#c04f6b";
+  const glyph = kind ? pinIconSvg(kind.icon, 13) : `<span class="map-pin-dot"></span>`;
+  return (
+    `<div class="map-place has-pin"><span class="map-pin" style="background:${color}">` +
+    `<span class="map-pin-glyph">${glyph}</span></span></div>`
+  );
+}
+
+function MiniMap({ lat, lon, kind }: { lat: number; lon: number; kind: KindDef | null }) {
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!host.current) return;
@@ -672,24 +686,22 @@ function MiniMap({ lat, lon }: { lat: number; lon: number }) {
       keyboard: false,
       touchZoom: false,
     });
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-      maxZoom: 18,
+    const atlas = addAtlas(map, { online: false });
+    // The same badge the Map draws, in its kind's colour (PLAN §27.15).
+    const marker = L.marker([lat, lon], {
+      interactive: false,
+      icon: L.divIcon({ className: "map-place-icon", html: miniPin(kind), iconSize: [0, 0], iconAnchor: [0, 0] }),
     }).addTo(map);
-    const color =
-      getComputedStyle(document.documentElement)
-        .getPropertyValue("--c-place")
-        .trim() || "#c04f6b";
-    L.circleMarker([lat, lon], {
-      radius: 7,
-      color,
-      fillColor: color,
-      fillOpacity: 0.85,
-      weight: 1.5,
-    }).addTo(map);
+    const restyle = () => {
+      atlas.restyle();
+      marker.setIcon(L.divIcon({ className: "map-place-icon", html: miniPin(kind), iconSize: [0, 0], iconAnchor: [0, 0] }));
+    };
+    window.addEventListener("skin:applied", restyle);
     return () => {
+      window.removeEventListener("skin:applied", restyle);
       map.remove();
     };
-  }, [lat, lon]);
+  }, [lat, lon, kind]);
   return <div ref={host} className="pointer-events-none h-full w-full" />;
 }
 

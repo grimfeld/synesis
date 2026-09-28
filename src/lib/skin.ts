@@ -60,7 +60,7 @@ export function normalizeSkin(s: Partial<Skin> & { name: string }): Skin {
 
 // ------------------------------------------------------------ tokens
 
-export type TokenGroup = "surface" | "text" | "accent" | "line" | "status" | "type" | "route" | "map" | "cover" | "editor";
+export type TokenGroup = "surface" | "text" | "accent" | "line" | "status" | "type" | "route" | "map" | "atlas" | "cover" | "editor";
 
 export interface TokenDef {
   /** The stable name a Skin file uses. Never rename one: shared Skins name it. */
@@ -107,6 +107,11 @@ export const TOKENS: TokenDef[] = [
   ...["settlement", "mountain", "water", "region", "site"].map((k) => t(`map.${k}`, "map", `--c-kind-${k}`)),
   ...[1, 2, 3, 4].map((n) => t(`map.custom${n}`, "map", `--c-kind-custom-${n}`)),
   t("map.muted", "map", "--c-place-muted"),
+  // The atlas under the Map (ADR 0018). Not tinted: land and sea are grounds.
+  t("atlas.land", "atlas", "--c-atlas-land"),
+  t("atlas.water", "atlas", "--c-atlas-water"),
+  t("atlas.coast", "atlas", "--c-atlas-coast"),
+  t("atlas.river", "atlas", "--c-atlas-river"),
   ...[1, 2, 3, 4, 5, 6].map((n) => t(`cover.${n}`, "cover", `--c-cover-${n}`)),
   t("editor.passage", "editor", "--passage"),
   t("editor.passageInferred", "editor", "--passage-inferred"),
