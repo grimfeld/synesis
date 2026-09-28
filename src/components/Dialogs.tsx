@@ -934,6 +934,7 @@ const TYPE_FIELDS: Record<
           set("lat", String(h.lat));
           set("lon", String(h.lon));
           set("modern_name", h.modern_name);
+          if (h.kind) set("kind", h.kind);
         }}
       />
     </Field>

@@ -232,7 +232,7 @@ describe("chip lists", () => {
 
 describe("stopChoices", () => {
   const places = [place("a", "Antioch"), place("p", "Pisidian Antioch"), place("c", "Corinth")];
-  const hit = (name: string, lat = 1, lon = 2): GazetteerHit => ({ name, lat, lon, modern_name: "", verses: 1 });
+  const hit = (name: string, lat = 1, lon = 2): GazetteerHit => ({ name, lat, lon, modern_name: "", verses: 1, kind: null });
 
   it("offers nothing until something is typed", () => {
     expect(stopChoices("  ", places, [hit("Antioch 1")])).toEqual([]);

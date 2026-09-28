@@ -928,7 +928,7 @@ function StopPicker({ onAdd }: { onAdd: (title: string) => void }) {
     try {
       if (c.kind === "place") onAdd(c.doc.title);
       else {
-        const d = await s.createDoc("place", c.title, { lat: c.hit.lat, lon: c.hit.lon, modern_name: c.hit.modern_name }, undefined, false);
+        const d = await s.createDoc("place", c.title, { lat: c.hit.lat, lon: c.hit.lon, modern_name: c.hit.modern_name, ...(c.hit.kind ? { kind: c.hit.kind } : {}) }, undefined, false);
         onAdd(d.summary.title);
       }
       setQ("");

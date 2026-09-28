@@ -118,6 +118,7 @@ export const FRONTMATTER: Record<
   },
   place: (f) => {
     const out: Frontmatter = {};
+    if (f.kind) out.kind = f.kind;
     if (f.lat) out.lat = Number(f.lat);
     if (f.lon) out.lon = Number(f.lon);
     if (f.modern_name) out.modern_name = f.modern_name;

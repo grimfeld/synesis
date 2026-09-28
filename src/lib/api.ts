@@ -305,6 +305,8 @@ export interface DocTag {
  */
 export interface PlaceFact {
   doc: string;
+  /** The `kind` Property as written, null when unset (PLAN §27.2). */
+  kind: string | null;
   tags: string[];
   books: number[];
   mentions: number;
@@ -334,6 +336,8 @@ export interface GazetteerHit {
   lon: number;
   modern_name: string;
   verses: number;
+  /** A built-in Place kind (PLAN §27.3), or null where none fits. */
+  kind: string | null;
 }
 
 /** A named moment in a Composition's history (ADR 0007). */
