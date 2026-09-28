@@ -294,7 +294,10 @@ export function MapView() {
     };
     map.current.on("moveend zoomend", mark);
     mark();
-    map.current.on("zoomend", () => relabel());
+    // Names are measured, so measure again whenever their boxes can have
+    // moved: a zoom, the end of an animated fit, and the web font arriving.
+    map.current.on("zoomend moveend", () => relabel());
+    document.fonts?.ready.then(() => relabel()).catch(() => {});
     atlas.current = addAtlas(map.current);
     layer.current = L.layerGroup().addTo(map.current);
     // Leaflet only measures its box on a window resize; the Tutorial panel
@@ -413,8 +416,11 @@ export function MapView() {
       fitted.current = key;
       m.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 9 });
     }
-    // After layout: names need their final boxes to be measured.
+    // After layout: names need their final boxes to be measured. Once more a
+    // moment later, in case a fit was still animating the first time.
     requestAnimationFrame(() => relabelIn(drawnPlaces.current));
+    const again = window.setTimeout(() => relabelIn(drawnPlaces.current), 400);
+    return () => window.clearTimeout(again);
   }, [shown, routes, routeColorOf, numbersOf, skinTick, kindById, mf.colorBy, mf.colored, facts]);
 
   return (

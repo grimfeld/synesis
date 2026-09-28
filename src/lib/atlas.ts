@@ -80,7 +80,7 @@ export function addAtlas(map: L.Map, { online = true }: { online?: boolean } = {
       [10, 5],
       [48, 62],
     ]),
-    attribution: "Relief: Mapzen Terrain Tiles (SRTM, GMTED2010, ETOPO1) · Natural Earth",
+    attribution: "Mapzen Terrain Tiles · Natural Earth",
   }).addTo(map);
 
   if (online)

@@ -9,7 +9,7 @@
 //   npm run build:web && npm run tutorials:screenshots
 //
 // Chromium comes from Playwright's browser cache, or CHROME=/path/to/chrome.
-// Map tiles are fetched from OpenStreetMap; offline, the Map shot has none.
+// The Map's atlas is bundled (ADR 0018), so the Map shot needs no network.
 import { chromium } from "playwright-core";
 import http from "node:http";
 import fs from "node:fs";
@@ -103,8 +103,8 @@ const SHOTS = {
       await view(page, "map");
       await page.waitForTimeout(2500);
     },
-    // Places are circle markers: SVG paths in the overlay pane.
-    clip: around("[data-slot=sidebar-inset] .leaflet-overlay-pane path.leaflet-interactive", 440, 280),
+    // Places are HTML pins (PLAN §27.8); the clip frames the pins, not their names.
+    clip: around("[data-slot=sidebar-inset] [data-testid=map-pin] .map-pin", 440, 280),
   },
 };
 

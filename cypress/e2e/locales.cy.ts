@@ -247,6 +247,28 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Map's legend and filter popover (« Couleur selon », « Choisissez-en
+      // jusqu'à cinq à comparer », « En compléter 1 depuis le répertoire »), and
+      // a Place's kind picker with « Nouveau genre… » and its icon grid.
+      it("keeps the Map's legend, Colour by and the kind picker inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-testid=map-legend-open]").click();
+        cy.get("[data-testid=map-legend]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=map-filter]").click();
+        cy.get("[data-testid=map-color-by-book]").click();
+        cy.get("[data-testid=map-color-values]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=map-color-by-kind]").click();
+        cy.get("body").type("{esc}");
+        cy.openDoc("Mount Sinai");
+        cy.get("[data-testid=kind-picker]").click();
+        cy.get("[data-testid=kind-new]").click();
+        cy.get("[data-testid=kind-new-form]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // Tutorials are the longest text in the app, in a 390px bottom sheet:
       // the folder-sync ones nest a provider's instructions two levels deep,
       // and French runs half again as long. Settings lists them all for this

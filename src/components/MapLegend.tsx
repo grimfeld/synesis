@@ -90,7 +90,7 @@ export function MapLegend({
         size="sm"
         variant="outline"
         data-testid="map-legend-open"
-        className="absolute bottom-3 left-3 z-[1000] min-h-8 h-auto bg-popover/95 shadow-md"
+        className="absolute bottom-7 left-3 z-[1000] min-h-8 h-auto bg-popover/95 shadow-md"
         onClick={() => setOpen(true)}
       >
         <ListTree />
@@ -102,7 +102,7 @@ export function MapLegend({
     <section
       data-testid="map-legend"
       aria-label={t.map_legend}
-      className="absolute bottom-3 left-3 z-[1000] flex max-h-[calc(100%-1.5rem)] w-56 max-w-[calc(100%-1.5rem)] flex-col gap-2 overflow-y-auto rounded-xl border bg-popover/95 p-3 text-popover-foreground shadow-md backdrop-blur-sm"
+      className="absolute bottom-7 left-3 z-[1000] flex max-h-[calc(100%-2.5rem)] w-56 max-w-[calc(100%-1.5rem)] flex-col gap-2 overflow-y-auto rounded-xl border bg-popover/95 p-3 text-popover-foreground shadow-md backdrop-blur-sm"
     >
       <div className="flex min-w-0 items-center justify-between gap-2">
         <h2 className="min-w-0 text-xs font-semibold">{t.map_legend}</h2>
