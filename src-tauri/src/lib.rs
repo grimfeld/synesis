@@ -5,6 +5,7 @@
 use engine::api::{self, BookMeta, DetectedRange, DocumentPayload, LinkResult, MentionRef, NameEntry};
 use engine::canvas::Canvas;
 use engine::document::DocType;
+use engine::place_kinds::{self, CustomKind};
 use engine::index::{DocSummary, GraphLevel, Linkable};
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
@@ -61,6 +62,10 @@ pub struct Settings {
     /// Map: hide Places nothing mentions.
     #[serde(default)]
     pub map_mentioned_only: bool,
+    /// Map: what a pin's colour answers, "kind", "tag", "book" or "none"
+    /// (PLAN §27.5). None until chosen, which the UI reads as "kind".
+    #[serde(default)]
+    pub map_color_by: Option<String>,
     /// Which side of the Vault's Skin this Device shows (PLAN §24.5).
     #[serde(default)]
     pub appearance_mode: AppearanceMode,
@@ -191,11 +196,13 @@ fn set_map_filters(
     state: State<AppState>,
     books: Vec<u8>,
     mentioned_only: bool,
+    color_by: Option<String>,
 ) -> CmdResult<()> {
     {
         let mut st = state.settings.lock().map_err(err)?;
         st.map_books = books;
         st.map_mentioned_only = mentioned_only;
+        st.map_color_by = color_by;
     }
     state.save_settings()
 }
@@ -785,6 +792,19 @@ async fn gallery_skin(file: String) -> CmdResult<Skin> {
     skin::parse(&fetch_gallery_file(&file).await?).map_err(err)
 }
 
+/// The Vault's custom Place kinds (PLAN §27.4).
+#[tauri::command]
+fn place_kinds(state: State<AppState>) -> CmdResult<Vec<CustomKind>> {
+    state.with_vault(|v| Ok(place_kinds::list(v.root())))
+}
+
+#[tauri::command]
+fn set_place_kinds(state: State<AppState>, kinds: Vec<CustomKind>) -> CmdResult<()> {
+    state.with_vault(|v| place_kinds::save(v.root(), &kinds))?;
+    pairing::notify(&state);
+    Ok(())
+}
+
 #[tauri::command]
 fn appearance(state: State<AppState>) -> CmdResult<Appearance> {
     state.with_vault(|v| Ok(skin::appearance(v.root())))
@@ -1249,6 +1269,8 @@ pub fn run() {
             export_skin,
             appearance,
             set_appearance,
+            place_kinds,
+            set_place_kinds,
             gazetteer,
             versions,
             save_version,

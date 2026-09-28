@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppearanceMode, Skin } from "./skin";
+import type { CustomKind } from "./map";
 
 export type DocType =
   | "note"
@@ -484,6 +485,8 @@ export interface Settings {
   map_books: number[];
   /** Map: hide Places nothing mentions. */
   map_mentioned_only: boolean;
+  /** Map: what a pin's colour answers; null until chosen, read as "kind" (PLAN §27.5). */
+  map_color_by: string | null;
   /** This Device's side of the Vault's Skin (PLAN §24.5). */
   appearance_mode: AppearanceMode;
   /** This Device's Text scale, 1 = the Skin's own sizes. */
@@ -852,8 +855,11 @@ export const api = {
   timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
   journeys: () => query<Journey[]>({ kind: "journeys" }),
-  setMapFilters: (books: number[], mentionedOnly: boolean) =>
-    invoke<void>("set_map_filters", { books, mentionedOnly }),
+  setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
+    invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),
+  /** The Vault's custom Place kinds (PLAN §27.4). */
+  placeKinds: () => invoke<CustomKind[]>("place_kinds"),
+  setPlaceKinds: (kinds: CustomKind[]) => invoke<void>("set_place_kinds", { kinds }),
   versions: (id: string) => invoke<Version[]>("versions", { id }),
   saveVersion: (id: string, label: string) =>
     invoke<Version>("save_version", { id, label }),

@@ -28,7 +28,7 @@ import {
   type VaultInfo,
 } from "./api";
 import { NO_FILTERS, type Filters } from "./timeline";
-import { NO_MAP_FILTERS, type MapFilters } from "./map";
+import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
 import { DEFAULT_RATIO } from "./split";
 import {
@@ -110,6 +110,9 @@ interface Store {
   tags: TagCount[];
   /** Property schema of the open vault (built-ins until a vault is open). */
   schema: PropertySchema;
+  /** The Vault's custom Place kinds (PLAN §27.4); the built-ins ship in `map.ts`. */
+  placeKinds: CustomKind[];
+  setPlaceKinds: (kinds: CustomKind[]) => Promise<void>;
   view: View;
   canBack: boolean;
   canForward: boolean;
@@ -296,18 +299,26 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const lang: Lang = settings?.lang ?? "en";
 
   const [schema, setSchema] = useState<PropertySchema>(BUILTIN_SCHEMA);
+  const [placeKinds, setPlaceKindsState] = useState<CustomKind[]>([]);
 
   const refresh = useCallback(async () => {
-    const [d, t, i, sc] = await Promise.all([
+    const [d, t, i, sc, pk] = await Promise.all([
       api.listDocuments(),
       api.tags(),
       api.vaultInfo(),
       api.propertySchema(),
+      api.placeKinds().catch(() => [] as CustomKind[]),
     ]);
     setDocs(d);
     setTags(t);
     setInfo(i);
     setSchema(sc);
+    setPlaceKindsState(pk);
+  }, []);
+
+  const setPlaceKinds = useCallback(async (kinds: CustomKind[]) => {
+    await api.setPlaceKinds(kinds);
+    setPlaceKindsState(await api.placeKinds());
   }, []);
 
   const setPropertyType = useCallback(async (name: string, t: PropertyType) => {
@@ -384,6 +395,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     api
       .onConfigChanged((names) => {
         if (names.includes("properties.json")) api.propertySchema().then(setSchema).catch(console.error);
+        if (names.includes("place-kinds.json")) api.placeKinds().then(setPlaceKindsState).catch(console.error);
       })
       .then((u) => (un = u))
       .catch(() => {});
@@ -524,6 +536,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       ...f,
       books: settings.map_books ?? [],
       mentionedOnly: settings.map_mentioned_only ?? false,
+      colorBy: COLOR_BY.includes(settings.map_color_by as ColorBy)
+        ? (settings.map_color_by as ColorBy)
+        : "kind",
     }));
   }, [settings]);
 
@@ -542,9 +557,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setMapFiltersState((prev) => {
       if (
         prev.mentionedOnly !== f.mentionedOnly ||
-        prev.books.join() !== f.books.join()
+        prev.books.join() !== f.books.join() ||
+        prev.colorBy !== f.colorBy
       )
-        api.setMapFilters(f.books, f.mentionedOnly).catch(console.error);
+        api.setMapFilters(f.books, f.mentionedOnly, f.colorBy).catch(console.error);
       return f;
     });
   }, []);
@@ -595,6 +611,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     books,
     tags,
     schema,
+    placeKinds,
+    setPlaceKinds,
     view,
     canBack: history.back.length > 0,
     canForward: history.forward.length > 0,
