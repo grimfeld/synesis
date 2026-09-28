@@ -2,6 +2,7 @@
 id: 01M26CD26JBGA0KGVDDT478NVG
 type: place
 title: "Corinth"
+kind: settlement
 created: "2026-08-02T10:13:00"
 lat: 37.9058
 lon: 22.8787

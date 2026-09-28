@@ -14,6 +14,7 @@ import {
   splitWedges,
   toggleColored,
   type LabelBox,
+  type PinBox,
   gazetteerTitle,
   stopChoices,
   bezierLeg,
@@ -416,6 +417,16 @@ describe("hiddenLabels", () => {
     pinned,
     title: id,
   });
+  const pin = (id: string, x: number, weight: number, pinned = false): PinBox => ({
+    id,
+    x,
+    y: 0,
+    w: 22,
+    h: 22,
+    weight,
+    pinned,
+    title: id,
+  });
 
   it("keeps apart labels that do not collide", () => {
     expect(hiddenLabels([box("a", 0, 1), box("b", 100, 1)]).size).toBe(0);
@@ -435,6 +446,21 @@ describe("hiddenLabels", () => {
     const ba = hiddenLabels([box("b", 20, 1), box("a", 0, 1)]);
     expect([...ab]).toEqual(["b"]);
     expect([...ba]).toEqual(["b"]);
+  });
+
+  it("hides a name that would run under someone else's pin, not under its own", () => {
+    // Corinth's name reaches Ephesus's pin; Ephesus is busier but pins never hide.
+    const hidden = hiddenLabels([box("corinth", 12, 9), box("ephesus", 200, 1)], [pin("corinth", -10, 9), pin("ephesus", 40, 1)]);
+    expect([...hidden]).toEqual(["corinth"]);
+    expect(hiddenLabels([box("a", 12, 1)], [pin("a", 0, 1)]).size).toBe(0);
+  });
+
+  it("hides the name of a pin buried under a busier one, so it cannot label the wrong Place", () => {
+    const labels = [box("gethsemane", 300, 2), box("jerusalem", 100, 50)];
+    const pins = [pin("gethsemane", 2, 2), pin("jerusalem", 0, 50)];
+    expect([...hiddenLabels(labels, pins)]).toEqual(["gethsemane"]);
+    // Far enough apart, both keep their names.
+    expect(hiddenLabels(labels, [pin("gethsemane", 30, 2), pin("jerusalem", 0, 50)]).size).toBe(0);
   });
 });
 

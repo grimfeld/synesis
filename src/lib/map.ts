@@ -481,13 +481,17 @@ export function hasPin(kind: KindDef | null): boolean {
   return kind?.name !== "region";
 }
 
-/** A label's box on screen, in pixels, and how much it matters. */
-export interface LabelBox {
-  id: string;
+/** A rectangle on screen, in pixels. */
+export interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
+}
+
+/** A Place's name on screen, and how much it matters. */
+export interface LabelBox extends Box {
+  id: string;
   /** Never hidden: a Journey's Stop, whose number is the route (§19.10). */
   pinned?: boolean;
   /** Higher wins a collision: how many documents mention the Place. */
@@ -495,27 +499,65 @@ export interface LabelBox {
   title: string;
 }
 
-/**
- * The labels to hide so none overlaps another (PLAN §27.10). Greedy in order
- * of importance: Stops first, then the most-mentioned Place, then by title so
- * the answer does not depend on the order Places arrived in. A pinned label is
- * always kept, even over another pinned one: a Stop never loses its number.
- */
-export function hiddenLabels(boxes: LabelBox[], gap = 2): Set<string> {
-  const order = [...boxes].sort(
-    (a, b) =>
-      Number(!!b.pinned) - Number(!!a.pinned) ||
-      b.weight - a.weight ||
-      a.title.localeCompare(b.title) ||
-      a.id.localeCompare(b.id),
+/** A Place's pin on screen. Pins are never hidden; they are what names avoid. */
+export interface PinBox extends Box {
+  /** The Place it belongs to, matching its label's `id`. */
+  id: string;
+  weight: number;
+  title: string;
+  pinned?: boolean;
+}
+
+type Ranked = { id: string; weight: number; title: string; pinned?: boolean };
+
+/** Importance order: Stops, then the most-mentioned, then by title and id so the answer is stable. */
+function byRank(a: Ranked, b: Ranked): number {
+  return (
+    Number(!!b.pinned) - Number(!!a.pinned) ||
+    b.weight - a.weight ||
+    a.title.localeCompare(b.title) ||
+    a.id.localeCompare(b.id)
   );
-  const kept: LabelBox[] = [];
+}
+
+function overlaps(a: Box, b: Box, gap: number): boolean {
+  return a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+}
+
+function overlapArea(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * The names to hide so that none overlaps another name or someone else's pin,
+ * and none labels a pin that cannot be seen (PLAN §27.10).
+ *
+ * A pin mostly buried under a more important one (Gethsemane under
+ * Jerusalem, at a zoom that puts them 2px apart) loses its name first: a name
+ * beside the visible pin would label the wrong Place. Then, greedy in order
+ * of importance, a name that would cover a pin or a name already kept hides.
+ * A Stop's name is always kept: a Stop never loses its number.
+ */
+export function hiddenLabels(labels: LabelBox[], pins: PinBox[] = [], gap = 2): Set<string> {
   const hidden = new Set<string>();
-  const hit = (a: LabelBox, b: LabelBox) =>
-    a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
-  for (const box of order) {
-    if (!box.pinned && kept.some((k) => hit(box, k))) hidden.add(box.id);
-    else kept.push(box);
+  const pinOf = new Map(pins.map((p) => [p.id, p]));
+  for (const label of labels) {
+    const own = pinOf.get(label.id);
+    if (!own || label.pinned) continue;
+    const buried = pins.some(
+      (p) => p.id !== own.id && byRank(p, own) < 0 && overlapArea(p, own) > 0.4 * own.w * own.h,
+    );
+    if (buried) hidden.add(label.id);
+  }
+  const kept: Box[] = [];
+  for (const label of [...labels].sort(byRank)) {
+    if (hidden.has(label.id)) continue;
+    const blocked =
+      pins.some((p) => p.id !== label.id && overlaps(label, p, 0)) || kept.some((k) => overlaps(label, k, gap));
+    if (!label.pinned && blocked) hidden.add(label.id);
+    else kept.push(label);
   }
   return hidden;
 }
