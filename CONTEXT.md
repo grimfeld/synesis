@@ -96,7 +96,7 @@ A name in the document being written that matches a Topical Subject or a Source 
 _Avoid_: Link suggestion, autolink, loose name
 
 **Place**:
-A geographical location in the Bible's world, with a position on the map. Created manually by the user.
+A geographical location in the Bible's world, with a position on the map. Has a kind — what sort of place it is, such as a settlement or a mountain — which the Map draws as the shape of its pin. A kind the app does not know is still a Place, drawn with the plain pin. Created manually by the user.
 _Avoid_: Location
 
 **Character**:
