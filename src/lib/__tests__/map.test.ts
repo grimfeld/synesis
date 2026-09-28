@@ -436,9 +436,15 @@ describe("hiddenLabels", () => {
     expect([...hiddenLabels([box("quiet", 0, 1), box("busy", 20, 9)])]).toEqual(["quiet"]);
   });
 
-  it("never hides a Stop, even over a busier Place", () => {
+  it("puts a Stop's name before a busier Place's", () => {
     expect([...hiddenLabels([box("stop", 0, 0, true), box("busy", 20, 99)])]).toEqual(["busy"]);
-    expect(hiddenLabels([box("s1", 0, 0, true), box("s2", 10, 0, true)]).size).toBe(0);
+  });
+
+  it("still hides a Stop's name that would cover someone else's pin; its number is on the pin", () => {
+    const hidden = hiddenLabels([box("corinth", 12, 1, true)], [pin("corinth", -10, 1, true), pin("ephesus", 40, 9)]);
+    expect([...hidden]).toEqual(["corinth"]);
+    // Two Stops' names that collide: the busier keeps its name.
+    expect([...hiddenLabels([box("s1", 0, 0, true), box("s2", 10, 5, true)])]).toEqual(["s1"]);
   });
 
   it("breaks ties by title, whatever order the Places came in", () => {

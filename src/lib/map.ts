@@ -492,7 +492,11 @@ export interface Box {
 /** A Place's name on screen, and how much it matters. */
 export interface LabelBox extends Box {
   id: string;
-  /** Never hidden: a Journey's Stop, whose number is the route (§19.10). */
+  /**
+   * A Journey's Stop: its name wins every collision with an ordinary Place's.
+   * It can still hide — its number is in the badge on the pin, which never
+   * does (§27.7) — so a route never covers someone else's pin with a name.
+   */
   pinned?: boolean;
   /** Higher wins a collision: how many documents mention the Place. */
   weight: number;
@@ -537,15 +541,15 @@ function overlapArea(a: Box, b: Box): number {
  * A pin mostly buried under a more important one (Gethsemane under
  * Jerusalem, at a zoom that puts them 2px apart) loses its name first: a name
  * beside the visible pin would label the wrong Place. Then, greedy in order
- * of importance, a name that would cover a pin or a name already kept hides.
- * A Stop's name is always kept: a Stop never loses its number.
+ * of importance — Stops first — a name that would cover a pin or a name
+ * already kept hides. Pins never hide, so a Stop never loses its number.
  */
 export function hiddenLabels(labels: LabelBox[], pins: PinBox[] = [], gap = 2): Set<string> {
   const hidden = new Set<string>();
   const pinOf = new Map(pins.map((p) => [p.id, p]));
   for (const label of labels) {
     const own = pinOf.get(label.id);
-    if (!own || label.pinned) continue;
+    if (!own) continue;
     const buried = pins.some(
       (p) => p.id !== own.id && byRank(p, own) < 0 && overlapArea(p, own) > 0.4 * own.w * own.h,
     );
@@ -556,7 +560,7 @@ export function hiddenLabels(labels: LabelBox[], pins: PinBox[] = [], gap = 2): 
     if (hidden.has(label.id)) continue;
     const blocked =
       pins.some((p) => p.id !== label.id && overlaps(label, p, 0)) || kept.some((k) => overlaps(label, k, gap));
-    if (!label.pinned && blocked) hidden.add(label.id);
+    if (blocked) hidden.add(label.id);
     else kept.push(label);
   }
   return hidden;

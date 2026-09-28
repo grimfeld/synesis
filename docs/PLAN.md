@@ -1090,7 +1090,8 @@ from the decisions above:
 - **(10) A name also hides when it would cover someone else's pin, or when
   its own pin is buried under a busier one's** (Gethsemane under Jerusalem at
   zoom 7), since a name beside the visible pin would label the wrong Place.
-  More-mentioned pins sit on top.
+  More-mentioned pins sit on top. A Stop's name wins collisions but can hide
+  too: its number is in the badge on its pin, which never hides.
 - **(12) The New Place dialog carries the kind picker too**, filled by a
   gazetteer pick. Its field is `place_kind`: the dialog's fields are shared
   across types, and a Source's default `kind: article` had leaked into new
