@@ -36,6 +36,22 @@ pub struct DocumentView {
     pub references: Vec<Detected>,
 }
 
+/// A Place with no kind that the gazetteer can give one (PLAN §27.13).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KindSuggestion {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+}
+
+/// What "Fill in kinds" wrote, and which Places it left alone because they
+/// gained a kind (or vanished) between the suggestion and the write.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct FillResult {
+    pub filled: Vec<String>,
+    pub skipped: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VaultInfo {
     pub root: String,
@@ -976,6 +992,7 @@ impl Vault {
             Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
+            Query::KindSuggestions => Answer::KindSuggestions(self.kind_suggestions()?),
         })
     }
 
@@ -1138,6 +1155,47 @@ impl Vault {
         Ok(before)
     }
 
+    /// Places without a kind whose title the gazetteer knows, with the kind it
+    /// gives them (PLAN §27.13). Read-only: nothing is written until the user
+    /// confirms, through `fill_kinds`.
+    pub fn kind_suggestions(&self) -> Result<Vec<KindSuggestion>> {
+        let mut out = Vec::new();
+        for fact in self.index.place_facts()? {
+            if fact.kind.is_some() {
+                continue;
+            }
+            let Some(doc) = self.index.get(&fact.doc)? else { continue };
+            if let Some(kind) = crate::gazetteer::kind_for(&doc.title, doc.lat.zip(doc.lon)) {
+                out.push(KindSuggestion { id: doc.id, title: doc.title, kind });
+            }
+        }
+        Ok(out)
+    }
+
+    /// Write the kinds the user confirmed. Only ever adds a missing Property:
+    /// a Place that has a kind by now keeps it, and is reported as skipped,
+    /// and every other line of the file stays as it was.
+    pub fn fill_kinds(&mut self, fills: &[KindSuggestion]) -> FillResult {
+        let mut result = FillResult::default();
+        for f in fills {
+            let current = self.read(&f.id).ok();
+            let unset = current.as_ref().is_some_and(|v| {
+                v.summary.doc_type == DocType::Place
+                    && v.frontmatter.get("kind").and_then(Value::as_str).map_or(true, |k| k.trim().is_empty())
+            });
+            let written = unset
+                && current
+                    .map(|v| document::set_frontmatter_field(&v.text, "kind", Some(&f.kind)))
+                    .is_some_and(|next| self.write(&f.id, &next).is_ok());
+            if written {
+                result.filled.push(f.id.clone());
+            } else {
+                result.skipped.push(f.id.clone());
+            }
+        }
+        result
+    }
+
     /// Restore documents to the text they held before a batch of links.
     ///
     /// Used by Undo after "Link all": the batch keeps each document's previous
@@ -1184,6 +1242,52 @@ mod tests {
         let data = dir.path().join(".data");
         let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn fill_kinds_adds_only_missing_kinds_from_the_gazetteer() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        let write = |name: &str, text: &str| fs::write(dir.path().join("Places").join(name), text).unwrap();
+        write("sinai.md", "---\ntype: place\ntitle: \"Mount Sinai\"\nlat: 28.54\nlon: 33.97\n---\nWhere the Law was given.\n");
+        // Already has a kind: never suggested, never touched.
+        write("jerusalem.md", "---\ntype: place\ntitle: Jerusalem\nkind: site\n---\n");
+        // A kind left empty by the template counts as missing.
+        write("egypt.md", "---\ntype: place\ntitle: Egypt\nkind: \"\"\n---\n");
+        write("atlantis.md", "---\ntype: place\ntitle: Atlantis\n---\n");
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+
+        let mut s = v.kind_suggestions().unwrap();
+        s.sort_by(|a, b| a.title.cmp(&b.title));
+        let pairs: Vec<(&str, &str)> = s.iter().map(|k| (k.title.as_str(), k.kind.as_str())).collect();
+        assert_eq!(pairs, [("Egypt", "region"), ("Mount Sinai", "mountain")]);
+
+        // Egypt gains a kind by hand between the suggestion and the write.
+        let egypt = s.iter().find(|k| k.title == "Egypt").unwrap().id.clone();
+        let text = fs::read_to_string(dir.path().join("Places/egypt.md")).unwrap();
+        v.write(&egypt, &text.replace("kind: \"\"", "kind: land")).unwrap();
+
+        let r = v.fill_kinds(&s);
+        assert_eq!(r.filled.len(), 1);
+        assert_eq!(r.skipped, vec![egypt]);
+        let sinai = fs::read_to_string(dir.path().join("Places/sinai.md")).unwrap();
+        assert!(sinai.contains("\nkind: mountain\n"), "{sinai}");
+        assert!(sinai.contains("lat: 28.54\nlon: 33.97\n") && sinai.ends_with("Where the Law was given.\n"), "{sinai}");
+        assert!(fs::read_to_string(dir.path().join("Places/egypt.md")).unwrap().contains("kind: land"));
+        assert!(v.kind_suggestions().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_place_made_from_the_template_is_offered_a_kind() {
+        let (_dir, mut v) = vault();
+        let mut fields = Map::new();
+        fields.insert("lat".into(), Value::from(36.9165));
+        fields.insert("lon".into(), Value::from(34.8951));
+        let made = v.create(DocType::Place, "Tarsus", &fields, "").unwrap();
+        let s = v.kind_suggestions().unwrap();
+        assert_eq!(s.len(), 1, "{}\n{s:?}", made.text);
+        assert_eq!(s[0].kind, "settlement");
     }
 
     #[test]

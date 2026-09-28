@@ -1,17 +1,30 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img">
-  <!-- The Map: Places as pins, and a Journey drawn as a route through its Stops in order. -->
-  <path d="M10 120 C 40 90, 70 110, 100 84 S 150 40, 190 58 S 250 30, 310 50 L310 170 L10 170 Z" fill="#6aa27b" fill-opacity="0.14" stroke="#6aa27b" stroke-opacity="0.5" stroke-width="1.5"/>
-  <path d="M60 140 L118 104 L176 120 L236 82 L272 118" fill="none" stroke="#5b7fd1" stroke-width="2.5" stroke-linejoin="round" stroke-dasharray="7 4"/>
-  <g fill="#5b7fd1" stroke="#ffffff" stroke-width="2">
-    <circle cx="60" cy="140" r="6"/>
-    <circle cx="118" cy="104" r="6"/>
-    <circle cx="176" cy="120" r="6"/>
-    <circle cx="236" cy="82" r="6"/>
-    <circle cx="272" cy="118" r="6"/>
+  <!-- The Map: Places as round pins whose glyph is their kind, a region as a name alone, and a Journey drawn through its numbered Stops. -->
+  <rect width="320" height="180" fill="#c9dbe1" fill-opacity="0.55"/>
+  <path d="M0 18 C 40 30, 70 12, 110 26 S 170 60, 200 44 S 270 20, 320 30 L320 180 L150 180 C 150 150, 118 136, 96 142 S 40 150, 0 128 Z" fill="#f1ebdd" stroke="#9db3ba" stroke-width="1.2"/>
+  <path d="M232 70 l10 -12 l8 9 l9 -14 l12 17" fill="none" stroke="#7a5a3a" stroke-opacity="0.35" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M60 110 Q 110 70, 150 92 Q 200 118, 250 96" fill="none" stroke="#1f7a8c" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="120" y="160" font-family="sans-serif" font-size="11" font-weight="600" letter-spacing="3" fill="#a87a22" fill-opacity="0.85">REGION</text>
+  <g stroke="#f1ebdd" stroke-width="2">
+    <circle cx="60" cy="110" r="11" fill="#1f7a8c"/>
+    <circle cx="150" cy="92" r="11" fill="#1f7a8c"/>
+    <circle cx="250" cy="96" r="11" fill="#1f7a8c"/>
+    <circle cx="258" cy="44" r="11" fill="#7a5a3a"/>
+    <circle cx="36" cy="52" r="11" fill="#7b4fa0"/>
   </g>
-  <g fill="#d18b5b">
-    <path d="M150 30 c-8 0 -13 6 -13 12 c0 9 13 22 13 22 s13 -13 13 -22 c0 -6 -5 -12 -13 -12 z"/>
-    <path d="M40 66 c-7 0 -11 5 -11 10 c0 8 11 19 11 19 s11 -11 11 -19 c0 -5 -4 -10 -11 -10 z"/>
+  <g fill="none" stroke="#ffffff" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M55 115 v-6 l2 -2 v-2 h6 v2 l2 2 v6 z"/>
+    <path d="M145 97 v-6 l2 -2 v-2 h6 v2 l2 2 v6 z"/>
+    <path d="M245 101 v-6 l2 -2 v-2 h6 v2 l2 2 v6 z"/>
+    <path d="M252 49 l6 -10 l6 10 z"/>
+    <path d="M31 57 h10 M33 57 v-6 M39 57 v-6 M30 51 l6 -4 l6 4"/>
   </g>
-  <g fill="#ffffff"><circle cx="150" cy="42" r="4"/><circle cx="40" cy="76" r="3.5"/></g>
+  <g font-family="sans-serif" font-size="9" font-weight="700" fill="#ffffff" text-anchor="middle">
+    <rect x="66" y="92" width="14" height="12" rx="6" fill="#1f7a8c" stroke="#f1ebdd" stroke-width="1.5"/>
+    <text x="73" y="101">1</text>
+    <rect x="156" y="74" width="14" height="12" rx="6" fill="#1f7a8c" stroke="#f1ebdd" stroke-width="1.5"/>
+    <text x="163" y="83">2</text>
+    <rect x="256" y="78" width="14" height="12" rx="6" fill="#1f7a8c" stroke="#f1ebdd" stroke-width="1.5"/>
+    <text x="263" y="87">3</text>
+  </g>
 </svg>

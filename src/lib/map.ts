@@ -25,6 +25,17 @@ export interface MapFilters {
    * four filters say (§19.7).
    */
   journeys: string[];
+  /**
+   * What a pin's colour answers (PLAN §27.5). Not a filter: it hides nothing,
+   * so it lives here only to share the store and the round trip to a Hub.
+   */
+  colorBy: ColorBy;
+  /**
+   * The Tags (by name) or Books (as numbers in text) the Tag or Book rule
+   * colours, in chip order, at most `MAX_COLORED` (PLAN §27.6). Emptied when
+   * the rule changes: a Tag is not a Book.
+   */
+  colored: string[];
 }
 
 export const NO_MAP_FILTERS: MapFilters = {
@@ -33,6 +44,8 @@ export const NO_MAP_FILTERS: MapFilters = {
   books: [],
   mentionedOnly: false,
   journeys: [],
+  colorBy: "kind",
+  colored: [],
 };
 
 /**
@@ -254,4 +267,322 @@ export function stopChoices(query: string, places: DocSummary[], hits: Gazetteer
     found.push({ kind: "gazetteer", hit, title });
   }
   return [...own, ...found].slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Place kinds (PLAN §27.2–4)
+// ---------------------------------------------------------------------------
+
+/** The kinds that come with the app, in legend order (PLAN §27.3). */
+export const BUILTIN_KINDS = ["settlement", "mountain", "water", "region", "site"] as const;
+export type BuiltinKind = (typeof BUILTIN_KINDS)[number];
+
+/**
+ * A kind the user added (PLAN §27.4): the `kind:` text it answers to, the
+ * label the legend shows, and one icon from the curated set. Stored in the
+ * Vault, so every Paired Device draws the same pins.
+ */
+export interface CustomKind {
+  name: string;
+  label: string;
+  icon: string;
+}
+
+/** A kind as the Map draws it, built-in or custom. */
+export interface KindDef {
+  name: string;
+  /** The user's label for a custom kind; null for a built-in, which the UI translates. */
+  label: string | null;
+  /** A name from `PIN_ICONS`. */
+  icon: string;
+  /** CSS custom property of the kind's colour. */
+  token: string;
+  builtin: boolean;
+}
+
+/** Icons of the built-in kinds. A region has one for the legend, never a pin (§27.11). */
+export const BUILTIN_ICONS: Record<BuiltinKind, string> = {
+  settlement: "castle",
+  mountain: "mountain",
+  water: "waves",
+  region: "map",
+  site: "landmark",
+};
+
+/**
+ * Colours for custom kinds, taken in turn (PLAN §27.4): no colour picker, so
+ * nothing has to be chosen before the pin looks right.
+ */
+export const CUSTOM_KIND_TOKENS = [
+  "--c-kind-custom-1",
+  "--c-kind-custom-2",
+  "--c-kind-custom-3",
+  "--c-kind-custom-4",
+] as const;
+
+/**
+ * The kinds this Vault knows: the five built-ins, then its custom kinds in
+ * the order they were made. A custom kind that reuses a built-in's name, or an
+ * earlier custom kind's, is shadowed: one name, one pin.
+ */
+export function kindCatalogue(custom: CustomKind[]): KindDef[] {
+  const out: KindDef[] = BUILTIN_KINDS.map((k) => ({
+    name: k,
+    label: null,
+    icon: BUILTIN_ICONS[k],
+    token: `--c-kind-${k}`,
+    builtin: true,
+  }));
+  const taken = new Set<string>(BUILTIN_KINDS);
+  let n = 0;
+  for (const c of custom) {
+    const key = fold(c.name.trim());
+    if (!key || taken.has(key)) continue;
+    taken.add(key);
+    out.push({
+      name: c.name.trim(),
+      label: c.label.trim() || c.name.trim(),
+      icon: c.icon,
+      token: CUSTOM_KIND_TOKENS[n++ % CUSTOM_KIND_TOKENS.length],
+      builtin: false,
+    });
+  }
+  return out;
+}
+
+/**
+ * The kind a Place's `kind:` text names, matched ignoring case and accents so
+ * a hand-typed `Mountain` is still a mountain. Null for no kind or one nobody
+ * defined: the plain pin (PLAN §27.2).
+ */
+export function kindOf(raw: string | null | undefined, catalogue: KindDef[]): KindDef | null {
+  const key = fold((raw ?? "").trim());
+  if (!key) return null;
+  return catalogue.find((k) => fold(k.name) === key) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Colour (PLAN §27.5–7)
+// ---------------------------------------------------------------------------
+
+/** What a pin's colour answers (PLAN §27.5). */
+export type ColorBy = "kind" | "tag" | "book" | "none";
+export const COLOR_BY: ColorBy[] = ["kind", "tag", "book", "none"];
+
+/** How many values a Tag or Book rule may colour at once (PLAN §27.6). */
+export const MAX_COLORED = 5;
+
+/** How many colours one split pin shows before it says "+" (PLAN §27.6). */
+export const MAX_SEGMENTS = 3;
+
+/**
+ * Add or remove a value from the coloured set. Adding past `MAX_COLORED` does
+ * nothing: five colours is what a reader can hold apart, and silently dropping
+ * the oldest would change a colour under the reader's eye.
+ */
+export function toggleColored(colored: string[], v: string): string[] {
+  if (colored.includes(v)) return colored.filter((x) => x !== v);
+  if (colored.length >= MAX_COLORED) return colored;
+  return [...colored, v];
+}
+
+/** The colour of the nth coloured value: the route palette, in chip order. */
+export function colorToken(i: number): string {
+  return routeToken(i);
+}
+
+/** What one pin wears. */
+export interface PinPaint {
+  /** Colours, as CSS custom properties: one for a plain pin, several for a split one. */
+  tokens: string[];
+  /** Matched more coloured values than a split pin shows. */
+  more: boolean;
+  /** Outside the chosen values: grey, and quieter (PLAN §27.6). */
+  muted: boolean;
+}
+
+/**
+ * The paint of one Place's pin under the current rule. Colour highlights and
+ * never hides: a Place the rule does not pick out is muted, not removed —
+ * removing is the filters' job (PLAN §27.6).
+ *
+ * Under Tag or Book with nothing chosen yet, nothing is muted: an empty
+ * choice is "not comparing anything", not "everything is Other".
+ */
+export function pinPaint(
+  id: string,
+  kind: KindDef | null,
+  colorBy: ColorBy,
+  colored: string[],
+  facts: PlaceFacts,
+): PinPaint {
+  const plain = (token: string): PinPaint => ({ tokens: [token], more: false, muted: false });
+  if (colorBy === "kind") return plain(kind?.token ?? "--c-place");
+  if (colorBy === "none" || colored.length === 0) return plain("--c-place");
+  const own =
+    colorBy === "tag"
+      ? new Set((facts.tags.get(id) ?? []).map(fold))
+      : new Set((facts.books.get(id) ?? []).map(String));
+  const hits: string[] = [];
+  colored.forEach((v, i) => {
+    if (own.has(colorBy === "tag" ? fold(v) : v)) hits.push(colorToken(i));
+  });
+  if (hits.length === 0) return { tokens: ["--c-place-muted"], more: false, muted: true };
+  return { tokens: hits.slice(0, MAX_SEGMENTS), more: hits.length > MAX_SEGMENTS, muted: false };
+}
+
+/**
+ * SVG paths dividing a disc of radius `r` centred on (r, r) into `n` equal
+ * wedges, the first starting at twelve o'clock and running clockwise. One
+ * wedge is the whole disc, drawn as a circle path so it has no seam.
+ */
+export function splitWedges(n: number, r: number): string[] {
+  if (n <= 1) return [`M ${r} 0 A ${r} ${r} 0 1 1 ${r} ${2 * r} A ${r} ${r} 0 1 1 ${r} 0 Z`];
+  const at = (i: number) => {
+    const a = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = r + r * Math.cos(a);
+    const y = r + r * Math.sin(a);
+    return `${round(x)} ${round(y)}`;
+  };
+  const out: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const large = 1 / n > 0.5 ? 1 : 0;
+    out.push(`M ${r} ${r} L ${at(i)} A ${r} ${r} 0 ${large} 1 ${at(i + 1)} Z`);
+  }
+  return out;
+}
+
+function round(x: number): number {
+  return Math.round(x * 1000) / 1000;
+}
+
+// ---------------------------------------------------------------------------
+// Labels (PLAN §27.10–11)
+// ---------------------------------------------------------------------------
+
+/** How a Place's name is set, by its kind, as printed atlases do (PLAN §27.10). */
+export type LabelStyle = "place" | "water" | "mountain" | "region";
+
+export function labelStyle(kind: KindDef | null): LabelStyle {
+  switch (kind?.name) {
+    case "water":
+      return "water";
+    case "mountain":
+      return "mountain";
+    case "region":
+      return "region";
+    default:
+      return "place";
+  }
+}
+
+/** A region is an area, shown by its name alone (PLAN §27.11). */
+export function hasPin(kind: KindDef | null): boolean {
+  return kind?.name !== "region";
+}
+
+/** A rectangle on screen, in pixels. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** A Place's name on screen, and how much it matters. */
+export interface LabelBox extends Box {
+  id: string;
+  /**
+   * A Journey's Stop: its name wins every collision with an ordinary Place's.
+   * It can still hide — its number is in the badge on the pin, which never
+   * does (§27.7) — so a route never covers someone else's pin with a name.
+   */
+  pinned?: boolean;
+  /** Higher wins a collision: how many documents mention the Place. */
+  weight: number;
+  title: string;
+}
+
+/** A Place's pin on screen. Pins are never hidden; they are what names avoid. */
+export interface PinBox extends Box {
+  /** The Place it belongs to, matching its label's `id`. */
+  id: string;
+  weight: number;
+  title: string;
+  pinned?: boolean;
+}
+
+type Ranked = { id: string; weight: number; title: string; pinned?: boolean };
+
+/** Importance order: Stops, then the most-mentioned, then by title and id so the answer is stable. */
+function byRank(a: Ranked, b: Ranked): number {
+  return (
+    Number(!!b.pinned) - Number(!!a.pinned) ||
+    b.weight - a.weight ||
+    a.title.localeCompare(b.title) ||
+    a.id.localeCompare(b.id)
+  );
+}
+
+function overlaps(a: Box, b: Box, gap: number): boolean {
+  return a.x < b.x + b.w + gap && b.x < a.x + a.w + gap && a.y < b.y + b.h + gap && b.y < a.y + a.h + gap;
+}
+
+function overlapArea(a: Box, b: Box): number {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  return w > 0 && h > 0 ? w * h : 0;
+}
+
+/**
+ * The names to hide so that none overlaps another name or someone else's pin,
+ * and none labels a pin that cannot be seen (PLAN §27.10).
+ *
+ * A pin mostly buried under a more important one (Gethsemane under
+ * Jerusalem, at a zoom that puts them 2px apart) loses its name first: a name
+ * beside the visible pin would label the wrong Place. Then, greedy in order
+ * of importance — Stops first — a name that would cover a pin or a name
+ * already kept hides. Pins never hide, so a Stop never loses its number.
+ */
+export function hiddenLabels(labels: LabelBox[], pins: PinBox[] = [], gap = 2): Set<string> {
+  const hidden = new Set<string>();
+  const pinOf = new Map(pins.map((p) => [p.id, p]));
+  for (const label of labels) {
+    const own = pinOf.get(label.id);
+    if (!own) continue;
+    const buried = pins.some(
+      (p) => p.id !== own.id && byRank(p, own) < 0 && overlapArea(p, own) > 0.4 * own.w * own.h,
+    );
+    if (buried) hidden.add(label.id);
+  }
+  const kept: Box[] = [];
+  for (const label of [...labels].sort(byRank)) {
+    if (hidden.has(label.id)) continue;
+    const blocked =
+      pins.some((p) => p.id !== label.id && overlaps(label, p, 0)) || kept.some((k) => overlaps(label, k, gap));
+    if (blocked) hidden.add(label.id);
+    else kept.push(label);
+  }
+  return hidden;
+}
+
+// ---------------------------------------------------------------------------
+// Legend (PLAN §27.14)
+// ---------------------------------------------------------------------------
+
+/**
+ * The kinds the legend lists: those with at least one Place on screen, in
+ * catalogue order, and whether any Place on screen draws the plain pin.
+ * Never the whole catalogue — it grows with custom kinds and would list
+ * shapes that are nowhere on the map.
+ */
+export function legendKinds(
+  kindsOnScreen: (KindDef | null)[],
+  catalogue: KindDef[],
+): { kinds: KindDef[]; plain: boolean } {
+  const names = new Set(kindsOnScreen.filter(Boolean).map((k) => k!.name));
+  return {
+    kinds: catalogue.filter((k) => names.has(k.name)),
+    plain: kindsOnScreen.some((k) => k === null),
+  };
 }

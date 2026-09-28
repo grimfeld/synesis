@@ -246,6 +246,10 @@ pub struct Journey {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PlaceFact {
     pub doc: String,
+    /// The Place's `kind` Property as written (PLAN §27.2), `None` when unset.
+    /// Free text: a kind the app does not know is still carried, and draws
+    /// the plain pin.
+    pub kind: Option<String>,
     pub tags: Vec<String>,
     pub books: Vec<u8>,
     pub mentions: u32,
@@ -1517,12 +1521,13 @@ impl Index {
         let mut at: HashMap<String, usize> = HashMap::new();
         let mut st = self
             .conn
-            .prepare("SELECT d.id FROM documents d WHERE d.type = 'place' ORDER BY d.title")?;
-        for row in st.query_map([], |r| r.get::<_, String>(0))? {
-            let id = row?;
+            .prepare("SELECT d.id, d.frontmatter FROM documents d WHERE d.type = 'place' ORDER BY d.title")?;
+        for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
+            let (id, fm) = row?;
             at.insert(id.clone(), facts.len());
             facts.push(PlaceFact {
                 doc: id,
+                kind: fm_text(&fm, "kind"),
                 tags: Vec::new(),
                 books: Vec::new(),
                 mentions: 0,
@@ -2549,6 +2554,22 @@ To the congregation in [[Ephesus]] (Re 2:1).
         assert!(b.books.is_empty());
         assert_eq!(b.mentions, 0);
         assert!(b.tags.is_empty());
+    }
+
+    #[test]
+    fn place_facts_carry_the_kind_as_written() {
+        let idx = idx_with(&[
+            ("s", "Places/sinai.md", "---\ntype: place\ntitle: Sinai\nkind: mountain\n---\n"),
+            // A kind the app has never heard of is carried, not dropped: the
+            // Map draws it with the plain pin or a custom kind's glyph.
+            ("o", "Places/oasis.md", "---\ntype: place\ntitle: Elim\nkind: oasis\n---\n"),
+            ("n", "Places/none.md", "---\ntype: place\ntitle: Troas\nkind: \"\"\n---\n"),
+        ]);
+        let facts = idx.place_facts().unwrap();
+        let kind = |id: &str| facts.iter().find(|f| f.doc == id).unwrap().kind.clone();
+        assert_eq!(kind("s").as_deref(), Some("mountain"));
+        assert_eq!(kind("o").as_deref(), Some("oasis"));
+        assert_eq!(kind("n"), None, "an empty kind is unset");
     }
 
     #[test]

@@ -47,6 +47,9 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
             f.push(("parent", Value::String(String::new())));
         }
         DocType::Place => {
+            // What sort of place it is, drawn as the shape of its pin (PLAN
+            // §27.2). Empty until chosen: the plain pin, never a guess.
+            f.push(("kind", Value::String(String::new())));
             f.push(("lat", Value::Null));
             f.push(("lon", Value::Null));
             f.push(("modern_name", Value::String(String::new())));

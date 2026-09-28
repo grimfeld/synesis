@@ -14,6 +14,7 @@ pub mod index;
 pub mod meta;
 pub mod names;
 pub mod parser;
+pub mod place_kinds;
 pub mod properties;
 pub mod query;
 pub mod scripture;

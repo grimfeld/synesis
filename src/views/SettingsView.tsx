@@ -19,6 +19,7 @@ import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { PairingPanel } from "@/components/Pairing";
 import { AppearanceCard } from "@/components/AppearanceCard";
+import { PlaceKindsCard } from "@/components/PlaceKindsCard";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -93,6 +94,7 @@ export function SettingsView() {
             </CardContent>
           </Card>
           <AppearanceCard />
+          <PlaceKindsCard />
           {/* On trial (PLAN §25.12): which pictures Tutorials show. */}
           <Card data-testid="settings-tutorial-images">
             <CardHeader>

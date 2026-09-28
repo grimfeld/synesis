@@ -37,6 +37,7 @@ import { useT } from "@/i18n";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
+import { useFillKinds } from "@/lib/fillKinds";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -72,6 +73,7 @@ export function useCommands(): Command[] {
   const hasEditor = useHasEditor();
   const tutorials = useTutorials();
   const appearance = useAppearance();
+  const fillKinds = useFillKinds();
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -186,6 +188,17 @@ export function useCommands(): Command[] {
       run: () => {
         s.navigate({ kind: "settings" });
         appearance.setGalleryOpen(true);
+      },
+    });
+    list.push({
+      id: "map.fill_kinds",
+      title: t.fill_kinds,
+      group: "create",
+      icon: MapPin,
+      keywords: "map place kind pin gazetteer",
+      run: () => {
+        s.navigate({ kind: "map" });
+        fillKinds().catch(console.error);
       },
     });
     list.push({
@@ -310,7 +323,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds]);
 }
 
 /**
@@ -332,6 +345,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "nav.sync",
     "nav.random",
     "skins.gallery",
+    "map.fill_kinds",
     "doc.board",
     "doc.capture",
     "editor.source",

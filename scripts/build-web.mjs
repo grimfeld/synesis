@@ -95,6 +95,14 @@ function bundleVault() {
   fs.writeFileSync(path.join(out, "demo-vault.json"), JSON.stringify(files));
 }
 
+// The app's own static files (the Map's atlas, ADR 0018): the web build serves
+// target/web as its public folder, so they are copied in beside the engine.
+function copyPublic() {
+  const pub = path.join(root, "public");
+  if (fs.existsSync(pub)) fs.cpSync(pub, out, { recursive: true });
+}
+
 buildEngine();
 bundleVault();
+copyPublic();
 if (!process.argv.includes("--engine")) run("npx vite build --mode web");

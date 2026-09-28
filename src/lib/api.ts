@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { AppearanceMode, Skin } from "./skin";
+import type { CustomKind } from "./map";
 
 export type DocType =
   | "note"
@@ -305,9 +306,23 @@ export interface DocTag {
  */
 export interface PlaceFact {
   doc: string;
+  /** The `kind` Property as written, null when unset (PLAN §27.2). */
+  kind: string | null;
   tags: string[];
   books: number[];
   mentions: number;
+}
+
+/** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
+export interface KindSuggestion {
+  id: string;
+  title: string;
+  kind: string;
+}
+
+export interface FillResult {
+  filled: string[];
+  skipped: string[];
 }
 
 /** Why a Stop cannot be drawn, or "ok" when it can (PLAN §19.8). */
@@ -334,6 +349,8 @@ export interface GazetteerHit {
   lon: number;
   modern_name: string;
   verses: number;
+  /** A built-in Place kind (PLAN §27.3), or null where none fits. */
+  kind: string | null;
 }
 
 /** A named moment in a Composition's history (ADR 0007). */
@@ -480,6 +497,8 @@ export interface Settings {
   map_books: number[];
   /** Map: hide Places nothing mentions. */
   map_mentioned_only: boolean;
+  /** Map: what a pin's colour answers; null until chosen, read as "kind" (PLAN §27.5). */
+  map_color_by: string | null;
   /** This Device's side of the Vault's Skin (PLAN §24.5). */
   appearance_mode: AppearanceMode;
   /** This Device's Text scale, 1 = the Skin's own sizes. */
@@ -651,7 +670,8 @@ export type Query =
   | { kind: "eventLinks" }
   | { kind: "timelineTags" }
   | { kind: "journeys" }
-  | { kind: "placeFacts" };
+  | { kind: "placeFacts" }
+  | { kind: "kindSuggestions" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -847,9 +867,16 @@ export const api = {
   eventLinks: () => query<EventLink[]>({ kind: "eventLinks" }),
   timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
+  /** Places without a kind the gazetteer can name (PLAN §27.13). */
+  kindSuggestions: () => query<KindSuggestion[]>({ kind: "kindSuggestions" }),
+  /** Write the kinds the user confirmed; only ever adds a missing one. */
+  fillKinds: (fills: KindSuggestion[]) => invoke<FillResult>("fill_kinds", { fills }),
   journeys: () => query<Journey[]>({ kind: "journeys" }),
-  setMapFilters: (books: number[], mentionedOnly: boolean) =>
-    invoke<void>("set_map_filters", { books, mentionedOnly }),
+  setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
+    invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),
+  /** The Vault's custom Place kinds (PLAN §27.4). */
+  placeKinds: () => invoke<CustomKind[]>("place_kinds"),
+  setPlaceKinds: (kinds: CustomKind[]) => invoke<void>("set_place_kinds", { kinds }),
   versions: (id: string) => invoke<Version[]>("versions", { id }),
   saveVersion: (id: string, label: string) =>
     invoke<Version>("save_version", { id, label }),
