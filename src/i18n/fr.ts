@@ -545,7 +545,7 @@ export const fr: Dict = {
   use_location: "Utiliser cette position",
   lookup_place: "Chercher un lieu biblique",
   gazetteer_hint:
-    "Lieux d’OpenBible.info (CC BY 4.0). Choisissez-en un pour remplir les coordonnées.",
+    "Lieux d’OpenBible.info (CC BY 4.0), à chercher par leur nom anglais (Ephesus, pas Éphèse). Choisissez-en un pour remplir les coordonnées.",
   place_map_hint:
     "Cliquez sur la carte pour définir la position, ou cherchez le lieu ci-dessus.",
   show_on_map: "Voir sur la carte",

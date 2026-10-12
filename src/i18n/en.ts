@@ -546,7 +546,7 @@ export const en = {
   use_location: "Use this location",
   lookup_place: "Look up a Bible place",
   gazetteer_hint:
-    "Places from OpenBible.info (CC BY 4.0). Pick one to fill the coordinates.",
+    "Places from OpenBible.info (CC BY 4.0), by their English name. Pick one to fill the coordinates.",
   place_map_hint:
     "Click the map to set the location, or look the place up above.",
   from_source: (n: string) => `from ${n}`,
