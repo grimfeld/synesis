@@ -7,6 +7,13 @@ describe("Home", () => {
   });
 
   it("lists recent Writing pages only", () => {
+    // Recent is the ten newest, and the seeded copy gives every file about the
+    // same time, so which ten is luck: make these two the newest first.
+    for (const rel of ["Notes/endurance in trials.md", "Compositions/talk on endurance.md"]) {
+      const path = `${Cypress.env("vault")}/${rel}`;
+      cy.task<string>("file:read", path).then((text) => cy.task("file:write", { path, text }));
+    }
+    cy.reload();
     cy.get("[data-testid=home-recent]").within(() => {
       cy.contains("Endurance in trials");
       cy.contains("Talk on endurance");
