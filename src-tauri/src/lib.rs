@@ -373,12 +373,14 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
 }
 
 /// Stop listing a Vault on this Device. The folder and its documents stay;
-/// only this Device forgets where it was (ADR 0014).
+/// only this Device forgets where it was (ADR 0014), recent paths included.
 #[tauri::command]
 fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>> {
     {
         let mut s = state.settings.lock().map_err(err)?;
+        let paths: Vec<String> = s.vaults.iter().filter(|v| v.id == id).map(|v| v.path.clone()).collect();
         s.vaults.retain(|v| v.id != id);
+        s.recent.retain(|p| !paths.contains(p));
     }
     state.save_settings()?;
     Ok(state.settings.lock().map_err(err)?.vaults.clone())

@@ -1,6 +1,7 @@
 import { defineConfig } from "cypress";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash } from "node:crypto";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,6 +13,23 @@ const ROOT = dirname(fileURLToPath(import.meta.url));
 // examples/demo-vault in the temp directory; the vault that was open before
 // the run is reopened afterwards (see cypress/support/e2e.ts).
 const BRIDGE = "http://127.0.0.1:4321";
+
+/** Tauri's `app_data_dir()` for this app: where per-vault indexes live. */
+function appDataDir(): string {
+  const id = "tech.grimfeld.synesis";
+  if (process.platform === "win32") return join(process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"), id);
+  if (process.platform === "darwin") return join(homedir(), "Library", "Application Support", id);
+  return join(process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share"), id);
+}
+
+/**
+ * The index and history the app keeps for a vault opened at `path`
+ * (`engine::vault::local_dir_for`: the first 8 bytes of the path's SHA-256).
+ * Opening a seeded copy makes one, so removing the copy removes it too.
+ */
+function localDirFor(path: string): string {
+  return join(appDataDir(), "vaults", createHash("sha256").update(path, "utf8").digest("hex").slice(0, 16));
+}
 
 export default defineConfig({
   e2e: {
@@ -37,9 +55,16 @@ export default defineConfig({
           });
           return dir;
         },
+        /**
+         * Remove a seeded copy and the index the app built for it. Only paths
+         * under a `synesis-cy-` folder, so a real vault is never touched. The
+         * vault must be closed first (another one opened, or close_vault).
+         */
         "vault:remove"(dir: string): null {
-          if (dir && existsSync(dir) && dir.includes("synesis-cy-"))
-            rmSync(dir, { recursive: true, force: true });
+          if (!dir || !dir.includes("synesis-cy-")) return null;
+          const gone = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
+          if (existsSync(dir)) rmSync(dir, gone);
+          rmSync(localDirFor(dir), gone);
           return null;
         },
         /**

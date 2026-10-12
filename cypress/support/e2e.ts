@@ -23,7 +23,18 @@ before(() => {
 
 after(() => {
   cy.bridge("set_language", { lang: originalLang });
-  if (original && original !== vault) cy.bridge("open_vault", { path: original });
+  // Let go of the copy first: its index cannot be removed while it is open.
+  if (original && !original.includes("synesis-cy-")) cy.bridge("open_vault", { path: original });
+  else cy.bridge("close_vault");
+  // Every copy the app has listed, this spec's and any a crashed run left
+  // (a spec's second copy, the onboarding's wizard-vault inside one): forget
+  // it, so the vault list holds the user's vaults only, and remove it.
+  cy.bridge<{ vaults: { id: string; path: string }[] }>("get_settings").then((s) => {
+    for (const v of s.vaults.filter((v) => v.path.includes("synesis-cy-"))) {
+      cy.bridge("forget_vault", { id: v.id });
+      cy.task("vault:remove", v.path);
+    }
+  });
   cy.task("vault:remove", vault);
 });
 

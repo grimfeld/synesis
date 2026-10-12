@@ -87,12 +87,14 @@ describe("Onboarding wizard", () => {
 
   it("lists the vaults this device holds instead of the pillars", () => {
     // Made one above; reopening it should not be a four-step wizard (PLAN §21.7).
-    cy.bridge<{ vaults: { id: string }[] }>("get_settings").then((s) => {
-      if (s.vaults.length === 0) return;
+    // Only ever a seeded copy: the list also holds the user's real vaults, and
+    // a spec must not open one.
+    cy.bridge<{ vaults: { path: string }[] }>("get_settings").then((s) => {
+      if (!s.vaults.some((v) => v.path.includes("synesis-cy-"))) return;
       cy.visit("/");
       cy.get("[data-testid=known-vaults]", { timeout: 15000 }).should("exist");
       cy.get("[data-testid=wizard-step-1]").should("contain", "Your vaults");
-      cy.get("[data-testid=known-vaults] button").first().click();
+      cy.get('[data-testid=known-vaults] button[title*="synesis-cy-"]').first().click();
       cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
     });
   });
