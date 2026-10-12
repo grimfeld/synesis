@@ -47,9 +47,9 @@ describe("Views", () => {
   it("Map shows every Place with coordinates", () => {
     cy.get("[data-testid=nav-map]").click();
     cy.query<unknown[]>({ kind: "places" }).then((places) => {
-      cy.get("[data-testid=map] path.leaflet-interactive").should("have.length", places.length);
+      cy.get("[data-testid=map] [data-testid=map-pin]").should("have.length", places.length);
     });
-    cy.get("[data-testid=map] .leaflet-tooltip")
+    cy.get("[data-testid=map] .map-name")
       .should("contain", "Ephesus")
       .and("contain", "Corinth");
   });

@@ -61,6 +61,13 @@ describe("FRONTMATTER", () => {
     expect(fm.lon).toBe(-5.35);
   });
 
+  it("gives a Place the kind picked for it, never a Source's kind (PLAN §27.12)", () => {
+    // The dialog's fields are shared across types, and start with a Source's
+    // `kind: article`; a Place's own pick travels as `place_kind`.
+    expect(FRONTMATTER.place!({ kind: "article" })).toEqual({});
+    expect(FRONTMATTER.place!({ kind: "article", place_kind: "mountain" })).toEqual({ kind: "mountain" });
+  });
+
   it("keeps an Event's Dates as the reader wrote them", () => {
     // ADR 0005: a Date is human text; the engine parses it, nothing rewrites it.
     const fm = FRONTMATTER.event!({ start: "c. 1513 BCE", end: "52 CE" });

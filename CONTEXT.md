@@ -63,8 +63,12 @@ _Avoid_: Reference (overloaded with Source), title (a Clipping has none)
 ### Things the writing points at
 
 **Subject**:
-A thing in the Bible's world that Notes, Clippings and Compositions refer to. Every Subject has its own page with backlinks and a place in the graph. Subjects are either Scripture (Book, Chapter, Verse) or Topical (Place, Character, Concept, Event).
+A thing in the Bible's world that Notes, Clippings and Compositions refer to. Every Subject has its own page with backlinks and a place in the graph. Subjects are either Scripture (Book, Chapter, Verse) or Topical (Place, Character, Concept, Event, Journey).
 _Avoid_: Entity, topic page, node
+
+**Alias**:
+Another name a Subject goes by, which links to it and is found as an Unlinked mention just as its title is: Saul for Paul, Joppa for Jaffa. The user keeps a Topical Subject's aliases; a Scripture page's aliases are its names in every language, and are generated. A Place's modern name is not an alias: it says where the site is today, not what the writing calls it. A Source has no aliases.
+_Avoid_: Nickname, synonym, alternate title
 
 **Book**:
 One of the 66 books of the Bible, grouped into the Hebrew-Aramaic Scriptures and the Christian Greek Scriptures. Pre-seeded; its page comes into being the first time it is mentioned.
@@ -100,7 +104,7 @@ A name in the document being written that matches a Topical Subject or a Source 
 _Avoid_: Link suggestion, autolink, loose name
 
 **Place**:
-A geographical location in the Bible's world, with a position on the map. Created manually by the user.
+A geographical location in the Bible's world, with a position on the map. Has a kind — what sort of place it is — which the Map draws as the shape of its pin. Five kinds come with the app: settlement, mountain, water, region and site; the user may add their own. A kind nobody has defined is still a Place, drawn with the plain pin. Created manually by the user.
 _Avoid_: Location
 
 **Character**:
@@ -206,7 +210,7 @@ The full-screen view a Composition is given from: its text, its Board, or both s
 _Avoid_: Presentation mode, presenter view, slideshow, teleprompter
 
 **Map**:
-The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all.
+The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all. Each pin's shape shows its Place's kind, except a region, which is an area rather than a point and is shown by its name alone. A pin's colour answers a question the reader picks — kind (the default), Tag or Book — except that a Stop on a Journey being drawn wears the route's colour.
 _Avoid_: Atlas, Globe, Geography view
 
 **Command**:

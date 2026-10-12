@@ -72,6 +72,23 @@
   --c-route-3: #6a4c93;
   --c-route-4: #1b7f4b;
   --c-route-5: #a8326e;
+  /* Place kinds, the colours of a printed atlas (PLAN §27.5); custom kinds
+     take the next of the custom colours; muted is "not what I'm comparing". */
+  --c-kind-settlement: #b5533c;
+  --c-kind-mountain: #7a5a3a;
+  --c-kind-water: #2f6fa3;
+  --c-kind-region: #a87a22;
+  --c-kind-site: #7b4fa0;
+  --c-kind-custom-1: #2f7f68;
+  --c-kind-custom-2: #a8475f;
+  --c-kind-custom-3: #4f6a94;
+  --c-kind-custom-4: #857521;
+  --c-place-muted: #a09a8f;
+  /* The Map's atlas (ADR 0018): parchment land on a quiet sea. */
+  --c-atlas-land: #f1ebdd;
+  --c-atlas-water: #c9dbe1;
+  --c-atlas-coast: #9db3ba;
+  --c-atlas-river: #7ea2b2;
   /* Generated Cover spines, cycled by Source id (ADR 0012). Unlike the route
      palette these are fills behind white text, so they stay deep in both
      themes rather than lightening for the dark one. */
@@ -139,6 +156,20 @@
   --c-route-3: #b9a0e8;
   --c-route-4: #6ad39a;
   --c-route-5: #f086bc;
+  --c-kind-settlement: #e8907a;
+  --c-kind-mountain: #caa47e;
+  --c-kind-water: #82b6e2;
+  --c-kind-region: #e2bb62;
+  --c-kind-site: #c3a0e4;
+  --c-kind-custom-1: #7cc7ae;
+  --c-kind-custom-2: #ec8ea4;
+  --c-kind-custom-3: #a3b5da;
+  --c-kind-custom-4: #d6c66c;
+  --c-place-muted: #6f6a62;
+  --c-atlas-land: #34322c;
+  --c-atlas-water: #182127;
+  --c-atlas-coast: #3d4c53;
+  --c-atlas-river: #3f6272;
   /* Lifted just enough to sit above the dark background; still deep enough to
      carry white title text (ADR 0012). */
   --c-cover-1: #3c5a6e;
@@ -302,14 +333,43 @@
 .leaflet-container { background: var(--muted); font-family: var(--font-sans); isolation: isolate; }
 .leaflet-popup-content-wrapper { background: var(--popover); color: var(--popover-foreground); }
 .leaflet-popup-tip { background: var(--popover); }
-.leaflet-tooltip.map-label { background: var(--popover); color: var(--popover-foreground); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; font-weight: 500; padding: 2px 6px; box-shadow: 0 2px 8px rgba(0,0,0,.12); }
-.leaflet-tooltip.map-label::before { display: none; }
+/* Places (PLAN §27.8-11): a round badge with the kind's glyph, and the name set
+   in the atlas style of its kind, haloed in the land colour instead of boxed. */
+.map-place-icon { background: none; border: none; --halo: var(--c-atlas-land, var(--background)); }
+.map-place { position: absolute; left: 0; top: 0; }
+.map-pin { position: absolute; left: -11px; top: -11px; width: 22px; height: 22px; border-radius: 50%; box-shadow: 0 0 0 2px var(--halo), 0 1px 4px rgb(0 0 0 / .28); transition: transform .12s ease, opacity .12s ease; }
+.map-pin-disc { position: absolute; inset: 0; display: block; border-radius: 50%; overflow: hidden; }
+.map-pin-glyph { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: #fff; pointer-events: none; }
+.map-pin-glyph svg { width: 13px; height: 13px; }
+.map-pin-dot { display: block; width: 6px; height: 6px; border-radius: 50%; background: #fff; }
+.map-pin-more { position: absolute; right: -7px; bottom: -6px; padding: 1px 3px; border-radius: 6px; background: var(--popover); color: var(--popover-foreground); box-shadow: 0 0 0 1px var(--border); font-size: 10px; font-weight: 700; line-height: 1; }
+.map-pin-stop { position: absolute; left: 12px; top: -12px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; box-shadow: 0 0 0 1.5px var(--halo); color: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.map-name { position: absolute; left: 15px; top: 0; transform: translateY(-50%); white-space: nowrap; color: var(--foreground); font-size: 12px; font-weight: 500; line-height: 1.2; cursor: pointer;
+  text-shadow: 0 0 2px var(--halo), 0 0 2px var(--halo), 0 0 3px var(--halo), 0 0 4px var(--halo), 0 0 6px var(--halo); }
+.map-place--water .map-name { color: var(--c-kind-water); font-style: italic; }
+.map-place--mountain .map-name { font-size: 11px; font-style: italic; }
+.map-place--region .map-name { color: color-mix(in srgb, var(--pin, var(--foreground)) 55%, var(--foreground)); font-size: 12.5px; font-weight: 600; letter-spacing: .22em; text-transform: uppercase; opacity: .78; }
+.map-place.no-pin .map-name { left: 0; transform: translate(-50%, -50%); }
+.map-place.is-muted .map-pin { opacity: .5; }
+.map-place.is-muted .map-name { opacity: .55; }
+.map-name.is-hidden { visibility: hidden; }
+.map-place-icon:hover .map-pin, .map-place-icon:focus-visible .map-pin { transform: scale(1.18); opacity: 1; }
+.map-place-icon:hover .map-name, .map-place-icon:focus-visible .map-name { visibility: visible; opacity: 1; }
+.map-place-icon:focus-visible { outline: none; }
+.map-place-icon:focus-visible .map-pin { box-shadow: 0 0 0 2px var(--halo), 0 0 0 4px var(--ring); }
 /* Routes (PLAN §19.10): the arrowhead is a rotated triangle on the leg, so
    direction reads at a glance without hunting for the Stop numbers. */
 .map-route { pointer-events: stroke; }
 .map-arrow { background: none; border: none; }
 .map-arrow span { display: block; width: 0; height: 0; transform: rotate(var(--a, 0deg)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid var(--c, currentColor); }
-.dark .leaflet-tile { filter: brightness(.7) contrast(1.05) saturate(.8); }
+/* The atlas (ADR 0018): the sea is the container, land and water are Skin-filled
+   shapes, and relief is a grey hillshade blended onto them. The online layer
+   past zoom 7 is muted so it reads as a closer look at the same atlas. */
+.leaflet-container.atlas { background: var(--c-atlas-water); }
+.atlas-relief { mix-blend-mode: hard-light; opacity: .55; }
+.dark .atlas-relief { mix-blend-mode: overlay; opacity: .55; }
+.atlas-online { filter: saturate(.35) sepia(.15) contrast(.95); opacity: .92; }
+.dark .atlas-online { filter: brightness(.62) saturate(.3) contrast(1.05); }
 .leaflet-bar a { background: var(--popover); color: var(--popover-foreground); border-bottom-color: var(--border); }
 .leaflet-bar a:hover { background: var(--accent); }
 

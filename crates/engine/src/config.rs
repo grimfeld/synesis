@@ -20,7 +20,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Top-level config files that sync. `vault.json` is not one: it names the
 /// Vault's identity, which never changes after creation.
-pub const TOP_FILES: &[&str] = &[crate::properties::FILE_NAME, "appearance.json"];
+pub const TOP_FILES: &[&str] = &[crate::properties::FILE_NAME, "appearance.json", crate::place_kinds::FILE];
 /// Folders whose `*.json` files all sync.
 pub const DIRS: &[&str] = &["skins"];
 

@@ -48,6 +48,7 @@ fn default_settings() -> Map<String, Value> {
         "timeline_in_view": true,
         "map_books": [],
         "map_mentioned_only": false,
+        "map_color_by": null,
         "appearance_mode": "system",
         "text_scale": 1.0,
     });
@@ -138,6 +139,7 @@ impl State {
             "set_map_filters" => {
                 self.set("map_books", arg(&a, "books")?);
                 self.set("map_mentioned_only", arg(&a, "mentionedOnly")?);
+                self.set("map_color_by", a.get("colorBy").cloned().unwrap_or(Value::Null));
                 ok(())
             }
             "set_sync_method" => {
@@ -249,6 +251,10 @@ impl State {
                 let mentions: Vec<api::MentionRef> = arg(&a, "mentions")?;
                 ok(api::link_mentions(self.vault_mut()?, &target, &mentions))
             }
+            "fill_kinds" => {
+                let fills: Vec<engine::vault::KindSuggestion> = arg(&a, "fills")?;
+                ok(self.vault_mut()?.fill_kinds(&fills))
+            }
             "undo_link_mentions" => {
                 let texts: Vec<(String, String)> = arg(&a, "texts")?;
                 ok(self.vault_mut()?.restore_texts(&texts).map_err(err)?)
@@ -279,6 +285,11 @@ impl State {
                 ok(engine::skin::delete(self.vault()?.root(), &id).map_err(err)?)
             }
             "appearance" => ok(engine::skin::appearance(self.vault()?.root())),
+            "place_kinds" => ok(engine::place_kinds::list(self.vault()?.root())),
+            "set_place_kinds" => {
+                let kinds: Vec<engine::place_kinds::CustomKind> = arg(&a, "kinds")?;
+                ok(engine::place_kinds::save(self.vault()?.root(), &kinds).map_err(err)?)
+            }
             "set_appearance" => {
                 let ap: engine::skin::Appearance = arg(&a, "appearance")?;
                 ok(engine::skin::set_appearance(self.vault()?.root(), &ap).map_err(err)?)

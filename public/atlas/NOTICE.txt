@@ -1,0 +1,12 @@
+The Map's bundled atlas (ADR 0018), built by scripts/atlas.mjs.
+
+atlas.json — land, lakes and rivers from Natural Earth (naturalearthdata.com),
+public domain, via github.com/nvkelso/natural-earth-vector; clipped to the
+Bible's world and simplified.
+
+relief/ — hillshade computed from Mapzen's Terrain Tiles on AWS Open Data
+(registry.opendata.aws/terrain-tiles). Terrain Tiles combine, for this region:
+SRTM (NASA, public domain), GMTED2010 (USGS, public domain) and ETOPO1
+(NOAA, public domain: Amante, C. and B. W. Eakins, 2009. ETOPO1 1 Arc-Minute
+Global Relief Model. NOAA Technical Memorandum NESDIS NGDC-24). Attribution
+as the Terrain Tiles project asks: "Mapzen Terrain Tiles".

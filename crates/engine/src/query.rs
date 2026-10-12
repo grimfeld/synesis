@@ -133,6 +133,8 @@ pub enum Query {
     Journeys,
     /// Tags, Books and mention counts per Place, for the Map's filters.
     PlaceFacts,
+    /// Places without a kind the gazetteer can name (PLAN §27.13).
+    KindSuggestions,
 }
 
 fn unlinked_limit() -> usize {
@@ -182,6 +184,7 @@ pub enum Answer {
     DocTags(Vec<DocTag>),
     Journeys(Vec<Journey>),
     PlaceFacts(Vec<PlaceFact>),
+    KindSuggestions(Vec<crate::vault::KindSuggestion>),
 }
 
 /// How many Mentions one Verse has.

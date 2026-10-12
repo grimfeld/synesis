@@ -176,7 +176,7 @@ describe("Touch", () => {
 
     // The Places arrive after the map, and fitting them drops the zoom from the
     // opening 6; wait for that before touching the controls.
-    cy.get("[data-testid=map] .leaflet-tooltip.map-label").should(
+    cy.get("[data-testid=map] [data-testid=map-pin]").should(
       "have.length.greaterThan",
       1,
     );

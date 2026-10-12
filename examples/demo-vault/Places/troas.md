@@ -2,6 +2,7 @@
 id: 01M2A0P200000000000000000P2
 type: place
 title: "Troas"
+kind: settlement
 created: "2026-09-14T10:03:00"
 modern_name: ""
 ---

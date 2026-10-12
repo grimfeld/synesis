@@ -15,6 +15,7 @@ export function Chips({
   onChange,
   dot,
   name = (v: string) => v,
+  testid,
 }: {
   label: string;
   values: string[];
@@ -22,10 +23,11 @@ export function Chips({
   onChange: (v: string[]) => void;
   dot?: (v: string) => ReactNode;
   name?: (v: string) => string;
+  testid?: string;
 }) {
   if (values.length === 0) return null;
   return (
-    <div>
+    <div data-testid={testid}>
       <Label className="mb-1.5 text-xs text-muted-foreground">{label}</Label>
       <ToggleGroup
         type="multiple"

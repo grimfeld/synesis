@@ -2,6 +2,7 @@
 id: 01M27ATE402F13A8JPJ0VHZCHA
 type: place
 title: "Rome"
+kind: settlement
 created: "2026-09-11T09:10:00"
 lat: 41.8922
 lon: 12.4852

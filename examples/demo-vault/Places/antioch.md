@@ -2,6 +2,7 @@
 id: 01M2A0P100000000000000000P1
 type: place
 title: "Antioch"
+kind: settlement
 created: "2026-09-14T10:02:00"
 lat: 36.2021
 lon: 36.1604

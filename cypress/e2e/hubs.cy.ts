@@ -87,6 +87,27 @@ describe("Hub pages", () => {
       .should("equal", "Paul");
   });
 
+  it("Place, Event and Journey hubs: aliases as chips, and an alias links", () => {
+    cy.openDoc("Antioch");
+    cy.hubTitle("Antioch");
+    cy.get("[data-testid=chips-aliases] [data-testid=chip-add]").click();
+    cy.get("[data-testid=chips-aliases] input").type("Syrian Antioch{enter}");
+    cy.get("[data-testid=chips-aliases] [data-testid=chip]").should(
+      "contain",
+      "Syrian Antioch",
+    );
+    // The chips own the value, so the Properties grid does not offer it twice.
+    cy.get("[data-testid=property-aliases]").should("not.exist");
+    cy.wait(1000);
+    cy.bridge<{ title: string } | null>("resolve_link", { target: "Syrian Antioch" })
+      .its("title")
+      .should("equal", "Antioch");
+    cy.openDoc("Paul in Ephesus");
+    cy.get("[data-testid=chips-aliases] [data-testid=chip-add]").should("exist");
+    cy.openDoc("Paul's second missionary journey");
+    cy.get("[data-testid=chips-aliases] [data-testid=chip-add]").should("exist");
+  });
+
   it("Place hub: a document that Mentions it twice is one row, expandable", () => {
     // "Paul's second missionary journey" lists [[Antioch]] twice in its
     // `places` property — out and back. That is one Backlink, not two, and the

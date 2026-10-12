@@ -11,4 +11,5 @@ Chaque Source et chaque Sujet a sa page : un Livre, un Chapitre ou un Verset, un
 
 - Une étiquette et un lien dans une phrase sont la même mention : les deux créent un lien entrant.
 - **Mentions non liées**, à côté des liens entrants, liste les documents qui écrivent le nom de cette page sans la lier.
+- Un Lieu, un Personnage, un Concept, un Événement ou un Voyage peut porter d'autres noms : ajoutez-les sous **Alias** dans son en-tête, comme Saul pour Paul ou Joppé pour Jaffa. Un lien vers un alias ouvre cette page, et un alias écrit sans lien compte comme mention non liée. Le nom moderne d'un Lieu n'est pas un alias.
 - Une page liste aussi ses tableaux : les compositions dont le tableau porte une carte vers elle.

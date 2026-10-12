@@ -33,7 +33,7 @@ describe("Dialogs", () => {
     cy.hubTitle("Antioch");
     cy.get("[data-testid=hub-map]").should("exist");
     cy.get("[data-testid=nav-map]").click();
-    cy.get("[data-testid=map] .leaflet-tooltip").should("contain", "Antioch");
+    cy.get("[data-testid=map] .map-name").should("contain", "Antioch");
   });
 
   it("creates a Clipping with a new Source from the same dialog", () => {

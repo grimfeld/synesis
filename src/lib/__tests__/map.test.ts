@@ -3,6 +3,18 @@ import { describe, expect, it } from "vitest";
 import type { DocSummary, GazetteerHit } from "../api";
 import {
   activeCount,
+  hasPin,
+  hiddenLabels,
+  kindCatalogue,
+  kindOf,
+  labelStyle,
+  legendKinds,
+  MAX_COLORED,
+  pinPaint,
+  splitWedges,
+  toggleColored,
+  type LabelBox,
+  type PinBox,
   gazetteerTitle,
   stopChoices,
   bezierLeg,
@@ -128,6 +140,7 @@ describe("activeCount", () => {
   it("counts each chip, a non-empty search, and mentionedOnly", () => {
     expect(
       activeCount({
+        ...NO_MAP_FILTERS,
         tags: ["paul", "endurance"],
         books: [44],
         search: "eph",
@@ -232,7 +245,7 @@ describe("chip lists", () => {
 
 describe("stopChoices", () => {
   const places = [place("a", "Antioch"), place("p", "Pisidian Antioch"), place("c", "Corinth")];
-  const hit = (name: string, lat = 1, lon = 2): GazetteerHit => ({ name, lat, lon, modern_name: "", verses: 1 });
+  const hit = (name: string, lat = 1, lon = 2): GazetteerHit => ({ name, lat, lon, modern_name: "", verses: 1, kind: null });
 
   it("offers nothing until something is typed", () => {
     expect(stopChoices("  ", places, [hit("Antioch 1")])).toEqual([]);
@@ -265,5 +278,207 @@ describe("stopChoices", () => {
   it("gives disambiguated gazetteer names a plain title", () => {
     expect(gazetteerTitle("Bethlehem 1")).toBe("Bethlehem");
     expect(gazetteerTitle("Mount Sinai")).toBe("Mount Sinai");
+  });
+});
+
+describe("colour does not count as a filter", () => {
+  it("leaves the active count alone, since it hides nothing (§27.6)", () => {
+    expect(activeCount({ ...NO_MAP_FILTERS, colorBy: "tag", colored: ["paul"] })).toBe(0);
+  });
+});
+
+// ---- Place kinds (PLAN §27.2–4)
+
+describe("kindCatalogue and kindOf", () => {
+  const cat = kindCatalogue([
+    { name: "oasis", label: "Oasis", icon: "palmtree" },
+    // Shadowed: a built-in owns this name.
+    { name: "Mountain", label: "Peak", icon: "triangle" },
+    // Shadowed: an earlier custom kind owns it.
+    { name: "OASIS", label: "Again", icon: "tent" },
+    { name: "  ", label: "blank", icon: "tent" },
+  ]);
+
+  it("lists the five built-ins first, then custom kinds in order", () => {
+    expect(cat.map((k) => k.name)).toEqual(["settlement", "mountain", "water", "region", "site", "oasis"]);
+    expect(cat[5]).toMatchObject({ label: "Oasis", icon: "palmtree", builtin: false, token: "--c-kind-custom-1" });
+    expect(cat[0]).toMatchObject({ label: null, builtin: true, token: "--c-kind-settlement" });
+  });
+
+  it("matches kind text ignoring case and accents", () => {
+    expect(kindOf("Mountain", cat)?.name).toBe("mountain");
+    expect(kindOf(" OASIS ", cat)?.name).toBe("oasis");
+  });
+
+  it("answers null for no kind or one nobody defined: the plain pin", () => {
+    expect(kindOf(null, cat)).toBeNull();
+    expect(kindOf("", cat)).toBeNull();
+    expect(kindOf("valley", cat)).toBeNull();
+  });
+
+  it("cycles custom colours past the palette rather than running out", () => {
+    const many = kindCatalogue(["a", "b", "c", "d", "e"].map((n) => ({ name: n, label: n, icon: "tent" })));
+    expect(many.slice(5).map((k) => k.token)).toEqual([
+      "--c-kind-custom-1",
+      "--c-kind-custom-2",
+      "--c-kind-custom-3",
+      "--c-kind-custom-4",
+      "--c-kind-custom-1",
+    ]);
+  });
+
+  it("gives a region no pin and sets names by kind", () => {
+    expect(hasPin(kindOf("region", cat))).toBe(false);
+    expect(hasPin(kindOf("site", cat))).toBe(true);
+    expect(hasPin(null)).toBe(true);
+    expect(labelStyle(kindOf("water", cat))).toBe("water");
+    expect(labelStyle(kindOf("mountain", cat))).toBe("mountain");
+    expect(labelStyle(kindOf("region", cat))).toBe("region");
+    expect(labelStyle(kindOf("oasis", cat))).toBe("place");
+    expect(labelStyle(null)).toBe("place");
+  });
+});
+
+// ---- Colour (PLAN §27.5–7)
+
+describe("pinPaint", () => {
+  const cat = kindCatalogue([]);
+  const mountain = kindOf("mountain", cat);
+
+  it("colours by kind by default, and a kindless Place in the Place colour", () => {
+    expect(pinPaint("e", mountain, "kind", [], FACTS).tokens).toEqual(["--c-kind-mountain"]);
+    expect(pinPaint("e", null, "kind", [], FACTS).tokens).toEqual(["--c-place"]);
+  });
+
+  it("colours everything alike under None, and under Tag or Book with nothing chosen", () => {
+    expect(pinPaint("e", mountain, "none", [], FACTS)).toEqual({ tokens: ["--c-place"], more: false, muted: false });
+    expect(pinPaint("e", mountain, "tag", [], FACTS).muted).toBe(false);
+  });
+
+  it("gives each chosen Book its colour in chip order and mutes the rest", () => {
+    // Revelation (66) chosen first, Acts (44) second.
+    expect(pinPaint("c", null, "book", ["66", "44"], FACTS).tokens).toEqual(["--c-route-2"]);
+    expect(pinPaint("b", null, "book", ["66", "44"], FACTS)).toEqual({ tokens: ["--c-place-muted"], more: false, muted: true });
+  });
+
+  it("splits the pin of a Place matching several values, keeping chip order", () => {
+    expect(pinPaint("e", null, "book", ["66", "44"], FACTS).tokens).toEqual(["--c-route-1", "--c-route-2"]);
+  });
+
+  it("matches Tags ignoring case", () => {
+    expect(pinPaint("c", null, "tag", ["PAUL"], FACTS).tokens).toEqual(["--c-route-1"]);
+  });
+
+  it("shows at most three wedges and says there are more", () => {
+    const facts: PlaceFacts = { ...FACTS, tags: new Map([["x", ["a", "b", "c", "d"]]]) };
+    const p = pinPaint("x", null, "tag", ["a", "b", "c", "d"], facts);
+    expect(p.tokens).toHaveLength(3);
+    expect(p.more).toBe(true);
+  });
+});
+
+describe("toggleColored", () => {
+  it("adds and removes, keeping order", () => {
+    expect(toggleColored(["a"], "b")).toEqual(["a", "b"]);
+    expect(toggleColored(["a", "b"], "a")).toEqual(["b"]);
+  });
+
+  it("refuses a sixth value rather than dropping one", () => {
+    const five = ["a", "b", "c", "d", "e"];
+    expect(five).toHaveLength(MAX_COLORED);
+    expect(toggleColored(five, "f")).toBe(five);
+  });
+});
+
+describe("splitWedges", () => {
+  it("draws one seamless disc for one colour", () => {
+    expect(splitWedges(1, 10)).toHaveLength(1);
+    expect(splitWedges(1, 10)[0]).not.toContain("L");
+  });
+
+  it("starts at twelve o'clock and runs clockwise", () => {
+    const [a, b] = splitWedges(2, 10);
+    expect(a).toBe("M 10 10 L 10 0 A 10 10 0 0 1 10 20 Z");
+    expect(b).toBe("M 10 10 L 10 20 A 10 10 0 0 1 10 0 Z");
+    expect(splitWedges(3, 10)).toHaveLength(3);
+  });
+});
+
+// ---- Labels (PLAN §27.10)
+
+describe("hiddenLabels", () => {
+  const box = (id: string, x: number, weight: number, pinned = false): LabelBox => ({
+    id,
+    x,
+    y: 0,
+    w: 40,
+    h: 12,
+    weight,
+    pinned,
+    title: id,
+  });
+  const pin = (id: string, x: number, weight: number, pinned = false): PinBox => ({
+    id,
+    x,
+    y: 0,
+    w: 22,
+    h: 22,
+    weight,
+    pinned,
+    title: id,
+  });
+
+  it("keeps apart labels that do not collide", () => {
+    expect(hiddenLabels([box("a", 0, 1), box("b", 100, 1)]).size).toBe(0);
+  });
+
+  it("hides the less-mentioned of two colliding labels", () => {
+    expect([...hiddenLabels([box("quiet", 0, 1), box("busy", 20, 9)])]).toEqual(["quiet"]);
+  });
+
+  it("puts a Stop's name before a busier Place's", () => {
+    expect([...hiddenLabels([box("stop", 0, 0, true), box("busy", 20, 99)])]).toEqual(["busy"]);
+  });
+
+  it("still hides a Stop's name that would cover someone else's pin; its number is on the pin", () => {
+    const hidden = hiddenLabels([box("corinth", 12, 1, true)], [pin("corinth", -10, 1, true), pin("ephesus", 40, 9)]);
+    expect([...hidden]).toEqual(["corinth"]);
+    // Two Stops' names that collide: the busier keeps its name.
+    expect([...hiddenLabels([box("s1", 0, 0, true), box("s2", 10, 5, true)])]).toEqual(["s1"]);
+  });
+
+  it("breaks ties by title, whatever order the Places came in", () => {
+    const ab = hiddenLabels([box("a", 0, 1), box("b", 20, 1)]);
+    const ba = hiddenLabels([box("b", 20, 1), box("a", 0, 1)]);
+    expect([...ab]).toEqual(["b"]);
+    expect([...ba]).toEqual(["b"]);
+  });
+
+  it("hides a name that would run under someone else's pin, not under its own", () => {
+    // Corinth's name reaches Ephesus's pin; Ephesus is busier but pins never hide.
+    const hidden = hiddenLabels([box("corinth", 12, 9), box("ephesus", 200, 1)], [pin("corinth", -10, 9), pin("ephesus", 40, 1)]);
+    expect([...hidden]).toEqual(["corinth"]);
+    expect(hiddenLabels([box("a", 12, 1)], [pin("a", 0, 1)]).size).toBe(0);
+  });
+
+  it("hides the name of a pin buried under a busier one, so it cannot label the wrong Place", () => {
+    const labels = [box("gethsemane", 300, 2), box("jerusalem", 100, 50)];
+    const pins = [pin("gethsemane", 2, 2), pin("jerusalem", 0, 50)];
+    expect([...hiddenLabels(labels, pins)]).toEqual(["gethsemane"]);
+    // Far enough apart, both keep their names.
+    expect(hiddenLabels(labels, [pin("gethsemane", 30, 2), pin("jerusalem", 0, 50)]).size).toBe(0);
+  });
+});
+
+// ---- Legend (PLAN §27.14)
+
+describe("legendKinds", () => {
+  it("lists only the kinds on screen, in catalogue order, and the plain pin if any", () => {
+    const cat = kindCatalogue([{ name: "oasis", label: "Oasis", icon: "tent" }]);
+    const on = [kindOf("site", cat), kindOf("settlement", cat), kindOf("site", cat), null];
+    const l = legendKinds(on, cat);
+    expect(l.kinds.map((k) => k.name)).toEqual(["settlement", "site"]);
+    expect(l.plain).toBe(true);
+    expect(legendKinds([kindOf("oasis", cat)], cat)).toEqual({ kinds: [cat[5]], plain: false });
   });
 });
