@@ -3,7 +3,7 @@ export const fr: Dict = {
   app: "Synesis",
   demo_banner: "Démo : un coffre d’exemple dans votre navigateur. Rien de ce que vous écrivez n’est conservé.",
   demo_about: "À propos de Synesis",
-  demo_site: "https://synesis.vercel.app/fr/",
+  demo_site: "https://synesis-app.vercel.app/fr/",
   welcome_title: "Ouvrir un coffre",
   welcome_body:
     "Un coffre est un dossier de fichiers markdown. Il s’ouvre aussi dans Obsidian.",

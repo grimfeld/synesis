@@ -13,7 +13,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 
 - `crates/engine` — Rust library: versification, book names, Passage parser, document parser, SQLite index, vault.
 - `src-tauri` — Tauri shell exposing engine commands. Command logic that is not Tauri-specific lives in `engine::api`, so the web build shares it.
-- `site` — the landing page (Astro, en at `/`, fr at `/fr/`), its own Vercel project at synesis.vercel.app. Downloads open by themselves once the latest GitHub Release is 0.1.0 or later and holds the platform's file (`site/src/lib/release.ts`); the words are in `site/src/i18n/strings.ts`, both languages.
+- `site` — the landing page (Astro, en at `/`, fr at `/fr/`), its own Vercel project at synesis-app.vercel.app. Downloads open by themselves once the latest GitHub Release is 0.1.0 or later and holds the platform's file (`site/src/lib/release.ts`); the words are in `site/src/i18n/strings.ts`, both languages.
 - `crates/web` — the web test build: the engine compiled to `wasm32-wasip1` behind one `invoke` export, loaded by `src/lib/webengine.ts` on an in-memory copy of `examples/demo-vault`. Pairing, native dialogs and network commands answer with an error. Test-only; never shipped in the app.
 - `src` — React UI. `src/editor` is CodeMirror, `src/views` are whole-pane views, `src/i18n` are UI strings (en, fr).
 

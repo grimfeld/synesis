@@ -2,7 +2,7 @@ export const en = {
   app: "Synesis",
   demo_banner: "Demo: a sample vault in your browser. Nothing you write is kept.",
   demo_about: "About Synesis",
-  demo_site: "https://synesis.vercel.app/",
+  demo_site: "https://synesis-app.vercel.app/",
   welcome_title: "Open a vault",
   welcome_body:
     "A vault is a folder of markdown files. It opens in Obsidian too.",
