@@ -21,6 +21,7 @@
     "prepare": "husky",
     "check": "npm run typecheck && npm run test:unit && cargo check --workspace",
     "release": "node scripts/release.mjs",
+    "icons": "tauri icon branding/icon-manifest.json",
     "icons:mobile": "node scripts/sync-mobile-icons.mjs",
     "android:post-init": "node scripts/sync-mobile-icons.mjs && node scripts/android-post-init.mjs",
     "skins:index": "vite-node scripts/skins-index.ts"

@@ -20,6 +20,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 
 - `cargo test -p engine` — engine tests. The Passage parser is the most-tested code; add a case for every bug.
 - `npm run tauri dev` — run the desktop app.
+- `npm run icons` — regenerate every app icon from `branding/` (the logo, white on a navy tile; Android gets separate foreground, background and monochrome layers). Edit the SVGs there, never the PNGs.
 - `npm run icons:mobile` — after `tauri android init` / `tauri ios init`, copy the app icons from `src-tauri/icons/{android,ios}` into the generated project (the templates ship Tauri's default icon). The release workflow does this.
 - `npm run typecheck` — typecheck the UI.
 - `npm run build:web` — build the web test build into `dist-web/` (fetches the wasm32-wasip1 target and wasi-sdk into `target/` on first run). Vercel runs this on every push and gives each branch a preview URL (`vercel.json`). `npm run dev:web` serves it with hot reload for the UI; rerun it after engine changes.
