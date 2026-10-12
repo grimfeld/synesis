@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR 0021 (no paid hosted store)
 ---
 
 # Pairing: a peer-to-peer transport over Iroh that mirrors sync snapshots

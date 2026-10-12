@@ -4,7 +4,7 @@ members = ["crates/engine", "crates/web", "src-tauri"]
 
 [workspace.package]
 edition = "2021"
-license = "MIT"
+license = "AGPL-3.0-only"
 
 [profile.release]
 codegen-units = 1

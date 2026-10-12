@@ -1,0 +1,302 @@
+---
+// The whole landing page, in one language. Sections follow the plan agreed
+// for it: what Synesis does first, then that your notes stay yours, then how
+// to get it, then questions.
+import Base from "../layouts/Base.astro";
+import Logo from "./Logo.astro";
+import Shot from "./Shot.astro";
+import { Image } from "astro:assets";
+import gradient from "../../../branding/logo-gradient.png";
+import { strings, type Lang } from "../i18n/strings";
+import { latestRelease } from "../lib/release";
+
+interface Props {
+  lang: Lang;
+}
+const { lang } = Astro.props;
+const t = strings[lang];
+const release = await latestRelease();
+const other = lang === "en" ? "/fr/" : "/";
+const repo = "https://github.com/grimfeld/synesis";
+
+// A real note from the demo vault, trimmed, as it sits on disk. Each line is
+// a list of [kind, text]: plain, key (frontmatter), ref (a Passage), link.
+type Seg = [kind: "plain" | "key" | "ref" | "link" | "mark", text: string];
+const file: { name: string; lines: Seg[][] } =
+  lang === "fr"
+    ? {
+        name: "Notes/méditation sur jean 3,16.md",
+        lines: [
+          [["mark", "---"]],
+          [["key", "type: "], ["plain", "note"]],
+          [["key", "title: "], ["plain", "\"Méditation sur Jean 3,16\""]],
+          [["key", "tags: "], ["plain", "[\"amour\"]"]],
+          [["mark", "---"]],
+          [["mark", "# "], ["plain", "Méditation sur Jean 3,16"]],
+          [],
+          [["ref", "Jn 3,16"], ["plain", " : « Dieu a tellement aimé le monde ». "], ["ref", "Rom 5,8"], ["plain", " montre le même amour."]],
+          [],
+          [["plain", "Voir aussi "], ["ref", "1 Jean 4,9-10"], ["plain", " et le concept "], ["link", "[[Love]]"], ["plain", "."]],
+        ],
+      }
+    : {
+        name: "Notes/endurance in trials.md",
+        lines: [
+          [["mark", "---"]],
+          [["key", "type: "], ["plain", "note"]],
+          [["key", "title: "], ["plain", "\"Endurance in trials\""]],
+          [["key", "tags: "], ["plain", "[\"endurance\"]"]],
+          [["mark", "---"]],
+          [["mark", "# "], ["plain", "Endurance in trials"]],
+          [],
+          [["ref", "Jas 1:2-4"], ["plain", " says to consider it all joy. The testing"]],
+          [["plain", "of faith works out endurance ("], ["ref", "v. 3"], ["plain", ")."]],
+          [],
+          [["plain", "- "], ["ref", "Heb 12:1-3"], ["plain", " puts endurance in a race,"]],
+          [["plain", "  looking at "], ["link", "[[Jesus]]"], ["plain", "."]],
+        ],
+      };
+const segClass = {
+  plain: "",
+  key: "text-muted-foreground",
+  mark: "text-muted-foreground",
+  ref: "text-[var(--passage)] underline decoration-1 underline-offset-2",
+  link: "text-[var(--link)]",
+};
+
+const icons: Record<string, string> = {
+  windows: "M3 5.5 10.5 4.5v7H3zm8.5-1.2L21 3v8.5h-9.5zM3 12.5h7.5v7L3 18.5zm8.5 0H21V21l-9.5-1.3z",
+  macos: "M16.4 12.6c0-2.5 2-3.6 2.1-3.7-1.2-1.7-3-1.9-3.6-1.9-1.5-.2-3 .9-3.8.9-.8 0-2-.9-3.3-.8-1.7 0-3.2 1-4.1 2.5-1.8 3-.5 7.5 1.2 10 .8 1.2 1.8 2.6 3.1 2.5 1.2 0 1.7-.8 3.2-.8s1.9.8 3.2.8c1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8 0 0-2.4-1-2.4-3.8zM14 5.3c.7-.8 1.1-1.9 1-3-1 0-2.1.7-2.8 1.5-.6.7-1.2 1.8-1 2.9 1.1.1 2.1-.6 2.8-1.4z",
+  linux: "M12 2c-2.2 0-3.5 1.9-3.5 4.6 0 1.4.3 2.3-.6 3.6C6.6 12 5 14 5 16.4c0 .6.1 1.1.3 1.6-.6.3-1.3.6-1.3 1.4 0 1 1.4 1.3 3 1.7 1.2.3 2 .9 3 .9.8 0 1.4-.4 2-.4s1.2.4 2 .4c1 0 1.8-.6 3-.9 1.6-.4 3-.7 3-1.7 0-.8-.7-1.1-1.3-1.4.2-.5.3-1 .3-1.6 0-2.4-1.6-4.4-2.9-6.2-.9-1.3-.6-2.2-.6-3.6C15.5 3.9 14.2 2 12 2z",
+  android: "M7 9h10v8a1 1 0 0 1-1 1h-1v3h-2v-3h-2v3H9v-3H8a1 1 0 0 1-1-1zM5 9.5a1 1 0 0 1 2 0v5a1 1 0 0 1-2 0zm12 0a1 1 0 0 1 2 0v5a1 1 0 0 1-2 0zM7 8a5 5 0 0 1 10 0zm2.2-5.6 1 1.6m4.6-1.6-1 1.6",
+  ios: "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm3 17h2",
+};
+const container = "mx-auto w-full max-w-6xl px-4 sm:px-6";
+---
+
+<Base t={t}>
+  <a href="#main" class="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:bg-card focus:px-3 focus:py-2">
+    {t.skip}
+  </a>
+
+  <header class="border-b border-border/70">
+    <div class={`${container} flex min-h-16 flex-wrap items-center gap-x-6 gap-y-2 py-3`}>
+      <a href={lang === "en" ? "/" : "/fr/"} class="flex min-w-0 items-center gap-2.5 text-brand">
+        <Logo class="h-7 w-auto shrink-0" />
+        <span class="font-serif text-xl font-semibold tracking-tight text-foreground">Synesis</span>
+      </a>
+      <nav class="ml-auto flex min-w-0 flex-wrap items-center gap-x-5 gap-y-1 text-sm" aria-label="Synesis">
+        <a href="#features" class="text-muted-foreground hover:text-foreground">{t.nav.features}</a>
+        <a href="#faq" class="text-muted-foreground hover:text-foreground">{t.nav.faq}</a>
+        <a href={other} hreflang={lang === "en" ? "fr" : "en"} lang={lang === "en" ? "fr" : "en"} aria-label={t.nav.otherLabel} class="text-muted-foreground hover:text-foreground" data-testid="lang-switch">{t.nav.other}</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- Hero -->
+    <section class="relative isolate" data-testid="hero">
+      <!-- The gradient logo as a soft glow: decoration, wider than the screen
+           on purpose, so it clips in a layer of its own. -->
+      <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden" aria-hidden="true">
+        <Image
+          src={gradient}
+          alt=""
+          widths={[464]}
+          class="absolute left-1/2 top-[38%] w-[min(1100px,140vw)] max-w-none -translate-x-1/2 opacity-30 blur-3xl dark:opacity-25"
+          loading="eager"
+        />
+      </div>
+      <div class={`${container} pt-16 pb-10 text-center sm:pt-24`}>
+        <p class="text-sm font-medium tracking-wide text-muted-foreground">{t.hero.eyebrow}</p>
+        <h1 class="mx-auto mt-4 max-w-3xl font-serif text-4xl leading-tight font-semibold tracking-tight text-balance sm:text-6xl">
+          {t.hero.title}
+        </h1>
+        <p class="mx-auto mt-6 max-w-2xl text-lg leading-relaxed text-pretty text-muted-foreground">{t.hero.body}</p>
+        <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+          <a href={t.demoUrl} class="inline-flex min-h-12 max-w-full items-center justify-center rounded-full bg-primary px-6 py-3 text-center font-medium text-primary-foreground shadow-sm transition hover:opacity-90" data-testid="try">
+            {t.hero.try}
+          </a>
+          <a href="#download" class="inline-flex min-h-12 max-w-full items-center justify-center rounded-full border border-border bg-card px-6 py-3 text-center font-medium transition hover:bg-muted">
+            {t.download.kicker}
+          </a>
+        </div>
+        <p class="mx-auto mt-4 max-w-md text-sm text-pretty text-muted-foreground">{t.hero.tryNote}</p>
+      </div>
+      <div class={`${container} pb-20`}>
+        <Shot name="hero" lang={lang} alt={t.hero.shotAlt} width={1152} eager />
+      </div>
+    </section>
+
+    <div id="features" class="scroll-mt-4"></div>
+
+    <!-- Scripture, Hubs, Talks: text beside a picture, alternating sides -->
+    {
+      (["passages", "hubs", "talks"] as const).map((key, i) => {
+        const s = t.sections[key];
+        const shot = { passages: "passages", hubs: "hub", talks: "board" }[key];
+        return (
+          <section class="border-t border-border/70 py-20 sm:py-24" data-testid={`section-${key}`}>
+            <div class={`${container} grid items-center gap-10 lg:grid-cols-12 lg:gap-14`}>
+              <div class={`min-w-0 lg:col-span-5 ${i % 2 ? "lg:order-2" : ""}`}>
+                <p class="text-sm font-medium tracking-wide text-primary">{s.kicker}</p>
+                <h2 class="mt-3 font-serif text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl">{s.title}</h2>
+                <p class="mt-5 text-lg leading-relaxed text-pretty text-muted-foreground">{s.body}</p>
+              </div>
+              <div class={`min-w-0 lg:col-span-7 ${i % 2 ? "lg:order-1" : ""}`}>
+                <Shot name={shot} lang={lang} alt={s.alt} width={680} />
+              </div>
+            </div>
+          </section>
+        );
+      })
+    }
+
+    <!-- Timeline, Map, Graph -->
+    <section class="border-t border-border/70 py-20 sm:py-24" data-testid="section-whole">
+      <div class={container}>
+        <div class="mx-auto max-w-2xl text-center">
+          <p class="text-sm font-medium tracking-wide text-primary">{t.sections.whole.kicker}</p>
+          <h2 class="mt-3 font-serif text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl">{t.sections.whole.title}</h2>
+          <p class="mt-5 text-lg leading-relaxed text-pretty text-muted-foreground">{t.sections.whole.body}</p>
+        </div>
+        <div class="mt-12 grid gap-8 md:grid-cols-3">
+          {
+            (["timeline", "map", "graph"] as const).map((k) => (
+              <figure class="min-w-0">
+                <Shot name={k} lang={lang} alt={t.sections.whole[`${k}Alt`]} width={368} />
+                <figcaption class="mt-3 text-center text-sm font-medium">{t.sections.whole[k]}</figcaption>
+              </figure>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+
+    <!-- Yours -->
+    <section class="border-t border-border/70 bg-muted/50 py-20 sm:py-24" data-testid="section-yours">
+      <div class={`${container} grid gap-12 lg:grid-cols-2 lg:gap-16`}>
+        <div class="min-w-0">
+          <p class="text-sm font-medium tracking-wide text-primary">{t.sections.yours.kicker}</p>
+          <h2 class="mt-3 font-serif text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl">{t.sections.yours.title}</h2>
+          <dl class="mt-8 grid gap-6 sm:grid-cols-2">
+            {
+              t.sections.yours.points.map((p) => (
+                <div class="min-w-0">
+                  <dt class="font-semibold">{p.title}</dt>
+                  <dd class="mt-1.5 leading-relaxed text-pretty text-muted-foreground">{p.body}</dd>
+                </div>
+              ))
+            }
+          </dl>
+        </div>
+        <figure class="min-w-0 self-center">
+          <div class="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <div class="flex min-w-0 items-center gap-2 border-b border-border px-4 py-2.5 text-xs text-muted-foreground">
+              <span class="size-2.5 shrink-0 rounded-full bg-border"></span>
+              <span class="min-w-0 truncate font-mono">{file.name}</span>
+            </div>
+            <pre class="overflow-x-auto p-4 font-mono text-[13px] leading-6 sm:text-sm"><code>{file.lines.map((line) => (<span class="block min-h-6">{line.map(([kind, text]) => <span class={segClass[kind]}>{text}</span>)}</span>))}</code></pre>
+          </div>
+          <figcaption class="mt-3 text-center text-sm text-muted-foreground">{t.sections.yours.fileCaption}</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- Download -->
+    <section id="download" class="scroll-mt-4 border-t border-border/70 py-20 sm:py-24" data-testid="section-download" data-open={String(release.open)}>
+      <div class={container}>
+        <div class="mx-auto max-w-2xl text-center">
+          <p class="text-sm font-medium tracking-wide text-primary">{t.download.kicker}</p>
+          <h2 class="mt-3 font-serif text-3xl leading-tight font-semibold tracking-tight text-balance sm:text-4xl">
+            {release.open ? t.download.titleOpen : t.download.titleClosed}
+          </h2>
+          <p class="mt-5 text-lg leading-relaxed text-pretty text-muted-foreground">
+            {release.open ? t.download.bodyOpen : t.download.bodyClosed(release.version)}
+          </p>
+          {
+            !release.open && (
+              <a href={t.demoUrl} class="mt-7 inline-flex min-h-12 max-w-full items-center justify-center rounded-full bg-primary px-6 py-3 text-center font-medium text-primary-foreground shadow-sm transition hover:opacity-90">
+                {t.hero.try}
+              </a>
+            )
+          }
+        </div>
+        <ul class="mx-auto mt-12 grid max-w-5xl gap-4 sm:grid-cols-2 lg:grid-cols-5">
+          {
+            release.platforms.map((p) => (
+              <li class="flex min-w-0 flex-col items-center gap-3 rounded-xl border border-border bg-card p-5 text-center" data-platform={p.id} data-testid="platform">
+                <svg viewBox="0 0 24 24" class="size-7 text-muted-foreground" aria-hidden="true" fill={p.id === "android" || p.id === "ios" ? "none" : "currentColor"} stroke={p.id === "android" || p.id === "ios" ? "currentColor" : "none"} stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d={icons[p.id]} /></svg>
+                <span class="font-medium">{t.download.names[p.id]}</span>
+                <span class="hidden text-xs font-medium text-primary" data-yours>{t.download.yours}</span>
+                {p.file ? (
+                  <a href={p.file.url} class="inline-flex min-h-10 max-w-full items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition hover:opacity-90">
+                    {t.download.get}
+                  </a>
+                ) : (
+                  <span class="text-sm text-pretty text-muted-foreground">{release.open ? t.download.later : t.download.coming}</span>
+                )}
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="scroll-mt-4 border-t border-border/70 py-20 sm:py-24" data-testid="section-faq">
+      <div class="mx-auto w-full max-w-3xl px-4 sm:px-6">
+        <h2 class="text-center font-serif text-3xl leading-tight font-semibold tracking-tight sm:text-4xl">{t.faq.title}</h2>
+        <div class="mt-10 divide-y divide-border border-y border-border">
+          {
+            t.faq.items.map((f) => (
+              <details class="group py-5">
+                <summary class="flex cursor-pointer list-none items-start justify-between gap-4 text-lg font-medium [&::-webkit-details-marker]:hidden">
+                  <span class="min-w-0">{f.q}</span>
+                  <svg viewBox="0 0 20 20" class="mt-1 size-5 shrink-0 text-muted-foreground transition group-open:rotate-45" aria-hidden="true"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" /></svg>
+                </summary>
+                <p class="mt-3 leading-relaxed text-pretty text-muted-foreground">{f.a}</p>
+              </details>
+            ))
+          }
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="border-t border-border/70 py-10 text-sm text-muted-foreground">
+    <div class={`${container} flex flex-wrap items-center justify-between gap-x-6 gap-y-4`}>
+      <div class="flex min-w-0 items-center gap-2.5">
+        <Logo class="h-5 w-auto shrink-0 text-brand" label="Synesis" />
+        <span class="min-w-0 text-pretty">{t.footer.licence}</span>
+      </div>
+      <div class="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
+        <a href={repo} class="hover:text-foreground">{t.footer.source}</a>
+        {release.version && <span>{t.footer.version(release.version)}</span>}
+        <a href={other} hreflang={lang === "en" ? "fr" : "en"} lang={lang === "en" ? "fr" : "en"} class="hover:text-foreground">{t.nav.other}</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Mark the visitor's platform among the download cards. A guess from the
+    // browser, only ever a highlight: every platform stays listed.
+    const ua = navigator.userAgent;
+    const id = /Android/i.test(ua)
+      ? "android"
+      : /iPhone|iPad|iPod/i.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+        ? "ios"
+        : /Windows/i.test(ua)
+          ? "windows"
+          : /Mac OS X|Macintosh/i.test(ua)
+            ? "macos"
+            : /Linux|X11/i.test(ua)
+              ? "linux"
+              : "";
+    const card = id && document.querySelector<HTMLElement>(`[data-platform="${id}"]`);
+    if (card) {
+      card.classList.add("ring-2", "ring-primary");
+      card.querySelector<HTMLElement>("[data-yours]")?.classList.remove("hidden");
+    }
+  </script>
+</Base>

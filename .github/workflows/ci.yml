@@ -64,3 +64,27 @@ jobs:
         env:
           CYPRESS_INSTALL_BINARY: 0
       - run: npm run build:web
+
+  site:
+    name: Landing page
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: site
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run build
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Nothing laid out wider than the box that clips it, in en and fr, at
+      # phone and desktop width, light and dark (scripts/check-layout.mjs).
+      - run: npx -y playwright@1.56.1 install --with-deps chromium
+      - run: npm run check

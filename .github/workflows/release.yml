@@ -439,3 +439,24 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           files: out/*.ipa
+
+  # The landing page reads the latest Release when it is built, and opens a
+  # platform's download once its file is attached (site/src/lib/release.ts).
+  # Rebuild it once every build job has finished, whichever failed: iOS has
+  # yet to succeed, and the files that did upload should still be offered.
+  site:
+    name: Rebuild the landing page
+    needs: [desktop, android, ios]
+    if: always()
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Ask Vercel to rebuild synesis-app.vercel.app
+        env:
+          HOOK: ${{ secrets.VERCEL_SITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "VERCEL_SITE_DEPLOY_HOOK is not set; the page rebuilds on its next push to main."
+            exit 0
+          fi
+          curl -fsS -X POST "$HOOK" > /dev/null
+          echo "Rebuild requested."
