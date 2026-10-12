@@ -2,7 +2,7 @@
   "name": "synesis",
   "private": true,
   "license": "AGPL-3.0-only",
-  "version": "0.0.18",
+  "version": "0.0.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
