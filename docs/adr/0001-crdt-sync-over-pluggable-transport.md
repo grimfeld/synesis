@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted, amended by ADR 0021 (no paid hosted store)
 ---
 
 # CRDT merge core with pluggable sync transports

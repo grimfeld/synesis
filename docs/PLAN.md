@@ -10,7 +10,7 @@ A local-first, Obsidian-style note-taking app for Bible study. The user reads Sc
 
 - **Local-first.** Files on device. The app is an index over a folder.
 - **Obsidian-compatible vault** (ADR 0003). Plain markdown, `[[links]]`, `#tags`, `![[embeds]]`, YAML frontmatter. No custom syntax. Obsidian is the fallback client everywhere.
-- **Conflict-free sync** (ADR 0001). CRDT per-device change logs; markdown files are the materialisation. Transports: user's cloud folder (free), hosted E2EE blob store (paid, cost recovery), same server self-hostable.
+- **Conflict-free sync** (ADR 0001). CRDT per-device change logs; markdown files are the materialisation. Transports: the user's cloud folder and Pairing, both free. No paid tier (ADR 0021): the hosted blob store once planned here is dropped.
 - **Never rewrite the user's text.** Detected Passages are decorations, not edits.
 - **Open source.** App under MIT or GPL, sync server under AGPL.
 
@@ -85,7 +85,6 @@ Features:
 
 ## 8. Later
 
-- Hosted E2EE sync with accounts and key recovery; self-host server; ~$5–10/year paid tier (Apple IAP on iOS).
 - Share-sheet capture on mobile.
 - Composition export (print / PDF / DOCX) with Embeds resolved and Sources cited.
 - ~~Journeys on the map (ordered Places as a route).~~ Designed in §19.
@@ -217,7 +216,7 @@ Syncthing was judged too involved for most users. Decided: a built-in peer-to-pe
 2. **Flow**: a Device that has the Vault shows an Invite as a QR and as a copyable code (~60 chars). A phone scans it (camera plugin); a desktop pastes it. The joiner requests to join; every paired online Device shows *Allow <name> to join?*; the first tap approves and the prompt clears elsewhere. The joiner shows *Waiting for approval on …* meanwhile, then receives the Vault key and member list, creates the Vault at the default path (`<home>/Synesis/<vault name>`), downloads every snapshot and opens.
 3. **Trust**: the Invite carries the showing Device's node id, a relay hint and an invite secret; it stays valid until revoked, and joining always needs approval. Membership changes (join, remove) are gossiped to all peers.
 4. **Scope**: Pairing is per Vault. Each Vault has its own member list and Invite.
-5. **Relays**: Iroh's public relays by default (encrypted packets only, nothing stored); a custom relay URL in Settings for self-hosters, the same host that will later run the paid blob store.
+5. **Relays**: Iroh's public relays by default (encrypted packets only, nothing stored); a custom relay URL in Settings for self-hosters. No hosted store will follow (ADR 0021).
 6. **Background**: on desktop, closing the window leaves a tray / menu-bar icon that keeps syncing; *Quit* stops it; a setting turns this off. Mobile syncs while the app is open.
 7. **Removal**: from any Device, Settings → Sync → Remove. Gossiped; peers refuse that node id from then on. Its published snapshots stay in history. Revoking the Invite is the same action on the Invite. Key rotation: later.
 8. **Live**: every save publishes the changed snapshot to every connected peer immediately; a reconnecting Device catches up from whoever is online. No re-pairing ever, except after a reinstall.
