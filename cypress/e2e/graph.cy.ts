@@ -38,7 +38,20 @@ const waitForRest = (tries = 20) => {
 };
 
 describe("Graph", () => {
+  // The label test counts light pixels, which is what text is only on a dark
+  // background. Mode is this Device's real setting: pin it, then put it back.
+  let mode = "system";
+  let scale = 1;
+  before(() => {
+    cy.bridge<{ appearance_mode: string; text_scale: number }>("get_settings").then((s) => {
+      mode = s.appearance_mode ?? "system";
+      scale = s.text_scale || 1;
+    });
+  });
+  after(() => cy.bridge("set_device_appearance", { mode, textScale: scale }));
+
   beforeEach(() => {
+    cy.bridge("set_device_appearance", { mode: "dark", textScale: 1 });
     cy.openApp();
     cy.get("[data-testid=nav-graph]").click();
     cy.get(canvas).should("be.visible");

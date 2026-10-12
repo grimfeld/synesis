@@ -2,7 +2,19 @@
 // plots, and a marker opens its Hub. Tiles are unreliable offline, so the view
 // is asserted through the `data-zoom` / `data-center` hooks MapView exposes.
 describe("Map", () => {
-  beforeEach(() => cy.openApp());
+  // Map filters and Colour by are this Device's real settings, kept across
+  // runs: start each test from none, and put the user's back afterwards.
+  let saved = { books: [] as number[], mentionedOnly: false, colorBy: "kind" };
+  before(() => {
+    cy.bridge<{ map_books?: number[]; map_mentioned_only?: boolean; map_color_by?: string }>("get_settings").then((s) => {
+      saved = { books: s.map_books ?? [], mentionedOnly: s.map_mentioned_only ?? false, colorBy: s.map_color_by ?? "kind" };
+    });
+  });
+  after(() => cy.bridge("set_map_filters", saved));
+  beforeEach(() => {
+    cy.bridge("set_map_filters", { books: [], mentionedOnly: false, colorBy: "kind" });
+    cy.openApp();
+  });
 
   it("plots every Place that has coordinates", () => {
     cy.runCommand("Go to Map");

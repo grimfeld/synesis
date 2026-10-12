@@ -106,6 +106,9 @@ type Gesture =
       ids: Set<string>;
       base: Board;
       moved: boolean;
+      /** The Board as the last pointermove left it. Pointer-up saves this,
+       *  not `board`, which may still be the render before that move. */
+      latest?: Board;
     }
   | { kind: "marquee"; startX: number; startY: number; rect: Rect }
   | { kind: "edge"; from: string; x: number; y: number };
@@ -493,7 +496,8 @@ export function BoardView({
       g.moved = true;
       // Recomputed from the gesture's starting Board every frame, so a drag
       // is one edit rather than an accumulation of rounding errors.
-      setBoard(moveNodes(g.base, g.ids, dx, dy));
+      g.latest = moveNodes(g.base, g.ids, dx, dy);
+      setBoard(g.latest);
       return;
     }
     if (g.kind === "marquee") {
@@ -533,8 +537,8 @@ export function BoardView({
       forceRender((n) => n + 1);
       return;
     }
-    if (g.kind === "move" && g.moved && board) {
-      save(board);
+    if (g.kind === "move" && g.moved && g.latest) {
+      save(g.latest);
     } else if (g.kind === "marquee" && board) {
       const picked = nodesIn(board.nodes, g.rect).map((n) => n.id);
       setSelected((prev) =>

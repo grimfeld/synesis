@@ -122,6 +122,9 @@ export function Editor({
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const lastValue = useRef(value);
+  /** The texts this editor has handed to `onChange` since it was last synced from outside, newest last. */
+  const emitted = useRef<string[]>([]);
+  const syncedRevision = useRef(revision);
   const envRef = useRef(env);
   envRef.current = env;
   const namesRef = useRef(names);
@@ -229,6 +232,8 @@ export function Editor({
           if (u.docChanged) {
             const text = u.state.doc.toString();
             lastValue.current = text;
+            emitted.current.push(text);
+            if (emitted.current.length > 64) emitted.current.shift();
             onChange(text);
             runDetect(text);
           }
@@ -271,7 +276,16 @@ export function Editor({
   // lock: the text changing under a reader is not the reader editing it.
   useEffect(() => {
     const v = viewRef.current;
-    if (!v || v.state.doc.toString() === value) return;
+    if (!v) return;
+    const replaced = revision !== syncedRevision.current;
+    syncedRevision.current = revision;
+    if (v.state.doc.toString() === value) return;
+    // Typing fast, the page can render a keystroke behind: `value` is then a
+    // text this editor produced itself, and writing it back would undo what
+    // was typed since (a "##" left as "#"). Only a wholesale replacement, or a
+    // text the editor never produced, is news.
+    if (!replaced && emitted.current.includes(value)) return;
+    emitted.current = [];
     lastValue.current = value;
     v.dispatch({
       changes: { from: 0, to: v.state.doc.length, insert: value },

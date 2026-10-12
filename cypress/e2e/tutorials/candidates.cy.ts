@@ -35,7 +35,8 @@ describe("Tutorial: Candidates", () => {
 
     // 3. Do it once: link the Candidate from a new line; it moves to Used.
     cy.tutorialStep(2);
-    cy.get(".cm-content").click().type("{ctrl}{end}");
+    // Focus, not click: the middle of this Composition is an Embed, which opens.
+    cy.get(".cm-content").first().focus().type("{ctrl}{end}");
     cy.get(".cm-content").type("{enter}See also ");
     cy.tutorialCommand("editor.link");
     // Typed whole between the brackets the Command put in (see the note in

@@ -390,3 +390,10 @@
 .cm-embed-picture { margin: 6px 0; }
 .cm-picture[data-state="loading"] { min-height: 48px; }
 .cm-picture-missing { padding: 10px 14px; border: 1px dashed var(--border); border-radius: 6px; color: var(--muted-foreground); font-size: .875em; overflow-wrap: anywhere; }
+
+/* ---------------------------------------------------------------- tutorials */
+/* A Tutorial step can ask for something inside a dialog and then for Next, so
+   while a dialog is open the panel rises above its overlay (z-50) and takes
+   pointer events back from the body Radix disables. Only then, so it never
+   covers a popover or menu the rest of the time. */
+body:has([data-slot="dialog-overlay"]) [data-tutorial-panel] { z-index: 60; pointer-events: auto; }
