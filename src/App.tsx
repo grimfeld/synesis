@@ -27,6 +27,7 @@ import { Toaster } from "sonner";
 import { TutorialProvider } from "./lib/tutorialState";
 import { TutorialPanel } from "./components/TutorialPanel";
 import { SkinGallery } from "./components/SkinGallery";
+import { DemoBanner } from "./components/DemoBanner";
 
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
@@ -135,7 +136,8 @@ function Shell() {
         {/* The Tutorial panel docks beside whatever view is showing and
             outlives navigation (PLAN §25.6); the Skin gallery docks beside
             Settings, left of it (§26.6). */}
-        <div className="flex h-full min-h-0">
+        <DemoBanner />
+        <div className="flex min-h-0 flex-1">
           <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
           <SkinGallery />
           <TutorialPanel />
