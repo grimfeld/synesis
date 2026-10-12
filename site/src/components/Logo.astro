@@ -1,0 +1,20 @@
+---
+// The mark from branding/logo.svg, inline so it takes the text colour:
+// navy on light, white on dark (--brand), 15.9:1 either way.
+import raw from "../../../branding/logo.svg?raw";
+
+interface Props {
+  class?: string;
+  label?: string;
+}
+const { class: cls = "", label } = Astro.props;
+const d = /\sd="([^"]+)"/.exec(raw)![1];
+---
+
+<svg
+  viewBox="0 0 58 47"
+  class={cls}
+  role={label ? "img" : undefined}
+  aria-label={label}
+  aria-hidden={label ? undefined : "true"}
+  xmlns="http://www.w3.org/2000/svg"><path fill="currentColor" d={d}></path></svg>

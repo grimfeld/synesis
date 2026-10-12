@@ -13,6 +13,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 
 - `crates/engine` — Rust library: versification, book names, Passage parser, document parser, SQLite index, vault.
 - `src-tauri` — Tauri shell exposing engine commands. Command logic that is not Tauri-specific lives in `engine::api`, so the web build shares it.
+- `site` — the landing page (Astro, en at `/`, fr at `/fr/`), its own Vercel project at synesis.vercel.app. Downloads open by themselves once the latest GitHub Release is 0.1.0 or later and holds the platform's file (`site/src/lib/release.ts`); the words are in `site/src/i18n/strings.ts`, both languages.
 - `crates/web` — the web test build: the engine compiled to `wasm32-wasip1` behind one `invoke` export, loaded by `src/lib/webengine.ts` on an in-memory copy of `examples/demo-vault`. Pairing, native dialogs and network commands answer with an error. Test-only; never shipped in the app.
 - `src` — React UI. `src/editor` is CodeMirror, `src/views` are whole-pane views, `src/i18n` are UI strings (en, fr).
 
@@ -25,6 +26,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 - `npm run typecheck` — typecheck the UI.
 - `npm run build:web` — build the web test build into `dist-web/` (fetches the wasm32-wasip1 target and wasi-sdk into `target/` on first run). Vercel runs this on every push and gives each branch a preview URL (`vercel.json`). `npm run dev:web` serves it with hot reload for the UI; rerun it after engine changes.
 - `npm run test:unit` — Vitest unit tests for pure TypeScript in `src/lib` (`src/**/*.test.ts`, jsdom, ~1s). Put logic that needs no engine here rather than in Cypress.
+- `node scripts/site-screenshots.mjs` — the landing page's screenshots, from the dev app (`npm run tauri dev` running) on a copy of the demo vault, en/fr × light/dark. In `site/`: `npm run build`, `npm run check` (no overflow in en/fr at phone and desktop width; CI runs it), `npm run og` (share images).
 - `npm run tutorials:screenshots` — regenerate the Tutorial screenshots (`docs/tutorials/screenshots/`) from `dist-web/`; run `npm run build:web` first. Only while the pictures trial lasts (PLAN §25.12).
 - `npm run test:e2e` — Cypress UI end-to-end suite. Needs `npm run tauri dev` running; each spec opens a temp copy of `examples/demo-vault` through the dev bridge, reopens your vault afterwards, and forgets and deletes every `synesis-cy-*` copy with its app-data index (`cypress/support/e2e.ts`). A spec must never open one of your real vaults. Each test reloads the page through `cy.openApp()`; that reload is cheap (measured: an in-place reset via the palette was slower), the time goes into the tests' own UI steps. Run one spec while iterating: `npx cypress run --spec cypress/e2e/editor.cy.ts`. `npm run test:e2e:open` for the runner UI. Add a spec under `cypress/e2e/` for every UI feature.
 

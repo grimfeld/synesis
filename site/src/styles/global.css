@@ -1,0 +1,69 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/source-serif-4";
+
+/* The app's default Skin (src/index.css), and the logo's navy. Dark follows
+   the visitor's setting; there is no toggle. */
+:root {
+  color-scheme: light;
+  --background: oklch(0.985 0.004 85);
+  --foreground: oklch(0.24 0.012 265);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.955 0.006 85);
+  --muted-foreground: oklch(0.47 0.015 265);
+  --border: oklch(0.905 0.008 85);
+  --primary: oklch(0.46 0.085 260);
+  --primary-foreground: oklch(0.985 0.005 85);
+  --brand: #14213d;
+  --link: #3b5a8a;
+  --passage: #5a7d3a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --background: oklch(0.2 0.008 265);
+    --foreground: oklch(0.92 0.006 85);
+    --card: oklch(0.235 0.008 265);
+    --muted: oklch(0.27 0.008 265);
+    --muted-foreground: oklch(0.72 0.01 265);
+    --border: oklch(1 0 0 / 12%);
+    --primary: oklch(0.76 0.08 260);
+    --primary-foreground: oklch(0.2 0.008 265);
+    --brand: #ffffff;
+    --link: #9db8e0;
+    --passage: #a7c487;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-brand: var(--brand);
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Source Serif 4 Variable", Georgia, serif;
+}
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  overflow-x: clip;
+}
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

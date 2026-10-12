@@ -1,0 +1,44 @@
+---
+import "../styles/global.css";
+import favicon from "../../../branding/favicon.svg?url";
+import type { Strings } from "../i18n/strings";
+
+interface Props {
+  t: Strings;
+}
+const { t } = Astro.props;
+const site = Astro.site!;
+const path = t.lang === "en" ? "/" : `/${t.lang}/`;
+const og = new URL(t.lang === "en" ? "/og.png" : `/og-${t.lang}.png`, site).href;
+---
+
+<!doctype html>
+<html lang={t.lang}>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{t.meta.title}</title>
+    <meta name="description" content={t.meta.description} />
+    <link rel="canonical" href={new URL(path, site).href} />
+    <link rel="alternate" hreflang="en" href={new URL("/", site).href} />
+    <link rel="alternate" hreflang="fr" href={new URL("/fr/", site).href} />
+    <link rel="alternate" hreflang="x-default" href={new URL("/", site).href} />
+    <link rel="icon" type="image/svg+xml" href={favicon} />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#fbfaf7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1c1d22" media="(prefers-color-scheme: dark)" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Synesis" />
+    <meta property="og:locale" content={t.locale} />
+    <meta property="og:title" content={t.meta.title} />
+    <meta property="og:description" content={t.meta.description} />
+    <meta property="og:url" content={new URL(path, site).href} />
+    <meta property="og:image" content={og} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- Vercel Web Analytics: no cookies, visits counted only (ADR 0021, FAQ). -->
+    <script is:inline defer src="/_vercel/insights/script.js"></script>
+  </head>
+  <body class="min-h-screen antialiased">
+    <slot />
+  </body>
+</html>
