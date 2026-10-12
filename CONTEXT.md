@@ -22,6 +22,10 @@ _Avoid_: Talk, sermon, essay, article (these are kinds of Composition, not the t
 A Clipping shown live inside a Composition. The Composition displays the Clipping's current text and Source rather than holding a copy.
 _Avoid_: Transclusion, include
 
+**Picture**:
+An image kept in the vault's Attachments and shown where it is named in a document's text. Any document can hold Pictures. A Picture is not a document: it has no Hub, no backlinks, and is never searched.
+_Avoid_: Image, attachment, Embed (an Embed is a live Clipping)
+
 **Version**:
 A named moment in a Composition's history, kept by the user ("as delivered, 2026-09-20"). A Version can be read, compared with the current text, or restored; restoring is a new edit, never a rewind. Not a separate document.
 _Avoid_: Revision, snapshot, backup, draft
