@@ -53,6 +53,7 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
             f.push(("lat", Value::Null));
             f.push(("lon", Value::Null));
             f.push(("modern_name", Value::String(String::new())));
+            f.push(("aliases", Value::Array(vec![])));
         }
         DocType::Character => f.push(("aliases", Value::Array(vec![]))),
         DocType::Concept => f.push(("aliases", Value::Array(vec![]))),
@@ -61,6 +62,7 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
             f.push(("end", Value::String(String::new())));
             f.push(("place", Value::String(String::new())));
             f.push(("characters", Value::Array(vec![])));
+            f.push(("aliases", Value::Array(vec![])));
         }
         // A Journey is an Event's template with `place` widened to an ordered
         // `places` list: the route is the order of that list (ADR 0010).
@@ -69,6 +71,7 @@ pub fn default_fields(doc_type: DocType) -> Vec<(&'static str, Value)> {
             f.push(("end", Value::String(String::new())));
             f.push(("places", Value::Array(vec![])));
             f.push(("characters", Value::Array(vec![])));
+            f.push(("aliases", Value::Array(vec![])));
         }
         _ => {}
     }
@@ -235,5 +238,22 @@ mod tests {
         assert!(t.starts_with("---\nid: ID1\ntype: clipping\ncreated: "));
         assert!(t.contains("source: \"[[WT 2024]]\""));
         assert!(t.ends_with("---\nQuoted.\n"));
+    }
+
+    #[test]
+    fn topical_subjects_start_with_aliases() {
+        for ty in [
+            DocType::Place,
+            DocType::Character,
+            DocType::Concept,
+            DocType::Event,
+            DocType::Journey,
+        ] {
+            let t = new_document("ID1", ty, &Map::new(), "");
+            assert!(t.contains("\naliases: []\n"), "{ty:?}: {t}");
+        }
+        // Scripture generates its own; a Source's other names stay unset.
+        let t = new_document("ID1", DocType::Source, &Map::new(), "");
+        assert!(!t.contains("aliases"), "{t}");
     }
 }
