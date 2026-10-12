@@ -1735,7 +1735,7 @@ function About({
       ? t.about_prompt.source
       : t.about_prompt.subject(title);
   // The empty About takes a dropped Picture too, and opens with it as its
-  // first line: the same writing as a Note, before a word is typed (ADR 0018).
+  // first line: the same writing as a Note, before a word is typed (ADR 0019).
   const [dragging, setDragging] = useState(false);
   const onDrop = async (e: React.DragEvent) => {
     setDragging(false);

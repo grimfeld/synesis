@@ -17,7 +17,7 @@
 //! 30 seconds.
 //!
 //! A round also carries the Vault's config files whole (ADR 0016) and every
-//! picture in `Attachments/` (ADR 0019). An attachment is immutable once
+//! picture in `Attachments/` (ADR 0020). An attachment is immutable once
 //! written, so it is matched by content hash and fetched when missing; nothing
 //! is ever deleted or overwritten.
 //!
@@ -187,7 +187,7 @@ enum Request {
     ConfigManifest(Vec<ConfigEntry>),
     GetConfig(String),
     PutConfig { name: String, bytes: Vec<u8> },
-    /// Pictures in `Attachments/` (ADR 0019), last again: an older peer fails
+    /// Pictures in `Attachments/` (ADR 0020), last again: an older peer fails
     /// only these and the rest of the round stands.
     AttachmentManifest(Vec<AttachmentEntry>),
     GetAttachment(String),
@@ -208,7 +208,7 @@ enum Response {
     AttachmentManifest(Vec<AttachmentEntry>),
 }
 
-/// One picture in `Attachments/`, as a peer advertises it (ADR 0019).
+/// One picture in `Attachments/`, as a peer advertises it (ADR 0020).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AttachmentEntry {
     /// The file name, directly inside `Attachments/`.
@@ -231,7 +231,7 @@ pub enum Event {
     Error { message: String },
     /// Config files a peer delivered (ADR 0016), named relative to `.bible-study/`.
     Config { names: Vec<String> },
-    /// Pictures a peer delivered (ADR 0019), vault-relative paths.
+    /// Pictures a peer delivered (ADR 0020), vault-relative paths.
     Attachments { names: Vec<String> },
 }
 
@@ -272,7 +272,7 @@ pub struct Node {
     relay: Option<RelayUrl>,
     /// False when relays are disabled (tests): there is no home relay to wait for.
     relays: bool,
-    /// `Attachments/`, whose pictures travel whole (ADR 0019).
+    /// `Attachments/`, whose pictures travel whole (ADR 0020).
     attachments_dir: PathBuf,
     /// Each attachment's hash, keyed by name and kept while its size and
     /// modification time stand, so a round every 30 seconds does not reread
@@ -893,12 +893,12 @@ impl Node {
         // A peer on an older version cannot answer this; its snapshots synced
         // all the same, so the round still counts.
         let _ = self.config_round(conn).await;
-        // Likewise for attachments (ADR 0019).
+        // Likewise for attachments (ADR 0020).
         let _ = self.attachment_round(conn).await;
         Ok(())
     }
 
-    /// Pictures both ways, whole (ADR 0019). A picture is the same picture
+    /// Pictures both ways, whole (ADR 0020). A picture is the same picture
     /// when its bytes are, whatever it is called: a side fetches every hash it
     /// does not hold, so a file saved under another name after a clash is not
     /// fetched again on the next round.
@@ -1087,12 +1087,17 @@ impl Node {
     ///
     /// Never overwrites: a name this Device already uses for other bytes keeps
     /// them, and the incoming picture takes the next free name, `name 2.ext`
-    /// (ADR 0019). Bytes that do not match the advertised hash are refused.
+    /// (ADR 0020). Bytes that do not match the advertised hash are refused.
     fn accept_attachment(&self, e: &AttachmentEntry, bytes: &[u8]) -> Option<String> {
         if !Self::attachment_name_ok(&e.name) || bytes.len() > MAX_FILE || sha256(bytes) != e.hash {
             return None;
         }
         let _ = fs::create_dir_all(&self.attachments_dir);
+        // Two peers can deliver different bytes under one name at once. Picking
+        // the name and renaming into it is not atomic, so without this both
+        // would pick `name 2.ext` and the second rename would replace the first.
+        static ACCEPTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _one_at_a_time = ACCEPTING.lock().unwrap_or_else(|p| p.into_inner());
         let name = free_attachment_name(&self.attachments_dir, &e.name, &e.hash)?;
         let dest = self.attachments_dir.join(&name);
         if dest.exists() {
@@ -1120,7 +1125,7 @@ fn sha256(bytes: &[u8]) -> [u8; 32] {
 }
 
 /// The name an incoming picture is stored under: its own when free or already
-/// holding the same bytes, else the first `stem N.ext` that is (ADR 0019).
+/// holding the same bytes, else the first `stem N.ext` that is (ADR 0020).
 fn free_attachment_name(dir: &Path, name: &str, hash: &[u8; 32]) -> Option<String> {
     let (stem, ext) = match name.rsplit_once('.') {
         Some((s, e)) if !s.is_empty() => (s, e),
@@ -1350,7 +1355,7 @@ mod tests {
         .await
         .expect("A receives B's Skin");
 
-        // Pictures travel too (ADR 0019): A's reaches B; B's own picture of
+        // Pictures travel too (ADR 0020): A's reaches B; B's own picture of
         // the same name is kept and A's lands beside it; a non-picture stays.
         let att_a = vault_a.join(crate::attachments::FOLDER);
         let att_b = vault_b.join(crate::attachments::FOLDER);

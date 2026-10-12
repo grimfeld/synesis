@@ -81,7 +81,7 @@ interface Props {
    */
   onReady?: (select: (from: number, to: number) => void) => void;
   /**
-   * The title a Picture dropped here is named after (ADR 0018): the
+   * The title a Picture dropped here is named after (ADR 0019): the
    * document's, its Hub's for an About, its Source's for a Clipping.
    */
   pictureTitle?: string;

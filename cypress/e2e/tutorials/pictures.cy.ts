@@ -1,6 +1,8 @@
 // Walks the Pictures Tutorial (docs/tutorials/pictures.en.md) step by step,
 // doing what each step says, so a change to how Pictures go in that outdates
 // the Tutorial fails here (PLAN §25.13).
+// `a35094` in a stored name: the first hex digits of the fixture's SHA-256.
+// It is 64×40, so it is stored byte for byte (ADR 0019).
 describe("Tutorial: Pictures", () => {
   beforeEach(() => cy.openApp());
 
@@ -23,11 +25,11 @@ describe("Tutorial: Pictures", () => {
     // 2. Clicking the picture shows its stored line; leaving the line brings it back.
     cy.tutorialStep(1);
     cy.get(".cm-line").first().click();
-    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials a35094.png]]");
     cy.get("[data-testid=picture] img").click();
-    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials a35094.png]]");
     cy.get(".cm-line").first().click();
-    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials a35094.png]]");
     cy.tutorialNext();
 
     // 3. Do it once: a new Note, and Insert picture.
@@ -40,7 +42,7 @@ describe("Tutorial: Pictures", () => {
     cy.tutorialCommand("editor.picture");
     cy.get("[data-testid=picture-input]").selectFile("cypress/fixtures/athens.png", { force: true });
     cy.get("[data-testid=picture][data-state=shown]").should("exist");
-    cy.task<boolean>("file:exists", `${Cypress.env("vault")}/Attachments/trying pictures.png`).should("eq", true);
+    cy.task<boolean>("file:exists", `${Cypress.env("vault")}/Attachments/trying pictures a35094.png`).should("eq", true);
     cy.tutorialDone();
   });
 });

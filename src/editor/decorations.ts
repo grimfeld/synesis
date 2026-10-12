@@ -5,7 +5,7 @@ import { RangeSetBuilder, StateEffect, StateField, Facet } from "@codemirror/sta
 import type { DetectedRange, PassageInfo } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
 import { api } from "@/lib/api";
-import { PICTURE_RE, findPictures, isPictureTarget } from "./pictures";
+import { PICTURE_SKIP_SOURCE, findPictures, isPictureTarget } from "./pictures";
 
 export const WIKILINK_RE = /(!?)\[\[([^\[\]|#]+?)(?:#[^\[\]|]*)?(?:\|([^\[\]]*))?\]\]/g;
 export const TAG_RE = /(^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]+)/gu;
@@ -23,8 +23,8 @@ export const envFacet = Facet.define<EditorEnv, EditorEnv>({ combine: (v) => v[0
 
 function skipZones(text: string): [number, number][] {
   const out: [number, number][] = [];
-  // A Picture is not a link, and its file name is not a Tag (ADR 0018).
-  const re = new RegExp(/```[\s\S]*?(?:```|$)|`[^`\n]*`|https?:\/\/[^\s)>\]]+|/.source + PICTURE_RE.source, "gi");
+  // A Picture is not a link, and its file name is not a Tag (ADR 0019).
+  const re = new RegExp(/```[\s\S]*?(?:```|$)|`[^`\n]*`|https?:\/\/[^\s)>\]]+|/.source + PICTURE_SKIP_SOURCE, "gi");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) out.push([m.index, m.index + m[0].length]);
   return out;

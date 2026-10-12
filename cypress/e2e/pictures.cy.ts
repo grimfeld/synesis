@@ -1,6 +1,8 @@
-// Pictures (ADR 0018): dropped, pasted or picked into any editor, copied into
+// Pictures (ADR 0019): dropped, pasted or picked into any editor, copied into
 // `Attachments/` named after the document, written as `![[…]]` on their own
 // line and drawn in Live Preview.
+// `a35094` in a stored name: the first hex digits of the fixture's SHA-256.
+// It is 64×40, so it is stored byte for byte (ADR 0019).
 const vaultFile = (rel: string) => `${Cypress.env("vault")}/${rel}`;
 
 /** The stored text of a document, once the save has landed. */
@@ -29,9 +31,9 @@ describe("Pictures", () => {
     cy.get(".cm-content").should("contain", "Endurance in trials");
     cy.get(".cm-content").selectFile("cypress/fixtures/athens.png", { action: "drag-drop" });
     cy.get("[data-testid=picture][data-state=shown] img").should("be.visible");
-    cy.task<boolean>("file:exists", vaultFile("Attachments/endurance in trials.png")).should("eq", true);
+    cy.task<boolean>("file:exists", vaultFile("Attachments/endurance in trials a35094.png")).should("eq", true);
     cy.wait(1000);
-    fileOf("Endurance in trials").should("match", /(^|\n)!\[\[Attachments\/endurance in trials\.png\]\](\n|$)/);
+    fileOf("Endurance in trials").should("match", /(^|\n)!\[\[Attachments\/endurance in trials a35094\.png\]\](\n|$)/);
   });
 
   it("shows the stored text on the line being edited, and only text in Source mode", () => {
@@ -39,14 +41,14 @@ describe("Pictures", () => {
     cy.get(".cm-content").selectFile("cypress/fixtures/athens.png", { action: "drag-drop" });
     cy.get("[data-testid=picture][data-state=shown]").should("exist");
     // The cursor sits after the inserted line: its syntax is visible, the picture below it.
-    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials a35094.png]]");
     // Elsewhere, the line is the picture.
     cy.get(".cm-line").first().click();
-    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("not.contain", "![[Attachments/endurance in trials a35094.png]]");
     cy.get("[data-testid=picture] img").should("be.visible");
     cy.runCommand("Source mode");
     cy.get("[data-testid=picture]").should("not.exist");
-    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials.png]]");
+    cy.get(".cm-content").should("contain", "![[Attachments/endurance in trials a35094.png]]");
     cy.runCommand("Live Preview");
   });
 
@@ -63,7 +65,7 @@ describe("Pictures", () => {
     cy.get(".cm-content").should("contain", "Endurance in trials").click();
     pastePicture(".cm-content");
     cy.get("[data-testid=picture][data-state=shown]").should("exist");
-    cy.task<boolean>("file:exists", vaultFile("Attachments/endurance in trials.png")).should("eq", true);
+    cy.task<boolean>("file:exists", vaultFile("Attachments/endurance in trials a35094.png")).should("eq", true);
   });
 
   it("refuses a file that is not a picture", () => {
@@ -110,9 +112,9 @@ describe("Pictures", () => {
     cy.hubTitle("Jerusalem");
     cy.get("[data-testid=hub-about-empty]").selectFile("cypress/fixtures/athens.png", { action: "drag-drop" });
     cy.get("[data-testid=hub-about] [data-testid=picture]").should("exist");
-    cy.task<boolean>("file:exists", vaultFile("Attachments/jerusalem.png")).should("eq", true);
+    cy.task<boolean>("file:exists", vaultFile("Attachments/jerusalem a35094.png")).should("eq", true);
     cy.wait(1000);
-    fileOf("Jerusalem").should("contain", "![[Attachments/jerusalem.png]]");
+    fileOf("Jerusalem").should("contain", "![[Attachments/jerusalem a35094.png]]");
   });
 
   it("drops into an About that already has text", () => {

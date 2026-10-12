@@ -1,4 +1,4 @@
-// Pictures (ADR 0018): images kept in `Attachments/` and drawn where the text
+// Pictures (ADR 0019): images kept in `Attachments/` and drawn where the text
 // names them. Dropped, pasted or picked into any editor, they are copied into
 // the vault by the engine and written as `![[Attachments/<name>.png]]` on a
 // line of their own. Drawing them is a decoration like everything else in
@@ -15,12 +15,20 @@ const EXT = "png|jpe?g|gif|webp";
 /**
  * A Picture as written in text: `![[target|width]]` naming a picture file, or
  * markdown's `![alt](path)` as Obsidian users may have written it. The app
- * only ever writes the first (ADR 0018).
+ * only ever writes the first (ADR 0019).
  */
 export const PICTURE_RE = new RegExp(
   `!\\[\\[([^\\[\\]\\n|#]+?\\.(?:${EXT}))(?:\\|([^\\[\\]\\n]*))?\\]\\]|!\\[([^\\]\\n]*)\\]\\((<[^>\\n]+>|[^)\\s]+\\.(?:${EXT}))\\)`,
   "gi",
 );
+
+/**
+ * What the engine steps around as picture syntax (`attachments::PICTURE_SYNTAX`),
+ * wider than what is drawn: a `![[…]]` target may hold `#`, and any
+ * `![alt](path)` counts. The editor must skip the same text the index skips,
+ * or a Tag or link would be shown where the index records none.
+ */
+export const PICTURE_SKIP_SOURCE = String.raw`!\[\[[^\[\]\n]*\.(?:${EXT})(?:\|[^\[\]\n]*)?\]\]|!\[[^\]\n]*\]\([^)\n]*\)`;
 
 const PICTURE_FILE = new RegExp(`\\.(?:${EXT})$`, "i");
 const PICTURE_TYPE = /^image\/(png|jpeg|gif|webp)$/;
@@ -78,7 +86,7 @@ export function findPictures(text: string): PictureMatch[] {
 
 /** What the editor needs from the page it sits in. */
 export interface PictureHost {
-  /** The title a new Picture is named after (ADR 0018). */
+  /** The title a new Picture is named after (ADR 0019). */
   title: () => string;
   text: () => {
     missing: (target: string) => string;
@@ -101,7 +109,7 @@ const picturesArrived = StateEffect.define<null>();
 const views = new Set<EditorView>();
 
 /**
- * Pairing delivered pictures (ADR 0019): forget what was read and redraw, so
+ * Pairing delivered pictures (ADR 0020): forget what was read and redraw, so
  * a "Picture not found" box becomes the picture without reopening the page.
  */
 export function onPicturesArrived(names: string[]) {
@@ -319,6 +327,8 @@ export function pickPictures(view: EditorView): boolean {
     input.remove();
     if (files.length) void insertPictures(view, files, at);
   };
+  // Closing the picker without a choice: the input goes too.
+  input.oncancel = () => input.remove();
   document.body.appendChild(input);
   input.click();
   return true;

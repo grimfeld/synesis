@@ -272,7 +272,7 @@ pub fn books(lang: Lang) -> Vec<BookMeta> {
 }
 
 /// Copy a dropped, pasted or picked picture into `Attachments/` and return the
-/// vault-relative path to write inside `![[…]]` (ADR 0018). `title` is the
+/// vault-relative path to write inside `![[…]]` (ADR 0019). `title` is the
 /// document the Picture goes into; `file_name` only lends its extension.
 pub fn attach_picture(
     root: &std::path::Path,
@@ -316,7 +316,7 @@ pub fn prepare_vault_folder(root: &std::path::Path) -> std::io::Result<()> {
         "Concepts",
         "Events",
         "Journeys",
-        // Pictures the vault owns (ADR 0012, 0018). Referenced by `cover` or
+        // Pictures the vault owns (ADR 0012, 0019). Referenced by `cover` or
         // `![[…]]`, never indexed: the scanner still reads `.md` only.
         "Attachments",
     ] {

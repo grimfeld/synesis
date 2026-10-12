@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { findPictures, isPictureFile, isPictureTarget } from "../pictures";
+import { PICTURE_SKIP_SOURCE, findPictures, isPictureFile, isPictureTarget } from "../pictures";
 
-describe("Pictures in text (ADR 0018)", () => {
+describe("Pictures in text (ADR 0019)", () => {
   it("reads the full path the app writes", () => {
     const text = "Before\n![[Attachments/paul in athens.png]]\nAfter";
     expect(findPictures(text)).toEqual([
@@ -38,5 +38,19 @@ describe("Pictures in text (ADR 0018)", () => {
     expect(isPictureFile({ name: "", type: "image/jpeg" })).toBe(true);
     expect(isPictureFile({ name: "notes.pdf", type: "application/pdf" })).toBe(false);
     expect(isPictureFile({ name: "x.svg", type: "image/svg+xml" })).toBe(false);
+  });
+});
+
+describe("Picture syntax the editor steps around", () => {
+  // The engine's `attachments::PICTURE_SYNTAX`: the same text must be skipped
+  // on both sides, or a Tag or link is shown that the index never recorded.
+  const skipped = (text: string) => (text.match(new RegExp(PICTURE_SKIP_SOURCE, "gi")) ?? []).join("");
+  it("skips what the engine skips", () => {
+    expect(skipped("![[Attachments/athens 2d7116.png|300]]")).toBe("![[Attachments/athens 2d7116.png|300]]");
+    expect(skipped("![[a #draft.png]]")).toBe("![[a #draft.png]]");
+    expect(skipped("![see Ro 12:2](notes.md)")).toBe("![see Ro 12:2](notes.md)");
+  });
+  it("leaves an Embed of a document alone", () => {
+    expect(skipped("![[Talk on endurance]]")).toBe("");
   });
 });

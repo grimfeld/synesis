@@ -511,7 +511,7 @@ mod tests {
 
     #[test]
     fn a_picture_named_like_a_passage_is_not_one() {
-        // Pictures are named after their document (ADR 0018), and "1 john 3"
+        // Pictures are named after their document (ADR 0019), and "1 john 3"
         // passes the digit-first rule, so the file name must be stepped over.
         assert!(refs("![[Attachments/1 john 3 notes.png]]").is_empty());
         assert!(refs("![[Attachments/1 john 3 notes.png|300]]").is_empty());

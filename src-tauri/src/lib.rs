@@ -983,7 +983,7 @@ fn read_attachment(state: State<AppState>, path: String) -> CmdResult<String> {
 
 /// Copy a dropped or pasted Picture into `Attachments/`, named after the
 /// document it goes into, and return the path to write in `![[…]]`
-/// (ADR 0018). The bytes come from the webview as base64: a drop hands the
+/// (ADR 0019). The bytes come from the webview as base64: a drop hands the
 /// page a `File`, not a path.
 #[tauri::command]
 fn attach_picture(state: State<AppState>, title: String, name: String, data: String) -> CmdResult<String> {

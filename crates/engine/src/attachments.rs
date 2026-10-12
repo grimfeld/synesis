@@ -88,13 +88,18 @@ fn free_path(root: &Path, base: &str, ext: &str) -> String {
     }
 }
 
-/// The longest edge a stored Picture keeps (ADR 0018).
+/// The longest edge a stored Picture keeps (ADR 0019).
 ///
 /// A Cover is a thumbnail; a Picture is read, and a map or a scanned page has
 /// small print. 1600 covers the prose column on a high-density screen while
 /// keeping a Picture near a megabyte, since every one is carried to every
 /// Device and read back as a data URL.
 pub const PICTURE_MAX_EDGE: u32 = 1600;
+
+/// The most a stored Picture may weigh. A GIF is kept whole, so this is its
+/// limit, and it is under what Pairing carries in one file (64 MB), so every
+/// Picture the app stores reaches the other Devices.
+pub const PICTURE_MAX_BYTES: usize = 32 * 1024 * 1024;
 
 /// A Picture as it appears in text: `![[…]]` naming a picture file, or
 /// markdown's `![alt](path)`. Passage detection, Tags and links all step
@@ -104,7 +109,7 @@ pub const PICTURE_SYNTAX: &str =
 
 /// Whether a `![[…]]` target names a Picture rather than a document.
 ///
-/// Decided by extension alone: a Picture is not indexed (ADR 0018), so there
+/// Decided by extension alone: a Picture is not indexed (ADR 0019), so there
 /// is nothing to look it up in, and no document ends in `.png`.
 pub fn is_picture_target(target: &str) -> bool {
     let target = target.split('|').next().unwrap_or(target).trim();
@@ -112,12 +117,20 @@ pub fn is_picture_target(target: &str) -> bool {
 }
 
 /// A vault-relative path for a new Picture, named after the document that
-/// holds it (ADR 0018). A document with no title yet, a Quick capture say,
-/// names it after the moment it was dropped instead: `2026-09-26 101512.png`.
+/// holds it and the bytes it holds (ADR 0019): `paul in athens 3f9a2c.png`. A
+/// document with no title yet, a Quick capture say, names it after the moment
+/// it was dropped instead: `2026-09-26 101512 3f9a2c.png`.
+///
+/// The few characters of the picture's hash are what keep the name one
+/// picture's on every Device: two Devices that each drop a picture into
+/// "Athens" while apart would otherwise both write `athens.png`, and after
+/// Pairing each would show its own under the one name the text holds. The same
+/// picture dropped twice gets the same name, so it is stored once.
 ///
 /// Brackets, `#` and `^` are dropped as well as what a file name cannot hold,
 /// because the name is written inside `![[…]]`, where they mean something.
-pub fn picture_path(root: &Path, title: &str, ext: &str, now: chrono::NaiveDateTime) -> String {
+pub fn picture_path(root: &Path, title: &str, ext: &str, bytes: &[u8], now: chrono::NaiveDateTime) -> String {
+    use sha2::Digest as _;
     let cleaned: String = title
         .chars()
         .map(|c| if matches!(c, '[' | ']' | '#' | '^') { ' ' } else { c })
@@ -128,7 +141,15 @@ pub fn picture_path(root: &Path, title: &str, ext: &str, now: chrono::NaiveDateT
     } else {
         base
     };
-    free_path(root, &base, ext)
+    let hash = sha2::Sha256::digest(bytes);
+    let base = format!("{base} {:02x}{:02x}{:02x}", hash[0], hash[1], hash[2]);
+    let rel = format!("{FOLDER}/{base}.{ext}");
+    match std::fs::read(root.join(&rel)) {
+        // Already stored, byte for byte: name the same file again.
+        Ok(existing) if existing == bytes => rel,
+        Err(_) => rel,
+        Ok(_) => free_path(root, &base, ext),
+    }
 }
 
 /// Shrink a picture so its longest edge is at most `max`, or hand back the
@@ -176,7 +197,7 @@ pub fn shrink(bytes: &[u8], ext: &str, max: u32, keep_gif: bool) -> Result<(Vec<
 /// The vault-relative path of the file a Picture names, if there is one.
 ///
 /// The app writes the full path, but Obsidian writes the shortest one, so
-/// `![[athens.png]]` is looked for in `Attachments/` too (ADR 0018). Nothing
+/// `![[athens.png]]` is looked for in `Attachments/` too (ADR 0019). Nothing
 /// indexes pictures, so this is a look at the disk, not a query.
 pub fn locate_picture(root: &Path, target: &str) -> Option<String> {
     let target = target.split('|').next().unwrap_or(target).trim().replace('\\', "/");
@@ -187,7 +208,7 @@ pub fn locate_picture(root: &Path, target: &str) -> Option<String> {
 }
 
 /// Copy a Picture into `Attachments/`, shrunk, and return the vault-relative
-/// path to write inside `![[…]]` (ADR 0018). `file_name` is only read for its
+/// path to write inside `![[…]]` (ADR 0019). `file_name` is only read for its
 /// extension; the name comes from `title`.
 pub fn store_picture(
     root: &Path,
@@ -205,7 +226,14 @@ pub fn store_picture(
         .unwrap_or_default()
         .to_ascii_lowercase();
     let (bytes, ext) = shrink(bytes, &ext, PICTURE_MAX_EDGE, true)?;
-    let rel = picture_path(root, title, &ext, now);
+    if bytes.len() > PICTURE_MAX_BYTES {
+        return Err(Error::Invalid(format!(
+            "a picture of {} MB is more than the {} MB a Picture may be",
+            bytes.len() >> 20,
+            PICTURE_MAX_BYTES >> 20
+        )));
+    }
+    let rel = picture_path(root, title, &ext, &bytes, now);
     let abs = root.join(&rel);
     if let Some(dir) = abs.parent() {
         std::fs::create_dir_all(dir)?;
@@ -421,15 +449,43 @@ mod tests {
     fn a_picture_is_named_after_the_document_that_holds_it() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
+        let short = |b: &[u8]| {
+            use sha2::Digest as _;
+            let h = sha2::Sha256::digest(b);
+            format!("{:02x}{:02x}{:02x}", h[0], h[1], h[2])
+        };
         let first = store_picture(root, "Paul in Athens", "IMG_2031.PNG", &png(10, 10), noon()).unwrap();
-        assert_eq!(first, "Attachments/paul in athens.png");
-        let second = store_picture(root, "Paul in Athens", "x.png", &png(10, 10), noon()).unwrap();
-        assert_eq!(second, "Attachments/paul in athens 2.png");
+        assert_eq!(first, format!("Attachments/paul in athens {}.png", short(&png(10, 10))));
+        // The same picture again is the same file, not a second copy.
+        let again = store_picture(root, "Paul in Athens", "x.png", &png(10, 10), noon()).unwrap();
+        assert_eq!(again, first);
+        // Another picture in the same document: another name, on any Device.
+        let other = store_picture(root, "Paul in Athens", "x.png", &png(10, 11), noon()).unwrap();
+        assert_eq!(other, format!("Attachments/paul in athens {}.png", short(&png(10, 11))));
+        assert_ne!(other, first);
         // What means something inside `![[…]]` never reaches the file name.
         assert_eq!(
-            picture_path(root, "Acts 17 [draft] #1", "png", noon()),
-            "Attachments/acts 17 draft 1.png"
+            picture_path(root, "Acts 17 [draft] #1", "png", b"x", noon()),
+            "Attachments/acts 17 draft 1 2d7116.png"
         );
+    }
+
+    #[test]
+    fn a_name_another_picture_already_holds_is_never_reused() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        std::fs::create_dir_all(root.join(FOLDER)).unwrap();
+        std::fs::write(root.join("Attachments/athens 2d7116.png"), b"not x").unwrap();
+        assert_eq!(picture_path(root, "Athens", "png", b"x", noon()), "Attachments/athens 2d7116 2.png");
+    }
+
+    #[test]
+    fn a_picture_heavier_than_pairing_carries_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut big = gif(10, 10);
+        big.resize(PICTURE_MAX_BYTES + 1, 0);
+        assert!(store_picture(dir.path(), "Athens", "big.gif", &big, noon()).is_err());
+        assert!(!dir.path().join(FOLDER).exists());
     }
 
     #[test]
@@ -437,8 +493,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         for title in ["", "  ", "Untitled", "[]"] {
             assert_eq!(
-                picture_path(dir.path(), title, "png", noon()),
-                "Attachments/2026-09-26 101512.png",
+                picture_path(dir.path(), title, "png", b"x", noon()),
+                "Attachments/2026-09-26 101512 2d7116.png",
                 "{title:?}"
             );
         }

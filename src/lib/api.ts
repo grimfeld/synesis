@@ -517,7 +517,7 @@ export type PairingEvent =
   | { kind: "error"; message: string }
   /** Config files a peer delivered (ADR 0016), relative to `.bible-study/`. */
   | { kind: "config"; names: string[] }
-  /** Pictures a peer delivered (ADR 0019), vault-relative paths. */
+  /** Pictures a peer delivered (ADR 0020), vault-relative paths. */
   | { kind: "attachments"; names: string[] };
 
 export type SyncMethod =
@@ -886,7 +886,7 @@ export const api = {
   readAttachment: (path: string) => invoke<string>("read_attachment", { path }),
   /**
    * Copy a dropped, pasted or picked picture into `Attachments/`, named after
-   * `title`; returns the path to write in `![[…]]` (ADR 0018). `data` is base64.
+   * `title`; returns the path to write in `![[…]]` (ADR 0019). `data` is base64.
    */
   attachPicture: (title: string, name: string, data: string) =>
     invoke<string>("attach_picture", { title, name, data }),

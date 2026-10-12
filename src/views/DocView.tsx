@@ -235,7 +235,7 @@ export function DocView({ id }: { id: string }) {
           autofocus={!locked}
           sourceMode={s.sourceMode}
           readOnly={locked}
-          // A Clipping has no title, so its Pictures take its Source's (ADR 0018).
+          // A Clipping has no title, so its Pictures take its Source's (ADR 0019).
           pictureTitle={sum.type === "clipping" ? sourceName : sum.title}
         />
       </div>

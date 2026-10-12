@@ -688,7 +688,7 @@ no frontmatter
 
     #[test]
     fn a_picture_is_not_a_link() {
-        // No backlink, no Mention, never "unresolved" (ADR 0018).
+        // No backlink, no Mention, never "unresolved" (ADR 0019).
         let d = parse(
             "N.md",
             "![[Attachments/athens.png]]\n![[athens.JPG|300]]\n![map](Attachments/a%20b.webp)\n![[Clip one]] #tag",
