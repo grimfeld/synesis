@@ -43,7 +43,11 @@ The workflow refuses a version that differs from those files, or one whose tag a
 
 ## Licence
 
-App: MIT. Sync server (when it exists): AGPL-3.0.
+Synesis is free software under the [GNU AGPL-3.0](LICENSE): use it, change it and share it, and share the source of what you change with everyone you give it to. It is free, and will stay free: there is no paid tier ([ADR 0021](docs/adr/0021-open-source-under-the-agpl-with-the-name-kept.md)).
+
+The name and icon are not part of the licence: a changed version needs its own ([TRADEMARKS.md](TRADEMARKS.md)). Issues are welcome; code is by invitation ([CONTRIBUTING.md](CONTRIBUTING.md)).
+
+Bundled data keeps its own terms: OpenBible.info places (CC BY 4.0), Natural Earth (public domain) and Mapzen Terrain Tiles (attribution in the app).
 
 ## Testing
 
