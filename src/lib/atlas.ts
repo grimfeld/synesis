@@ -53,6 +53,10 @@ export interface Atlas {
 export function addAtlas(map: L.Map, { online = true }: { online?: boolean } = {}): Atlas {
   const container = map.getContainer();
   container.classList.add("atlas");
+  // Leaflet's `remove()` drops the panes but leaves `_loaded` set, so that
+  // flag cannot tell a removed map; its `unload` event can.
+  let removed = false;
+  map.once("unload", () => (removed = true));
   // Panes below Leaflet's own tile pane (200): land, then relief blended onto
   // it, then water drawn over both so lakes and rivers stay crisp.
   const pane = (name: string, z: number) => {
@@ -96,8 +100,9 @@ export function addAtlas(map: L.Map, { online = true }: { online?: boolean } = {
   };
 
   load().then((a) => {
-    // The map may have been removed while the shapes were loading.
-    if (!a || !(map as unknown as { _loaded?: boolean })._loaded) return;
+    // The map may have been removed while the shapes were loading: leaving
+    // the Map before they arrive must not add them to a map with no panes.
+    if (!a || removed || !(map as unknown as { _loaded?: boolean })._loaded) return;
     const land = () => ({
       fillColor: cssVar("--c-atlas-land", "#efe8d8"),
       fillOpacity: 1,
@@ -145,4 +150,15 @@ export function addAtlas(map: L.Map, { online = true }: { online?: boolean } = {
   });
 
   return { restyle };
+}
+
+/**
+ * Remove a map that may be mid-zoom. A zoom animation finishes on a 250 ms
+ * timer that `remove()` does not cancel, and it then measures a pane that is
+ * gone ("reading '_leaflet_pos'"). The timer does nothing once the map is no
+ * longer animating, so say so first.
+ */
+export function removeMap(map: L.Map) {
+  (map as unknown as { _animatingZoom?: boolean })._animatingZoom = false;
+  map.remove();
 }

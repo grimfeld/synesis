@@ -39,7 +39,7 @@ describe("Tutorial: Passages", () => {
     cy.get("[data-testid=new-doc-title]").type("Passage practice");
     cy.get("[data-testid=submit-doc]").click();
     cy.get("[data-testid=doc-title]").should("have.value", "Passage practice");
-    cy.get(".cm-content").click().type("{ctrl}{end}{enter}Ro 12:2 and Jean 3,16.");
+    cy.get(".cm-content").click().type("{ctrl}{end}").type("{enter}Ro 12:2 and Jean 3,16.");
     // Both are detected as typed, the French book name included.
     cy.get(".cm-passage").should("contain", "Ro 12:2").and("contain", "Jean 3,16");
     cy.wait(1000);

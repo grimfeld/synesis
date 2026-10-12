@@ -47,6 +47,10 @@ function DialogOverlay({
   )
 }
 
+function inTutorialPanel(target: EventTarget | null) {
+  return target instanceof Element && target.closest("[data-tutorial-panel]") !== null
+}
+
 function DialogContent({
   className,
   children,
@@ -65,6 +69,16 @@ function DialogContent({
           className
         )}
         {...props}
+        // A Tutorial step can ask for something inside an open dialog and
+        // then for Next, so the Tutorial panel stays usable beside it.
+        onInteractOutside={(e) => {
+          if (inTutorialPanel(e.target)) e.preventDefault()
+          else props.onInteractOutside?.(e)
+        }}
+        onFocusOutside={(e) => {
+          if (inTutorialPanel(e.target)) e.preventDefault()
+          else props.onFocusOutside?.(e)
+        }}
       >
         {children}
         {showCloseButton && (

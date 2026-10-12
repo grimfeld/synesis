@@ -152,7 +152,9 @@ describe("Hub pages", () => {
     cy.get("[data-testid=hub-about] button")
       .contains("Add a note about Timothy")
       .click();
+    // Below Timothy's dates and Backlinks: in the pane's scroll, not on screen.
     cy.get("[data-testid=hub-about] .cm-content")
+      .scrollIntoView()
       .should("be.visible")
       .type("Left in Ephesus, 1Ti 1:3.");
     cy.get("[data-testid=hub-about] .cm-passage").should("contain", "1Ti 1:3");

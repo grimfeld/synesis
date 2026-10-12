@@ -41,7 +41,7 @@ describe("Tutorial: Mentions & Tags", () => {
     cy.get("[data-testid=new-doc-title]").type("Mention practice");
     cy.get("[data-testid=submit-doc]").click();
     cy.get("[data-testid=doc-title]").should("have.value", "Mention practice");
-    cy.get(".cm-content").click().type("{ctrl}{end}{enter}Jesus prayed in ");
+    cy.get(".cm-content").click().type("{ctrl}{end}").type("{enter}Jesus prayed in ");
     cy.tutorialCommand("editor.link");
     // The Command types `[[`, keeps the editor focused and opens the list.
     cy.focused().type("Geth", { delay: 150 });

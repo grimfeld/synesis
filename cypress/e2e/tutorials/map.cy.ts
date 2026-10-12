@@ -3,7 +3,19 @@
 // here (PLAN §25.13). The walk asserts on pins, names and routes, never on
 // the atlas under them.
 describe("Tutorial: Map & Journeys", () => {
-  beforeEach(() => cy.openApp());
+  // Map filters and Colour by are this Device's real settings, kept across
+  // runs: start each test from none, and put the user's back afterwards.
+  let saved = { books: [] as number[], mentionedOnly: false, colorBy: "kind" };
+  before(() => {
+    cy.bridge<{ map_books?: number[]; map_mentioned_only?: boolean; map_color_by?: string }>("get_settings").then((s) => {
+      saved = { books: s.map_books ?? [], mentionedOnly: s.map_mentioned_only ?? false, colorBy: s.map_color_by ?? "kind" };
+    });
+  });
+  after(() => cy.bridge("set_map_filters", saved));
+  beforeEach(() => {
+    cy.bridge("set_map_filters", { books: [], mentionedOnly: false, colorBy: "kind" });
+    cy.openApp();
+  });
 
   const markers = () => cy.get("[data-testid=map] [data-testid=map-pin]");
   const pin = (title: string) => cy.contains("[data-testid=map-pin]", title);
@@ -135,7 +147,7 @@ describe("Tutorial: Map & Journeys", () => {
     add("philippi", "gazetteer", "Philippi");
     // Philippi came before Corinth: fix the order with the arrows.
     cy.get("[data-testid=journey-stop]").eq(2).find("button[aria-label='Move earlier']").click();
-    cy.get("[data-testid=journey-stop]").then((rows) => {
+    cy.get("[data-testid=journey-stop]").should((rows) => {
       expect([...rows].map((r) => r.innerText.split("\n")[1])).to.deep.equal(["Antioch", "Philippi", "Corinth"]);
     });
     cy.get("[data-testid=journey-stop][data-status=ok]").should("have.length", 3);

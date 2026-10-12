@@ -35,6 +35,8 @@ describe("Leaving a vault", () => {
         cy.get("[data-testid=vault-leave]").click();
         cy.get("[data-testid=vault-leave-confirm]").should("be.visible");
         cy.get("[data-testid=vault-leave-keep]").click();
+        // `cy.task` does not retry: wait for the leave to finish first.
+        cy.get("[data-testid=vault-leave-confirm]").should("not.exist");
 
         // The documents are still there; this device's sync folder is not.
         cy.task<boolean>("file:exists", dir).should("equal", true);
@@ -64,6 +66,8 @@ describe("Leaving a vault", () => {
         cy.get("[data-testid=vault-leave-delete]").should("be.disabled");
         cy.get("[data-testid=vault-leave-name]").clear().type(info.meta.name);
         cy.get("[data-testid=vault-leave-delete]").should("not.be.disabled").click();
+        // `cy.task` does not retry: wait for the leave to finish first.
+        cy.get("[data-testid=vault-leave-confirm]").should("not.exist");
         cy.task<boolean>("file:exists", dir).should("equal", false);
       });
     });
