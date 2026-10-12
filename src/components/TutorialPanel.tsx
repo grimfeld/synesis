@@ -27,8 +27,17 @@ export function TutorialButton({ place, deviceKind, className }: { place: Tutori
   const s = useStore();
   const tut = useTutorials();
   const ids = tutorialsFor(place, deviceKind);
-  if (!ids.length) return null;
   const total = (id: string) => tutorial(id, s.lang)?.steps.length ?? 1;
+  // Settings learns the Device kind only once the engine answers, and adds the
+  // sync Tutorials then. A list opened before that grows to match instead of
+  // keeping the shorter one it was opened with.
+  const open = tut.open;
+  const grows = open?.kind === "list" && open.ids.length < ids.length && open.ids.every((id) => ids.includes(id));
+  useEffect(() => {
+    if (grows) tut.showList(ids, total);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grows, ids.join(",")]);
+  if (!ids.length) return null;
   return (
     <IconButton label={t.tutorials.open} data-testid="tutorial-button" className={className} onClick={() => tut.showList(ids, total)}>
       <CircleHelp />
@@ -243,7 +252,7 @@ export function TutorialPanel() {
     if (!expanded)
       return (
         <div
-          data-testid="tutorial-strip"
+          data-tutorial-panel data-testid="tutorial-strip"
           className="fixed inset-x-0 bottom-0 z-40 flex min-h-12 items-center gap-2 border-t bg-background px-3 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
         >
           <button type="button" onClick={() => setExpanded(true)} data-testid="tutorial-expand" className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm" aria-label={t.tutorials.expand}>
@@ -259,7 +268,7 @@ export function TutorialPanel() {
       );
     return (
       <aside
-        data-testid="tutorial-panel"
+        data-tutorial-panel data-testid="tutorial-panel"
         data-layout="sheet"
         className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] min-w-0 flex-col rounded-t-xl border-t bg-background pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
       >
@@ -269,7 +278,7 @@ export function TutorialPanel() {
     );
   }
   return (
-    <aside data-testid="tutorial-panel" data-layout="docked" className="flex h-full w-80 min-w-0 shrink-0 flex-col border-l bg-background">
+    <aside data-tutorial-panel data-testid="tutorial-panel" data-layout="docked" className="flex h-full w-80 min-w-0 shrink-0 flex-col border-l bg-background">
       {header}
       {body}
     </aside>

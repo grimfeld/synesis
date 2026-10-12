@@ -111,6 +111,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "set_timeline_filters" => ok(set_timeline_filters(state, arg(&a, "hiddenTypes")?, arg(&a, "inView")?)?),
         "set_map_filters" => ok(set_map_filters(state, arg(&a, "books")?, arg(&a, "mentionedOnly")?, arg(&a, "colorBy")?)?),
         "set_sync_method" => ok(set_sync_method(state, arg(&a, "method")?)?),
+        "leave_vault" => ok(leave_vault(state, arg(&a, "id")?, arg(&a, "deleteDocuments")?)?),
+        "forget_device" => ok(forget_device(state, arg(&a, "device")?)?),
         "pairing_status" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_status(state))?),
         "pairing_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_invite(app.clone(), state))?),
         "pairing_revoke_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_revoke_invite(app.clone(), state))?),
@@ -189,6 +191,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "history" => ok(history(state, arg(&a, "id")?)?),
         "get_board" => ok(get_board(state, arg(&a, "id")?)?),
         "save_board" => ok(save_board(state, arg(&a, "id")?, arg(&a, "board")?)?),
+        "export_board" => ok(export_board(arg(&a, "path")?, arg(&a, "data")?, arg(&a, "base64")?)?),
         "board_at" => ok(board_at(state, arg(&a, "id")?, arg(&a, "frontier")?)?),
         // `sourceId` is optional: absent means every Clipping in the vault.
         "attach_image" => ok(attach_image(state, arg(&a, "title")?, arg(&a, "path")?)?),
@@ -212,5 +215,28 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             ok(())
         }
         other => Err(format!("unknown command {other}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// A Tauri command exists in three places: its `fn`, `generate_handler!`
+    /// and this bridge's hand-written dispatch. The bridge is the one that gets
+    /// forgotten, and then every spec that reaches the command fails with
+    /// "unknown command" for reasons that have nothing to do with the view.
+    #[test]
+    fn every_command_has_a_bridge_arm() {
+        let lib = include_str!("lib.rs");
+        let bridge = include_str!("devbridge.rs");
+        let start = lib.find("generate_handler![").expect("handler list") + "generate_handler![".len();
+        let end = start + lib[start..].find(']').expect("end of handler list");
+        let missing: Vec<&str> = lib[start..end]
+            .split(',')
+            .map(|c| c.trim())
+            .filter(|c| !c.is_empty() && !c.starts_with('#'))
+            .map(|c| c.rsplit("::").next().unwrap())
+            .filter(|c| !bridge.contains(&format!("\"{c}\" =>")))
+            .collect();
+        assert!(missing.is_empty(), "no devbridge arm for {missing:?}");
     }
 }

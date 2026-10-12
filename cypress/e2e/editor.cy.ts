@@ -21,6 +21,10 @@ describe("Editor (Writing page)", () => {
       .should("not.contain", "**");
   });
 
+  // A keydown alone: the press navigates and remounts the editor, so the
+  // keyup `type()` would send next lands on a detached element.
+  // Focus, not click: a click lands mid-text, where a link may open instead.
+  const altArrow = (key: string) => ({ eventConstructor: "KeyboardEvent", key, code: key, altKey: true, bubbles: true });
   it("goes Back and Forward with Alt+arrows while the editor has focus", function () {
     // Off macOS only: there Option+arrow is word motion in every text field,
     // and the editor keeps it.
@@ -28,9 +32,9 @@ describe("Editor (Writing page)", () => {
     cy.openDoc("Talk on endurance");
     cy.openDoc("Endurance in trials");
     // CodeMirror binds Alt+arrows to its own motion; the app's must win.
-    cy.get(".cm-content").click().type("{alt}{leftarrow}");
+    cy.get(".cm-content").focus().trigger("keydown", altArrow("ArrowLeft"));
     cy.get("[data-testid=doc-title]").should("have.value", "Talk on endurance");
-    cy.get(".cm-content").click().type("{alt}{rightarrow}");
+    cy.get(".cm-content").focus().trigger("keydown", altArrow("ArrowRight"));
     cy.get("[data-testid=doc-title]").should("have.value", "Endurance in trials");
   });
 

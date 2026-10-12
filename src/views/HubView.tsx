@@ -45,7 +45,7 @@ import { childKindFor } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
 import { setField, splitFrontmatter } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
-import { addAtlas } from "@/lib/atlas";
+import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
@@ -706,7 +706,7 @@ function MiniMap({ lat, lon, kind }: { lat: number; lon: number; kind: KindDef |
     window.addEventListener("skin:applied", restyle);
     return () => {
       window.removeEventListener("skin:applied", restyle);
-      map.remove();
+      removeMap(map);
     };
   }, [lat, lon, kind]);
   return <div ref={host} className="pointer-events-none h-full w-full" />;
@@ -806,18 +806,27 @@ function JourneySection({
 
   // Written the way every other list Property is (ChipsRow): through the
   // frontmatter text, so one edit path serves the app and Obsidian alike.
-  const write = (next: string[]) =>
+  // The list as last written, until the saved document catches up: two quick
+  // clicks on the arrows must each start from the order the previous one left.
+  const written = useRef<{ from: unknown; places: string[] } | null>(null);
+  const places = () =>
+    written.current && written.current.from === doc.frontmatter.places
+      ? written.current.places
+      : stopList(doc.frontmatter.places);
+  const write = (next: string[]) => {
+    written.current = { from: doc.frontmatter.places, places: next };
     onFmChange(setField(fm, "places", next.length ? next : null));
+  };
   const move = (from: number, to: number) => {
     if (to < 0 || to >= stops.length) return;
-    const raw = stopList(doc.frontmatter.places);
+    const raw = places();
     const next = [...raw];
     const [x] = next.splice(from, 1);
     next.splice(to, 0, x);
     write(next);
   };
   const remove = (i: number) => {
-    const next = stopList(doc.frontmatter.places).filter((_, n) => n !== i);
+    const next = places().filter((_, n) => n !== i);
     write(next);
   };
 
@@ -912,7 +921,7 @@ function JourneySection({
       )}
       <StopPicker
         onAdd={(title) =>
-          write([...stopList(doc.frontmatter.places), `[[${title}]]`])
+          write([...places(), `[[${title}]]`])
         }
       />
       <Button

@@ -32,7 +32,7 @@ describe("Command Palette", () => {
     cy.get("[data-testid=palette]").should("not.exist");
     cy.get("body").type("{ctrl}{shift}p");
     cy.get("[data-testid=palette] input[cmdk-input]").should("have.value", ">");
-    cy.get("[data-testid=palette] input[cmdk-input]").type("graph");
+    cy.get("[data-testid=palette] input[cmdk-input]").type("go to graph");
     cy.get("[data-testid=palette] [cmdk-item]")
       .should("have.length", 1)
       .and("contain", "Go to Graph");

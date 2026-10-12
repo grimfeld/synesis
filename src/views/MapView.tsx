@@ -33,7 +33,7 @@ import {
   type RoutePoint,
 } from "@/lib/map";
 import { pinIconSvg } from "@/lib/pinIcons";
-import { addAtlas, type Atlas } from "@/lib/atlas";
+import { addAtlas, removeMap, type Atlas } from "@/lib/atlas";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -309,7 +309,7 @@ export function MapView() {
     ro.observe(host.current);
     return () => {
       ro.disconnect();
-      map.current?.remove();
+      if (map.current) removeMap(map.current);
       map.current = null;
     };
   }, []);

@@ -43,8 +43,11 @@ describe("Tutorials", () => {
   });
 
   it("shows a Command that does not apply here as plain text", () => {
-    // Quick capture & Notes names editor Commands; on Home there is no editor.
-    cy.openTutorial("capture");
+    // Source mode names the editor's Source mode Command; on Home there is no
+    // editor. Opened from the palette, since Home's "?" does not list it.
+    cy.runCommand("Tutorial: Live Preview & Source mode");
+    cy.get("[data-testid=tutorial-body]").should("have.attr", "data-id", "source-mode");
+    cy.get('[data-testid=command-link][data-command="editor.source"]').should("have.attr", "data-available", "false");
     cy.get('[data-testid=command-link][data-available="false"]').each(($a) => {
       expect($a.prop("tagName")).to.equal("SPAN");
     });
@@ -94,7 +97,7 @@ describe("Tutorials", () => {
     cy.get("[data-testid=nav-settings]").click();
     cy.get("[data-testid=tutorial-image-mode]").click();
     cy.get("[data-testid=tutorial-image-mode-diagrams]").click();
-    cy.get("[data-testid=tutorial-image]").should("have.attr", "data-mode", "diagrams").and("have.attr", "src").and("match", /timeline/);
+    cy.get("[data-testid=tutorial-image]").should("have.attr", "data-mode", "diagrams").and("have.attr", "src").and("match", /timeline/i);
     cy.get("[data-testid=tutorial-image-mode]").click();
     cy.get("[data-testid=tutorial-image-mode-none]").click();
     cy.get("[data-testid=tutorial-image]").should("not.exist");

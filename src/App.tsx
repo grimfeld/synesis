@@ -126,7 +126,10 @@ function Shell() {
       className="h-full min-h-0 overflow-clip"
     >
       <AppSidebar />
-      <SidebarInset className="h-full min-h-0 overflow-clip">
+      {/* min-w-0: as a flex item it would otherwise refuse to be narrower than
+          its content, the open document plus the Tutorial panel, and the
+          clipped root would cut the panel off the right edge instead. */}
+      <SidebarInset className="h-full min-h-0 min-w-0 overflow-clip">
         {/* The Tutorial panel docks beside whatever view is showing and
             outlives navigation (PLAN §25.6); the Skin gallery docks beside
             Settings, left of it (§26.6). */}

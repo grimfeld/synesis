@@ -924,8 +924,24 @@ impl Node {
         out
     }
 
+    /// A name a peer sent is used as one path component on this Device, so it
+    /// must stay one on every platform. On Windows `c:x` joins as a
+    /// drive-relative path, `x:y` names an alternate data stream, and `CON` or
+    /// a trailing dot is not the file it says; none of them is a name this app
+    /// ever makes.
     fn safe(name: &str) -> bool {
-        !name.is_empty() && !name.contains(['/', '\\']) && name != "." && name != ".."
+        const RESERVED: [&str; 4] = ["CON", "PRN", "AUX", "NUL"];
+        let stem = name.split('.').next().unwrap_or("").to_ascii_uppercase();
+        let numbered = (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit();
+        !name.is_empty()
+            && name != "."
+            && name != ".."
+            && !name.ends_with(['.', ' '])
+            && !name.chars().any(|c| c.is_control() || "/\\:<>\"|?*".contains(c))
+            && !RESERVED.contains(&stem.as_str())
+            && !numbered
     }
 
     fn read_file(&self, device: &str, name: &str) -> Option<Vec<u8>> {
@@ -972,6 +988,19 @@ async fn request(conn: &Connection, req: &Request) -> Result<Response, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_peer_name_stays_one_path_component() {
+        for ok in ["01ABC.loro", "device.json", "01JDEVICE", "athens 2.png"] {
+            assert!(Node::safe(ok), "{ok}");
+        }
+        for bad in [
+            "", ".", "..", "a/b", "a\\b", "c:map.png", "x:y.png", "CON", "nul.png", "com1.loro",
+            "lpt9", "trailing.", "trailing ", "a|b", "a?b", "a*b", "a<b", "a\"b", "tab\there",
+        ] {
+            assert!(!Node::safe(bad), "{bad:?}");
+        }
+    }
 
     fn member(device: &str, name: &str) -> Member {
         Member { node: [0; 32], device_id: device.into(), name: name.into(), platform: "test".into() }

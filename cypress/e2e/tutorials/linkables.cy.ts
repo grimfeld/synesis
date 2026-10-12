@@ -52,7 +52,7 @@ describe("Tutorial: Linkables & Unlinked mentions", () => {
     cy.get("[data-testid=new-doc-title]").type("Linkable practice");
     cy.get("[data-testid=submit-doc]").click();
     cy.get("[data-testid=doc-title]").should("have.value", "Linkable practice");
-    cy.get(".cm-content").click().type("{ctrl}{end}{enter}Moses came out of Egypt.");
+    cy.get(".cm-content").click().type("{ctrl}{end}").type("{enter}Moses came out of Egypt.");
     cy.get("[data-testid=linkables]", { timeout: 10000 })
       .parent()
       .should("contain", "Moses")

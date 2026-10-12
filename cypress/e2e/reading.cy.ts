@@ -30,15 +30,19 @@ describe("Reading mode", () => {
   });
 
   it("drops editing Commands run from the palette", () => {
+    // The file, not the rendered text: Live Preview shows or hides marks with
+    // focus, and locking moves focus, so the screen changes either way.
     cy.openDoc("Talk on endurance");
-    cy.get(".cm-content").then(($c) => {
-      const before = $c.text();
-      lock();
-      cy.palette(">Bold");
-      cy.get("[data-testid=palette] [cmdk-item]").should("not.exist");
-      cy.get("body").type("{esc}");
-      cy.get(".cm-content").should(($after) => {
-        expect($after.text()).to.equal(before);
+    cy.docByTitle("Talk on endurance").then((d) => {
+      const file = `${Cypress.env("vault")}/${d.path}`;
+      cy.task<string>("file:read", file).then((before) => {
+        lock();
+        cy.palette(">Bold");
+        cy.get("[data-testid=palette] [cmdk-item]").should("not.exist");
+        cy.get("body").type("{esc}");
+        // Past the editor's save debounce, so a write would have landed.
+        cy.wait(1000);
+        cy.task<string>("file:read", file).should("equal", before);
       });
     });
   });
@@ -120,9 +124,10 @@ describe("Reading mode", () => {
     lock();
     cy.get(".cm-content [data-link]").first().click();
     cy.get("[data-testid=hover-card], .cm-content").should("exist");
-    cy.get("[data-testid=doc-title-fixed]").should(
-      "not.contain",
-      "Talk on endurance",
-    );
+    // Gone from the Composition: a Hub has no fixed title at all, a Writing
+    // page has another one.
+    cy.get("body").should(($b) => {
+      expect($b.find("[data-testid=doc-title-fixed]").text()).not.to.contain("Talk on endurance");
+    });
   });
 });

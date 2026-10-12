@@ -156,10 +156,12 @@ describe("Locale layout", () => {
         cy.get("[data-testid=tab-split]").click();
         cy.get("[data-testid=split-board] [data-testid=board-canvas]").should("exist");
         expectNoOverflow();
-        // The narrowest a split gets: the side panel open beside it.
-        cy.get("[data-testid=right-panel]").then(($p) => {
-          if (!$p.is(":visible")) cy.get("[data-testid=toggle-panel]").click();
+        // The narrowest a split gets: the side panel open beside it. The page
+        // loaded at phone width, where the panel starts closed and absent.
+        cy.get("body").then(($b) => {
+          if (!$b.find("[data-testid=right-panel]:visible").length) cy.get("[data-testid=toggle-panel]").click();
         });
+        cy.get("[data-testid=right-panel]").should("be.visible");
         expectNoOverflow();
       });
 
