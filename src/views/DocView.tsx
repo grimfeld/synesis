@@ -21,6 +21,7 @@ import {
   Presentation,
   RefreshCw,
   Trash2,
+  Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
 import { api, fmString, type DetectedRange } from "@/lib/api";
@@ -335,6 +336,15 @@ export function DocView({ id }: { id: string }) {
               <Presentation />
             </IconButton>
           )}
+          {!isMobile && (
+            <IconButton
+              label={t.local_graph}
+              data-testid="open-local-graph"
+              onClick={() => s.navigate({ kind: "graph", focus: id })}
+            >
+              <Waypoints />
+            </IconButton>
+          )}
           {/* The Device's lock on every Writing (PLAN §23). Its state is always
               on show, since it outlives the session. */}
           <IconButton
@@ -395,6 +405,13 @@ export function DocView({ id }: { id: string }) {
                     {s.sourceMode ? t.live_preview : t.source_mode}
                   </DropdownMenuItem>
                 )}
+                <DropdownMenuItem
+                  data-testid="open-local-graph"
+                  onSelect={() => s.navigate({ kind: "graph", focus: id })}
+                >
+                  <Waypoints />
+                  {t.local_graph}
+                </DropdownMenuItem>
                 {openTutorials && (
                   <DropdownMenuItem onSelect={openTutorials} data-testid="tutorial-menu-item">
                     <CircleHelp />

@@ -42,6 +42,14 @@ describe("Onboarding wizard", () => {
     cy.get("[data-testid=pairing-join-go]").should("be.enabled");
   });
 
+  it("shows the Pairing Tutorial on the pairing screen (PLAN §25.10)", () => {
+    cy.get("[data-testid=wizard-next]").click();
+    cy.get("[data-testid=route-pairing]").click();
+    cy.get("[data-testid=welcome-tutorial-pairing]").should("not.have.attr", "open");
+    cy.get("[data-testid=welcome-tutorial-pairing] summary").should("contain", "Pairing").click();
+    cy.get("[data-testid=welcome-tutorial-pairing]").should("contain", "Join from another device").and("contain", "Try it once");
+  });
+
   it("recommends Syncthing with Android, iCloud for Apple-only, and refuses iOS + Android", () => {
     cy.get("[data-testid=wizard-next]").click();
     cy.get("[data-testid=route-folder]").click();

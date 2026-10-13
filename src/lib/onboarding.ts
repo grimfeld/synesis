@@ -39,14 +39,37 @@ export function joinPath(parent: string, name: string): string {
 }
 
 /**
- * What the Vault-location line says. On mobile the path is derived and the
- * user never types one; on desktop they keep the picker, so `chosen` wins.
+ * The folder that holds Vaults directly for a sync method, when this Device
+ * has one: Synesis's iCloud container (PLAN §14, amended). On an iPhone that
+ * is the only place iCloud reaches; on a Mac and on Windows it is the one
+ * folder an iPhone shares with them.
  */
-export function destination(locations: SyncLocations | null, name: string, chosen?: string): Destination {
+export function vaultsFolder(locations: SyncLocations | null, method: string | null | undefined): string | undefined {
+  if (!locations || !method) return undefined;
+  return locations.locations.find((l) => l.method === method && l.holds_vaults && l.exists)?.root;
+}
+
+/**
+ * iCloud was chosen on an iPhone where it is not available — signed out,
+ * iCloud Drive off, or Synesis not allowed to use it. The Vault then stays on
+ * this iPhone, and the wizard says so rather than pretending it syncs.
+ */
+export function icloudUnavailable(locations: SyncLocations | null, method: string | null | undefined): boolean {
+  return !!locations && locations.app_decides_path && method === "icloud" && !vaultsFolder(locations, "icloud");
+}
+
+/**
+ * What the Vault-location line says. On mobile the path is derived and the
+ * user never types one — inside the sync method's own folder when it has one
+ * (iCloud on an iPhone); on desktop they keep the picker, so `chosen` wins.
+ */
+export function destination(locations: SyncLocations | null, name: string, chosen?: string, method?: string | null): Destination {
   const storage = locations?.storage;
   if (chosen !== undefined && !locations?.app_decides_path) {
     return { path: chosen, visible: true, canAsk: false };
   }
+  const inMethod = locations?.app_decides_path ? vaultsFolder(locations, method) : undefined;
+  if (inMethod) return { path: joinPath(inMethod, name.trim()), visible: true, canAsk: false };
   return {
     path: joinPath(locations?.home ?? "", name.trim()),
     visible: visible(storage),

@@ -1,7 +1,16 @@
 // The Board of a Composition: a JSON Canvas laid out by hand (ADR 0009).
 // The demo vault's "Talk on endurance" ships a Board with every node type.
 describe("Board", () => {
-  beforeEach(() => cy.openApp());
+  // Every test starts from the demo Board as shipped: several of them add,
+  // move or recolour nodes, and the ones that aim at a spot on the canvas
+  // (the marquee, a handle, a card) miss once an earlier test's card sits there.
+  beforeEach(() => {
+    cy.readFile("examples/demo-vault/Compositions/talk on endurance.canvas").then((raw) => {
+      const board = typeof raw === "string" ? JSON.parse(raw) : raw;
+      cy.docByTitle("Talk on endurance").then((d) => cy.bridge("save_board", { id: d.id, board }));
+    });
+    cy.openApp();
+  });
 
   /**
    * Open a Composition's Board with the sidebar out of the way. Cypress runs
@@ -12,6 +21,46 @@ describe("Board", () => {
     cy.openDoc(title);
     cy.get("[data-sidebar=trigger]").first().click();
     cy.get("[data-testid=tab-board]").click();
+  };
+
+  const opts = { pointerId: 1, isPrimary: true, button: 0, force: true };
+
+  /**
+   * Where a Board point is on screen, read from the canvas's own transform
+   * (`translate(-x·zoom -y·zoom) scale(zoom)`), so a test can aim at a spot
+   * of the demo Board whatever zoom fit-all chose.
+   */
+  const screenOf = (bx: number, by: number) =>
+    cy.get("[data-testid=board-canvas]").then(($svg) => {
+      const svg = $svg[0];
+      const g = svg.querySelector(":scope > g")!;
+      const m = /translate\(([-\d.e]+)[ ,]+([-\d.e]+)\)\s*scale\(([-\d.e]+)\)/.exec(g.getAttribute("transform")!)!;
+      const r = svg.getBoundingClientRect();
+      return { x: r.left + Number(m[1]) + bx * Number(m[3]), y: r.top + Number(m[2]) + by * Number(m[3]) };
+    });
+
+  /** The demo Board as the engine has it, once the debounced save landed. */
+  type Saved = {
+    nodes: { id: string; type: string; x: number; y: number; width: number; height: number; color?: string; label?: string }[];
+    edges: { id: string; fromNode: string; toNode: string; label?: string }[];
+  };
+  const saved = (check: (b: Saved) => void) => {
+    cy.wait(700); // the Board save is debounced
+    cy.docByTitle("Talk on endurance").then((d) => {
+      cy.bridge<Saved>("get_board", { id: d.id }).should(check);
+    });
+  };
+
+  // Node ids in examples/demo-vault/Compositions/talk on endurance.canvas.
+  const OPENING = "a1b2c3d4e5f60001";
+  const TRIALS = "a1b2c3d4e5f60002";
+  const WHO_RAN = "a1b2c3d4e5f60006";
+  const CLOSE = "a1b2c3d4e5f60007";
+
+  /** Select one node by its text; the selection bar says so. */
+  const select = (text: string) => {
+    cy.contains("[data-testid=board-canvas] div", text).click();
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
   };
 
   it("opens from the tab on a Composition and shows the demo Board", () => {
@@ -148,6 +197,36 @@ describe("Board", () => {
     });
   });
 
+  // PLAN §17.18: export is a Command, not only the toolbar's button. Run
+  // from the talk, it opens the Board first, since the picture is drawn from
+  // the Board on screen. The native save dialog is answered here and the
+  // write intercepted, so nothing lands on disk.
+  it("exports from the board.export Command, even from the talk", () => {
+    cy.intercept("POST", "**/invoke/export_board", { statusCode: 200, body: "null" }).as("export");
+    cy.openDoc("Talk on endurance");
+    cy.window().then((win) => {
+      const internals = (win as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const real = internals.invoke.bind(internals);
+      internals.invoke = (cmd, args) =>
+        cmd === "plugin:dialog|save" ? Promise.resolve("C:/synesis-cy-export/board.svg") : real(cmd, args);
+    });
+    cy.get("[data-testid=tab-talk]").click();
+    cy.runCommand("Export the Board");
+    cy.get("[data-testid=tab-board]").should("have.attr", "aria-selected", "true");
+    cy.wait("@export").its("request.body").should((body) => {
+      expect(body.path).to.equal("C:/synesis-cy-export/board.svg");
+      expect(body.base64).to.equal(false);
+      expect(body.data).to.match(/^<svg /);
+      expect(body.data).to.contain("remaining steadfast");
+    });
+  });
+
+  it("offers board.export only on a Composition", () => {
+    cy.openDoc("Endurance in trials");
+    cy.palette(">Export the Board");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.exist");
+  });
+
   it("arranges by default: a card drags instead of opening", () => {
     openBoard("Talk on endurance");
     // The demo Board carries a `file` node pointing at this Note.
@@ -238,6 +317,177 @@ describe("Board", () => {
             });
           },
         );
+      });
+    });
+  });
+
+  it("selects every node a dragged rectangle touches", () => {
+    openBoard("Talk on endurance");
+    // The strip between the Opening and Body groups is the demo Board's one
+    // empty spot inside its bounds; dragging up and left from it touches the
+    // Opening group and the bubble inside it, not the Clipping beside it.
+    screenOf(0, -40).then((a) =>
+      screenOf(-200, -200).then((b) => {
+        cy.get("[data-testid=board-canvas]")
+          .trigger("pointerdown", { ...opts, clientX: a.x, clientY: a.y })
+          .trigger("pointermove", { ...opts, clientX: b.x, clientY: b.y })
+          .trigger("pointerup", { ...opts, clientX: b.x, clientY: b.y });
+      }),
+    );
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "2");
+    // Escape lets the selection go.
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=board-selection]").should("not.exist");
+  });
+
+  it("resizes a node from its corner handle", () => {
+    openBoard("Talk on endurance");
+    select("Trials feel like the opposite of joy.");
+    cy.get("[aria-label='Resize']").then(($h) => {
+      const r = $h[0].getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      cy.wrap($h).trigger("pointerdown", { ...opts, clientX: x, clientY: y });
+      // The handle follows the pointer on the window, wherever it wanders.
+      cy.window().then((win) => {
+        const at = (type: string) =>
+          win.dispatchEvent(new win.PointerEvent(type, { pointerId: 1, clientX: x + 120, clientY: y + 80, bubbles: true }));
+        at("pointermove");
+        at("pointerup");
+      });
+    });
+    saved((b) => {
+      const n = b.nodes.find((n) => n.id === TRIALS)!;
+      expect(n.width, "wider").to.be.greaterThan(300);
+      expect(n.height, "taller").to.be.greaterThan(120);
+    });
+  });
+
+  it("colours a node and takes the colour off again", () => {
+    openBoard("Talk on endurance");
+    // A press inside a group picks the card on top, not the group behind it.
+    select("Trials feel like the opposite of joy.");
+    cy.get("[aria-label='Colour 1']").click();
+    saved((b) => {
+      expect(b.nodes.find((n) => n.id === TRIALS)!.color).to.equal("1");
+      expect(b.nodes.find((n) => n.id === OPENING)!.color, "the group keeps its own").to.equal("5");
+    });
+    cy.get("[aria-label='No colour']").click();
+    saved((b) => expect(b.nodes.find((n) => n.id === TRIALS)!.color).to.equal(undefined));
+  });
+
+  it("draws a connection from a node's handle to another node", () => {
+    openBoard("Talk on endurance");
+    cy.docByTitle("Talk on endurance").then((d) => {
+      cy.bridge<Saved>("get_board", { id: d.id }).then((before) => {
+        select("Close on Ro 15:5");
+        cy.get("[aria-label='Draw a connection']").trigger("pointerdown", opts);
+        cy.contains("[data-testid=board-canvas] div", "Trials feel like the opposite of joy.").then(($t) => {
+          const r = $t[0].getBoundingClientRect();
+          const at = { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 };
+          cy.get("[data-testid=board-canvas]")
+            .trigger("pointermove", { ...opts, ...at })
+            .trigger("pointerup", { ...opts, ...at });
+        });
+        saved((b) => {
+          expect(b.edges).to.have.length(before.edges.length + 1);
+          expect(b.edges.some((e) => e.fromNode === CLOSE && e.toNode === TRIALS)).to.be.true;
+        });
+      });
+    });
+  });
+
+  it("shows edge labels and edits one from the selection bar", () => {
+    openBoard("Talk on endurance");
+    cy.get("[data-testid=board-canvas]").should("contain", "because").and("contain", "leads to");
+    // "Who ran before us" ends the one unlabelled edge, from the Note's card,
+    // which is the first edge the selection bar finds for it.
+    select("Who ran before us");
+    cy.get("[data-testid=board-selection] [aria-label='Edge label']").click();
+    cy.get("input[aria-label='Edge label']").should("have.value", "").type("then{enter}");
+    cy.get("[data-testid=board-canvas]").should("contain", "then");
+    saved((b) => {
+      const e = b.edges.find((e) => e.toNode === WHO_RAN)!;
+      expect(e.label).to.equal("then");
+    });
+  });
+
+  it("moves a group on its own, renames it, and adds a coloured one", () => {
+    openBoard("Talk on endurance");
+    // A group is dragged by its empty area, and moves on its own: the cards
+    // inside it stay where they are.
+    screenOf(360, -80).then((a) => {
+      cy.get("[data-testid=board-canvas]")
+        .trigger("pointerdown", { ...opts, clientX: a.x, clientY: a.y })
+        .trigger("pointermove", { ...opts, clientX: a.x + 60, clientY: a.y + 30 })
+        .trigger("pointerup", { ...opts, clientX: a.x + 60, clientY: a.y + 30 });
+    });
+    saved((b) => {
+      expect(b.nodes.find((n) => n.id === OPENING)!.x, "the group moved").to.not.equal(-420);
+      const t = b.nodes.find((n) => n.id === TRIALS)!;
+      expect([t.x, t.y], "the card inside stayed").to.deep.equal([-376, -248]);
+    });
+    // Renaming a group keeps its colour.
+    cy.contains("[data-testid=board-canvas] text", /^Opening$/).dblclick({ force: true });
+    cy.get("input[aria-label='Group label']").should("have.value", "Opening").clear().type("Start{enter}");
+    saved((b) => {
+      const g = b.nodes.find((n) => n.id === OPENING)!;
+      expect(g.label).to.equal("Start");
+      expect(g.color).to.equal("5");
+    });
+    // A new group is selected once added, so a colour lands on it.
+    cy.get("[aria-label='Add group']").click();
+    cy.contains("[data-testid=board-canvas] text", /^Group$/).dblclick({ force: true });
+    cy.get("input[aria-label='Group label']").clear().type("Application{enter}");
+    cy.contains("[data-testid=board-canvas] text", "Application").should("exist");
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get("[aria-label='Colour 6']").click();
+    saved((b) => {
+      const g = b.nodes.find((n) => n.type === "group" && n.label === "Application");
+      expect(g, "the group").to.exist;
+      expect(g!.color).to.equal("6");
+      expect([g!.width, g!.height]).to.deep.equal([520, 360]);
+    });
+  });
+  // PLAN §17.14: the watcher folds an outside edit to a `.canvas` (Obsidian)
+  // into the Board. Events do not reach a plain browser, so this asks the
+  // index — which only the watcher updates without the Board being opened —
+  // rather than watching the canvas redraw.
+  it("folds a Board edited outside the app into the index", () => {
+    const until = (check: () => Cypress.Chainable<boolean>, tries = 30): void => {
+      check().then((ok) => {
+        if (ok) return;
+        if (tries <= 0) throw new Error("the watcher never folded the canvas");
+        cy.wait(250);
+        until(check, tries - 1);
+      });
+    };
+    cy.docByTitle("Talk on endurance").then((talk) => {
+      cy.docByTitle("Psalm 23 reflections").then((note) => {
+        const onBoards = () =>
+          cy
+            .query<{ id: string }[]>({ kind: "boardsReferencing", id: note.id })
+            .then((docs) => docs.some((d) => d.id === talk.id));
+        onBoards().should("equal", false);
+        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        cy.task<string>("file:read", file).then((text) => {
+          const board = JSON.parse(text);
+          board.nodes.push({
+            id: "0b5d1d1a0b5d1d1a",
+            type: "file",
+            file: note.path,
+            x: 600,
+            y: 0,
+            width: 320,
+            height: 140,
+          });
+          cy.task("file:write", { path: file, text: JSON.stringify(board, null, 2) });
+        });
+        until(onBoards);
+        // The card is there when the Board is opened.
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=tab-board]").click();
+        cy.get("[data-node-id=0b5d1d1a0b5d1d1a]").should("exist");
       });
     });
   });

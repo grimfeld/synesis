@@ -1,5 +1,6 @@
 //! Folder watcher: external edits (Obsidian, a text editor, the sync folder)
-//! are re-indexed and announced to the UI as `vault:changed`.
+//! are re-indexed and announced to the UI as `vault:changed`. Markdown files
+//! are documents; a `.canvas` beside a Composition is its Board (ADR 0009).
 
 use crate::AppState;
 use engine::vault::HIDDEN_DIR;
@@ -17,6 +18,10 @@ pub struct Watcher {
 pub struct ChangedPayload {
     pub changed: Vec<engine::index::DocSummary>,
     pub removed: Vec<String>,
+    /// Compositions whose Board was edited outside the app (PLAN §17.14). A
+    /// Board is not a document, so it is not in `changed`: naming the
+    /// Composition there would read as an edit to its text.
+    pub boards: Vec<String>,
 }
 
 impl Watcher {
@@ -32,6 +37,7 @@ impl Watcher {
                 let state = app.state::<AppState>();
                 let mut changed = Vec::new();
                 let mut removed = Vec::new();
+                let mut boards = Vec::new();
                 let mut guard = match state.vault.lock() {
                     Ok(g) => g,
                     Err(_) => return,
@@ -48,11 +54,22 @@ impl Watcher {
                         Ok(r) => r.to_string_lossy().replace('\\', "/"),
                         Err(_) => continue,
                     };
+                    // iCloud evicted something, or is bringing it back: ask
+                    // for it. The real file's own event follows on arrival.
+                    if engine::cloud::is_placeholder(&p) {
+                        if p.is_file() {
+                            if let Some(orig) = engine::cloud::original_of(&p) {
+                                crate::icloud::download(&[orig]);
+                            }
+                        }
+                        continue;
+                    }
                     if rel.starts_with(&format!("{HIDDEN_DIR}/sync/")) {
                         sync_touched = true;
                         continue;
                     }
-                    if p.extension().map_or(true, |x| x != "md") {
+                    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or_default();
+                    if ext != "md" && ext != "canvas" {
                         continue;
                     }
                     if rel.starts_with(HIDDEN_DIR)
@@ -61,12 +78,25 @@ impl Watcher {
                     {
                         continue;
                     }
+                    // A Board edited in Obsidian (ADR 0009): folded in node by
+                    // node, and announced only when it really changed, so this
+                    // app's own Board saves do not echo back. A deleted canvas
+                    // is left to the CRDT, which still holds the Board.
+                    if ext == "canvas" {
+                        if p.is_file() {
+                            if let Ok(Some(comp)) = vault.fold_board_file(&rel) {
+                                boards.push(comp.id);
+                            }
+                        }
+                        continue;
+                    }
                     if p.is_file() {
                         if let Ok(Some(d)) = vault.index_file(&rel) {
                             changed.push(d);
                         }
-                    } else {
-                        let _ = vault.forget(&rel);
+                    } else if vault.vanished(&rel).unwrap_or(false) {
+                        // Only a file that is really gone; an evicted one
+                        // stays listed (engine::cloud).
                         removed.push(rel);
                     }
                 }
@@ -76,8 +106,15 @@ impl Watcher {
                     }
                 }
                 drop(guard);
-                if !changed.is_empty() || !removed.is_empty() {
-                    let _ = app.emit("vault:changed", ChangedPayload { changed, removed });
+                if !changed.is_empty() || !removed.is_empty() || !boards.is_empty() {
+                    let _ = app.emit(
+                        "vault:changed",
+                        ChangedPayload {
+                            changed,
+                            removed,
+                            boards,
+                        },
+                    );
                 }
             },
         )

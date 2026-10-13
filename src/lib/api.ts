@@ -491,6 +491,8 @@ export interface Settings {
   sync_method: SyncMethod | null;
   relay_url: string | null;
   background_sync: boolean;
+  /** Desktop: look for a new release when the app starts. */
+  check_updates: boolean;
   timeline_hidden_types: DocType[];
   timeline_in_view: boolean;
   /** Map: Book numbers the Places must be mentioned in (PLAN §19.13). */
@@ -560,6 +562,9 @@ export interface SyncLocation {
   root: string;
   exists: boolean;
   suggested: string;
+  /** Vaults sit directly in `root`, each named after itself: Synesis's own
+   * iCloud container, which iCloud Drive already shows as "Synesis". */
+  holds_vaults: boolean;
 }
 
 /** Whether this Device may write a Vault where its owner can find it (ADR 0015). */
@@ -623,6 +628,12 @@ export interface InviteInfo {
 export interface ChangedPayload {
   changed: DocSummary[];
   removed: string[];
+  /**
+   * Compositions whose Board was edited outside the app (PLAN §17.14). A
+   * Board is not a document, so it is never in `changed`. Absent from the
+   * changes the app announces itself.
+   */
+  boards?: string[];
 }
 
 /**
@@ -648,7 +659,7 @@ export type Query =
   | { kind: "ambiguousTitles" }
   | { kind: "candidates"; id: string }
   | { kind: "graph"; level: GraphLevel }
-  | { kind: "search"; text: string; limit: number }
+  | { kind: "search"; text: string; types?: DocType[]; limit: number }
   | { kind: "suggest"; prefix: string; limit: number }
   | { kind: "tags" }
   | { kind: "tagged"; tag: string }
@@ -703,6 +714,8 @@ export const api = {
   /** Re-checked whenever the window regains focus: the grant happens outside the app. */
   storageAccess: () => invoke<StorageAccess>("storage_access"),
   requestStorageAccess: () => invoke<void>("request_storage_access"),
+  /** Phone only: status and navigation bars in `color` (#rrggbb), light icons when `dark`. */
+  setSystemBars: (color: string, dark: boolean) => invoke<void>("set_system_bars", { color, dark }),
   pairingStatus: () => invoke<PairingStatus | null>("pairing_status"),
   pairingInvite: () => invoke<{ code: string }>("pairing_invite"),
   pairingRevokeInvite: () => invoke<{ code: string }>("pairing_revoke_invite"),
@@ -716,6 +729,8 @@ export const api = {
   setRelay: (url: string | null) => invoke<void>("set_relay", { url }),
   setBackgroundSync: (enabled: boolean) =>
     invoke<void>("set_background_sync", { enabled }),
+  setCheckUpdates: (enabled: boolean) =>
+    invoke<void>("set_check_updates", { enabled }),
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> =>
     listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
   setDeviceAppearance: (mode: AppearanceMode, textScale: number) =>
@@ -771,8 +786,8 @@ export const api = {
   /** Rename the open Vault; the name travels to every Device that holds it. */
   renameVault: (name: string) => invoke<VaultInfo>("rename_vault", { name }),
   /** Where a Vault of this name could go here without disturbing anything. */
-  suggestVaultPath: (name: string) =>
-    invoke<string>("suggest_vault_path", { name }),
+  suggestVaultPath: (name: string, method?: string | null) =>
+    invoke<string>("suggest_vault_path", { name, method: method ?? null }),
   /** Which Vault a code is for, and whether `path` can receive it. */
   inspectInvite: (code: string, path: string) =>
     invoke<InviteInfo>("inspect_invite", { code, path }),
@@ -802,6 +817,9 @@ export const api = {
   renameDocument: (id: string, title: string) =>
     invoke<DocumentPayload>("rename_document", { id, title }),
   deleteDocument: (id: string) => invoke<void>("delete_document", { id }),
+  /** A copy of a Composition and its Board under a new id (PLAN §14.8). */
+  duplicateComposition: (id: string, title: string) =>
+    invoke<DocumentPayload>("duplicate_composition", { id, title }),
   resolveLink: (target: string) =>
     invoke<DocSummary | null>("resolve_link", { target }),
   resolveMany: (targets: string[]) =>
@@ -851,8 +869,9 @@ export const api = {
   verseCoverage: (book: number, chapter: number) =>
     query<VerseCount[]>({ kind: "verseCoverage", book, chapter }),
   graph: (level: GraphLevel) => query<Graph>({ kind: "graph", level }),
-  search: (text: string, limit = 30) =>
-    query<SearchHit[]>({ kind: "search", text, limit }),
+  /** Full-text search; `types` narrows it to those kinds of page (PLAN §10). */
+  search: (text: string, limit = 30, types: DocType[] = []) =>
+    query<SearchHit[]>({ kind: "search", text, types, limit }),
   suggest: (prefix: string, limit = 12) =>
     query<DocSummary[]>({ kind: "suggest", prefix, limit }),
   tags: () => query<TagCount[]>({ kind: "tags" }),

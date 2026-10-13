@@ -71,6 +71,12 @@ Files are named in English. UI is localised (English and French in alpha, built 
 
 Platforms: all four, with folder-transport sync (iCloud container on Apple, user-chosen folder elsewhere). Hosted and self-hosted sync come after folder sync is proven.
 
+> **Amended (2026-10-13).** The iCloud container is now real. Until 0.0.19 the iPhone's "iCloud" folder was the app's own local Documents, which never synced. Built for 0.1.0 ([ADR 0022](adr/0022-vaults-sync-through-synesis-own-icloud-container.md)):
+> - The iOS app holds the ubiquity container `iCloud.tech.grimfeld.synesis` (entitlements in `src-tauri/ios/Synesis_iOS.entitlements`, written into the generated Xcode project by `npm run ios:post-init`), and `src-tauri/Info.ios.plist` publishes its `Documents` folder to iCloud Drive as **Synesis**. The shell resolves it with `NSFileManager URLForUbiquityContainerIdentifier` on a background thread (`src-tauri/src/icloud.rs`, objc2-foundation); unavailable (signed out, iCloud Drive off) means the wizard says so and the Vault stays on the iPhone.
+> - The Mac finds the same folder at `~/Library/Mobile Documents/iCloud~tech~grimfeld~synesis/Documents`, and Windows at `iCloudDrive\iCloud~tech~grimfeld~synesis`, offered before plain iCloud Drive. Vaults sit directly in it, each named after itself.
+> - iCloud evicts files and leaves `.name.icloud` placeholders (`engine::cloud`). An evicted document stays indexed, is never written over, renamed or deleted, and its name stays taken; remote merges onto it wait until it is back; an evicted sync snapshot is not overwritten (the publish waits), and an evicted `vault.json` is never replaced by a new identity. On Apple platforms the shell asks iCloud to download every evicted item (`startDownloadingUbiquitousItemAtURL`) when a Vault opens, when the watcher sees a placeholder, and every 15 seconds, and rescans when something arrives.
+> - The iOS release build links SystemConfiguration and Network, which iroh needs (`bundle.iOS.frameworks`, checked by `scripts/ios-post-init.mjs`).
+
 Features:
 1. Editor with live preview, links, tags, Passage decorations, autocomplete.
 2. Backlinks panel; graph view (Chapter default); map view of Places.
@@ -100,7 +106,9 @@ Bible text, Notes copied into Compositions, resurfacing / spaced review, browser
 - Place coordinates: lookup from the OpenBible.info dataset with manual override.
 - Inline Topical Mentions use `[[...]]` syntax; nothing but Scripture is auto-detected.
 - Graph: nodes coloured by type, filterable by type, plus a local graph per document.
+  **Built (2026-10-13): the local graph.** `{ kind: "graph", focus }` is the Graph view cut to one document and its neighbours, either direction, at depth 1 or 2 (`src/lib/graph.ts`), from the same whole-graph query, so there is one notion of an edge. Reached by the "Open local graph" Command and a header button on Writing and Hub pages (the Command only, on a phone's Hub). A Scripture page is drawn at its own level, where it has a node, without changing the remembered level; the document is circled and never filtered away by the type buttons.
 - Search: SQLite full-text over titles and bodies, filterable by type.
+  **Built (2026-10-13):** `Query::Search` takes `types`; the palette narrows by a `type:` token (`type:composition endurance`, also in the app language's names) or by the chips under the box, which only edit that token, so the query text stays the whole state as `>` already is (§12.4). Scripture is one chip for Book, Chapter and Verse pages; a chip with no words lists that kind, newest first. Logic in `src/lib/paletteQuery.ts`.
 - Mobile uses the same responsive UI, not a separate app.
 
 ## 11. Known risks
@@ -163,6 +171,7 @@ Outcome of a third session after the user tried the app. New vocabulary in [CONT
 6. **Place lookup**: the OpenBible.info geocoding dataset (CC BY 4.0, ~1,300 names) bundled in the engine. The New Place dialog suggests as you type; picking fills title, `lat`, `lon`, `modern_name`. The Place Hub mini-map gets "Set location" (click on map) as the override. No online geocoder: modern names are useless for ancient sites.
 7. **Candidates**: a document the Composition already Mentions (inline `[[..]]`, Embed `![[..]]`, or a Tag naming it) is not a Candidate. The panel shows **Candidates** (unused) and a collapsed **Used in this Composition** list with the same shared Tags / Passages. Home's candidate count counts unused only. Notes that merely share a Tag with the Composition stay Candidates.
 8. **Versions**: "Save version" labels the current frontier of the Composition's Loro document; stored in the document so it syncs (ADR 0007). Panel section lists Versions newest first, each openable read-only with a diff against current and a Restore (new edit). "Browse history" underneath scrubs unnamed history by time. "Duplicate as new Composition" is a separate Command for adapting a talk to a new occasion.
+   **Built (2026-10-13):** `doc.duplicate` on a Composition, `Vault::duplicate` in the engine. The copy keeps the body, Tags and Properties and gets a fresh id, the title "<title> (copy)" and an empty `occasion` and `date` (those belonged to the old occasion). Its Board is copied too: a Version covers talk and Board together (§17.17), so the fork is of that whole moment. No Versions come along — a fork starts its own history (ADR 0007). Offered from the palette only, not from the Versions panel: the plan names no "duplicate this Version", and restoring then duplicating does it.
 
 ### Build order
 
@@ -196,6 +205,8 @@ Each step ships with tests (engine unit tests, Cypress spec under `cypress/e2e/`
 1. **Onboarding is the Welcome wizard**, shown whenever no Vault is open: (1) Welcome: what a Vault is; (2) Devices & sync: "Which devices will you use?" (current one pre-ticked) -> the app recommends the one free method covering that set and shows its tutorial, the others one click away; "Only this device" skips; (3) Vault: open a Vault found in the synced folder ("synced from <device>"), create one at the suggested path inside the synced folder, or choose any folder; (4) Done: three things to try. No coach marks, no starter Note, no separate Help view.
 2. **Free sync methods documented**: iCloud Drive (macOS, iOS; Apple-only sets), Syncthing (Windows, macOS, Linux, Android; any set with Android), provider desktop clients OneDrive / Google Drive / Dropbox (desktop-only sets). Git declined. Recommendation rule: Apple-only -> iCloud; contains Android -> Syncthing; desktop-only -> provider client (Syncthing offered as alternative). iOS + Android together: no free method; say so.
 3. **Sync first, Vault second.** The wizard proposes a default Vault path inside the synced folder (iCloud Drive/Synesis, ~/Sync/Synesis, <Provider>/Synesis) so no Vault ever needs moving.
+
+   > **Amended (2026-10-13).** For iCloud, "iCloud Drive/Synesis" is now Synesis's own container (iCloud Drive → Synesis on every Apple device; ADR 0022), since an iPhone app cannot reach the rest of iCloud Drive. On an iPhone the synced-folder route with iCloud creates the Vault there (`suggest_vault_path` with `method: "icloud"`), and falls back to the iPhone's Documents with a message when iCloud is unavailable. A Mac proposes the container when it exists and plain iCloud Drive/Synesis otherwise (Mac-only sets). The `sync-icloud.ios` and `sync-icloud.mac` Tutorials say which to use.
 4. **Second device**: step 3 scans the suggested locations for folders containing `.bible-study/` and offers them first, labelled by the Device that created them. Each Device writes `device.json` (name, platform, last snapshot time) into its sync folder; a status query lists the Devices seen.
 5. **Sync in Settings**: method, Vault path, Devices seen with last snapshot time, "Set up sync on another device" reopening the wizard's sync step; a Command "Set up sync".
 6. **Tutorials** are markdown files `docs/sync/<method>.<platform>.<lang>.md` (en, fr), bundled at build time and rendered in-app; each ends with a verification step (create a Note on one Device, watch it appear on the other) and a short note on how conflicts are merged.
@@ -282,18 +293,21 @@ People preparing talks want to arrange their material spatially before writing p
 8. **Preserve unknown fields.** Hard requirement, not a nicety. The spec is silent on unknown keys and Obsidian round-trips them, so anything Synesis parses and does not keep is destroyed the moment the user touches the Board here. Keep the raw JSON per node.
 9. **UI is a tab on the Composition** ("Talk" / "Board"). A tab is discoverable where a third editor mode behind a shortcut is not, and Live Preview / Source are two views of one text (§12.2) while a Board is different content in a different file. The Board sizes from its container and the tab lives in the store rather than the route, so the later split pane (talk left, Board right) is not foreclosed.
 10. **Material arrives** three ways: palette search on the canvas, a Candidates drawer on the Board, and a button on the Candidates panel. The drawer is what makes this Synesis rather than a generic canvas — the app already knows which material shares Tags and Passages with this talk.
+    **Built (2026-10-13): the Candidates-panel button.** "Place on the Board" beside each unused Candidate (not while Reading mode is on). When the Board is on screen beside the talk the card goes through it (`src/lib/activeBoard.ts`), since a Board saves whole and a write behind its back would be overwritten by its next save; otherwise the Board is read, the card placed to the right of the content (`placeDocument` in `src/lib/board.ts`) and written, and the save announced so the Candidate moves to "On the Board". A document already on the Board is not placed twice.
 11. **Typed `[[links]]` in a `text` node are ordinary Mentions; dragged `file` nodes are Board refs.** A known rough edge, accepted: the alternative is markdown meaning different things in different files. What you typed is a claim, what you dragged is a reference.
 12. **`file` nodes render as card plus excerpt** — a Clipping shows its quote rather than its made-up title, a Note its first line, a Hub its type and mention count, and a `subpath` node that section. No live embeds: a renderer per node will not survive a forty-node Board, and body text is unreadable at the zoom where a Board is useful.
     **Amended (2026-09-15): specified but never implemented; now built, and as one rule rather than four.** The card's excerpt slot shipped empty — `excerptFor` returned the subpath or nothing at all, so an imported card showed its title and the bare word "Clipping" while the hand-typed bubbles beside it carried real text. What is built now: **one rule for every type** — the first meaningful block of body text, minus a heading that merely repeats the title (the vault's house style, and the card shows the title already). That yields this section's Clipping and Note answers without a branch per type, so a new document type gets a sensible excerpt the day it is added. A `subpath` selects the section to start from and the same rule then applies; an unresolvable one shows the document's opening and **says the section is gone** rather than passing it off as what was pinned (§17.13). A Subject Hub falls back to its mention count only when its body says nothing, so a Concept page that opens with real prose shows the prose. The excerpt **replaces** the type label rather than stacking under it: on a 140px card the type is the least valuable row once there is text, though the subpath marker stays, because a sectioned card is otherwise indistinguishable from a whole-document one. Extraction lives in `crates/engine/src/excerpt.rs` (plain text, capped at 200 chars on a word boundary, no ellipsis — the card's `line-clamp` draws its own), reached through one `board_excerpts` call per Board keyed by path *and* subpath, since a Board may legitimately hold both a whole document and one of its sections. Text comes from the FTS row indexing already wrote, so nothing is re-read or re-parsed, and the UI refetches only when a *referenced* document's mtime changes.
 
 13. **Rename rewrites paths** in every Board referencing the document, engine-side in `rename_document`. **Delete keeps the node**, rendered as missing — never silently remove something the user placed by hand, and a hole in a spatial layout is worse than a missing list row. Precedent: `unresolved_links` surfaces broken references rather than hiding them.
 14. **External edits reconcile structurally**: parse the JSON, diff node by node against the map, apply. The watcher learns `.canvas`. Folding outside edits is mandatory (ADR 0003), and wholesale replace would reintroduce through Obsidian exactly the loss the map CRDT exists to prevent.
+    **Built (2026-10-13):** `src-tauri/src/watch.rs` hands a `.canvas` to `Vault::fold_board_file`, which records it node by node, rewrites Board refs and reports the Composition only when the map really changed — so this app's own `write_board` is not echoed back. `vault:changed` gains `boards` (Composition ids, never in `changed`, which would read as an edit to the talk's text), and an open Board reloads on it, writing any debounced edit first. A deleted `.canvas` is not folded: the CRDT still holds the Board, as it does for a Board another Device made. Events do not reach a plain browser, so the Cypress case checks the index (`boardsReferencing`), not the redraw.
 15. **Mobile is view plus light edit**: pan, zoom, long-press to move a node. No edge-drawing (fiddly by finger in every app that has tried it), no groups, no marquee. Preparing a talk is a desk activity; reviewing a Board before speaking is a phone one.
 
     **Amended (2026-09-14): opening a document is a mode, not a platform rule.** A toolbar toggle switches the Board between *arranging* (the default: click selects, drag moves, nothing navigates) and *reading* (a press opens the card's document, nothing moves or is selectable). The original rule — tap opens on touch, click opens on the desktop — made a card hard to pick up, because the press that selects it is the press that navigates away. It also made `file` nodes wholly undraggable: rendering one as a button marked it `data-board-ui`, which the canvas skips, so it never entered a move gesture. One mode answers both platforms, and touch gains the open gesture rather than losing one. Entering reading mode clears the selection and hides the editing tools (add, drawer, selection toolbar, delete key), so nothing destructive is reachable while reading.
 16. **Fit-all on open, no viewport persistence.** A Board's shape is the point and fit-all shows it. The Timeline persists its range because that range is a query (§16.5); a Board's viewport is not.
 17. **Versions cover text and Board together**, and the diff view gains a Board tab listing nodes added, removed and moved. Restore restores both, said plainly in the confirmation. A Version is a moment (§14.8); restoring half of one is not.
 18. **Export** is a Command producing SVG and PNG of the Board's extent. The renderer is SVG anyway (the `TimelineView` precedent), so this is cheap. Not PDF — that belongs to the later Composition export (§8), and a Board is not a page.
+    **Built (2026-10-13):** `board.export`, "Export the Board", offered on any Composition. One Command, the format picked in the save dialog by extension, as the toolbar button already did. The picture is drawn from the Board on screen, so from the talk the Command switches to the Board and waits for it to mount (`src/lib/activeBoard.ts`, where a loaded, editable Board registers itself).
 
 ### Build order
 
@@ -763,13 +777,13 @@ Today `src/lib/theme.ts` only follows the OS; the palette in `src/index.css` is 
 1. **A Skin** is a named, shareable look with a light side and a dark side. Each side holds three **seeds** (Background, Text, Accent), a **type-colour chroma** knob (tames or vivifies document-type, route and decoration colours in oklch while keeping their hues, so Places stay recognisably Place-coloured on any background), **Advanced overrides** and **typography**. A side left empty falls back to the default.
 2. **Layering:** built-in base for the side -> tokens derived from the seeds (card, popover, sidebar, muted, border, input, ring, hover) -> Advanced overrides. Derived foregrounds (button labels, muted text) are computed to reach 4.5:1 against their surface. The user's own seeds and overrides are never corrected, only badged with their contrast ratio.
 3. **Advanced token names are Synesis-owned and curated** (`surface.card`, `text.muted`, `type.place`, `route.2`, `cover.4`, `editor.passage`, …, about 45), mapped to CSS variables by the app, so a shadcn rename never breaks a shared Skin. Dead or duplicated tokens (`chart-*`, `sidebar-primary` = primary) are not exposed. The file has a `version`; unknown keys are ignored with a note, missing keys fall back. Slots can be added later; removing one is breaking.
-4. **Typography:** prose and UI families, line height, line width, relative prose size. Families come from a bundled curated set (serif, sans, mono; e.g. Source Serif 4, Literata, iA Writer Quattro, Inter, Geist) or name a system family. Bundling fixes today's silent fallback to Georgia.
+4. **Typography:** prose and UI families, line height, line width, relative prose size. Families come from a bundled curated set (serif, sans, mono; e.g. Source Serif 4, Literata, iA Writer Quattro, Inter, Geist) or name a system family. Bundling fixes today's silent fallback to Georgia. As built: the mono family is iA Writer Quattro (its four static woff2 faces, SIL OFL, licence beside them in `src/assets/fonts/`) and the system monospace; the interface offers sans and mono.
 5. **Per Device:** **Appearance mode** (Light, Dark, System) and **Text scale** (percentage on top of the Skin's sizes). Both in `settings.json`.
 6. **Per Vault (ADR 0017):** Skins at `.bible-study/skins/<name>.json`, each with a ULID `id`, `name`, optional `author`, `version`, `light`, `dark`. The active Skin at `.bible-study/appearance.json`, by id. Pairing carries both (ADR 0016).
 7. **Built-in Skins**, app-side and read-only: **Synesis** (today's palette), **Sepia** (warm reading), **High contrast** (WCAG AAA). Editing a built-in makes a copy. A missing active Skin falls back to Synesis.
 8. **Import / export** a Skin as its JSON file. Same id already present -> "Replace or keep both" (keep both gets a new id and "Name 2"); same name, other id -> renamed "Name 2". Community Skins are PRs to a `skins/` folder in the repo, browsed in the app through the Skin gallery (§26).
 9. **Settings -> Appearance:** mode, Text scale, Skin list (New, Duplicate, Import, Export, Delete), and the editor for the active Skin with Light / Dark tabs. Selecting a tab shows the app in that side while Settings is open. Changes apply live to the whole app and save debounced (~500 ms); **Revert** restores the Skin as it was when Settings opened.
-10. **Everything follows the Skin:** graph, Map routes, Board export, Covers and CodeMirror re-resolve colours on Skin change, not only on the `.dark` toggle. The mobile status and navigation bars follow Background. Each Device caches the last resolved Skin and applies it before first paint, including the Welcome screen.
+10. **Everything follows the Skin:** graph, Map routes, Board export, Covers and CodeMirror re-resolve colours on Skin change, not only on the `.dark` toggle. The mobile status and navigation bars follow Background. As built: phone webviews ignore `theme-color`, so `set_system_bars` (`src-tauri/src/system_bars.rs`, JNI on Android, the Objective-C runtime on iOS, nothing in `gen/`) paints them, with light or dark icons by whichever reads better on Background. Each Device caches the last resolved Skin and applies it before first paint, including the Welcome screen.
 
 **Declined:** raw CSS snippets (every class rename breaks them, and the UI would read CSS from the Vault outside the engine); every token as the only editing surface; font files shipped inside a Skin (licensing, binary sync); an in-app Skin gallery (reversed by §26).
 
@@ -824,7 +838,11 @@ it explains.
     Hub); Map & Journeys (Map, Place and Journey Hubs); Graph (Graph);
     Coverage (Coverage); Command Palette (every view); Pairing (Settings,
     Welcome); and the folder-sync Tutorials (Settings, Welcome). Skins
-    (Settings) followed with §26.
+    (Settings) followed with §26. Talk and Board side by side (Composition
+    editor, Board), Reading mode (editor) and the Delivery view (Composition
+    editor, Board) followed with §22 and §23, on 2026-10-13: Reading mode after
+    Source mode, Split after Boards, the Delivery view after Versions. Pictures
+    (editor, Hub) followed with ADR 0019, after Properties & Dates.
 11. **Progress**: per Device, keyed by Tutorial id (not language): the step
     reached and whether it was finished. Kept in the webview's local storage,
     like Source mode, not in the engine's settings: it is a convenience of the
@@ -832,6 +850,12 @@ it explains.
     Tutorials carry a check in the "?" list. Nothing ever prompts: no dots, no
     badges. The Welcome wizard's Done step links three Tutorials: Quick
     capture & Notes, Passages, Command Palette.
+    **Amended 2026-10-13:** Welcome is a place in `tutorialsFor` too, listing
+    Pairing and this Device's folder-sync Tutorials (never the palette's: no
+    Vault is open). The pairing screen shows the Pairing Tutorial in place,
+    folded, as the folder screen already shows the chosen method's sync
+    Tutorial; when the Done step follows the folder route, it adds a fourth
+    link, that method's Tutorial, to check sync once the Vault opens.
 12. **Pictures, on trial**: a card in Settings, below Appearance (local
     storage, as 11), chooses *none*,
     *diagrams* (language-neutral images, no text, one file for both languages)
@@ -841,6 +865,13 @@ it explains.
     content). A Tutorial names a picture once, `![alt](image:<name>)`, and the
     mode decides which file it is. The bundle weight each adds is measured,
     and one mode is kept once both have been tried.
+    **Decided 2026-10-13: diagrams are kept**, and the trial ends. Tutorials
+    always show their diagram; the Settings card, the *none* and
+    *screenshots* modes, `docs/tutorials/screenshots/` and
+    `npm run tutorials:screenshots` are gone. Diagrams need no regenerating
+    when the UI or the demo Vault changes, serve both languages and both
+    themes from one file, and cost less to bundle. `![alt](image:<name>)`
+    names a diagram in `docs/tutorials/diagrams/<name>.svg`.
 13. **Tests**: Vitest checks every Tutorial exists in every `Lang`, has the
     shape in 8, names only existing Command ids, and that every listed id
     exists. `cypress/e2e/tutorials.cy.ts` covers the panel (open from "?", the

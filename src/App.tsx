@@ -28,6 +28,7 @@ import { TutorialProvider } from "./lib/tutorialState";
 import { TutorialPanel } from "./components/TutorialPanel";
 import { SkinGallery } from "./components/SkinGallery";
 import { DemoBanner } from "./components/DemoBanner";
+import { UpdateBanner } from "./components/UpdateBanner";
 
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
@@ -103,7 +104,8 @@ function Shell() {
         );
       }
       case "graph":
-        return <GraphView />;
+        // Keyed by the document, so a local graph never inherits another's layout.
+        return <GraphView key={s.view.focus ?? ""} focus={s.view.focus} />;
       case "library":
         return <LibraryView />;
       case "clippings":
@@ -137,6 +139,7 @@ function Shell() {
             outlives navigation (PLAN §25.6); the Skin gallery docks beside
             Settings, left of it (§26.6). */}
         <DemoBanner />
+        <UpdateBanner />
         <div className="flex min-h-0 flex-1">
           <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
           <SkinGallery />

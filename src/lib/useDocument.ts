@@ -5,6 +5,7 @@ import { api, namesApi, type DocumentPayload } from "@/lib/api";
 import { joinFrontmatter, splitFrontmatter } from "@/lib/frontmatter";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
+import { registerFlush } from "@/lib/pending";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -29,6 +30,10 @@ export function useDocument(id: string) {
   const apply = useCallback((d: DocumentPayload) => {
     known.current = d.text;
     const sp = splitFrontmatter(d.text);
+    // The editor holds "\n" line breaks whatever the file has; the body is
+    // kept the same way, so a CRLF file opened is not a CRLF file edited, and
+    // the panels' offsets match the editor's.
+    sp.body = sp.body.replace(/\r\n?/g, "\n");
     setDoc(d);
     setFm(sp.fm);
     setBody(sp.body);
@@ -163,6 +168,10 @@ export function useDocument(id: string) {
     window.clearTimeout(saveTimer.current);
     await save();
   }, [save]);
+
+  // A Command that reads this file from disk (Duplicate as new Composition)
+  // flushes it first, so it never copies the text minus the last few words.
+  useEffect(() => registerFlush(`doc:${id}`, flush), [id, flush]);
 
   const rename = useCallback(
     async (title: string) => {

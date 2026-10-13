@@ -33,13 +33,31 @@ Pair devices with a QR code / pairing code (Settings → Sync): paired devices s
 
 ## Releasing
 
-[.github/workflows/release.yml](.github/workflows/release.yml) is started by hand on `main` (`gh workflow run` or the Actions tab) with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.
+[.github/workflows/release.yml](.github/workflows/release.yml) is started by `npm run release` (or the Actions tab) on the branch you are on, normally `main`, with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. No platform ships unsigned: the Windows installers are signed through SignPath ([docs/release/signpath.md](docs/release/signpath.md)), and the Windows and Android jobs fail rather than publish an unsigned file. The iOS job runs only when the App Store Connect key is set.
 
 ```sh
 npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; pushes; starts the workflow
 ```
 
-The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run check` (typecheck + `cargo check --workspace`) so a commit that does not compile is refused.
+### Auto-updater
+
+The desktop apps update themselves with [tauri-plugin-updater](https://v2.tauri.app/plugin/updater/): at start-up (unless Settings → Updates says otherwise) they read `https://github.com/grimfeld/synesis/releases/latest/download/latest.json`, and offer **Install & restart** when it names a newer version. GitHub serves `releases/latest` from the newest release that is neither a draft nor a prerelease, so a `X.Y.Z-pre` version never reaches installed apps. Phones update through their stores; the web build has no updater.
+
+Each desktop job signs its updater bundle with the updater key, and tauri-action merges its platform into the release's `latest.json`; Windows, signed outside tauri-action, is added by the `updater-windows` job. The installed apps accept only bundles signed by the key whose public half is `plugins.updater.pubkey` in [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json). Release secrets:
+
+| Secret | Needed for |
+| --- | --- |
+| `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | **Required.** Signs the updater bundles; without the key the run stops before tagging. Made with `npm run tauri signer generate`; the public key goes in `tauri.conf.json`. Losing the private key means installed apps can never be updated again, so keep a copy offline. |
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Signing and notarising the macOS builds (optional). |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` (+ `APPLE_TEAM_ID`) | The iOS job; skipped without them. |
+| `SIGNPATH_API_TOKEN` (secret), `SIGNPATH_ORGANIZATION_ID` (variable) | Signing the Windows installers; the Windows job fails without them ([docs/release/signpath.md](docs/release/signpath.md)). |
+| `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD`, `IOS_MOBILE_PROVISION` | Signing iOS with your own Apple Distribution certificate instead of Xcode cloud signing (optional). |
+| `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Signing the APK; the job fails without them. |
+| `VERCEL_SITE_DEPLOY_HOOK` | Rebuilding the landing page after a release (optional). |
+
+A local `npm run tauri build` needs `TAURI_SIGNING_PRIVATE_KEY` set too, since `bundle.createUpdaterArtifacts` is on.
+
+The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
 
 ## Licence
 
@@ -47,7 +65,32 @@ Synesis is free software under the [GNU AGPL-3.0](LICENSE): use it, change it an
 
 The name and icon are not part of the licence: a changed version needs its own ([TRADEMARKS.md](TRADEMARKS.md)). Issues are welcome; code is by invitation ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
-Bundled data keeps its own terms: OpenBible.info places (CC BY 4.0), Natural Earth (public domain) and Mapzen Terrain Tiles (attribution in the app).
+Every copy offers its source: Settings → About in the app and the web build (with the Commands **About Synesis** and **Synesis source code**) links to this repository and the licence text, and the web demo's banner links the source too, as the AGPL's §13 asks of a hosted copy. The installers carry the licence (`bundle.license`, `licenseFile`, `copyright`, `publisher` in `tauri.conf.json`).
+
+Bundled data keeps its own terms, credited in Settings → About: OpenBible.info places (CC BY 4.0, `crates/engine/data/GAZETTEER-NOTICE.txt`), Natural Earth (public domain) and Mapzen Terrain Tiles (`public/atlas/NOTICE.txt`).
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+The Windows installers are built from this repository by GitHub Actions ([release.yml](.github/workflows/release.yml)) and signed only after a person approves each release ([docs/release/signpath.md](docs/release/signpath.md)). macOS builds are signed and notarised with the maintainer's Apple Developer ID, and Android builds with the maintainer's own key.
+
+- Authors and reviewers: [grimfeld](https://github.com/grimfeld), the owner of this repository. Changes from anyone else are reviewed before they are merged ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- Approver of each signed release: [grimfeld](https://github.com/grimfeld).
+
+To uninstall on Windows, use Settings → Apps → Installed apps → Synesis → Uninstall. Your vaults are folders you chose and are never removed.
+
+## Privacy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. There is no account, no telemetry and no analytics in the app. What it does reach, and when:
+
+- **Pairing** connects your own Devices directly over [Iroh](https://iroh.computer), through n0's public relays or a relay you set in Settings → Sync. The connection between Devices is encrypted.
+- **Source details**: when you paste a link into a Clipping or Source, the app fetches that page to read its title.
+- **Map close-ups**: zooming the Map in past the bundled atlas loads [OpenStreetMap](https://www.openstreetmap.org) tiles.
+- **Skin gallery**: opening it downloads the list of Skins from this repository on GitHub.
+- **Updates** (desktop): the app asks GitHub for the latest release; turn this off in Settings.
+
+The landing page (synesis-app.vercel.app) counts visits with Vercel Web Analytics, without cookies.
 
 ## Testing
 

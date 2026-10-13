@@ -49,6 +49,7 @@ import {
   removeNodes,
   toBoard,
   zoomAt,
+  FILE_CARD_HEIGHT,
   type Rect,
   type Viewport,
 } from "@/lib/board";
@@ -57,6 +58,8 @@ import { useT } from "@/i18n";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { IconButton } from "@/components/IconButton";
 import { boardToSvg, svgToPng } from "@/lib/boardExport";
+import { registerFlush } from "@/lib/pending";
+import { registerBoard } from "@/lib/activeBoard";
 import { BoardDrawer } from "@/components/BoardDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -186,6 +189,8 @@ export function BoardView({
 
   // The Board excerpts, keyed by node path (PLAN §17.12).
   const [excerpts, setExcerpts] = useState<Record<string, BoardExcerpt>>({});
+  /** The `refsKey` the excerpts on screen were fetched for. */
+  const [excerptsFor, setExcerptsFor] = useState("");
 
   // What the excerpts were fetched for: every referenced path with the mtime
   // it had. Editing a document *on* the Board changes its mtime and refetches;
@@ -210,9 +215,15 @@ export function BoardView({
       const [path, subpath] = entry.split("\u0000");
       return { path, subpath: subpath || null };
     });
-    api.boardExcerpts(refs).then((got) => {
-      if (live) setExcerpts(got);
-    });
+    api
+      .boardExcerpts(refs)
+      .then((got) => {
+        if (live) setExcerpts(got);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (live) setExcerptsFor(refsKey);
+      });
     return () => {
       live = false;
     };
@@ -271,14 +282,14 @@ export function BoardView({
   // whenever the user leaves straight after making one.
   const pending = useRef<{ id: string; board: Board } | null>(null);
 
-  const flush = useCallback(() => {
+  const flush = useCallback(async () => {
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
     const p = pending.current;
     pending.current = null;
-    if (p) void api.saveBoard(p.id, p.board).then(announceBoardSaved);
+    if (p) await api.saveBoard(p.id, p.board).then(announceBoardSaved);
   }, [announceBoardSaved]);
 
   const save = useCallback(
@@ -295,7 +306,40 @@ export function BoardView({
 
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
-  useEffect(() => flush, [flush, id]);
+  useEffect(
+    () => () => {
+      void flush();
+    },
+    [flush, id],
+  );
+
+  // The Board edited outside the app while it is open — Obsidian writing the
+  // `.canvas` (PLAN §17.14). The engine has folded the file in node by node,
+  // so what it answers now is the merged Board. An edit still waiting on the
+  // debounce (at most 400ms of it) is written first and is the later of the
+  // two, so where they disagree it wins — a node being dragged keeps the
+  // place it was dropped. The viewport is left alone; only the content
+  // changes under it.
+  const { lastChange } = s;
+  useEffect(() => {
+    if (!lastChange?.boards?.includes(id)) return;
+    let live = true;
+    (async () => {
+      await flush();
+      const next = await api.getBoard(id);
+      if (!live) return;
+      setBoard((cur) =>
+        cur && JSON.stringify(cur) === JSON.stringify(next ?? emptyBoard())
+          ? cur
+          : (next ?? emptyBoard()),
+      );
+    })().catch(console.error);
+    return () => {
+      live = false;
+    };
+  }, [lastChange, id, flush]);
+  // And a Command that copies the Board from disk lands it first.
+  useEffect(() => registerFlush(`board:${id}`, flush), [flush, id]);
 
   const pointerBoard = useCallback(
     (e: { clientX: number; clientY: number }): [number, number] => {
@@ -336,12 +380,14 @@ export function BoardView({
     [board, view, size, save],
   );
 
-  /** Drop a document on the Board as a `file` node. */
+  /** Drop a document on the Board as a `file` node, once. */
   const addDocument = useCallback(
     (doc: DocSummary) => {
-      addNode({ type: "file", file: doc.path, height: 140 });
+      if (board?.nodes.some((n) => n.type === "file" && n.file === doc.path && !n.subpath))
+        return;
+      addNode({ type: "file", file: doc.path, height: FILE_CARD_HEIGHT });
     },
-    [addNode],
+    [addNode, board],
   );
 
   const deleteSelected = useCallback(() => {
@@ -579,6 +625,19 @@ export function BoardView({
       await api.exportBoard(path, await svgToPng(svg), true);
     }
   }, [board]);
+
+  // The `board.export` Command reaches the Board through this (PLAN §17.18).
+  // Only once loaded, so a Command waiting for the Board to mount never gets
+  // one with nothing to export yet; never while delivering, which exports
+  // nothing.
+  // And only once the cards have their text: run from the talk, the Command
+  // exports the moment the Board mounts, and a picture taken before the
+  // excerpts arrive has empty cards.
+  const excerptsReady = excerptsFor === refsKey;
+  useEffect(() => {
+    if (!loaded || delivering || !excerptsReady) return;
+    return registerBoard({ id, exportPicture: exportBoard, place: addDocument });
+  }, [id, loaded, delivering, excerptsReady, exportBoard, addDocument]);
 
   const openNode = useCallback(
     (n: CanvasNode) => {

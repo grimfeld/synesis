@@ -57,9 +57,19 @@ export function TitleEditor({ title, readOnly, onRename, className }: { title: s
       el.style.height = `${el.scrollHeight}px`;
     };
     fit();
-    const ro = new ResizeObserver(fit);
+    // Refit a frame later, not inside the callback: setting the height of the
+    // box being observed from its own callback is a resize the observer
+    // cannot deliver that frame, and the browser reports a ResizeObserver loop.
+    let frame = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(fit);
+    });
     ro.observe(el);
-    return () => ro.disconnect();
+    return () => {
+      cancelAnimationFrame(frame);
+      ro.disconnect();
+    };
   }, [value]);
   const commit = async () => {
     const v = value.trim();

@@ -27,7 +27,8 @@ describe("the skins/ folder", () => {
 
   it("has an up-to-date index.json (run `npm run skins:index`)", () => {
     const { index } = buildGalleryIndex(folder(), BASE);
-    expect(readFileSync(path.join(dir, INDEX_FILE), "utf8")).toBe(formatIndex(index));
+    // A Windows checkout may hold the file with CRLF (.gitattributes text=auto).
+    expect(readFileSync(path.join(dir, INDEX_FILE), "utf8").replace(/\r\n/g, "\n")).toBe(formatIndex(index));
   });
 });
 

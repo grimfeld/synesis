@@ -2,7 +2,7 @@
 // whether its owner will be able to open the folder (PLAN §21, ADR 0015).
 import { describe, expect, it } from "vitest";
 import type { StorageAccess, SyncLocations } from "../api";
-import { canAsk, destination, joinPath, looksLikeInvite, methodFor, nameIsUsable, visible } from "../onboarding";
+import { canAsk, destination, icloudUnavailable, joinPath, looksLikeInvite, methodFor, nameIsUsable, vaultsFolder, visible } from "../onboarding";
 
 function locations(over: Partial<SyncLocations> = {}): SyncLocations {
   return {
@@ -80,6 +80,51 @@ describe("where the Vault lands", () => {
 
   it("trims a name before it becomes a folder", () => {
     expect(destination(locations(), "  main  ").path).toBe("/storage/emulated/0/Documents/Synesis/main");
+  });
+});
+
+describe("iCloud on an iPhone (PLAN §14, amended)", () => {
+  const container = "/private/var/mobile/Library/Mobile Documents/iCloud~tech~grimfeld~synesis/Documents";
+  const iphone = (exists: boolean) =>
+    locations({
+      platform: "ios",
+      home: "/var/mobile/Containers/Data/Application/X/Documents/Synesis",
+      storage: unneeded,
+      locations: [{ method: "icloud", root: exists ? container : "", exists, suggested: "", holds_vaults: true }],
+    });
+
+  it("puts a Vault meant for iCloud straight into Synesis's container", () => {
+    const d = destination(iphone(true), "main", undefined, "icloud");
+    expect(d.path).toBe(`${container}/main`);
+    expect(d.visible).toBe(true);
+    expect(icloudUnavailable(iphone(true), "icloud")).toBe(false);
+  });
+
+  it("keeps a local Vault in the app's Documents even when iCloud is there", () => {
+    expect(destination(iphone(true), "main").path).toBe("/var/mobile/Containers/Data/Application/X/Documents/Synesis/main");
+    expect(destination(iphone(true), "main", undefined, null).path).toBe("/var/mobile/Containers/Data/Application/X/Documents/Synesis/main");
+  });
+
+  it("falls back to this iPhone, and says so, when iCloud is unavailable", () => {
+    const d = destination(iphone(false), "main", undefined, "icloud");
+    expect(d.path).toBe("/var/mobile/Containers/Data/Application/X/Documents/Synesis/main");
+    expect(icloudUnavailable(iphone(false), "icloud")).toBe(true);
+    expect(icloudUnavailable(iphone(false), "syncthing")).toBe(false);
+  });
+
+  it("finds only a folder that holds Vaults directly and exists", () => {
+    const mac = locations({
+      platform: "macos",
+      app_decides_path: false,
+      can_pick_folder: true,
+      storage: unneeded,
+      locations: [
+        { method: "icloud", root: "/Users/x/Library/Mobile Documents/com~apple~CloudDocs", exists: true, suggested: "", holds_vaults: false },
+      ],
+    });
+    expect(vaultsFolder(mac, "icloud")).toBeUndefined();
+    // Never on desktop: the picker decides there.
+    expect(icloudUnavailable(mac, "icloud")).toBe(false);
   });
 });
 

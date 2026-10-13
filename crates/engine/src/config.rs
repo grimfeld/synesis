@@ -113,6 +113,10 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
         return false;
     }
     let p = path(hidden, name);
+    // Never written over while iCloud holds it (see `cloud`).
+    if crate::cloud::is_evicted(&p) {
+        return false;
+    }
     let incoming = ConfigEntry { name: name.into(), stamp: stamp_at(&p, bytes), size: bytes.len() as u64 };
     let mine = fs::read(&p).ok().map(|b| ConfigEntry { name: name.into(), stamp: stamp_at(&p, &b), size: b.len() as u64 });
     if !is_newer(&incoming, mine.as_ref()) {
@@ -138,6 +142,9 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
 /// clock that lags a peer's still wins for a deliberate local edit.
 pub fn write(hidden: &Path, name: &str, mut value: Value) -> Result<()> {
     let p = path(hidden, name);
+    if crate::cloud::is_evicted(&p) {
+        return Err(crate::cloud::downloading(&p));
+    }
     let previous = fs::read(&p).ok().map(|b| stamp_at(&p, &b)).unwrap_or(0);
     if let Value::Object(map) = &mut value {
         map.insert("updated".into(), Value::from(now_ms().max(previous + 1)));

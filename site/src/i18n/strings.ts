@@ -107,6 +107,8 @@ export const en = {
   footer: {
     licence: "Synesis is free software under the GNU AGPL-3.0.",
     source: "Source code",
+    signing: "Code signing policy",
+    privacy: "Privacy",
     version: (v: string) => `Version ${v}`,
   },
 };
@@ -217,6 +219,8 @@ export const fr: Strings = {
   footer: {
     licence: "Synesis est un logiciel libre sous licence GNU AGPL-3.0.",
     source: "Code source",
+    signing: "Politique de signature du code (code signing policy)",
+    privacy: "Confidentialité",
     version: (v: string) => `Version ${v}`,
   },
 };

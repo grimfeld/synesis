@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Check, Copy, FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
+import { Check, Code, Copy, Download, FolderOpen, LogOut, RefreshCw, Scale, Settings } from "lucide-react";
 import { api, type DeviceInfo, type Lang, type SyncLocations } from "@/lib/api";
 import { platformToKind } from "@/lib/syncRules";
-import { IMAGE_MODES, type ImageMode } from "@/lib/tutorials";
-import { useTutorials } from "@/lib/tutorialState";
 import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
+import { checkForUpdate, installUpdate, isDesktopApp, useUpdater } from "@/lib/updater";
+import { LICENCE_URL, SOURCE_URL, openExternal } from "@/lib/links";
 import { useFormat, useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,6 @@ export function SettingsView() {
   const s = useStore();
   const t = useT();
   const commands = useCommands();
-  const tut = useTutorials();
   const change = async () => {
     const dir = await openDialog({ directory: true, multiple: false });
     if (typeof dir === "string") await s.openVault(dir);
@@ -95,27 +94,6 @@ export function SettingsView() {
           </Card>
           <AppearanceCard />
           <PlaceKindsCard />
-          {/* On trial (PLAN §25.12): which pictures Tutorials show. */}
-          <Card data-testid="settings-tutorial-images">
-            <CardHeader>
-              <CardTitle>{t.tutorials.images_title}</CardTitle>
-              <CardDescription>{t.tutorials.images_body}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select value={tut.imageMode} onValueChange={(v) => tut.setImageMode(v as ImageMode)}>
-                <SelectTrigger className="w-48 max-w-full" data-testid="tutorial-image-mode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMAGE_MODES.map((m) => (
-                    <SelectItem key={m} value={m} data-testid={`tutorial-image-mode-${m}`}>
-                      {t.tutorials.image_modes[m]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
           <Card>
             <CardHeader>
               <CardTitle>{t.vault}</CardTitle>
@@ -248,6 +226,7 @@ export function SettingsView() {
               </dl>
             </CardContent>
           </Card>
+          {isDesktopApp() && <UpdatesCard />}
           <AboutCard />
         </div>
       </div>
@@ -255,7 +234,81 @@ export function SettingsView() {
   );
 }
 
-/** Which build this is: the version, and the commit it was made from. */
+/**
+ * The desktop auto-updater (src/lib/updater.ts): the version this is, whether
+ * to look for a new one at start-up, and a button to look now.
+ */
+function UpdatesCard() {
+  const s = useStore();
+  const t = useT();
+  const { status } = useUpdater();
+  // Shown at once; the store's copy catches up on the next settings load.
+  const [auto, setAuto] = useState<boolean | null>(null);
+  const checked = auto ?? s.settings?.check_updates ?? true;
+  const toggle = (v: boolean) => {
+    setAuto(v);
+    api.setCheckUpdates(v).catch(() => setAuto(!v));
+  };
+  const busy = status.kind === "checking" || status.kind === "installing";
+  const message =
+    status.kind === "checking"
+      ? t.updater.checking
+      : status.kind === "current"
+        ? t.updater.up_to_date
+        : status.kind === "available"
+          ? t.updater.available(status.version)
+          : status.kind === "installing"
+            ? t.updater.installing(status.version)
+            : status.kind === "error"
+              ? status.version
+                ? t.updater.failed(status.message)
+                : t.updater.check_failed(status.message)
+              : null;
+  return (
+    <Card data-testid="settings-updates">
+      <CardHeader>
+        <CardTitle>{t.updater.title}</CardTitle>
+        <CardDescription data-testid="updates-current">{t.updater.current(__APP_VERSION__)}</CardDescription>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <label className="flex items-center justify-between gap-3 text-sm">
+          <span className="min-w-0">
+            <span className="block font-medium">{t.updater.auto}</span>
+            <span className="block text-xs text-muted-foreground">{t.updater.auto_hint}</span>
+          </span>
+          <Switch checked={checked} onCheckedChange={toggle} data-testid="updates-auto" />
+        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="min-h-9" disabled={busy} onClick={() => checkForUpdate()} data-testid="updates-check">
+            <RefreshCw />
+            {t.updater.check}
+          </Button>
+          {status.kind === "available" && (
+            <Button className="min-h-9" onClick={() => installUpdate()} data-testid="updates-install">
+              <Download />
+              {t.updater.install}
+            </Button>
+          )}
+        </div>
+        {message && (
+          <p
+            className={status.kind === "error" ? "text-sm break-words text-destructive" : "text-sm text-muted-foreground"}
+            data-testid="updates-status"
+            data-status={status.kind}
+          >
+            {message}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/**
+ * Which build this is (the version, and the commit it was made from), and
+ * what it is: free software under the AGPL, with its source a click away
+ * (ADR 0021), plus the bundled data's own terms.
+ */
 function AboutCard() {
   const t = useT();
   const fmt = useFormat();
@@ -299,6 +352,35 @@ function AboutCard() {
             {copied ? <Check /> : <Copy />}
             {copied ? t.app_info.copied : t.app_info.copy}
           </Button>
+        </div>
+        <div className="grid gap-2 border-t pt-3 text-sm" data-testid="about-licence">
+          <div>
+            <div className="font-medium">{t.licence.free}</div>
+            <p className="text-xs text-muted-foreground">{t.licence.free_body}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" className="min-h-8" asChild>
+              <a href={SOURCE_URL} onClick={(e) => (e.preventDefault(), openExternal(SOURCE_URL))} data-testid="about-source">
+                <Code />
+                {t.licence.source}
+              </a>
+            </Button>
+            <Button variant="outline" size="sm" className="min-h-8" asChild>
+              <a href={LICENCE_URL} onClick={(e) => (e.preventDefault(), openExternal(LICENCE_URL))} data-testid="about-licence-text">
+                <Scale />
+                {t.licence.licence_text}
+              </a>
+            </Button>
+          </div>
+        </div>
+        <div className="grid gap-1 border-t pt-3 text-xs" data-testid="about-data">
+          <div className="text-sm font-medium">{t.licence.data_title}</div>
+          <ul className="grid gap-1 text-muted-foreground">
+            <li>OpenBible.info: {t.licence.data.openbible}</li>
+            <li>Natural Earth: {t.licence.data.natural_earth}</li>
+            <li>Mapzen Terrain Tiles: {t.licence.data.mapzen}</li>
+            <li>© OpenStreetMap: {t.licence.data.osm}</li>
+          </ul>
         </div>
       </CardContent>
     </Card>

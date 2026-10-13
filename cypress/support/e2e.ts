@@ -6,12 +6,22 @@ import "./commands";
 let original: string | null = null;
 let originalLang = "en";
 let vault = "";
+type MapFilters = { books: number[]; mentionedOnly: boolean; colorBy: string };
+const NO_MAP_FILTERS: MapFilters = { books: [], mentionedOnly: false, colorBy: "kind" };
+let originalMap: MapFilters = NO_MAP_FILTERS;
 
 before(() => {
-  cy.bridge<{ vault_path: string | null; lang: string }>("get_settings").then((s) => {
+  cy.bridge<{ vault_path: string | null; lang: string; map_books?: number[]; map_mentioned_only?: boolean; map_color_by?: string }>(
+    "get_settings",
+  ).then((s) => {
     original = s.vault_path;
     originalLang = s.lang;
+    originalMap = { books: s.map_books ?? [], mentionedOnly: s.map_mentioned_only ?? false, colorBy: s.map_color_by ?? "kind" };
   });
+  // The Map's filters are Device settings, kept outside the vault: a Book
+  // filter left set (by the reader, or a spec that stopped halfway) shows a
+  // few of the demo Places and fails every spec that counts pins.
+  cy.bridge("set_map_filters", NO_MAP_FILTERS);
   // Specs assert English strings; the app may have been left in another language.
   cy.bridge("set_language", { lang: "en" });
   cy.task<string>("vault:seed").then((dir) => {
@@ -22,7 +32,11 @@ before(() => {
 });
 
 after(() => {
+  // The editor and the Board save on a debounce (700 ms): a spec that ends
+  // right after typing would have that save land in a vault already closed.
+  cy.wait(1000);
   cy.bridge("set_language", { lang: originalLang });
+  cy.bridge("set_map_filters", originalMap);
   // Let go of the copy first: its index cannot be removed while it is open.
   if (original && !original.includes("synesis-cy-")) cy.bridge("open_vault", { path: original });
   else cy.bridge("close_vault");

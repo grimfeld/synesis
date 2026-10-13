@@ -73,15 +73,12 @@ function CommandLink({ id, fallback }: { id: string; fallback: string }) {
 }
 
 function useRenderers(): MarkdownRenderers {
-  const s = useStore();
-  const { imageMode } = useTutorials();
-  const dark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
   return {
     link: (text, href, key) => (href.startsWith("command:") ? <CommandLink key={key} id={href.slice("command:".length)} fallback={text} /> : null),
     image: (alt, src, key) => {
       if (!src.startsWith("image:")) return null;
-      const url = imageUrl(src.slice("image:".length), imageMode, s.lang, dark ? "dark" : "light");
-      return url ? <img key={key} src={url} alt={alt} loading="lazy" data-testid="tutorial-image" data-mode={imageMode} className="my-2 block max-w-full rounded-md border" /> : null;
+      const url = imageUrl(src.slice("image:".length));
+      return url ? <img key={key} src={url} alt={alt} loading="lazy" data-testid="tutorial-image" className="my-2 block max-w-full rounded-md border" /> : null;
     },
   };
 }

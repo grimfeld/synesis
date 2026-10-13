@@ -60,6 +60,12 @@ impl VaultMeta {
         if let Some(m) = Self::read(root) {
             return Ok(m);
         }
+        // iCloud evicted the file that says what this Vault is. Inventing a
+        // new identity here would fork the Vault from its other Devices
+        // (ADR 0014); wait for the download instead.
+        if crate::cloud::is_evicted(&Self::path(root)) {
+            return Err(crate::cloud::downloading(&Self::path(root)));
+        }
         let name = root
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -94,6 +100,13 @@ pub enum JoinCheck {
 /// counts as occupied: it is someone's Vault from before ids, and merging into
 /// it would lose exactly what this is meant to protect.
 pub fn check_join(root: &Path, invited_id: &str) -> JoinCheck {
+    // A Vault whose identity is still in iCloud is a Vault all the same.
+    if crate::cloud::is_evicted(&VaultMeta::path(root)) {
+        return JoinCheck::Occupied {
+            name: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Vault".into()),
+            id: String::new(),
+        };
+    }
     if let Some(m) = VaultMeta::read(root) {
         return if m.id == invited_id {
             JoinCheck::Same
@@ -124,7 +137,10 @@ fn holds_documents(root: &Path) -> bool {
         .into_iter()
         .filter_entry(|e| e.file_name() != std::ffi::OsStr::new(HIDDEN_DIR))
         .filter_map(|e| e.ok())
-        .any(|e| e.path().extension().is_some_and(|x| x == "md"))
+        .any(|e| {
+            let p = crate::cloud::original_of(e.path()).unwrap_or_else(|| e.path().to_path_buf());
+            p.extension().is_some_and(|x| x == "md")
+        })
 }
 
 /// A folder name for a Vault called `name`, free within `parent`.

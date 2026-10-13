@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the generated iOS Info.plist by `tauri ios build`, which reads
+  Info.ios.plist beside tauri.conf.json for iOS only (Info.plist beside it is
+  merged for every Apple target).
+
+  Publishes Synesis's iCloud container to iCloud Drive as a folder called
+  "Synesis" (PLAN §14, amended 2026-10-13): a Vault the iPhone keeps there is
+  the folder a Mac sees as iCloud Drive › Synesis. The container is named in
+  src-tauri/ios/Synesis_iOS.entitlements and must be registered for the App ID
+  in the Apple Developer portal (ADR 0022).
+
+  iOS reads this entry only when CFBundleVersion changes, so a change here
+  shows up on a device with the next version, not the next install.
+-->
+<plist version="1.0">
+  <dict>
+    <key>NSUbiquitousContainers</key>
+    <dict>
+      <key>iCloud.tech.grimfeld.synesis</key>
+      <dict>
+        <key>NSUbiquitousContainerIsDocumentScopePublic</key>
+        <true/>
+        <key>NSUbiquitousContainerName</key>
+        <string>Synesis</string>
+        <key>NSUbiquitousContainerSupportedFolderLevels</key>
+        <string>Any</string>
+      </dict>
+    </dict>
+  </dict>
+</plist>

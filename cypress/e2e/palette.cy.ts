@@ -12,6 +12,34 @@ describe("Command Palette", () => {
     });
   });
 
+  // PLAN §10: search is filterable by type, by chip or by a `type:` token.
+  it("narrows the search to one kind of page", () => {
+    cy.palette("endurance");
+    cy.get("[data-testid=palette-type-composition]").click();
+    cy.get("[data-testid=palette] input[cmdk-input]").should(
+      "have.value",
+      "type:composition endurance ",
+    );
+    cy.get("[data-testid=palette-type-composition]").should("have.attr", "aria-pressed", "true");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain", "Talk on endurance");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.contain", "Endurance in trials");
+    // Typed by hand, the same filter.
+    cy.get("[data-testid=palette] input[cmdk-input]").clear().type("type:note endurance");
+    cy.get("[data-testid=palette-type-note]").should("have.attr", "aria-pressed", "true");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain", "Endurance in trials");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.contain", "Talk on endurance");
+    // With no words, the filter lists that kind of page.
+    cy.get("[data-testid=palette] input[cmdk-input]").clear();
+    cy.get("[data-testid=palette-type-composition]").click();
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain", "Talk on endurance").and("contain", "Student talk on prayer");
+    // Clicking the chip again searches everything.
+    cy.get("[data-testid=palette-type-composition]").click();
+    cy.get("[data-testid=palette] input[cmdk-input]").should("have.value", "");
+    // Command mode has no chips.
+    cy.get("[data-testid=palette] input[cmdk-input]").type(">");
+    cy.get("[data-testid=palette-types]").should("not.exist");
+  });
+
   it("opens a document from the results", () => {
     cy.openDoc("Psalm 23 reflections");
     cy.get("[data-testid=doc-title]").should(

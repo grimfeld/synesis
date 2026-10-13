@@ -31,6 +31,59 @@ describe("Candidates", () => {
       .should("contain", "Endurance is not merely putting up");
   });
 
+  // PLAN §17.10: the panel puts material on the Board without opening it,
+  // and the Candidate moves to "On the Board", still unused.
+  it("places a Candidate on the Board from the panel", () => {
+    // The tests after this one expect this Candidate untouched, so the Board
+    // is put back at the end.
+    cy.docByTitle("Talk on endurance").then((talk) => {
+      cy.bridge("get_board", { id: talk.id }).as("originalBoard");
+    });
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=right-panel] [data-testid=candidates]")
+      .parent()
+      .contains("[data-testid=candidate]", "Undeserved kindness in Romans")
+      .find("[data-testid=candidate-place]")
+      .click();
+    cy.get("[data-testid=right-panel] [data-testid=candidates]")
+      .parent()
+      .should("not.contain", "Undeserved kindness in Romans");
+    cy.get("[data-testid=right-panel]")
+      .contains("button", "On the Board")
+      .then(($b) => {
+        if ($b.attr("data-state") !== "open") cy.wrap($b).click();
+      });
+    cy.get("[data-testid=right-panel] [data-testid=on-board]")
+      .parent()
+      .should("contain", "Undeserved kindness in Romans");
+    // It is a card on the Board file, not a Mention in the talk.
+    cy.docByTitle("Undeserved kindness in Romans").then((note) => {
+      cy.docByTitle("Talk on endurance").then((talk) => {
+        cy.task<string>("file:read", `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`).then((text) => {
+          expect(text).to.contain(note.path);
+        });
+        cy.task<string>("file:read", `${Cypress.env("vault")}/${talk.path}`).then((text) => {
+          expect(text).not.to.contain("Undeserved kindness in Romans");
+        });
+      });
+    });
+    // And the Board, opened, shows the card.
+    cy.get("[data-testid=tab-board]").click();
+    cy.get("[data-testid=board-canvas]").should("contain", "Undeserved kindness in Romans");
+    cy.get("[data-testid=tab-talk]").click();
+    cy.docByTitle("Talk on endurance").then((talk) => {
+      cy.get("@originalBoard").then((board) => cy.bridge("save_board", { id: talk.id, board }));
+    });
+  });
+
+  it("offers no place button while Reading mode is on", () => {
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.get("[data-testid=candidate-place]").should("not.exist");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.get("[data-testid=candidate-place]").should("exist");
+  });
+
   it("Home counts only unused Candidates", () => {
     cy.docByTitle("Talk on endurance").then((d) => {
       cy.query<{ used: boolean }[]>({ kind: "candidates", id: d.id }).then((c) => {

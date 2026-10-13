@@ -8,10 +8,15 @@ describe("Sidebar", () => {
     // A Clipping belongs to its Source, not to a folder of its own, so it has
     // no group here (ADR 0013).
     cy.get("[data-testid=group-clipping]").should("not.exist");
-    cy.get("[data-testid=group-source]").should("contain", "7");
-    cy.get("[data-testid=group-place]").should("contain", "13");
-    cy.get("[data-testid=group-character]").should("contain", "11");
-    cy.get("[data-testid=group-event]").should("contain", "19");
+    // Counted from the engine, so a document added to the demo vault does
+    // not read as a broken sidebar.
+    cy.query<{ type: string }[]>({ kind: "list", docType: null }).then((docs) => {
+      for (const type of ["source", "place", "character", "event"]) {
+        const n = docs.filter((d) => d.type === type).length;
+        expect(n, `${type}s in the demo vault`).to.be.greaterThan(0);
+        cy.get(`[data-testid=group-${type}]`).should("contain", String(n));
+      }
+    });
   });
 
   it("expands a group and opens a document", () => {

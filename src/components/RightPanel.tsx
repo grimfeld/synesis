@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, ExternalLink, Link2, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, LayoutDashboard, Link2, Trash2 } from "lucide-react";
 import { cn } from "cn";
 import {
   api,
@@ -36,6 +36,8 @@ import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
+import { placeOnBoard } from "@/lib/activeBoard";
+import { IconButton } from "@/components/IconButton";
 import { propertyLabel, useFormat, useT } from "@/i18n";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +162,20 @@ export function RightPanel({
   });
   const linkables = useMemo(() => linkablesData ?? [], [linkablesData]);
 
+  // The Candidates panel's way onto the Board (PLAN §17.10). The card goes
+  // through the Board when it is on screen beside the talk; otherwise the
+  // Board is written here and announced, so the Candidate moves to "On the
+  // Board" without the Board ever being opened.
+  const { announceBoardSaved } = useStore();
+  const placeCandidate = (c: Candidate) => {
+    placeOnBoard(id, c.doc, api)
+      .then((wrote) => {
+        if (wrote) announceBoardSaved();
+        toast(t.placed_on_board(c.doc.label));
+      })
+      .catch((e) => toast.error(String(e)));
+  };
+
   return (
     <aside
       data-testid="right-panel"
@@ -189,7 +205,12 @@ export function RightPanel({
         />
       )}
       {type === "composition" && (
-        <Candidates items={candidates} detected={detected} />
+        <Candidates
+          items={candidates}
+          detected={detected}
+          // Placing a card is an edit to the Board, so not while locked.
+          onPlace={locked ? undefined : (c) => placeCandidate(c)}
+        />
       )}
       {type === "composition" && onRestore && (
         <Versions
@@ -1069,9 +1090,12 @@ export function Linkables({
 export function Candidates({
   items,
   detected,
+  onPlace,
 }: {
   items: Candidate[];
   detected: DetectedRange[];
+  /** Put an unused Candidate on the Composition's Board; absent while locked. */
+  onPlace?: (c: Candidate) => void;
 }) {
   const t = useT();
   const live = detected.length;
@@ -1093,7 +1117,7 @@ export function Candidates({
             {live ? t.loading : t.no_candidates}
           </div>
         ) : (
-          <CandidateList items={unused} />
+          <CandidateList items={unused} onPlace={onPlace} />
         )}
       </Section>
       {placed.length > 0 && (
@@ -1122,15 +1146,22 @@ export function Candidates({
   );
 }
 
-function CandidateList({ items }: { items: Candidate[] }) {
+function CandidateList({
+  items,
+  onPlace,
+}: {
+  items: Candidate[];
+  onPlace?: (c: Candidate) => void;
+}) {
   const s = useStore();
+  const t = useT();
   return (
     <ul className="space-y-0.5">
       {items.map((c) => (
-        <li key={c.doc.id}>
+        <li key={c.doc.id} className="flex items-start gap-0.5" data-testid="candidate">
           <button
             type="button"
-            className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
+            className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
             onClick={() => s.openDoc(c.doc.id)}
           >
             <div className="flex items-center gap-2 text-sm">
@@ -1161,6 +1192,17 @@ function CandidateList({ items }: { items: Candidate[] }) {
               ))}
             </div>
           </button>
+          {onPlace && (
+            <IconButton
+              label={t.board_add_material}
+              data-testid="candidate-place"
+              size="icon-xs"
+              className="mt-1 shrink-0 text-muted-foreground"
+              onClick={() => onPlace(c)}
+            >
+              <LayoutDashboard />
+            </IconButton>
+          )}
         </li>
       ))}
     </ul>

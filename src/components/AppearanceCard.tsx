@@ -14,11 +14,14 @@ import {
   DEFAULT_LINE_WIDTH,
   FONTS,
   TOKENS,
+  fontsFor,
   freeName,
   isBuiltin,
   keyContrasts,
   normalizeSkin,
   unknownOverrides,
+  type FontDef,
+  type FontRole,
   type Side,
   type Skin,
   type SkinSide,
@@ -30,7 +33,7 @@ import { useSkinImport } from "@/components/SkinImport";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -276,8 +279,8 @@ function SkinEditor({ skin }: { skin: Skin }) {
       </Row>
 
       <Section title={ta.typography}>
-        <FontRow label={ta.prose_font} kind="serif" value={s.typography.proseFont} onChange={(v) => setSideValue({ typography: { ...s.typography, proseFont: v } })} testid="appearance-prose-font" />
-        <FontRow label={ta.ui_font} kind="sans" value={s.typography.uiFont} onChange={(v) => setSideValue({ typography: { ...s.typography, uiFont: v } })} testid="appearance-ui-font" />
+        <FontRow label={ta.prose_font} role="prose" value={s.typography.proseFont} onChange={(v) => setSideValue({ typography: { ...s.typography, proseFont: v } })} testid="appearance-prose-font" />
+        <FontRow label={ta.ui_font} role="ui" value={s.typography.uiFont} onChange={(v) => setSideValue({ typography: { ...s.typography, uiFont: v } })} testid="appearance-ui-font" />
         <Row label={ta.prose_size} value={`${Math.round((s.typography.proseSize ?? 1) * 100)} %`}>
           <Slider min={80} max={160} step={5} value={Math.round((s.typography.proseSize ?? 1) * 100)} onChange={(n) => setSideValue({ typography: { ...s.typography, proseSize: n === 100 ? undefined : n / 100 } })} testid="appearance-prose-size" />
         </Row>
@@ -459,13 +462,12 @@ function ColorRow({
 const CUSTOM = "__custom__";
 const DEFAULT = "__default__";
 
-function FontRow({ label, kind, value, onChange, testid }: { label: string; kind: "serif" | "sans"; value: string | undefined; onChange: (v: string | undefined) => void; testid: string }) {
+function FontRow({ label, role, value, onChange, testid }: { label: string; role: FontRole; value: string | undefined; onChange: (v: string | undefined) => void; testid: string }) {
   const ta = useT().appearance;
   const known = !value || FONTS.some((f) => f.id === value);
   const [custom, setCustom] = useState(!known);
-  const fontLabel = (id: string, fallback: string) => (id === "system-serif" ? ta.font_system_serif : id === "system-sans" ? ta.font_system_sans : fallback);
-  // Prose may take any font; the interface is better off with a sans.
-  const offered = kind === "serif" ? FONTS : FONTS.filter((f) => f.kind === "sans");
+  const systemLabel: Record<string, string> = { "system-serif": ta.font_system_serif, "system-sans": ta.font_system_sans, "system-mono": ta.font_system_mono };
+  const kindLabel: Record<FontDef["kind"], string> = { serif: ta.font_kind_serif, sans: ta.font_kind_sans, mono: ta.font_kind_mono };
   return (
     <Row label={label}>
       <Select
@@ -480,10 +482,15 @@ function FontRow({ label, kind, value, onChange, testid }: { label: string; kind
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={DEFAULT}>{ta.font_default}</SelectItem>
-          {offered.map((f) => (
-            <SelectItem key={f.id} value={f.id} style={{ fontFamily: f.stack }}>
-              {fontLabel(f.id, f.label)}
-            </SelectItem>
+          {fontsFor(role).map(({ kind, fonts }) => (
+            <SelectGroup key={kind} data-testid={`${testid}-group-${kind}`}>
+              <SelectLabel>{kindLabel[kind]}</SelectLabel>
+              {fonts.map((f) => (
+                <SelectItem key={f.id} value={f.id} style={{ fontFamily: f.stack }} data-testid={`${testid}-option-${f.id}`}>
+                  {systemLabel[f.id] ?? f.label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           ))}
           <SelectItem value={CUSTOM}>{ta.font_custom}</SelectItem>
         </SelectContent>
