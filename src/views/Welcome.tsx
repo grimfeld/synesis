@@ -13,8 +13,10 @@ import { shortcut } from "@/lib/keys";
 import { destination, methodFor, nameIsUsable, type Route } from "@/lib/onboarding";
 import { locationsFor, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
-import { tutorial } from "@/lib/tutorials";
+import { syncTutorialId, tutorial, tutorialSource, tutorialsFor } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
+import { platformToKind } from "@/lib/syncRules";
+import { TutorialMarkdown } from "@/components/TutorialPanel";
 import { useT } from "@/i18n";
 import { LandsIn } from "@/components/LandsIn";
 import { SyncSetup } from "@/components/SyncSetup";
@@ -110,6 +112,16 @@ export function Welcome() {
   useEffect(() => setPath(suggested), [suggested]);
 
   const dest = destination(locations, name, path);
+
+  // The wizard's Tutorials (PLAN §25.10): Pairing, read in place on the
+  // pairing screen, and this Device's folder-sync ones, which the folder
+  // screen shows for the chosen method and the Done step opens beside the
+  // Vault to check that sync works.
+  const welcomeTutorials = tutorialsFor({ kind: "welcome" }, locations ? platformToKind(locations.platform) : undefined);
+  const pairingTutorial = welcomeTutorials.includes("pairing") ? tutorialSource("pairing", s.lang) : null;
+  const syncTutorial =
+    route === "folder" && method && locations ? syncTutorialId(method, platformToKind(locations.platform)) : null;
+  const trySync = syncTutorial && welcomeTutorials.includes(syncTutorial) ? syncTutorial : null;
 
   const createVault = async () => {
     setBusy(true);
@@ -239,6 +251,12 @@ export function Welcome() {
                     onGrant={grant}
                   />
                   {error && <p className="text-sm text-destructive">{error}</p>}
+                  {pairingTutorial && (
+                    <details className="rounded-xl border bg-card p-4 text-sm" data-testid="welcome-tutorial-pairing">
+                      <summary className="cursor-pointer font-medium">{tutorial("pairing", s.lang)?.title}</summary>
+                      <TutorialMarkdown source={pairingTutorial} className="mt-3" />
+                    </details>
+                  )}
                 </>
               )}
             </section>
@@ -327,6 +345,7 @@ export function Welcome() {
                   { icon: Zap, title: t.wizard.try_capture, body: t.wizard.try_capture_body, kbd: shortcut("⇧N"), tutorial: "capture" },
                   { icon: Search, title: t.wizard.try_palette, body: t.wizard.try_palette_body, kbd: shortcut("K"), tutorial: "palette" },
                   { icon: Laptop, title: t.wizard.try_passage, body: t.wizard.try_passage_body, kbd: "", tutorial: "passages" },
+                  ...(trySync ? [{ icon: RefreshCw, title: t.wizard.try_sync, body: t.wizard.try_sync_body, kbd: "", tutorial: trySync }] : []),
                 ].map((x, i) => (
                   <li key={i} className="flex items-start gap-3 rounded-xl border bg-card p-4">
                     <x.icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />

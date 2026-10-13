@@ -523,9 +523,6 @@ export const en = {
     collapse: "Shrink the tutorial",
     unavailable: "Not available on this page",
     show_me: "Show me how",
-    images_title: "Tutorial pictures",
-    images_body: "On trial: pick which pictures tutorials show, to compare them.",
-    image_modes: { none: "None", diagrams: "Diagrams", screenshots: "Screenshots" },
   },
   groups: { create: "Create", navigate: "Navigate", editor: "Editor", help: "Tutorials" },
   editor_cmds: {
@@ -644,13 +641,15 @@ export const en = {
     // for wherever it happens to keep its folder (PLAN §21.6).
     point_tool_here: (p: string) => `Add ${p} as a folder in your sync app, on this device and on the others.`,
     done_title: "You're set.",
-    done_body: "Three things to try once the vault opens.",
+    done_body: "A few things to try once the vault opens.",
     try_capture: "Quick capture",
     try_capture_body: "Jot a thought from anywhere; a Note is created with today's date.",
     try_palette: "Command palette",
     try_palette_body: "Search everything. Type > to run a command.",
     try_passage: "Write a Passage",
     try_passage_body: "Type “Ro 8:28” in any Note and click it: that verse's page gathers everything you wrote about it.",
+    try_sync: "Check that sync works",
+    try_sync_body: "Write a test Note here and watch it arrive on your other Device.",
     open_vault: "Open the vault",
   },
   sync: {

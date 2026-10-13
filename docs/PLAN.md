@@ -824,7 +824,11 @@ it explains.
     Hub); Map & Journeys (Map, Place and Journey Hubs); Graph (Graph);
     Coverage (Coverage); Command Palette (every view); Pairing (Settings,
     Welcome); and the folder-sync Tutorials (Settings, Welcome). Skins
-    (Settings) followed with §26.
+    (Settings) followed with §26. Talk and Board side by side (Composition
+    editor, Board), Reading mode (editor) and the Delivery view (Composition
+    editor, Board) followed with §22 and §23, on 2026-10-13: Reading mode after
+    Source mode, Split after Boards, the Delivery view after Versions. Pictures
+    (editor, Hub) followed with ADR 0019, after Properties & Dates.
 11. **Progress**: per Device, keyed by Tutorial id (not language): the step
     reached and whether it was finished. Kept in the webview's local storage,
     like Source mode, not in the engine's settings: it is a convenience of the
@@ -832,6 +836,12 @@ it explains.
     Tutorials carry a check in the "?" list. Nothing ever prompts: no dots, no
     badges. The Welcome wizard's Done step links three Tutorials: Quick
     capture & Notes, Passages, Command Palette.
+    **Amended 2026-10-13:** Welcome is a place in `tutorialsFor` too, listing
+    Pairing and this Device's folder-sync Tutorials (never the palette's: no
+    Vault is open). The pairing screen shows the Pairing Tutorial in place,
+    folded, as the folder screen already shows the chosen method's sync
+    Tutorial; when the Done step follows the folder route, it adds a fourth
+    link, that method's Tutorial, to check sync once the Vault opens.
 12. **Pictures, on trial**: a card in Settings, below Appearance (local
     storage, as 11), chooses *none*,
     *diagrams* (language-neutral images, no text, one file for both languages)
@@ -841,6 +851,13 @@ it explains.
     content). A Tutorial names a picture once, `![alt](image:<name>)`, and the
     mode decides which file it is. The bundle weight each adds is measured,
     and one mode is kept once both have been tried.
+    **Decided 2026-10-13: diagrams are kept**, and the trial ends. Tutorials
+    always show their diagram; the Settings card, the *none* and
+    *screenshots* modes, `docs/tutorials/screenshots/` and
+    `npm run tutorials:screenshots` are gone. Diagrams need no regenerating
+    when the UI or the demo Vault changes, serve both languages and both
+    themes from one file, and cost less to bundle. `![alt](image:<name>)`
+    names a diagram in `docs/tutorials/diagrams/<name>.svg`.
 13. **Tests**: Vitest checks every Tutorial exists in every `Lang`, has the
     shape in 8, names only existing Command ids, and that every listed id
     exists. `cypress/e2e/tutorials.cy.ts` covers the panel (open from "?", the

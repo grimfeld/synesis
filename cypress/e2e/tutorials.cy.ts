@@ -87,20 +87,12 @@ describe("Tutorials", () => {
     cy.get("[data-testid=tutorial-body]").should("have.attr", "data-id", "palette");
   });
 
-  it("shows the pictures the image setting asks for", () => {
+  it("shows a Tutorial's diagram, with no setting to choose (PLAN §25.12)", () => {
     cy.get("[data-testid=nav-settings]").click();
-    cy.get("[data-testid=tutorial-image-mode]").click();
-    cy.get("[data-testid=tutorial-image-mode-screenshots]").click();
+    cy.get("[data-testid=tutorial-image-mode]").should("not.exist");
     cy.get("[data-testid=nav-timeline]").click();
     cy.openTutorial("timeline");
-    cy.get("[data-testid=tutorial-image]").should("have.attr", "data-mode", "screenshots").and("have.attr", "src").and("match", /timeline\.en\.(light|dark)/);
-    cy.get("[data-testid=nav-settings]").click();
-    cy.get("[data-testid=tutorial-image-mode]").click();
-    cy.get("[data-testid=tutorial-image-mode-diagrams]").click();
-    cy.get("[data-testid=tutorial-image]").should("have.attr", "data-mode", "diagrams").and("have.attr", "src").and("match", /timeline/i);
-    cy.get("[data-testid=tutorial-image-mode]").click();
-    cy.get("[data-testid=tutorial-image-mode-none]").click();
-    cy.get("[data-testid=tutorial-image]").should("not.exist");
+    cy.get("[data-testid=tutorial-image]").should("have.attr", "src").and("match", /svg/i);
   });
 
   it("scrolls a long list inside the panel, never the view behind it", () => {

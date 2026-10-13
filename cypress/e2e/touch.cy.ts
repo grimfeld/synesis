@@ -1,5 +1,6 @@
 // Touch input on a phone: the Timeline pans and pinches, the Graph pans, pinches
-// and opens a node by tap, and the Map keeps the view the reader chose.
+// and opens a node by tap, the Map keeps the view the reader chose, and a
+// Board pans with one finger and moves a card only after a long press.
 // Cypress only dispatches the events, so these drive pointer events directly.
 
 type Pt = { id: number; x: number; y: number };
@@ -200,6 +201,102 @@ describe("Touch", () => {
       cy.get("body").type("{esc}");
       cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
       view().should("equal", zoomed);
+    });
+  });
+  describe("on a Board", () => {
+    // The demo Board's bubble "Trials feel like…" (talk on endurance.canvas).
+    const TRIALS = "a1b2c3d4e5f60002";
+    const card = () => cy.contains("[data-testid=board-canvas] div", "Trials feel like the opposite of joy.");
+    const savedTrials = () =>
+      cy.docByTitle("Talk on endurance").then((d) =>
+        cy.bridge<{ nodes: { id: string; x: number; y: number }[] }>("get_board", { id: d.id }).then((b) => b.nodes.find((n) => n.id === TRIALS)!),
+      );
+    const openBoard = () => {
+      cy.openDoc("Talk on endurance");
+      cy.get("[data-testid=tab-board]").click();
+      card().should("exist");
+    };
+
+    it("keeps the arranging tools that fit a phone", () => {
+      openBoard();
+      // Pan, zoom and add notes; groups, connections and the Material list
+      // need a larger screen (PLAN §17.15).
+      cy.get("[aria-label='Add note']").should("exist");
+      cy.get("[aria-label='Zoom in']").should("exist");
+      cy.get("[aria-label='Add group']").should("not.exist");
+      cy.get("[data-testid=board-drawer]").should("not.exist");
+      card().then(($c) => {
+        const r = $c[0].getBoundingClientRect();
+        tap($c[0], r.left + r.width / 2, r.top + r.height / 2);
+      });
+      cy.get("[data-testid=board-selection]").should("not.exist");
+      cy.get("[aria-label='Draw a connection']").should("not.exist");
+    });
+
+    it("pans with one finger, even when the swipe starts on a card", () => {
+      openBoard();
+      savedTrials().then((before) => {
+        card().then(($c) => {
+          const r = $c[0].getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          swipe($c[0], x, y, x - 80, y + 60);
+          // The whole Board moved under the finger...
+          card().should(($a) => {
+            const a = $a[0].getBoundingClientRect();
+            expect(a.left).to.be.closeTo(r.left - 80, 4);
+            expect(a.top).to.be.closeTo(r.top + 60, 4);
+          });
+        });
+        // ...and the card did not move on it.
+        cy.wait(700); // past the save debounce, so a move would have landed
+        savedTrials().should((after) => expect([after.x, after.y]).to.deep.equal([before.x, before.y]));
+      });
+    });
+
+    it("moves a card after a long press", () => {
+      openBoard();
+      savedTrials().then((before) => {
+        card().then(($c) => {
+          const el = $c[0];
+          const r = el.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          pointer(el, "pointerdown", { id: 1, x, y });
+          cy.wait(600); // past the 400ms long press, finger still
+          cy.then(() => {
+            for (let i = 1; i <= 8; i++) pointer(el, "pointermove", { id: 1, x: x + 8 * i, y: y + 6 * i });
+            pointer(el, "pointerup", { id: 1, x: x + 64, y: y + 48 });
+          });
+        });
+        cy.wait(700); // the Board save is debounced
+        savedTrials().should((after) => {
+          expect(after.x, "moved right").to.be.greaterThan(before.x);
+          expect(after.y, "moved down").to.be.greaterThan(before.y);
+        });
+      });
+    });
+
+    it("cancels the long press when the finger travels first", () => {
+      openBoard();
+      savedTrials().then((before) => {
+        card().then(($c) => {
+          const el = $c[0];
+          const r = el.getBoundingClientRect();
+          const x = r.left + r.width / 2;
+          const y = r.top + r.height / 2;
+          // Travel past the slop at once, then hold: it stays a pan.
+          pointer(el, "pointerdown", { id: 1, x, y });
+          pointer(el, "pointermove", { id: 1, x: x + 30, y });
+          cy.wait(600);
+          cy.then(() => {
+            pointer(el, "pointermove", { id: 1, x: x + 90, y: y + 40 });
+            pointer(el, "pointerup", { id: 1, x: x + 90, y: y + 40 });
+          });
+        });
+        cy.wait(700);
+        savedTrials().should((after) => expect([after.x, after.y]).to.deep.equal([before.x, before.y]));
+      });
     });
   });
 });

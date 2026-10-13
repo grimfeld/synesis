@@ -12,7 +12,6 @@
     "preview": "vite preview",
     "build:web": "node scripts/build-web.mjs",
     "dev:web": "node scripts/build-web.mjs --engine && vite --mode web",
-    "tutorials:screenshots": "node scripts/tutorial-screenshots.mjs",
     "tauri": "tauri",
     "typecheck": "tsc --noEmit",
     "test:unit": "vitest run",
