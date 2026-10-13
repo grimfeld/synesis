@@ -824,7 +824,10 @@ it explains.
     Hub); Map & Journeys (Map, Place and Journey Hubs); Graph (Graph);
     Coverage (Coverage); Command Palette (every view); Pairing (Settings,
     Welcome); and the folder-sync Tutorials (Settings, Welcome). Skins
-    (Settings) followed with §26.
+    (Settings) followed with §26. Talk and Board side by side (Composition
+    editor, Board), Reading mode (editor) and the Delivery view (Composition
+    editor, Board) followed with §22 and §23, on 2026-10-13: Reading mode after
+    Source mode, Split after Boards, the Delivery view after Versions.
 11. **Progress**: per Device, keyed by Tutorial id (not language): the step
     reached and whether it was finished. Kept in the webview's local storage,
     like Source mode, not in the engine's settings: it is a convenience of the

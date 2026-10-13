@@ -137,12 +137,15 @@ export const FEATURE_TUTORIALS = [
   "linkables",
   "properties",
   "source-mode",
+  "reading",
   "library",
   "clippings",
   "compositions",
   "candidates",
   "boards",
+  "split",
   "versions",
+  "delivery",
   "hubs",
   "timeline",
   "map",
@@ -190,14 +193,14 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
       case "coverage":
         return ["coverage", "passages"];
       case "board":
-        return ["boards"];
+        return ["boards", "split", "delivery"];
       case "settings": {
         const sync = deviceKind ? (["icloud", "syncthing", "provider"] as Method[]).map((m) => syncTutorialId(m, deviceKind)) : [];
         return ["skins", "pairing", ...sync];
       }
       case "editor": {
-        const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode"];
-        if (place.type === "composition") return ["compositions", "candidates", "boards", "versions", ...writing];
+        const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode", "reading"];
+        if (place.type === "composition") return ["compositions", "candidates", "boards", "split", "versions", "delivery", ...writing];
         return writing;
       }
       case "hub": {
