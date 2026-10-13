@@ -23,6 +23,7 @@ Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changi
 - `npm run tauri dev` — run the desktop app.
 - `npm run icons` — regenerate every app icon from `branding/` (the logo, white on a navy tile; Android gets separate foreground, background and monochrome layers). Edit the SVGs there, never the PNGs.
 - `npm run icons:mobile` — after `tauri android init` / `tauri ios init`, copy the app icons from `src-tauri/icons/{android,ios}` into the generated project (the templates ship Tauri's default icon). The release workflow does this.
+- `npm run ios:post-init` — after `tauri ios init`: the icons, plus the iCloud entitlements from `src-tauri/ios/Synesis_iOS.entitlements` (ADR 0022), plus a check that SystemConfiguration and Network are linked (`scripts/ios-post-init.mjs`). The release workflow runs it; `src-tauri/Info.ios.plist` is merged by `tauri ios build` itself.
 - `npm run typecheck` — typecheck the UI.
 - `npm run build:web` — build the web test build into `dist-web/` (fetches the wasm32-wasip1 target and wasi-sdk into `target/` on first run). Vercel runs this on every push and gives each branch a preview URL (`vercel.json`). `npm run dev:web` serves it with hot reload for the UI; rerun it after engine changes.
 - `npm run test:unit` — Vitest unit tests for pure TypeScript in `src/lib` (`src/**/*.test.ts`, jsdom, ~1s). Put logic that needs no engine here rather than in Cypress.
