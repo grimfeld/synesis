@@ -243,7 +243,7 @@ export function Editor({
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
     if (register) setActiveEditor(view);
-    runDetect(value);
+    runDetect(view.state.doc.toString());
     if (autofocus) view.focus();
     return () => {
       window.clearTimeout(detectTimer.current);
@@ -279,7 +279,10 @@ export function Editor({
     if (!v) return;
     const replaced = revision !== syncedRevision.current;
     syncedRevision.current = revision;
-    if (v.state.doc.toString() === value) return;
+    // CodeMirror keeps its text with "\n" line breaks, so a file saved with
+    // CRLF never compares equal to it. Writing it back would mark the page as
+    // edited and rewrite the file just for being opened.
+    if (v.state.doc.toString() === value.replace(/\r\n?/g, "\n")) return;
     // Typing fast, the page can render a keystroke behind: `value` is then a
     // text this editor produced itself, and writing it back would undo what
     // was typed since (a "##" left as "#"). Only a wholesale replacement, or a

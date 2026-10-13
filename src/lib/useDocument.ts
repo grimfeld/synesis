@@ -30,6 +30,10 @@ export function useDocument(id: string) {
   const apply = useCallback((d: DocumentPayload) => {
     known.current = d.text;
     const sp = splitFrontmatter(d.text);
+    // The editor holds "\n" line breaks whatever the file has; the body is
+    // kept the same way, so a CRLF file opened is not a CRLF file edited, and
+    // the panels' offsets match the editor's.
+    sp.body = sp.body.replace(/\r\n?/g, "\n");
     setDoc(d);
     setFm(sp.fm);
     setBody(sp.body);
