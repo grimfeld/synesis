@@ -9,4 +9,4 @@ Un candidat est un document de votre coffre, le plus souvent une Note ou un Extr
 ## À savoir
 
 - Un tag qui nomme le candidat compte aussi comme une mention.
-- Placer un candidat sur le **Tableau** de la Composition ne l'utilise pas : il figure sous **Sur le tableau** et reste candidat tant que la Composition elle-même ne le mentionne pas.
+- Placer un candidat sur le **Tableau** de la Composition ne l'utilise pas : il figure sous **Sur le tableau** et reste candidat tant que la Composition elle-même ne le mentionne pas. Le bouton **Placer sur le tableau** à côté de chaque candidat l'y pose comme carte sans quitter le discours.

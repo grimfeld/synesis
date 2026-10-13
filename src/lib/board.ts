@@ -306,6 +306,31 @@ export function newId(): string {
 
 export const emptyBoard = (): Board => ({ nodes: [], edges: [] });
 
+/** How tall a document's card is when it is placed (room for its excerpt). */
+export const FILE_CARD_HEIGHT = 140;
+
+/**
+ * The Board with a card for the document at `path`, placed without the Board
+ * on screen (the Candidates panel, PLAN §17.10).
+ *
+ * There is no viewport to aim at, so the card goes beside what is there: to
+ * the right of the content, level with its top, nudged off anything in the
+ * way. A document already on the Board is not placed twice — the same Board
+ * unchanged — since a second card for it says nothing the first does not.
+ */
+export function placeDocument(board: Board, path: string, id = newId()): Board {
+  if (board.nodes.some((n) => n.type === "file" && n.file === path && !n.subpath))
+    return board;
+  const width = DEFAULT_NODE.width;
+  const height = FILE_CARD_HEIGHT;
+  const b = contentBounds(board.nodes);
+  const spot = b
+    ? freeSpotNear(board.nodes, b.x + b.width + 40, b.y, width, height)
+    : { x: 0, y: 0 };
+  const node: CanvasNode = { id, type: "file", file: path, ...spot, width, height };
+  return { ...board, nodes: [...board.nodes, node] };
+}
+
 /** Move nodes by a Board-space delta, rounding to the integers the spec wants. */
 export function moveNodes(
   board: Board,

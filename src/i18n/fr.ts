@@ -266,6 +266,7 @@ export const fr: Dict = {
   board_search: "Rechercher dans le coffre",
   board_search_hint: "Cliquez sur un résultat pour le placer sur le tableau.",
   board_add_material: "Placer sur le tableau",
+  placed_on_board: (label: string) => `Placé sur le tableau : ${label}`,
   board_already: "Déjà sur le tableau",
   board_on: "sur le tableau",
   board_selected: (n: number) => `${n} sélectionné${n === 1 ? "" : "s"}`,

@@ -269,6 +269,7 @@ export const en = {
   board_search: "Search the Vault",
   board_search_hint: "Click a result to place it on the Board.",
   board_add_material: "Place on the Board",
+  placed_on_board: (label: string) => `Placed on the Board: ${label}`,
   board_already: "Already on the Board",
   board_on: "on board",
   board_selected: (n: number) => `${n} selected`,

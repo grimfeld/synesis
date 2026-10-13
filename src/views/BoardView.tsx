@@ -49,6 +49,7 @@ import {
   removeNodes,
   toBoard,
   zoomAt,
+  FILE_CARD_HEIGHT,
   type Rect,
   type Viewport,
 } from "@/lib/board";
@@ -371,12 +372,14 @@ export function BoardView({
     [board, view, size, save],
   );
 
-  /** Drop a document on the Board as a `file` node. */
+  /** Drop a document on the Board as a `file` node, once. */
   const addDocument = useCallback(
     (doc: DocSummary) => {
-      addNode({ type: "file", file: doc.path, height: 140 });
+      if (board?.nodes.some((n) => n.type === "file" && n.file === doc.path && !n.subpath))
+        return;
+      addNode({ type: "file", file: doc.path, height: FILE_CARD_HEIGHT });
     },
-    [addNode],
+    [addNode, board],
   );
 
   const deleteSelected = useCallback(() => {
@@ -621,8 +624,8 @@ export function BoardView({
   // nothing.
   useEffect(() => {
     if (!loaded || delivering) return;
-    return registerBoard({ id, exportPicture: exportBoard });
-  }, [id, loaded, delivering, exportBoard]);
+    return registerBoard({ id, exportPicture: exportBoard, place: addDocument });
+  }, [id, loaded, delivering, exportBoard, addDocument]);
 
   const openNode = useCallback(
     (n: CanvasNode) => {
