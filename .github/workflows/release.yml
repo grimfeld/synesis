@@ -44,6 +44,7 @@
 #           iOS apps; to sign with your own "Apple Distribution" certificate
 #           instead, set IOS_CERTIFICATE, IOS_CERTIFICATE_PASSWORD and
 #           IOS_MOBILE_PROVISION (see https://v2.tauri.app/distribute/sign/ios/).
+#           The IPA is also uploaded to App Store Connect, for TestFlight.
 name: Release
 
 on:
@@ -489,6 +490,29 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           files: out/*.ipa
+
+      # The IPA is signed for the App Store, so a phone installs it only
+      # through TestFlight. altool finds AuthKey_<id>.p8 in
+      # API_PRIVATE_KEYS_DIR, the folder the key step wrote it to. App Store
+      # Connect refuses a build number it has seen, so a rerun of the same
+      # version warns instead of failing the release.
+      - name: Upload to TestFlight
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          export API_PRIVATE_KEYS_DIR="$(dirname "$APPLE_API_KEY_PATH")"
+          set -o pipefail
+          if xcrun altool --upload-app -t ios -f "out/Synesis_${VERSION}_ios.ipa" \
+              --apiKey "$APPLE_API_KEY" --apiIssuer "$APPLE_API_ISSUER" 2>&1 | tee "$RUNNER_TEMP/altool.log"; then
+            echo "Uploaded; the build appears in TestFlight once Apple has processed it."
+            exit 0
+          fi
+          if grep -qiE "already been uploaded|bundle version must be higher|ENTITY_ERROR.ATTRIBUTE.INVALID.DUPLICATE" "$RUNNER_TEMP/altool.log"; then
+            echo "::warning::App Store Connect already has build ${VERSION}; nothing uploaded."
+            exit 0
+          fi
+          exit 1
 
   # SignPath Foundation signs open-source releases for free, but only files a
   # GitHub workflow built and handed over as an artifact (its proof of
