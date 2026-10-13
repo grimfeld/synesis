@@ -82,4 +82,13 @@ describe("About", () => {
     cy.get("[data-testid=about-licence-text]").should("have.attr", "href").and("contain", "LICENSE");
     cy.get("[data-testid=about-data]").should("contain", "OpenBible.info").and("contain", "Natural Earth").and("contain", "Mapzen");
   });
+
+  it("shows the third-party notices of the packages Synesis ships", () => {
+    cy.runCommand("About Synesis");
+    cy.get("[data-testid=about-third-party]").click();
+    cy.get("[data-testid=third-party-text]", { timeout: 15000 })
+      .should("contain", "@codemirror/view")
+      .and("contain", "tauri")
+      .and("contain", "Permission is hereby granted");
+  });
 });

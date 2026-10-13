@@ -487,6 +487,9 @@ export const fr: Dict = {
     free_body:
       "Utilisez-le, modifiez-le, partagez-le. Quiconque transmet Synesis, modifié ou non, installé ou hébergé, doit en fournir le code source complet sous la même licence.",
     source: "Code source",
+    third_party: "Licences tierces",
+    third_party_body: "Synesis est construit avec des logiciels libres écrits par d'autres. Chaque paquet ci-dessous garde sa propre licence.",
+    third_party_error: "Impossible de charger les mentions.",
     licence_text: "Texte de la licence",
     data_title: "Données incluses",
     data: {

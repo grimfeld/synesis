@@ -488,6 +488,9 @@ export const en = {
       "Use it, change it and share it. Whoever passes Synesis on, changed or not, installed or hosted, must offer its full source under the same licence.",
     source: "Source code",
     licence_text: "Licence text",
+    third_party: "Third-party licences",
+    third_party_body: "Synesis is built with free software by others. Each package below keeps its own licence.",
+    third_party_error: "The notices could not be loaded.",
     data_title: "Bundled data",
     data: {
       openbible: "Bible places, by Stephen Smith, CC BY 4.0",
