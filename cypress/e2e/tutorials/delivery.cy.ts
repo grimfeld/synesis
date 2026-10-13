@@ -76,7 +76,14 @@ describe("Tutorial: The Delivery view", () => {
     deliver();
     cy.get("[data-testid=delivery-timer]").should("have.attr", "data-phase", "running").and("not.have.text", "25:00");
     cy.get("[data-testid=delivery-timer-toggle]").click();
-    cy.get("[data-testid=delivery-timer]").should("not.have.attr", "data-phase", "running");
+    // Paused, the clock stops. (`data-phase` is the colour band — a paused
+    // countdown is still "running" there, not "idle".)
+    cy.get("[data-testid=delivery-timer]")
+      .invoke("text")
+      .then((paused) => {
+        cy.wait(1500);
+        cy.get("[data-testid=delivery-timer]").should("have.text", paused);
+      });
     cy.get("[data-testid=delivery-timer-reset]").click();
     cy.get("[data-testid=delivery-timer]").should("have.text", "25:00");
     exit();

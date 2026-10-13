@@ -73,7 +73,17 @@ describe("Tutorial: Skins", () => {
     cy.tutorialStep(3);
     cy.get("[data-testid=appearance-duplicate]").click();
     cy.get("[data-testid=appearance-delete]").should("be.visible");
-    cy.get("[data-testid=appearance-revert]").should("exist");
+    // Undo changes appears once there is a change to undo, and takes it back.
+    cy.get("[data-testid=appearance-revert]").should("not.exist");
+    cy.get("[data-testid=appearance-line-width]").then(($el) => {
+      const el = $el[0] as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(el, "900");
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    cy.get("[data-testid=appearance-line-width]").should("have.value", "900");
+    cy.get("[data-testid=appearance-revert]").click();
+    cy.get("[data-testid=appearance-line-width]").should("not.have.value", "900");
+    cy.get("[data-testid=appearance-revert]").should("not.exist");
     cy.get("[data-testid=appearance-delete]").click();
     cy.get("[data-testid=appearance-delete-confirm]").click();
     worn().should("eq", "builtin:synesis");
