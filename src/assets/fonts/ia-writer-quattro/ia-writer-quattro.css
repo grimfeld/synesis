@@ -1,0 +1,32 @@
+/* iA Writer Quattro (Information Architects, SIL OFL 1.1, see LICENSE.md),
+   the Webfonts of github.com/iaolo/iA-Fonts, unmodified. Four static faces,
+   so bold and italic prose are drawn, not synthesised. A browser only fetches
+   a face when a Skin uses it (PLAN §24.4). */
+@font-face {
+  font-family: "iA Writer Quattro";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./iAWriterQuattroS-Regular.woff2") format("woff2");
+}
+@font-face {
+  font-family: "iA Writer Quattro";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./iAWriterQuattroS-Italic.woff2") format("woff2");
+}
+@font-face {
+  font-family: "iA Writer Quattro";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./iAWriterQuattroS-Bold.woff2") format("woff2");
+}
+@font-face {
+  font-family: "iA Writer Quattro";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./iAWriterQuattroS-BoldItalic.woff2") format("woff2");
+}

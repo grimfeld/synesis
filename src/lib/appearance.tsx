@@ -25,6 +25,7 @@ import {
   type Skin,
 } from "./skin";
 import { useStore } from "./store";
+import { hasSystemBars, systemBarsFor } from "./systemBars";
 
 const CACHE_KEY = "synesis.appearance";
 const TYPO_VARS = Object.keys(typographyVars({}));
@@ -85,6 +86,9 @@ export function applySkin(skin: Skin, side: Side, scale: number): Palette {
     document.head.appendChild(meta);
   }
   meta.content = bg;
+  // Phone webviews ignore theme-color; the shell paints their bars.
+  const bars = hasSystemBars() ? systemBarsFor(bg) : null;
+  if (bars) api.setSystemBars(bars.color, bars.dark).catch((e) => console.warn("system bars", e));
   const palette = { ...base, ...changed };
   lastApplied = { key, palette };
   window.dispatchEvent(new CustomEvent("skin:applied"));

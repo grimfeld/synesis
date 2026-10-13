@@ -238,7 +238,9 @@ export interface FontDef {
   id: string;
   label: string;
   stack: string;
-  kind: "serif" | "sans";
+  /** "mono" is the typewriter family: iA Writer Quattro is drawn from a monospace
+   * and keeps its feel, with wide letters narrowed (PLAN §24.4). */
+  kind: "serif" | "sans" | "mono";
 }
 
 /** Fonts the app bundles (plus the system's own), so a shared Skin looks the same everywhere. */
@@ -247,9 +249,25 @@ export const FONTS: FontDef[] = [
   { id: "literata", label: "Literata", stack: '"Literata Variable", Georgia, serif', kind: "serif" },
   { id: "geist", label: "Geist", stack: '"Geist Variable", ui-sans-serif, system-ui, sans-serif', kind: "sans" },
   { id: "inter", label: "Inter", stack: '"Inter Variable", ui-sans-serif, system-ui, sans-serif', kind: "sans" },
+  {
+    id: "ia-writer-quattro",
+    label: "iA Writer Quattro",
+    stack: '"iA Writer Quattro", ui-monospace, SFMono-Regular, Menlo, monospace',
+    kind: "mono",
+  },
   { id: "system-serif", label: "System serif", stack: 'Georgia, "Times New Roman", serif', kind: "serif" },
   { id: "system-sans", label: "System sans-serif", stack: "system-ui, -apple-system, sans-serif", kind: "sans" },
+  { id: "system-mono", label: "System monospace", stack: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace", kind: "mono" },
 ];
+
+export type FontRole = "prose" | "ui";
+
+/** The bundled fonts offered for a role, by kind. Prose may take any family; the
+ * interface is better off without a serif. */
+export function fontsFor(role: FontRole): { kind: FontDef["kind"]; fonts: FontDef[] }[] {
+  const kinds: FontDef["kind"][] = role === "prose" ? ["serif", "sans", "mono"] : ["sans", "mono"];
+  return kinds.map((kind) => ({ kind, fonts: FONTS.filter((f) => f.kind === kind) }));
+}
 
 export const DEFAULT_PROSE_FONT = "source-serif";
 export const DEFAULT_UI_FONT = "geist";

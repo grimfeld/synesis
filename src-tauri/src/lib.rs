@@ -25,6 +25,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod devbridge;
 mod pairing;
 mod storage;
+mod system_bars;
 mod watch;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -1229,6 +1230,7 @@ pub fn run() {
             sync_locations,
             storage::storage_access,
             storage::request_storage_access,
+            system_bars::set_system_bars,
             open_vault,
             close_vault,
             inspect_invite,
