@@ -42,7 +42,9 @@ describe("Tutorial: Properties & Dates", () => {
     cy.tutorialStep(2);
     cy.openDoc("Ephesus");
     cy.hubTitle("Ephesus");
-    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("c. 1050 BCE").blur();
+    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("c. 1050 BCE");
+    // Requeried: the Hub can re-render the field while it is typed into.
+    cy.get("[data-testid=property-founded] input").blur();
     cy.get("[data-testid=hub-dates] [data-testid=date-founded]", { timeout: 10000 })
       .should("have.attr", "data-valid", "true")
       .and("contain", "c. 1050 BCE");

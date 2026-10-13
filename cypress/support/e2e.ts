@@ -32,6 +32,9 @@ before(() => {
 });
 
 after(() => {
+  // The editor and the Board save on a debounce (700 ms): a spec that ends
+  // right after typing would have that save land in a vault already closed.
+  cy.wait(1000);
   cy.bridge("set_language", { lang: originalLang });
   cy.bridge("set_map_filters", originalMap);
   // Let go of the copy first: its index cannot be removed while it is open.
