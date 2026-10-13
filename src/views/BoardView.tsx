@@ -272,14 +272,14 @@ export function BoardView({
   // whenever the user leaves straight after making one.
   const pending = useRef<{ id: string; board: Board } | null>(null);
 
-  const flush = useCallback(() => {
+  const flush = useCallback(async () => {
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
     const p = pending.current;
     pending.current = null;
-    if (p) void api.saveBoard(p.id, p.board).then(announceBoardSaved);
+    if (p) await api.saveBoard(p.id, p.board).then(announceBoardSaved);
   }, [announceBoardSaved]);
 
   const save = useCallback(
@@ -296,7 +296,38 @@ export function BoardView({
 
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
-  useEffect(() => flush, [flush, id]);
+  useEffect(
+    () => () => {
+      void flush();
+    },
+    [flush, id],
+  );
+
+  // The Board edited outside the app while it is open — Obsidian writing the
+  // `.canvas` (PLAN §17.14). The engine has folded the file in node by node,
+  // so what it answers now is the merged Board. An edit still waiting on the
+  // debounce (at most 400ms of it) is written first and is the later of the
+  // two, so where they disagree it wins — a node being dragged keeps the
+  // place it was dropped. The viewport is left alone; only the content
+  // changes under it.
+  const { lastChange } = s;
+  useEffect(() => {
+    if (!lastChange?.boards?.includes(id)) return;
+    let live = true;
+    (async () => {
+      await flush();
+      const next = await api.getBoard(id);
+      if (!live) return;
+      setBoard((cur) =>
+        cur && JSON.stringify(cur) === JSON.stringify(next ?? emptyBoard())
+          ? cur
+          : (next ?? emptyBoard()),
+      );
+    })().catch(console.error);
+    return () => {
+      live = false;
+    };
+  }, [lastChange, id, flush]);
   // And a Command that copies the Board from disk lands it first.
   useEffect(() => registerFlush(`board:${id}`, flush), [flush, id]);
 

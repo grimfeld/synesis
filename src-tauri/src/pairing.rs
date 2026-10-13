@@ -36,7 +36,7 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                 let state = forward.state::<AppState>();
                 if let Ok(changed) = state.with_vault_mut(|v| v.apply_remote()) {
                     if !changed.is_empty() {
-                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![] });
+                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
                     }
                 }
             }

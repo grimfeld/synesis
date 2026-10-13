@@ -644,6 +644,43 @@ impl Vault {
         Ok(Some(board))
     }
 
+    /// Fold an outside edit to a `.canvas` file into its Composition's Board
+    /// (PLAN §17.14, ADR 0009): the watcher's half of what `read_board` does
+    /// on open, so a Board edited in Obsidian refreshes while it is on screen.
+    ///
+    /// Structural, like `read_board`: the file is diffed against the map node
+    /// by node, so an untouched node records nothing. Returns the Composition
+    /// when its Board actually changed, and `None` for a canvas that pairs
+    /// with no Composition, one this app cannot parse, or the echo of this
+    /// app's own `write_board` — which recorded the same Board already, so
+    /// announcing it would only make the open Board reload what it just saved.
+    pub fn fold_board_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
+        let Some(md) = canvas::composition_path(rel) else { return Ok(None) };
+        let Some(comp) = self.index.get_by_path(&md)? else { return Ok(None) };
+        if comp.doc_type != DocType::Composition {
+            return Ok(None);
+        }
+        let abs = self.abs(rel);
+        let Ok(text) = fs::read_to_string(&abs) else { return Ok(None) };
+        let Ok(parsed) = Canvas::parse(&text) else { return Ok(None) };
+        let (changed, board) = match self.sync.as_mut() {
+            Some(sync) => {
+                let changed = sync.record_canvas(&comp.id, &parsed)?;
+                let merged = sync.canvas_of(&comp.id).unwrap_or_else(|| parsed.clone());
+                if merged != parsed {
+                    write_atomic(&abs, &merged.to_json())?;
+                }
+                (changed, merged)
+            }
+            None => (true, parsed),
+        };
+        if !changed {
+            return Ok(None);
+        }
+        self.record_board_refs(&comp.id, &board)?;
+        Ok(Some(comp))
+    }
+
     /// Record which documents a Board references, so they show as on the Board
     /// rather than as untouched Candidates (PLAN §17.6).
     fn record_board_refs(&mut self, id: &str, board: &Canvas) -> Result<()> {
@@ -1739,5 +1776,45 @@ Antioch is where they met.
         let copy = v.duplicate(&made.summary.id, "Short talk (copy)").unwrap();
         assert!(v.read_board(&copy.summary.id).unwrap().map_or(true, |b| b.is_empty()));
         assert!(!dir.path().join("Compositions/short talk (copy).canvas").exists());
+    }
+
+    /// PLAN §17.14: a Board edited outside the app (Obsidian) is folded in
+    /// when the watcher sees it, and the app's own save is not re-announced.
+    #[test]
+    fn an_outside_edit_to_a_canvas_is_folded_into_the_board() {
+        let (dir, mut v) = talk_vault();
+        let talk = v.resolve("Talk on endurance").unwrap().unwrap();
+        let joy = v.resolve("joy").unwrap().unwrap();
+        let rel = "Compositions/talk on endurance.canvas";
+        // Opening reads the Board in; nothing has changed since.
+        let board = v.read_board(&talk.id).unwrap().unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none(), "nothing new on disk");
+
+        // Obsidian removes the card for the Note and adds a bubble.
+        fs::write(
+            dir.path().join(rel),
+            r#"{"nodes":[{"id":"a","type":"text","text":"Opening","x":0,"y":0,"width":200,"height":100},{"id":"c","type":"text","text":"Close","x":0,"y":200,"width":200,"height":100,"obsidianOnly":true}],"edges":[]}"#,
+        )
+        .unwrap();
+        let folded = v.fold_board_file(rel).unwrap().expect("announced");
+        assert_eq!(folded.id, talk.id);
+        let now = v.read_board(&talk.id).unwrap().unwrap();
+        let ids: Vec<&str> = now.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, ["a", "c"]);
+        // An unknown field survives the round trip (PLAN §17.8).
+        assert!(now.to_json().contains("obsidianOnly"));
+        // The Note left the Board, so its Board ref is gone too.
+        assert!(boards_holding(&v, &joy.id).is_empty());
+
+        // The app's own save is an echo, not news.
+        v.write_board(&talk.id, &board).unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none());
+        assert_eq!(boards_holding(&v, &joy.id), [talk.id.clone()]);
+
+        // A canvas beside no Composition, or one that does not parse, is left alone.
+        fs::write(dir.path().join("Notes/loose.canvas"), r#"{"nodes":[],"edges":[]}"#).unwrap();
+        assert!(v.fold_board_file("Notes/loose.canvas").unwrap().is_none());
+        fs::write(dir.path().join(rel), "not json").unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none());
     }
 }

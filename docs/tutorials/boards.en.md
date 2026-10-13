@@ -16,3 +16,4 @@ A Board is where you think a talk out before you write it: your own bubbles, mat
 - A Version of the Composition covers its Board too, and restoring one restores both.
 - **Fit to Board** shows everything at once; **Export the Board** saves it as a picture (PNG or SVG).
 - On a phone you can pan, zoom, add notes and long-press a card to move it; groups, connections and the Material list need a larger screen.
+- The Board can be edited in Obsidian too: while it is open here, changes saved there appear on it within a moment, and cards you placed in either app are kept.

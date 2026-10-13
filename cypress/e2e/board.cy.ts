@@ -241,4 +241,47 @@ describe("Board", () => {
       });
     });
   });
+
+  // PLAN §17.14: the watcher folds an outside edit to a `.canvas` (Obsidian)
+  // into the Board. Events do not reach a plain browser, so this asks the
+  // index — which only the watcher updates without the Board being opened —
+  // rather than watching the canvas redraw.
+  it("folds a Board edited outside the app into the index", () => {
+    const until = (check: () => Cypress.Chainable<boolean>, tries = 30): void => {
+      check().then((ok) => {
+        if (ok) return;
+        if (tries <= 0) throw new Error("the watcher never folded the canvas");
+        cy.wait(250);
+        until(check, tries - 1);
+      });
+    };
+    cy.docByTitle("Talk on endurance").then((talk) => {
+      cy.docByTitle("Psalm 23 reflections").then((note) => {
+        const onBoards = () =>
+          cy
+            .query<{ id: string }[]>({ kind: "boardsReferencing", id: note.id })
+            .then((docs) => docs.some((d) => d.id === talk.id));
+        onBoards().should("equal", false);
+        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        cy.task<string>("file:read", file).then((text) => {
+          const board = JSON.parse(text);
+          board.nodes.push({
+            id: "0b5d1d1a0b5d1d1a",
+            type: "file",
+            file: note.path,
+            x: 600,
+            y: 0,
+            width: 320,
+            height: 140,
+          });
+          cy.task("file:write", { path: file, text: JSON.stringify(board, null, 2) });
+        });
+        until(onBoards);
+        // The card is there when the Board is opened.
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=tab-board]").click();
+        cy.get("[data-node-id=0b5d1d1a0b5d1d1a]").should("exist");
+      });
+    });
+  });
 });

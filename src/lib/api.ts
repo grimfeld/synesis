@@ -623,6 +623,12 @@ export interface InviteInfo {
 export interface ChangedPayload {
   changed: DocSummary[];
   removed: string[];
+  /**
+   * Compositions whose Board was edited outside the app (PLAN §17.14). A
+   * Board is not a document, so it is never in `changed`. Absent from the
+   * changes the app announces itself.
+   */
+  boards?: string[];
 }
 
 /**

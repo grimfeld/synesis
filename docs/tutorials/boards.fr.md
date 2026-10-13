@@ -16,3 +16,4 @@ Un tableau est l'endroit où vous pensez un discours avant de l'écrire : vos pr
 - Une version de la composition couvre aussi son tableau, et en restaurer une restaure les deux.
 - **Ajuster au tableau** montre tout d'un coup ; **Exporter le tableau** l'enregistre en image (PNG ou SVG).
 - Sur un téléphone, vous pouvez déplacer la vue, zoomer, ajouter des notes et déplacer une carte par un appui long ; les groupes, les liens et la liste Matière demandent un plus grand écran.
+- Le tableau peut aussi être modifié dans Obsidian : pendant qu'il est ouvert ici, les changements enregistrés là-bas y apparaissent en un instant, et les cartes placées dans l'une ou l'autre application sont conservées.
