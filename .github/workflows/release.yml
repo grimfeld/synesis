@@ -232,6 +232,30 @@ jobs:
               "$name" "$value" >> "$GITHUB_ENV"
           done
 
+      # With a Developer ID provisioning profile that carries iCloud, the Mac
+      # app gets the iCloud entitlement and can create Synesis's container
+      # itself (ADR 0022). Without one it is left out: macOS kills an app
+      # that claims iCloud with no profile, and the app then uses the
+      # container only once an iPhone has made it. Tauri merges
+      # tauri.macos.conf.json into the config on macOS.
+      - name: iCloud for the Mac (when MACOS_PROVISION_PROFILE is set)
+        if: runner.os == 'macOS' && needs.version.outputs.has_apple_cert == 'true'
+        env:
+          MACOS_PROVISION_PROFILE: ${{ secrets.MACOS_PROVISION_PROFILE }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$MACOS_PROVISION_PROFILE" ]; then
+            echo "No MACOS_PROVISION_PROFILE; the Mac app is built without iCloud entitlements."
+            exit 0
+          fi
+          printf "%s" "$MACOS_PROVISION_PROFILE" | tr -d "[:space:]" | base64 -d > src-tauri/embedded.provisionprofile
+          if ! security cms -D -i src-tauri/embedded.provisionprofile | grep -q "iCloud.tech.grimfeld.synesis"; then
+            echo "::error::MACOS_PROVISION_PROFILE is not a profile carrying the iCloud container iCloud.tech.grimfeld.synesis. Make a Developer ID profile for tech.grimfeld.synesis after enabling iCloud on the App ID, and set it base64-encoded."
+            exit 1
+          fi
+          sed "s/TEAM_ID/$APPLE_TEAM_ID/g" src-tauri/macos/Synesis.entitlements > src-tauri/macos/Synesis.signed.entitlements
+          printf '%s\n' '{"bundle":{"macOS":{"entitlements":"macos/Synesis.signed.entitlements","files":{"embedded.provisionprofile":"embedded.provisionprofile"}}}}' > src-tauri/tauri.macos.conf.json
+
       # The release already exists (created by the `version` job), so this
       # only builds and uploads. releaseName is still required by the action
       # but is never used to create anything. The TAURI_SIGNING_* pair signs

@@ -51,6 +51,7 @@ Each desktop job signs its updater bundle with the updater key, and tauri-action
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Signing and notarising the macOS builds (optional). |
 | `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` (+ `APPLE_TEAM_ID`) | The iOS job; skipped without them. |
 | `SIGNPATH_API_TOKEN` (secret), `SIGNPATH_ORGANIZATION_ID` (variable) | Signing the Windows installers; the Windows job fails without them ([docs/release/signpath.md](docs/release/signpath.md)). |
+| `MACOS_PROVISION_PROFILE` | A Developer ID provisioning profile for `tech.grimfeld.synesis` carrying iCloud, base64-encoded (optional). With it the Mac app can create the iCloud container itself; without it the Mac uses the container once an iPhone has made it. |
 | `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD`, `IOS_MOBILE_PROVISION` | Signing iOS with your own Apple Distribution certificate instead of Xcode cloud signing (optional). |
 | `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Signing the APK; the job fails without them. |
 | `VERCEL_SITE_DEPLOY_HOOK` | Rebuilding the landing page after a release (optional). |
@@ -66,6 +67,8 @@ Synesis is free software under the [GNU AGPL-3.0](LICENSE): use it, change it an
 The name and icon are not part of the licence: a changed version needs its own ([TRADEMARKS.md](TRADEMARKS.md)). Issues are welcome; code is by invitation ([CONTRIBUTING.md](CONTRIBUTING.md)).
 
 Every copy offers its source: Settings → About in the app and the web build (with the Commands **About Synesis** and **Synesis source code**) links to this repository and the licence text, and the web demo's banner links the source too, as the AGPL's §13 asks of a hosted copy. The installers carry the licence (`bundle.license`, `licenseFile`, `copyright`, `publisher` in `tauri.conf.json`).
+
+The licences of every npm package and crate the app ships are in [public/third-party-licenses.txt](public/third-party-licenses.txt), shown under Settings → About → Third-party licences; `npm run licenses` regenerates it after a dependency change, and CI fails while it is out of date.
 
 Bundled data keeps its own terms, credited in Settings → About: OpenBible.info places (CC BY 4.0, `crates/engine/data/GAZETTEER-NOTICE.txt`), Natural Earth (public domain) and Mapzen Terrain Tiles (`public/atlas/NOTICE.txt`).
 
