@@ -491,9 +491,6 @@ export const en = {
     collapse: "Shrink the tutorial",
     unavailable: "Not available on this page",
     show_me: "Show me how",
-    images_title: "Tutorial pictures",
-    images_body: "On trial: pick which pictures tutorials show, to compare them.",
-    image_modes: { none: "None", diagrams: "Diagrams", screenshots: "Screenshots" },
   },
   groups: { create: "Create", navigate: "Navigate", editor: "Editor", help: "Tutorials" },
   editor_cmds: {

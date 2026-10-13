@@ -2,7 +2,7 @@
 // (PLAN §25.6, §25.11). Above the Welcome wizard as well as the app, so the
 // wizard's Done step can hand a Tutorial to the panel that opens after it.
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { finish, goToStep, loadImageMode, loadProgress, resumeAt, saveImageMode, saveProgress, type ImageMode, type Progress } from "./tutorials";
+import { finish, goToStep, loadProgress, resumeAt, saveProgress, type Progress } from "./tutorials";
 
 /** A single Tutorial, or the list a view's "?" offers when it has several. */
 export type TutorialOpen = { kind: "one"; id: string; step: number; from?: string[] } | { kind: "list"; ids: string[] };
@@ -10,7 +10,6 @@ export type TutorialOpen = { kind: "one"; id: string; step: number; from?: strin
 interface TutorialState {
   open: TutorialOpen | null;
   progress: Progress;
-  imageMode: ImageMode;
   /** Open one Tutorial where the user left it. `from` is the list to go back to. */
   show: (id: string, total: number, from?: string[]) => void;
   /** Open a view's list; with one entry, open that Tutorial straight away. */
@@ -18,7 +17,6 @@ interface TutorialState {
   step: (id: string, step: number, total: number) => void;
   done: (id: string, total: number) => void;
   close: () => void;
-  setImageMode: (m: ImageMode) => void;
 }
 
 const Ctx = createContext<TutorialState | null>(null);
@@ -26,7 +24,6 @@ const Ctx = createContext<TutorialState | null>(null);
 export function TutorialProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState<TutorialOpen | null>(null);
   const [progress, setProgress] = useState<Progress>(() => loadProgress());
-  const [imageMode, setMode] = useState<ImageMode>(() => loadImageMode());
 
   const update = useCallback((f: (p: Progress) => Progress) => {
     setProgress((p) => {
@@ -56,14 +53,10 @@ export function TutorialProvider({ children }: { children: ReactNode }) {
   );
   const done = useCallback((id: string, total: number) => update((p) => finish(p, id, total)), [update]);
   const close = useCallback(() => setOpen(null), []);
-  const setImageMode = useCallback((m: ImageMode) => {
-    saveImageMode(m);
-    setMode(m);
-  }, []);
 
   const value = useMemo(
-    () => ({ open, progress, imageMode, show, showList, step, done, close, setImageMode }),
-    [open, progress, imageMode, show, showList, step, done, close, setImageMode],
+    () => ({ open, progress, show, showList, step, done, close }),
+    [open, progress, show, showList, step, done, close],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

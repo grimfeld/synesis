@@ -851,6 +851,13 @@ it explains.
     content). A Tutorial names a picture once, `![alt](image:<name>)`, and the
     mode decides which file it is. The bundle weight each adds is measured,
     and one mode is kept once both have been tried.
+    **Decided 2026-10-13: diagrams are kept**, and the trial ends. Tutorials
+    always show their diagram; the Settings card, the *none* and
+    *screenshots* modes, `docs/tutorials/screenshots/` and
+    `npm run tutorials:screenshots` are gone. Diagrams need no regenerating
+    when the UI or the demo Vault changes, serve both languages and both
+    themes from one file, and cost less to bundle. `![alt](image:<name>)`
+    names a diagram in `docs/tutorials/diagrams/<name>.svg`.
 13. **Tests**: Vitest checks every Tutorial exists in every `Lang`, has the
     shape in 8, names only existing Command ids, and that every listed id
     exists. `cypress/e2e/tutorials.cy.ts` covers the panel (open from "?", the

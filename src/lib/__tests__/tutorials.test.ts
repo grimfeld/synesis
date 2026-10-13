@@ -15,7 +15,6 @@ import {
   imageRefs,
   parseTutorial,
   resumeAt,
-  screenshotKeys,
   tutorial,
   tutorialIds,
   tutorialsFor,
@@ -118,14 +117,9 @@ describe("the bundled Tutorials", () => {
     }
   });
 
-  it("show only pictures that exist in both modes", () => {
+  it("show only diagrams that exist", () => {
     const diagrams = new Set(diagramNames());
-    const shots = new Set(screenshotKeys());
-    for (const [path, md] of files)
-      for (const name of imageRefs(md)) {
-        expect(diagrams.has(name), `${path}: diagram ${name}`).toBe(true);
-        for (const lang of LANGS) for (const theme of ["light", "dark"]) expect(shots.has(`${name}.${lang}.${theme}`), `${path}: screenshot ${name}.${lang}.${theme}`).toBe(true);
-      }
+    for (const [path, md] of files) for (const name of imageRefs(md)) expect(diagrams.has(name), `${path}: diagram ${name}`).toBe(true);
   });
 
   it("show the same pictures in every language", () => {

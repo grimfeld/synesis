@@ -491,9 +491,6 @@ export const fr: Dict = {
     collapse: "Réduire le tutoriel",
     unavailable: "Indisponible sur cette page",
     show_me: "Montrez-moi comment",
-    images_title: "Images des tutoriels",
-    images_body: "À l'essai : choisissez les images que montrent les tutoriels, pour les comparer.",
-    image_modes: { none: "Aucune", diagrams: "Schémas", screenshots: "Captures d'écran" },
   },
   groups: { create: "Créer", navigate: "Naviguer", editor: "Éditeur", help: "Tutoriels" },
   editor_cmds: {

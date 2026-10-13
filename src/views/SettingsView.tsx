@@ -3,8 +3,6 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { Check, Copy, FolderOpen, LogOut, RefreshCw, Settings } from "lucide-react";
 import { api, type DeviceInfo, type Lang, type SyncLocations } from "@/lib/api";
 import { platformToKind } from "@/lib/syncRules";
-import { IMAGE_MODES, type ImageMode } from "@/lib/tutorials";
-import { useTutorials } from "@/lib/tutorialState";
 import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
@@ -35,7 +33,6 @@ export function SettingsView() {
   const s = useStore();
   const t = useT();
   const commands = useCommands();
-  const tut = useTutorials();
   const change = async () => {
     const dir = await openDialog({ directory: true, multiple: false });
     if (typeof dir === "string") await s.openVault(dir);
@@ -95,27 +92,6 @@ export function SettingsView() {
           </Card>
           <AppearanceCard />
           <PlaceKindsCard />
-          {/* On trial (PLAN §25.12): which pictures Tutorials show. */}
-          <Card data-testid="settings-tutorial-images">
-            <CardHeader>
-              <CardTitle>{t.tutorials.images_title}</CardTitle>
-              <CardDescription>{t.tutorials.images_body}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Select value={tut.imageMode} onValueChange={(v) => tut.setImageMode(v as ImageMode)}>
-                <SelectTrigger className="w-48 max-w-full" data-testid="tutorial-image-mode">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {IMAGE_MODES.map((m) => (
-                    <SelectItem key={m} value={m} data-testid={`tutorial-image-mode-${m}`}>
-                      {t.tutorials.image_modes[m]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </CardContent>
-          </Card>
           <Card>
             <CardHeader>
               <CardTitle>{t.vault}</CardTitle>
