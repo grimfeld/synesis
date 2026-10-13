@@ -26,5 +26,10 @@ regex = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "sync"] }
 hex = "0.4"
 
+# The auto-updater is desktop only: phones update through their stores.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "~2.12"
+tauri-plugin-process = "~2.3"
+
 [target.'cfg(any(target_os = "android", target_os = "ios"))'.dependencies]
 tauri-plugin-barcode-scanner = "2"

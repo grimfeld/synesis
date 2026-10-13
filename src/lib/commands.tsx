@@ -11,6 +11,8 @@ import {
   CalendarRange,
   CircleHelp,
   Code,
+  Download,
+  Info,
   Columns2,
   Lock,
   LockOpen,
@@ -38,6 +40,8 @@ import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
+import { checkForUpdate, isDesktopApp } from "@/lib/updater";
+import { SOURCE_URL, openExternal } from "@/lib/links";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -309,6 +313,39 @@ export function useCommands(): Command[] {
         });
       }
     }
+    // ---- help: what this build is, and where its source is (ADR 0021).
+    const showAbout = () => {
+      s.navigate({ kind: "settings" });
+      setTimeout(() => document.querySelector("[data-testid=settings-about]")?.scrollIntoView({ block: "start" }), 50);
+    };
+    list.push({
+      id: "app.about",
+      title: t.licence.about_command,
+      group: "help",
+      icon: Info,
+      keywords: "about version licence license agpl copyright credits",
+      run: showAbout,
+    });
+    list.push({
+      id: "app.source",
+      title: t.licence.source_command,
+      group: "help",
+      icon: Code,
+      keywords: "source code github agpl licence license",
+      run: () => openExternal(SOURCE_URL),
+    });
+    if (isDesktopApp())
+      list.push({
+        id: "app.check_updates",
+        title: t.updater.check,
+        group: "help",
+        icon: Download,
+        keywords: "update upgrade new version release",
+        run: () => {
+          s.navigate({ kind: "settings" });
+          checkForUpdate();
+        },
+      });
     // ---- help: every Tutorial, by its title in the app's language (PLAN §25.1).
     for (const id of tutorialIds()) {
       const tut = tutorial(id, s.lang);
@@ -349,6 +386,9 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.board",
     "doc.capture",
     "editor.source",
+    "app.about",
+    "app.source",
+    "app.check_updates",
     ...EDITOR_COMMANDS.map((c) => c.id),
     ...tutorialIds().map((id) => `tutorial.${id}`),
   ];

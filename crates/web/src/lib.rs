@@ -44,6 +44,7 @@ fn default_settings() -> Map<String, Value> {
         "sync_method": "none",
         "relay_url": null,
         "background_sync": false,
+        "check_updates": false,
         "timeline_hidden_types": [],
         "timeline_in_view": true,
         "map_books": [],
@@ -147,6 +148,7 @@ impl State {
                 ok(())
             }
             "set_background_sync" => ok(()),
+            "set_check_updates" => ok(()),
             "pairing_status" => ok(Value::Null),
             "sync_status" => ok(self.vault()?.devices()),
             "sync_locations" => ok(json!({

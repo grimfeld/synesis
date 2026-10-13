@@ -160,7 +160,7 @@ describe("tutorialsFor", () => {
 
   it("offers this Device's folder-sync Tutorials in Settings", () => {
     expect(tutorialsFor({ kind: "settings" }, "android")).toEqual(["skins", "pairing", "sync-syncthing.android", "palette"]);
-    expect(tutorialsFor({ kind: "settings" }, "mac")).toEqual(["skins", "pairing", "sync-icloud.mac", "sync-syncthing.mac", "sync-provider.mac", "palette"]);
+    expect(tutorialsFor({ kind: "settings" }, "mac")).toEqual(["skins", "pairing", "updates", "sync-icloud.mac", "sync-syncthing.mac", "sync-provider.mac", "palette"]);
   });
 
   it("lists nothing twice", () => {

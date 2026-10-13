@@ -151,6 +151,7 @@ export const FEATURE_TUTORIALS = [
   "palette",
   "skins",
   "pairing",
+  "updates",
 ] as const;
 export type FeatureTutorial = (typeof FEATURE_TUTORIALS)[number];
 
@@ -193,7 +194,9 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["boards"];
       case "settings": {
         const sync = deviceKind ? (["icloud", "syncthing", "provider"] as Method[]).map((m) => syncTutorialId(m, deviceKind)) : [];
-        return ["skins", "pairing", ...sync];
+        // The auto-updater is desktop only; phones update through their stores.
+        const desktop = deviceKind === "mac" || deviceKind === "windows" || deviceKind === "linux";
+        return ["skins", "pairing", ...(desktop ? ["updates"] : []), ...sync];
       }
       case "editor": {
         const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode"];

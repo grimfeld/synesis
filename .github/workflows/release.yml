@@ -20,6 +20,15 @@
 # integration") when the default branch has since moved past that commit
 # with a change under .github/workflows/.
 #
+# Auto-updater: the desktop builds also produce updater bundles signed with
+# TAURI_SIGNING_PRIVATE_KEY (+ _PASSWORD), and tauri-action uploads a
+# `latest.json` to the release, each matrix job merging its own platform into
+# the one already attached. Installed apps read it from
+# https://github.com/grimfeld/synesis/releases/latest/download/latest.json,
+# which GitHub serves from the newest release that is neither a draft nor a
+# prerelease, so a `X.Y.Z-pre` version never reaches them. Without the key the
+# run stops before tagging (.github/actions/require-updater-key).
+#
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
 #   Windows .msi / .exe
 #   Linux   .AppImage / .deb / .rpm
@@ -69,6 +78,12 @@ jobs:
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
             echo "::warning::Releasing from $GITHUB_REF_NAME rather than main."
           fi
+
+      # Checked before the tag and the release exist, so a missing key leaves
+      # nothing half-published behind.
+      - uses: ./.github/actions/require-updater-key
+        with:
+          private-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
 
       # The tag is created here rather than pushed from the developer's machine
       # (see the note at the top). A re-run finds it already in place; a tag
@@ -153,6 +168,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # No desktop build without the updater signing key (see the note at the top).
+      - uses: ./.github/actions/require-updater-key
+        with:
+          private-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
       - name: Tauri system libraries (Linux)
         if: runner.os == 'Linux'
         run: |
@@ -214,16 +234,22 @@ jobs:
 
       # The release already exists (created by the `version` job), so this
       # only builds and uploads. releaseName is still required by the action
-      # but is never used to create anything.
+      # but is never used to create anything. The TAURI_SIGNING_* pair signs
+      # the updater bundles (`bundle.createUpdaterArtifacts`); with
+      # includeUpdaterJson the action downloads the release's `latest.json`
+      # if there is one, adds this job's platform and uploads it again.
       - name: Build and upload to the release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ env.TAG }}
           releaseName: "Synesis ${{ env.TAG }}"
           releaseDraft: false
           prerelease: ${{ contains(inputs.version, '-') }}
+          includeUpdaterJson: true
           args: ${{ matrix.args }}
 
   android:

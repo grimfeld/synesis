@@ -51,6 +51,9 @@ pub struct Settings {
     /// Desktop: keep syncing from the tray when the window is closed.
     #[serde(default = "default_true")]
     pub background_sync: bool,
+    /// Desktop: look for a new release quietly when the app starts.
+    #[serde(default = "default_true")]
+    pub check_updates: bool,
     /// Timeline: Subject types hidden from the Lanes (PLAN §16).
     #[serde(default)]
     pub timeline_hidden_types: Vec<String>,
@@ -1126,6 +1129,13 @@ async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
     })
 }
 
+/// Whether the desktop app looks for a new release when it starts.
+#[tauri::command]
+fn set_check_updates(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    state.settings.lock().map_err(err)?.check_updates = enabled;
+    state.save_settings()
+}
+
 /// Webview errors, forwarded to the terminal in development.
 #[tauri::command]
 fn ui_log(level: String, message: String) {
@@ -1161,6 +1171,12 @@ pub fn run() {
         .plugin(storage::plugin());
     #[cfg(mobile)]
     let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    // The auto-updater (desktop only; phones update through their stores).
+    // The endpoint and public key are in tauri.conf.json `plugins.updater`.
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init());
     builder
         .on_window_event(|window, event| {
             #[cfg(desktop)]
@@ -1208,6 +1224,7 @@ pub fn run() {
             pairing::pairing_sync_now,
             pairing::set_relay,
             pairing::set_background_sync,
+            set_check_updates,
             sync_status,
             sync_locations,
             storage::storage_access,

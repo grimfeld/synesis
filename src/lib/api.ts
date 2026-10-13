@@ -491,6 +491,8 @@ export interface Settings {
   sync_method: SyncMethod | null;
   relay_url: string | null;
   background_sync: boolean;
+  /** Desktop: look for a new release when the app starts. */
+  check_updates: boolean;
   timeline_hidden_types: DocType[];
   timeline_in_view: boolean;
   /** Map: Book numbers the Places must be mentioned in (PLAN §19.13). */
@@ -716,6 +718,8 @@ export const api = {
   setRelay: (url: string | null) => invoke<void>("set_relay", { url }),
   setBackgroundSync: (enabled: boolean) =>
     invoke<void>("set_background_sync", { enabled }),
+  setCheckUpdates: (enabled: boolean) =>
+    invoke<void>("set_check_updates", { enabled }),
   onPairingEvent: (cb: (e: PairingEvent) => void): Promise<UnlistenFn> =>
     listen<PairingEvent>("pairing:event", (e) => cb(e.payload)),
   setDeviceAppearance: (mode: AppearanceMode, textScale: number) =>

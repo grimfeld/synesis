@@ -1,0 +1,34 @@
+# Refuse to build a desktop release that the auto-updater could not install.
+#
+# With `bundle.createUpdaterArtifacts` on, every desktop bundle is signed with
+# the updater's private key, and the installed apps only accept an update whose
+# signature matches the public key in src-tauri/tauri.conf.json
+# (`plugins.updater.pubkey`). A release built without the key would either fail
+# deep inside the bundler or, worse, ship without the files `latest.json`
+# points at, so stop early and say what is missing.
+#
+#   - uses: ./.github/actions/require-updater-key
+#     with:
+#       private-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+name: Require the updater signing key
+description: Fail with a clear message when TAURI_SIGNING_PRIVATE_KEY is not set.
+inputs:
+  private-key:
+    description: The TAURI_SIGNING_PRIVATE_KEY secret.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        KEY: ${{ inputs.private-key }}
+      run: |
+        if [ -z "$KEY" ]; then
+          echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so the desktop builds cannot be" \
+            "signed for the auto-updater and installed apps would never receive this release." \
+            "Add TAURI_SIGNING_PRIVATE_KEY (and TAURI_SIGNING_PRIVATE_KEY_PASSWORD) under" \
+            "Settings > Secrets and variables > Actions; the matching public key is" \
+            "plugins.updater.pubkey in src-tauri/tauri.conf.json. See README > Releasing."
+          exit 1
+        fi
+        echo "Updater signing key present."

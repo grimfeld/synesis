@@ -123,6 +123,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "pairing_sync_now" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_sync_now(state))?),
         "set_relay" => ok(tauri::async_runtime::block_on(crate::pairing::set_relay(app.clone(), state, arg(&a, "url")?))?),
         "set_background_sync" => ok(crate::pairing::set_background_sync(state, arg(&a, "enabled")?)?),
+        "set_check_updates" => ok(set_check_updates(state, arg(&a, "enabled")?)?),
         "sync_status" => ok(sync_status(state)?),
         "sync_locations" => ok(sync_locations(app.clone(), state)?),
         "storage_access" => ok(crate::storage::storage_access(app.clone())?),

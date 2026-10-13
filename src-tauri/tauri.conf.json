@@ -27,6 +27,11 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
+    "publisher": "grimfeld",
+    "copyright": "Copyright © 2026 grimfeld. Free software under the GNU AGPL-3.0.",
+    "license": "AGPL-3.0-only",
+    "licenseFile": "../LICENSE",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -34,5 +39,12 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ]
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": ["https://github.com/grimfeld/synesis/releases/latest/download/latest.json"],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJFQ0E2MTNFOTY5MUUxRjcKUldUMzRaR1dQbUhLTG1oU0VwbmwrMWxVdGd6WE16dS95OHB3a1cwR1JweFE3TXdySTdHRjBvd3EK",
+      "windows": { "installMode": "passive" }
+    }
   }
 }
