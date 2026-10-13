@@ -648,7 +648,7 @@ export type Query =
   | { kind: "ambiguousTitles" }
   | { kind: "candidates"; id: string }
   | { kind: "graph"; level: GraphLevel }
-  | { kind: "search"; text: string; limit: number }
+  | { kind: "search"; text: string; types?: DocType[]; limit: number }
   | { kind: "suggest"; prefix: string; limit: number }
   | { kind: "tags" }
   | { kind: "tagged"; tag: string }
@@ -854,8 +854,9 @@ export const api = {
   verseCoverage: (book: number, chapter: number) =>
     query<VerseCount[]>({ kind: "verseCoverage", book, chapter }),
   graph: (level: GraphLevel) => query<Graph>({ kind: "graph", level }),
-  search: (text: string, limit = 30) =>
-    query<SearchHit[]>({ kind: "search", text, limit }),
+  /** Full-text search; `types` narrows it to those kinds of page (PLAN §10). */
+  search: (text: string, limit = 30, types: DocType[] = []) =>
+    query<SearchHit[]>({ kind: "search", text, types, limit }),
   suggest: (prefix: string, limit = 12) =>
     query<DocSummary[]>({ kind: "suggest", prefix, limit }),
   tags: () => query<TagCount[]>({ kind: "tags" }),

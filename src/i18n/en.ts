@@ -477,7 +477,7 @@ export const en = {
   live_preview: "Live Preview",
   source_mode: "Source mode",
   cmd_palette: "Command palette",
-  cmd_hint: "Type > for commands",
+  cmd_hint: "Type > for commands, or pick a kind to search only that.",
   tutorials: {
     command: (title: string) => `Tutorial: ${title}`,
     open: "Tutorials for this view",

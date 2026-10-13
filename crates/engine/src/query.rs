@@ -95,8 +95,13 @@ pub enum Query {
     },
     /// The whole graph at one level of Scripture detail (ADR 0002).
     Graph { level: GraphLevel },
-    /// Full-text search.
-    Search { text: String, limit: usize },
+    /// Full-text search, narrowed to `types` when it names any (PLAN §10).
+    Search {
+        text: String,
+        #[serde(default)]
+        types: Vec<DocType>,
+        limit: usize,
+    },
     /// Titles beginning with a prefix, for completion.
     Suggest { prefix: String, limit: usize },
     /// Every Tag in the vault with how many documents carry it.

@@ -1002,7 +1002,9 @@ impl Vault {
                 Answer::Candidates(self.index.candidates(&id, self.lang, limit)?)
             }
             Query::Graph { level } => Answer::Graph(self.index.graph(level, self.lang)?),
-            Query::Search { text, limit } => Answer::Search(self.index.search(&text, limit)?),
+            Query::Search { text, types, limit } => {
+                Answer::Search(self.index.search(&text, &types, limit)?)
+            }
             Query::Suggest { prefix, limit } => {
                 Answer::Docs(self.index.suggest(&prefix, limit)?)
             }
@@ -1142,7 +1144,7 @@ impl Vault {
         self.index.graph(level, self.lang)
     }
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
-        self.index.search(q, limit)
+        self.index.search(q, &[], limit)
     }
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
         self.index.tags()

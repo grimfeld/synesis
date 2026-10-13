@@ -477,7 +477,7 @@ export const fr: Dict = {
   live_preview: "Aperçu en direct",
   source_mode: "Mode source",
   cmd_palette: "Palette de commandes",
-  cmd_hint: "Tapez > pour les commandes",
+  cmd_hint: "Tapez > pour les commandes, ou choisissez un type pour ne chercher que lui.",
   tutorials: {
     command: (title: string) => `Tutoriel : ${title}`,
     open: "Tutoriels de cette vue",

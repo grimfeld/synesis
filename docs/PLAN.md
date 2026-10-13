@@ -101,6 +101,7 @@ Bible text, Notes copied into Compositions, resurfacing / spaced review, browser
 - Inline Topical Mentions use `[[...]]` syntax; nothing but Scripture is auto-detected.
 - Graph: nodes coloured by type, filterable by type, plus a local graph per document.
 - Search: SQLite full-text over titles and bodies, filterable by type.
+  **Built (2026-10-13):** `Query::Search` takes `types`; the palette narrows by a `type:` token (`type:composition endurance`, also in the app language's names) or by the chips under the box, which only edit that token, so the query text stays the whole state as `>` already is (§12.4). Scripture is one chip for Book, Chapter and Verse pages; a chip with no words lists that kind, newest first. Logic in `src/lib/paletteQuery.ts`.
 - Mobile uses the same responsive UI, not a separate app.
 
 ## 11. Known risks
