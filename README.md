@@ -67,6 +67,29 @@ Every copy offers its source: Settings → About in the app and the web build (w
 
 Bundled data keeps its own terms, credited in Settings → About: OpenBible.info places (CC BY 4.0, `crates/engine/data/GAZETTEER-NOTICE.txt`), Natural Earth (public domain) and Mapzen Terrain Tiles (`public/atlas/NOTICE.txt`).
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+The Windows installers are built from this repository by GitHub Actions ([release.yml](.github/workflows/release.yml)) and signed only after a person approves each release ([docs/release/signpath.md](docs/release/signpath.md)). macOS builds are signed and notarised with the maintainer's Apple Developer ID, and Android builds with the maintainer's own key.
+
+- Authors and reviewers: [grimfeld](https://github.com/grimfeld), the owner of this repository. Changes from anyone else are reviewed before they are merged ([CONTRIBUTING.md](CONTRIBUTING.md)).
+- Approver of each signed release: [grimfeld](https://github.com/grimfeld).
+
+To uninstall on Windows, use Settings → Apps → Installed apps → Synesis → Uninstall. Your vaults are folders you chose and are never removed.
+
+## Privacy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it. There is no account, no telemetry and no analytics in the app. What it does reach, and when:
+
+- **Pairing** connects your own Devices directly over [Iroh](https://iroh.computer), through n0's public relays or a relay you set in Settings → Sync. The connection between Devices is encrypted.
+- **Source details**: when you paste a link into a Clipping or Source, the app fetches that page to read its title.
+- **Map close-ups**: zooming the Map in past the bundled atlas loads [OpenStreetMap](https://www.openstreetmap.org) tiles.
+- **Skin gallery**: opening it downloads the list of Skins from this repository on GitHub.
+- **Updates** (desktop): the app asks GitHub for the latest release; turn this off in Settings.
+
+The landing page (synesis-app.vercel.app) counts visits with Vercel Web Analytics, without cookies.
+
 ## Testing
 
 ```sh

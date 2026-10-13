@@ -30,7 +30,9 @@
 # run stops before tagging (.github/actions/require-updater-key).
 #
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
-#   Windows .msi / .exe
+#   Windows .msi / .exe, signed through SignPath Foundation (SIGNPATH_API_TOKEN
+#           secret, SIGNPATH_ORGANIZATION_ID variable; docs/release/signpath.md).
+#           The job fails rather than publish an unsigned installer.
 #   Linux   .AppImage / .deb / .rpm
 #   Android .apk, signed with the ANDROID_* secrets. Android cannot install an
 #           unsigned package, so the job fails rather than publish one.
@@ -156,10 +158,8 @@ jobs:
             os: macos-latest
             args: --target x86_64-apple-darwin
             cache: macos-x64
-          - name: Windows
-            os: windows-latest
-            args: ""
-            cache: windows-x64
+          # Windows has its own job below: SignPath signs only files handed
+          # over as workflow artifacts, so the build is split around it.
           - name: Linux
             os: ubuntu-22.04
             args: ""
@@ -466,13 +466,185 @@ jobs:
           tag_name: ${{ env.TAG }}
           files: out/*.ipa
 
+  # SignPath Foundation signs open-source releases for free, but only files a
+  # GitHub workflow built and handed over as an artifact (its proof of
+  # origin). So the build is split around it: the app's exe is built and
+  # signed first, the installers are bundled around the signed exe, then the
+  # installers themselves are signed. Their updater signatures are made last,
+  # over the signed bytes, or the updater would reject them.
+  windows:
+    name: Desktop (Windows)
+    needs: version
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG || 'synesis' }}
+      SIGNPATH_POLICY: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # Windows warns on every unsigned installer and SmartScreen blocks it
+      # outright for most people, so stop before building anything.
+      - name: Refuse to build without signing
+        env:
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          missing=""
+          [ -n "$SIGNPATH_API_TOKEN" ] || missing="$missing SIGNPATH_API_TOKEN (secret)"
+          [ -n "$SIGNPATH_ORGANIZATION_ID" ] || missing="$missing SIGNPATH_ORGANIZATION_ID (variable)"
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || missing="$missing TAURI_SIGNING_PRIVATE_KEY (secret)"
+          if [ -n "$missing" ]; then
+            echo "::error::No unsigned Windows installer is published. Missing:$missing. See docs/release/signpath.md."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+          key: windows-x64
+          cache-on-failure: true
+
+      - run: npm ci --no-audit --no-fund
+        env:
+          CYPRESS_INSTALL_BINARY: 0
+
+      - name: Build the app (no installers yet)
+        run: npm run tauri -- build --no-bundle
+
+      - name: Hand the exe over for signing
+        id: exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe-unsigned
+          path: target/release/synesis.exe
+          if-no-files-found: error
+
+      - name: Sign the exe
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: windows-exe
+          github-artifact-id: ${{ steps.exe.outputs.artifact-id }}
+          wait-for-completion: true
+          # Each request waits for a person to approve it in SignPath.
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: signed-exe
+
+      - name: Put the signed exe in place
+        run: cp signed-exe/synesis.exe target/release/synesis.exe
+
+      # Updater artifacts are made below, after signing, so the bundler must
+      # not make them from the unsigned installers here.
+      - name: Bundle the installers around the signed exe
+        run: npm run tauri -- bundle --bundles nsis,msi --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: Gather the installers
+        run: |
+          mkdir -p installers
+          cp target/release/bundle/nsis/*-setup.exe target/release/bundle/msi/*.msi installers/
+          ls -l installers
+
+      - name: Hand the installers over for signing
+        id: installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installers-unsigned
+          path: installers/
+          if-no-files-found: error
+
+      - name: Sign the installers
+        uses: signpath/github-action-submit-signing-request@v3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ env.SIGNPATH_PROJECT }}
+          signing-policy-slug: ${{ env.SIGNPATH_POLICY }}
+          artifact-configuration-slug: windows-installers
+          github-artifact-id: ${{ steps.installers.outputs.artifact-id }}
+          wait-for-completion: true
+          # Each request waits for a person to approve it in SignPath.
+          wait-for-completion-timeout-in-seconds: 7200
+          output-artifact-directory: out
+
+      # Belt and braces: never publish a file SignPath did not sign.
+      - name: Check every file carries a valid signature
+        shell: pwsh
+        run: |
+          $bad = Get-ChildItem out -File | Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }
+          if ($bad) { $bad | ForEach-Object { Write-Output "::error::$($_.Name) is not validly signed" }; exit 1 }
+
+      - name: Sign the installers for the updater
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          for f in out/*-setup.exe out/*.msi; do
+            npm run --silent tauri -- signer sign "$f"
+          done
+          ls -l out
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" out/* --clobber --repo "$GITHUB_REPOSITORY"
+
+  # tauri-action writes latest.json for the platforms it built; Windows is
+  # built above without it, so its entries are added here from the signatures
+  # uploaded beside the installers. Runs whatever else failed, so a release
+  # whose Windows job succeeded can still update Windows.
+  updater-windows:
+    name: Add Windows to the updater manifest
+    needs: [desktop, windows]
+    if: always() && needs.windows.result == 'success'
+    runs-on: ubuntu-22.04
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          R="$GITHUB_REPOSITORY"
+          mkdir work && cd work
+          gh release download "$TAG" --repo "$R" --pattern 'latest.json' || \
+            jq -n --arg v "$VERSION" '{version: $v, notes: "", pub_date: (now | todate), platforms: {}}' > latest.json
+          gh release download "$TAG" --repo "$R" --pattern '*-setup.exe.sig' --pattern '*.msi.sig'
+          base="https://github.com/$R/releases/download/$TAG"
+          nsis=$(ls *-setup.exe.sig); msi=$(ls *.msi.sig)
+          # GitHub turns spaces in asset names into dots; ours have none.
+          jq --arg ns "$(cat "$nsis")" --arg nu "$base/${nsis%.sig}" \
+             --arg ms "$(cat "$msi")" --arg mu "$base/${msi%.sig}" \
+             '.platforms["windows-x86_64"] = {signature: $ns, url: $nu}
+              | .platforms["windows-x86_64-nsis"] = {signature: $ns, url: $nu}
+              | .platforms["windows-x86_64-msi"] = {signature: $ms, url: $mu}' \
+             latest.json > latest.new && mv latest.new latest.json
+          # tauri-action merges latest.json job by job; two jobs finishing
+          # together can drop each other's entry. Say so rather than ship it.
+          for p in darwin-aarch64 darwin-x86_64 linux-x86_64; do
+            jq -e --arg p "$p" '.platforms[$p]' latest.json > /dev/null || \
+              echo "::warning::latest.json has no $p entry; re-run that desktop job, then this one."
+          done
+          gh release upload "$TAG" latest.json --clobber --repo "$R"
+
   # The landing page reads the latest Release when it is built, and opens a
   # platform's download once its file is attached (site/src/lib/release.ts).
   # Rebuild it once every build job has finished, whichever failed: iOS has
   # yet to succeed, and the files that did upload should still be offered.
   site:
     name: Rebuild the landing page
-    needs: [desktop, android, ios]
+    needs: [desktop, windows, updater-windows, android, ios]
     if: always()
     runs-on: ubuntu-22.04
     steps:

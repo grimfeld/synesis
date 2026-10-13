@@ -272,6 +272,8 @@ const container = "mx-auto w-full max-w-6xl px-4 sm:px-6";
       </div>
       <div class="flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2">
         <a href={repo} class="hover:text-foreground">{t.footer.source}</a>
+        <a href={`${repo}#code-signing-policy`} class="hover:text-foreground">{t.footer.signing}</a>
+        <a href={`${repo}#privacy`} class="hover:text-foreground">{t.footer.privacy}</a>
         {release.version && <span>{t.footer.version(release.version)}</span>}
         <a href={other} hreflang={lang === "en" ? "fr" : "en"} lang={lang === "en" ? "fr" : "en"} class="hover:text-foreground">{t.nav.other}</a>
       </div>
