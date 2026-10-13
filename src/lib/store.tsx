@@ -31,6 +31,7 @@ import { NO_FILTERS, type Filters } from "./timeline";
 import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
 import { DEFAULT_RATIO } from "./split";
+import { flushPending } from "./pending";
 import {
   clampSize,
   DEFAULT_SIZE,
@@ -49,7 +50,8 @@ export interface Delivery {
 export type View =
   | { kind: "home" }
   | { kind: "doc"; id: string }
-  | { kind: "graph" }
+  /** `focus`: the local graph of that document (PLAN §10). */
+  | { kind: "graph"; focus?: string }
   | { kind: "library" }
   | { kind: "clippings" }
   | { kind: "map" }
@@ -171,6 +173,11 @@ interface Store {
     body?: string,
     open?: boolean,
   ) => Promise<DocumentPayload>;
+  /**
+   * "Duplicate as new Composition" (PLAN §14.8): copy the talk and its Board
+   * under `title`, announce it the way `createDoc` does, and open the copy.
+   */
+  duplicateComposition: (id: string, title: string) => Promise<DocumentPayload>;
   setDialog: (d: Dialog | null) => void;
   setLang: (l: Lang) => Promise<void>;
   setSyncMethod: (m: SyncMethod | null) => Promise<void>;
@@ -491,6 +498,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     [openDoc, refresh],
   );
 
+  const duplicateComposition = useCallback(
+    async (id: string, title: string) => {
+      // The editor and the Board save on a debounce; the copy is read from
+      // disk, so whatever is still waiting lands first.
+      await flushPending();
+      const d = await api.duplicateComposition(id, title);
+      await refresh();
+      // A new Composition, announced like any other new document, so Home's
+      // "in progress" list and the Candidates of what it shares refetch.
+      setLastChange({ changed: [d.summary], removed: [] });
+      setChangeTick((n) => n + 1);
+      openDoc(d.summary.id);
+      return d;
+    },
+    [openDoc, refresh],
+  );
+
   /**
    * Tell the queries that these documents were rewritten by a batch the app
    * ran itself (filling in Place kinds, PLAN §27.13). The engine's own event
@@ -657,6 +681,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     openPassage,
     openScripture,
     createDoc,
+    duplicateComposition,
     setDialog,
     setLang,
     setSyncMethod,

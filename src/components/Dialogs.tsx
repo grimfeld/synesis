@@ -35,6 +35,11 @@ import { formatShortcut, shortcut } from "@/lib/keys";
 import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
+import {
+  parsePaletteQuery,
+  toggleTypeFilter,
+  TYPE_FILTERS,
+} from "@/lib/paletteQuery";
 import { useStore } from "@/lib/store";
 import { gazetteerTitle } from "@/lib/map";
 import { KindPicker } from "@/components/KindPicker";
@@ -1338,8 +1343,22 @@ function Palette({
   const commands = useCommands();
   const [q, setQ] = useState(initial);
   const [names, setNames] = useState<NameIndex>(() => new NameIndex());
-  const commandMode = q.startsWith(">");
-  const query = (commandMode ? q.slice(1) : q).trim();
+  // The app language's names for each kind of page, so `type:` can be typed
+  // in the words the chips show (PLAN §10).
+  const typeNames = useMemo(() => {
+    const out: Record<string, string> = { [t.scripture]: "scripture" };
+    for (const f of TYPE_FILTERS)
+      for (const ty of f.types) {
+        out[t.types[ty]] = f.key;
+        out[t.types_plural[ty]] = f.key;
+      }
+    return out;
+  }, [t]);
+  const parsed = useMemo(() => parsePaletteQuery(q, typeNames), [q, typeNames]);
+  const commandMode = parsed.commands;
+  const query = parsed.text;
+  const types = parsed.types;
+  const typesKey = types.join(",");
   useEffect(() => {
     namesApi
       .names()
@@ -1348,11 +1367,11 @@ function Palette({
   }, []);
   // Full-text search follows what is being typed, and any document may match.
   const { data: searchData } = useQuery<SearchHit[]>({
-    key: [query, commandMode],
+    key: [query, commandMode, typesKey],
     deps: { any: true },
     enabled: !commandMode && query !== "",
     debounce: 120,
-    fetch: () => api.search(query, 20),
+    fetch: () => api.search(query, 20, types),
   });
   const hits = useMemo(
     () => (commandMode || !query ? [] : (searchData ?? [])),
@@ -1361,8 +1380,10 @@ function Palette({
   const titleHits: NameEntry[] = useMemo(() => {
     if (commandMode || !query) return [];
     const seen = new Set<string>();
+    const only = typesKey ? typesKey.split(",") : null;
     return names
-      .suggest(query, 8)
+      .suggest(query, only ? 40 : 8)
+      .filter((n) => !only || only.includes(n.type))
       .filter((n) => {
         const k = n.id + "\u0000" + n.name.toLowerCase();
         if (seen.has(k)) return false;
@@ -1370,7 +1391,20 @@ function Palette({
         return true;
       })
       .slice(0, 6);
-  }, [query, names, commandMode]);
+  }, [query, names, commandMode, typesKey]);
+  // A filter with nothing typed lists that kind of page, newest first: the
+  // box answers "my Compositions" as well as "the one about endurance".
+  const typedDocs: DocSummary[] = useMemo(() => {
+    if (commandMode || query || !typesKey) return [];
+    const only = typesKey.split(",");
+    return s.docs
+      .filter((d) => only.includes(d.type))
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, 20);
+  }, [commandMode, query, typesKey, s.docs]);
+  // "Create" offers the filtered kind when there is exactly one to offer.
+  const createType =
+    types.length === 1 && CREATABLE_TYPES.includes(types[0]) ? types[0] : undefined;
   const seen = new Set(titleHits.map((n) => n.id));
   const contentHits = hits.filter((h) => !seen.has(h.doc.id));
   const go = (id: string) => {
@@ -1415,6 +1449,36 @@ function Palette({
             className="text-base"
             autoFocus
           />
+          {!commandMode && (
+            <div
+              data-testid="palette-types"
+              className="flex flex-wrap gap-1 border-b px-3 py-2"
+            >
+              {TYPE_FILTERS.map((f) => {
+                const on = parsed.filters.includes(f.key);
+                return (
+                  <button
+                    key={f.key}
+                    type="button"
+                    data-testid={`palette-type-${f.key}`}
+                    aria-pressed={on}
+                    className={cn(
+                      "inline-flex min-h-6 min-w-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs transition-colors",
+                      on
+                        ? "border-primary bg-accent text-accent-foreground"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                    )}
+                    // Keep the caret in the box: the chip edits its text.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setQ(toggleTypeFilter(q, f.key, typeNames))}
+                  >
+                    <TypeDot type={f.types[0]} />
+                    {f.key === "scripture" ? t.scripture : t.types_plural[f.types[0]]}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <CommandList className="thin-scroll max-h-[50vh]">
             {commandMode ? (
               <>
@@ -1447,11 +1511,26 @@ function Palette({
               </>
             ) : (
               <>
-                {query && <CommandEmpty>{t.no_results}</CommandEmpty>}
-                {!query && (
+                {(query || typesKey) && <CommandEmpty>{t.no_results}</CommandEmpty>}
+                {!query && !typesKey && (
                   <div className="px-3 py-2 text-xs text-muted-foreground">
                     {t.cmd_hint} <Kbd>{shortcut("⇧P")}</Kbd>
                   </div>
+                )}
+                {typedDocs.length > 0 && (
+                  <CommandGroupUi heading={t.recent_docs}>
+                    {typedDocs.map((d) => (
+                      <CommandItem
+                        key={d.id}
+                        value={"t:" + d.id}
+                        onSelect={() => go(d.id)}
+                      >
+                        <TypeDot type={d.type} />
+                        <span className="truncate font-medium">{d.label}</span>
+                        <EventDate doc={d} />
+                      </CommandItem>
+                    ))}
+                  </CommandGroupUi>
                 )}
                 {titleHits.length > 0 && (
                   <CommandGroupUi heading={t.titles}>
@@ -1511,7 +1590,7 @@ function Palette({
                     <CommandItem
                       value="__create__"
                       onSelect={() =>
-                        s.setDialog({ kind: "new", title: query })
+                        s.setDialog({ kind: "new", title: query, type: createType })
                       }
                     >
                       <Plus />

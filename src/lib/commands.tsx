@@ -14,6 +14,7 @@ import {
   Download,
   Info,
   Columns2,
+  Copy,
   Lock,
   LockOpen,
   Presentation,
@@ -42,6 +43,8 @@ import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
 import { checkForUpdate, isDesktopApp } from "@/lib/updater";
 import { SOURCE_URL, openExternal } from "@/lib/links";
+import { toast } from "sonner";
+import { whenBoard } from "@/lib/activeBoard";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -216,6 +219,19 @@ export function useCommands(): Command[] {
           s.openDoc(notes[Math.floor(Math.random() * notes.length)].id);
       },
     });
+    // The local graph of the document being read (PLAN §10): any document,
+    // Writing or Hub.
+    if (s.view.kind === "doc") {
+      const id = s.view.id;
+      list.push({
+        id: "doc.local_graph",
+        title: t.local_graph,
+        group: "navigate",
+        icon: Waypoints,
+        keywords: "graph local neighbours links connections network",
+        run: () => s.navigate({ kind: "graph", focus: id }),
+      });
+    }
     // The Board of the Composition being read. Named "Board" per the glossary,
     // with "mind map" in the keywords so the palette finds it either way.
     if (s.view.kind === "doc") {
@@ -229,6 +245,23 @@ export function useCommands(): Command[] {
           keywords: "board mind map canvas talk outline",
           run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
         });
+        // Export the Board as a picture (PLAN §17.18): the toolbar's button,
+        // reachable from anywhere on the Composition. From the talk it opens
+        // the Board first, since the picture is drawn from the Board on screen.
+        list.push({
+          id: "board.export",
+          title: t.board_export,
+          group: "create",
+          icon: Download,
+          keywords: "export board picture image png svg save mind map canvas",
+          run: () => {
+            if (s.docTab === "talk") s.setDocTab("board");
+            void whenBoard(doc.id).then((b) => {
+              if (b) return b.exportPicture();
+              toast.error(t.board_export_failed);
+            }).catch((e) => toast.error(String(e)));
+          },
+        });
         // Talk and Board side by side (PLAN §22.2). Offered even where the
         // split does not fit: the talk shows until there is room.
         list.push({
@@ -238,6 +271,20 @@ export function useCommands(): Command[] {
           icon: Columns2,
           keywords: "split side by side board talk both columns pane",
           run: () => s.setDocTab(s.docTab === "split" ? "talk" : "split"),
+        });
+        // Adapting a talk to a new occasion is a fork, not a Version
+        // (PLAN §14.8, ADR 0007): the copy carries the Board along.
+        list.push({
+          id: "doc.duplicate",
+          title: t.duplicate_command,
+          group: "create",
+          icon: Copy,
+          keywords: "duplicate copy fork clone new occasion adapt talk composition",
+          run: () => {
+            s.duplicateComposition(doc.id, t.copy_title(doc.title)).catch((e) =>
+              toast.error(String(e)),
+            );
+          },
         });
         // The Delivery view (PLAN §23.12).
         list.push({
@@ -386,6 +433,9 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.board",
     "doc.split",
     "doc.deliver",
+    "doc.local_graph",
+    "board.export",
+    "doc.duplicate",
     "doc.capture",
     "editor.reading",
     "editor.source",

@@ -151,6 +151,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             arg(&a, "body")?,
         )?),
         "rename_document" => ok(rename_document(state, arg(&a, "id")?, arg(&a, "title")?)?),
+        "duplicate_composition" => ok(duplicate_composition(state, arg(&a, "id")?, arg(&a, "title")?)?),
         "delete_document" => ok(delete_document(state, arg(&a, "id")?)?),
         "resolve_link" => ok(resolve_link(state, arg(&a, "target")?)?),
         "resolve_many" => ok(resolve_many(state, arg(&a, "targets")?)?),

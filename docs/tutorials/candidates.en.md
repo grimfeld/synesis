@@ -9,4 +9,4 @@ A Candidate is a document in your Vault, most often a Note or a Clipping, that s
 ## Good to know
 
 - A Tag naming the Candidate counts as a Mention too.
-- Placing a Candidate on the Composition's **Board** does not use it: it is listed under **On the Board** and stays a Candidate until the Composition itself Mentions it.
+- Placing a Candidate on the Composition's **Board** does not use it: it is listed under **On the Board** and stays a Candidate until the Composition itself Mentions it. The **Place on the Board** button beside each Candidate puts it there as a card without leaving the talk.

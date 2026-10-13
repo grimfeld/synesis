@@ -123,4 +123,43 @@ describe("Graph", () => {
       labels().should("be.lessThan", close);
     });
   });
+
+  // PLAN §10: a local graph per document, reached from the document.
+  describe("local graph", () => {
+    const counts = () =>
+      cy
+        .get("[data-testid=graph-counts]")
+        .invoke("text")
+        .then((t) => t.split("·").map((x) => Number(x.trim())) as [number, number]);
+
+    it("opens from a document's header and narrows to its neighbours", () => {
+      cy.runCommand("Go to Graph");
+      cy.get("[data-testid=graph-counts]").should("not.contain", "0 · 0");
+      counts().then(([whole]) => {
+        cy.openDoc("Endurance in trials");
+        cy.get("[data-testid=open-local-graph]").click();
+        cy.get("h1").should("contain", "Endurance in trials");
+        cy.get(canvas).should("have.attr", "data-focus");
+        counts().then(([one]) => {
+          expect(one, "the document and its neighbours").to.be.greaterThan(1);
+          expect(one, "fewer than the whole graph").to.be.lessThan(whole);
+          cy.get("[data-testid=graph-depth-2]").click();
+          counts().then(([two]) => expect(two).to.be.at.least(one));
+        });
+        cy.get("[data-testid=graph-whole]").click();
+        cy.get(canvas).should("not.have.attr", "data-focus");
+        cy.get("[data-testid=graph-depth-1]").should("not.exist");
+      });
+    });
+
+    it("is a Command on any document, Hubs included", () => {
+      cy.openDoc("Endurance");
+      cy.runCommand("Open local graph");
+      cy.get("h1").should("contain", "Endurance");
+      cy.get(canvas).should("have.attr", "data-focus");
+      // Back returns to the document it was opened from.
+      cy.runCommand("Back");
+      cy.hubTitle("Endurance");
+    });
+  });
 });

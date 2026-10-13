@@ -12,3 +12,4 @@ Une Composition est un discours ou un texte que vous écrivez pour d'autres, à 
 
 - Une incorporation s'écrit `![[…]]` dans le fichier, comme dans Obsidian : le coffre reste lisible là-bas.
 - Modifiez l'Extrait, et chaque Composition qui l'incorpore affiche les nouveaux mots.
+- Pour adapter un discours à une nouvelle occasion, ouvrez-le et lancez [Dupliquer en nouvelle Composition](command:doc.duplicate). La copie reprend le texte, les Tags et le tableau sous un nouveau titre terminé par « (copie) » ; son occasion et sa date sont vides, et elle n'a pas de Versions à elle. L'original n'est pas modifié.

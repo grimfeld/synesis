@@ -635,6 +635,24 @@ fn rename_document(
     r
 }
 
+/// "Duplicate as new Composition" (PLAN §14.8): a fork of the talk and its
+/// Board under a new id, for a new occasion.
+#[tauri::command]
+fn duplicate_composition(
+    state: State<AppState>,
+    id: String,
+    title: String,
+) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| {
+        let view = v.duplicate(&id, &title)?;
+        Ok(api::payload(v, view))
+    });
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
 #[tauri::command]
 fn delete_document(state: State<AppState>, id: String) -> CmdResult<()> {
     let r = (|| {
@@ -1248,6 +1266,7 @@ pub fn run() {
             save_document,
             create_document,
             rename_document,
+            duplicate_composition,
             delete_document,
             resolve_link,
             resolve_many,

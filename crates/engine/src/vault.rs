@@ -644,6 +644,43 @@ impl Vault {
         Ok(Some(board))
     }
 
+    /// Fold an outside edit to a `.canvas` file into its Composition's Board
+    /// (PLAN §17.14, ADR 0009): the watcher's half of what `read_board` does
+    /// on open, so a Board edited in Obsidian refreshes while it is on screen.
+    ///
+    /// Structural, like `read_board`: the file is diffed against the map node
+    /// by node, so an untouched node records nothing. Returns the Composition
+    /// when its Board actually changed, and `None` for a canvas that pairs
+    /// with no Composition, one this app cannot parse, or the echo of this
+    /// app's own `write_board` — which recorded the same Board already, so
+    /// announcing it would only make the open Board reload what it just saved.
+    pub fn fold_board_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
+        let Some(md) = canvas::composition_path(rel) else { return Ok(None) };
+        let Some(comp) = self.index.get_by_path(&md)? else { return Ok(None) };
+        if comp.doc_type != DocType::Composition {
+            return Ok(None);
+        }
+        let abs = self.abs(rel);
+        let Ok(text) = fs::read_to_string(&abs) else { return Ok(None) };
+        let Ok(parsed) = Canvas::parse(&text) else { return Ok(None) };
+        let (changed, board) = match self.sync.as_mut() {
+            Some(sync) => {
+                let changed = sync.record_canvas(&comp.id, &parsed)?;
+                let merged = sync.canvas_of(&comp.id).unwrap_or_else(|| parsed.clone());
+                if merged != parsed {
+                    write_atomic(&abs, &merged.to_json())?;
+                }
+                (changed, merged)
+            }
+            None => (true, parsed),
+        };
+        if !changed {
+            return Ok(None);
+        }
+        self.record_board_refs(&comp.id, &board)?;
+        Ok(Some(comp))
+    }
+
     /// Record which documents a Board references, so they show as on the Board
     /// rather than as untouched Candidates (PLAN §17.6).
     fn record_board_refs(&mut self, id: &str, board: &Canvas) -> Result<()> {
@@ -793,6 +830,56 @@ impl Vault {
         )?;
         self.index_file(&rel)?;
         self.read(&id)
+    }
+
+    /// Copy a Composition into a new one titled `title` (PLAN §14.8, ADR 0007):
+    /// the same body, Tags and Properties, a fresh id, and a copy of its Board.
+    ///
+    /// This is how a talk is adapted to a new occasion: a fork, not a Version,
+    /// so the copy starts with no history and no Versions of its own. The
+    /// Board comes along because a Version covers talk and Board together
+    /// (ADR 0009) — the copy is of that moment, and a talk thought out on a
+    /// Board would lose its outline otherwise. What belongs to the old
+    /// occasion does not come along: `occasion` and `date` are emptied when
+    /// present, and `created` is now.
+    pub fn duplicate(&mut self, id: &str, title: &str) -> Result<DocumentView> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        if summary.doc_type != DocType::Composition {
+            return Err(Error::Invalid("Only a Composition can be duplicated".into()));
+        }
+        let title = document::display_title(&sanitize_title(title));
+        let folder = summary
+            .path
+            .rsplit_once('/')
+            .map(|(f, _)| f.to_string())
+            .unwrap_or_default();
+        let rel = self.unique_path(&folder, &title, None);
+        let new = new_id();
+        let mut text = fs::read_to_string(self.abs(&summary.path))?;
+        text = document::set_frontmatter_field(&text, "id", Some(&new));
+        text = document::set_frontmatter_field(
+            &text,
+            "title",
+            Self::needs_title_field(&rel, &title).then_some(title.as_str()),
+        );
+        let created = chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+        text = document::set_frontmatter_field(&text, "created", Some(&created));
+        for key in ["occasion", "date"] {
+            if document::parse(&rel, &text).frontmatter.contains_key(key) {
+                text = document::set_frontmatter_field(&text, key, Some(""));
+            }
+        }
+        write_atomic(&self.abs(&rel), &text)?;
+        self.index_file_as(&rel, true)?;
+        if let Some(board) = self.read_board(id)? {
+            if !board.is_empty() {
+                self.write_board(&new, &board)?;
+            }
+        }
+        self.read(&new)
     }
 
     /// Rename a document and rewrite `[[Old]]` links across the vault.
@@ -952,7 +1039,9 @@ impl Vault {
                 Answer::Candidates(self.index.candidates(&id, self.lang, limit)?)
             }
             Query::Graph { level } => Answer::Graph(self.index.graph(level, self.lang)?),
-            Query::Search { text, limit } => Answer::Search(self.index.search(&text, limit)?),
+            Query::Search { text, types, limit } => {
+                Answer::Search(self.index.search(&text, &types, limit)?)
+            }
             Query::Suggest { prefix, limit } => {
                 Answer::Docs(self.index.suggest(&prefix, limit)?)
             }
@@ -1092,7 +1181,7 @@ impl Vault {
         self.index.graph(level, self.lang)
     }
     pub fn search(&self, q: &str, limit: usize) -> Result<Vec<SearchHit>> {
-        self.index.search(q, limit)
+        self.index.search(q, &[], limit)
     }
     pub fn tags(&self) -> Result<Vec<(String, u32)>> {
         self.index.tags()
@@ -1594,5 +1683,138 @@ Antioch is where they met.
         fs::remove_file(dir.path().join("Notes/External.md")).unwrap();
         v.scan().unwrap();
         assert!(v.get_by_path("Notes/External.md").unwrap().is_none());
+    }
+
+    /// A Composition and a Note, with a Board pairing the talk to the Note.
+    fn talk_vault() -> (tempfile::TempDir, Vault) {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions")).unwrap();
+        fs::write(dir.path().join("Notes/joy.md"), "Joy in trials.\n").unwrap();
+        fs::write(
+            dir.path().join("Compositions/talk on endurance.md"),
+            "---\ntype: composition\noccasion: Circuit assembly\ndate: 2026-03-01\ntags: [endurance]\nduration: 30\n---\n# Talk on endurance\n\nEndurance, James 1:2.\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Compositions/talk on endurance.canvas"),
+            r#"{"nodes":[{"id":"a","type":"text","text":"Opening","x":0,"y":0,"width":200,"height":100},{"id":"b","type":"file","file":"Notes/joy.md","x":300,"y":0,"width":200,"height":140}],"edges":[{"id":"e","fromNode":"a","toNode":"b"}]}"#,
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        (dir, v)
+    }
+
+    fn boards_holding(v: &Vault, id: &str) -> Vec<String> {
+        match v.query(Query::BoardsReferencing { id: id.into() }).unwrap() {
+            Answer::Docs(d) => {
+                let mut ids: Vec<String> = d.into_iter().map(|d| d.id).collect();
+                ids.sort();
+                ids
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    /// PLAN §14.8: "Duplicate as new Composition" forks a talk for a new
+    /// occasion — same words and Board, its own id, none of the old occasion.
+    #[test]
+    fn duplicating_a_composition_copies_its_body_and_board_under_a_new_id() {
+        let (dir, mut v) = talk_vault();
+        let talk = v.resolve("Talk on endurance").unwrap().unwrap();
+        let joy = v.resolve("joy").unwrap().unwrap();
+        let before = fs::read_to_string(dir.path().join("Compositions/talk on endurance.md")).unwrap();
+
+        let copy = v.duplicate(&talk.id, "Talk on endurance (copy)").unwrap();
+        assert_ne!(copy.summary.id, talk.id);
+        assert_eq!(copy.summary.doc_type, DocType::Composition);
+        assert_eq!(copy.summary.title, "Talk on endurance (copy)");
+        assert_eq!(copy.summary.path, "Compositions/talk on endurance (copy).md");
+        // The same body, byte for byte.
+        let original = v.read(&talk.id).unwrap();
+        assert_eq!(
+            &copy.text[copy.body_offset..],
+            &original.text[original.body_offset..]
+        );
+        // Tags and Properties come along; the old occasion does not.
+        assert_eq!(copy.frontmatter["duration"], Value::from(30));
+        assert_eq!(copy.frontmatter["occasion"], Value::from(""));
+        assert_eq!(copy.frontmatter["date"], Value::from(""));
+        assert!(copy.tags.iter().any(|t| t.name == "endurance"), "{}", copy.text);
+        assert_eq!(copy.frontmatter["id"], Value::from(copy.summary.id.clone()));
+        // The original is untouched.
+        assert_eq!(
+            fs::read_to_string(dir.path().join("Compositions/talk on endurance.md")).unwrap(),
+            before
+        );
+
+        // The Board is copied beside it, and the Note is on both Boards.
+        let board = v.read_board(&copy.summary.id).unwrap().expect("board copied");
+        assert_eq!(board.nodes.len(), 2);
+        assert_eq!(board.edges.len(), 1);
+        assert!(dir.path().join("Compositions/talk on endurance (copy).canvas").is_file());
+        let mut both = vec![talk.id.clone(), copy.summary.id.clone()];
+        both.sort();
+        assert_eq!(boards_holding(&v, &joy.id), both);
+
+        // A second copy with the same title does not overwrite the first.
+        let again = v.duplicate(&talk.id, "Talk on endurance (copy)").unwrap();
+        assert_eq!(again.summary.path, "Compositions/talk on endurance (copy) 2.md");
+
+        // Only a Composition is duplicated.
+        assert!(v.duplicate(&joy.id, "Joy (copy)").is_err());
+    }
+
+    /// A Composition without a Board is copied without inventing one.
+    #[test]
+    fn duplicating_a_composition_without_a_board_writes_no_canvas() {
+        let (dir, mut v) = vault();
+        let made = v
+            .create(DocType::Composition, "Short talk", &Map::new(), "Body.\n")
+            .unwrap();
+        let copy = v.duplicate(&made.summary.id, "Short talk (copy)").unwrap();
+        assert!(v.read_board(&copy.summary.id).unwrap().map_or(true, |b| b.is_empty()));
+        assert!(!dir.path().join("Compositions/short talk (copy).canvas").exists());
+    }
+
+    /// PLAN §17.14: a Board edited outside the app (Obsidian) is folded in
+    /// when the watcher sees it, and the app's own save is not re-announced.
+    #[test]
+    fn an_outside_edit_to_a_canvas_is_folded_into_the_board() {
+        let (dir, mut v) = talk_vault();
+        let talk = v.resolve("Talk on endurance").unwrap().unwrap();
+        let joy = v.resolve("joy").unwrap().unwrap();
+        let rel = "Compositions/talk on endurance.canvas";
+        // Opening reads the Board in; nothing has changed since.
+        let board = v.read_board(&talk.id).unwrap().unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none(), "nothing new on disk");
+
+        // Obsidian removes the card for the Note and adds a bubble.
+        fs::write(
+            dir.path().join(rel),
+            r#"{"nodes":[{"id":"a","type":"text","text":"Opening","x":0,"y":0,"width":200,"height":100},{"id":"c","type":"text","text":"Close","x":0,"y":200,"width":200,"height":100,"obsidianOnly":true}],"edges":[]}"#,
+        )
+        .unwrap();
+        let folded = v.fold_board_file(rel).unwrap().expect("announced");
+        assert_eq!(folded.id, talk.id);
+        let now = v.read_board(&talk.id).unwrap().unwrap();
+        let ids: Vec<&str> = now.nodes.iter().map(|n| n.id.as_str()).collect();
+        assert_eq!(ids, ["a", "c"]);
+        // An unknown field survives the round trip (PLAN §17.8).
+        assert!(now.to_json().contains("obsidianOnly"));
+        // The Note left the Board, so its Board ref is gone too.
+        assert!(boards_holding(&v, &joy.id).is_empty());
+
+        // The app's own save is an echo, not news.
+        v.write_board(&talk.id, &board).unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none());
+        assert_eq!(boards_holding(&v, &joy.id), [talk.id.clone()]);
+
+        // A canvas beside no Composition, or one that does not parse, is left alone.
+        fs::write(dir.path().join("Notes/loose.canvas"), r#"{"nodes":[],"edges":[]}"#).unwrap();
+        assert!(v.fold_board_file("Notes/loose.canvas").unwrap().is_none());
+        fs::write(dir.path().join(rel), "not json").unwrap();
+        assert!(v.fold_board_file(rel).unwrap().is_none());
     }
 }

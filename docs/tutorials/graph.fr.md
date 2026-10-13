@@ -14,3 +14,4 @@ Le graphe dessine tout votre coffre d'un coup : chaque document est un point, co
 - Une étiquette est aussi une mention : un document étiqueté est relié au document que l'étiquette nomme.
 - Un point cerclé est un chapitre ou un verset qui n'a pas encore sa propre page ; un clic l'ouvre quand même.
 - Le niveau des Écritures est mémorisé ; la recherche et les boutons de type repartent de zéro à chaque ouverture du graphe.
+- [Ouvrir le graphe local](command:doc.local_graph) sur n'importe quel document ne montre que ce document, cerclé, et ce qu'il relie ou ce qui le relie. **Deux pas** atteint aussi leurs voisins ; **Graphe entier** revient à tout. Le même bouton se trouve dans l'en-tête du document.

@@ -231,6 +231,12 @@ impl State {
                 let view = v.rename(&id, &title).map_err(err)?;
                 ok(api::payload(v, view))
             }
+            "duplicate_composition" => {
+                let (id, title): (String, String) = (arg(&a, "id")?, arg(&a, "title")?);
+                let v = self.vault_mut()?;
+                let view = v.duplicate(&id, &title).map_err(err)?;
+                ok(api::payload(v, view))
+            }
             "delete_document" => {
                 ok(self.vault_mut()?.delete(&arg::<String>(&a, "id")?).map_err(err)?)
             }

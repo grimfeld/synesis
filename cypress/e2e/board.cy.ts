@@ -188,6 +188,36 @@ describe("Board", () => {
     });
   });
 
+  // PLAN §17.18: export is a Command, not only the toolbar's button. Run
+  // from the talk, it opens the Board first, since the picture is drawn from
+  // the Board on screen. The native save dialog is answered here and the
+  // write intercepted, so nothing lands on disk.
+  it("exports from the board.export Command, even from the talk", () => {
+    cy.intercept("POST", "**/invoke/export_board", { statusCode: 200, body: "null" }).as("export");
+    cy.openDoc("Talk on endurance");
+    cy.window().then((win) => {
+      const internals = (win as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const real = internals.invoke.bind(internals);
+      internals.invoke = (cmd, args) =>
+        cmd === "plugin:dialog|save" ? Promise.resolve("C:/synesis-cy-export/board.svg") : real(cmd, args);
+    });
+    cy.get("[data-testid=tab-talk]").click();
+    cy.runCommand("Export the Board");
+    cy.get("[data-testid=tab-board]").should("have.attr", "aria-selected", "true");
+    cy.wait("@export").its("request.body").should((body) => {
+      expect(body.path).to.equal("C:/synesis-cy-export/board.svg");
+      expect(body.base64).to.equal(false);
+      expect(body.data).to.match(/^<svg /);
+      expect(body.data).to.contain("remaining steadfast");
+    });
+  });
+
+  it("offers board.export only on a Composition", () => {
+    cy.openDoc("Endurance in trials");
+    cy.palette(">Export the Board");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.exist");
+  });
+
   it("arranges by default: a card drags instead of opening", () => {
     openBoard("Talk on endurance");
     // The demo Board carries a `file` node pointing at this Note.
@@ -408,6 +438,48 @@ describe("Board", () => {
       expect(g, "the group").to.exist;
       expect(g!.color).to.equal("6");
       expect([g!.width, g!.height]).to.deep.equal([520, 360]);
+    });
+  });
+  // PLAN §17.14: the watcher folds an outside edit to a `.canvas` (Obsidian)
+  // into the Board. Events do not reach a plain browser, so this asks the
+  // index — which only the watcher updates without the Board being opened —
+  // rather than watching the canvas redraw.
+  it("folds a Board edited outside the app into the index", () => {
+    const until = (check: () => Cypress.Chainable<boolean>, tries = 30): void => {
+      check().then((ok) => {
+        if (ok) return;
+        if (tries <= 0) throw new Error("the watcher never folded the canvas");
+        cy.wait(250);
+        until(check, tries - 1);
+      });
+    };
+    cy.docByTitle("Talk on endurance").then((talk) => {
+      cy.docByTitle("Psalm 23 reflections").then((note) => {
+        const onBoards = () =>
+          cy
+            .query<{ id: string }[]>({ kind: "boardsReferencing", id: note.id })
+            .then((docs) => docs.some((d) => d.id === talk.id));
+        onBoards().should("equal", false);
+        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        cy.task<string>("file:read", file).then((text) => {
+          const board = JSON.parse(text);
+          board.nodes.push({
+            id: "0b5d1d1a0b5d1d1a",
+            type: "file",
+            file: note.path,
+            x: 600,
+            y: 0,
+            width: 320,
+            height: 140,
+          });
+          cy.task("file:write", { path: file, text: JSON.stringify(board, null, 2) });
+        });
+        until(onBoards);
+        // The card is there when the Board is opened.
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=tab-board]").click();
+        cy.get("[data-node-id=0b5d1d1a0b5d1d1a]").should("exist");
+      });
     });
   });
 });

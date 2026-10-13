@@ -625,6 +625,12 @@ export interface InviteInfo {
 export interface ChangedPayload {
   changed: DocSummary[];
   removed: string[];
+  /**
+   * Compositions whose Board was edited outside the app (PLAN §17.14). A
+   * Board is not a document, so it is never in `changed`. Absent from the
+   * changes the app announces itself.
+   */
+  boards?: string[];
 }
 
 /**
@@ -650,7 +656,7 @@ export type Query =
   | { kind: "ambiguousTitles" }
   | { kind: "candidates"; id: string }
   | { kind: "graph"; level: GraphLevel }
-  | { kind: "search"; text: string; limit: number }
+  | { kind: "search"; text: string; types?: DocType[]; limit: number }
   | { kind: "suggest"; prefix: string; limit: number }
   | { kind: "tags" }
   | { kind: "tagged"; tag: string }
@@ -808,6 +814,9 @@ export const api = {
   renameDocument: (id: string, title: string) =>
     invoke<DocumentPayload>("rename_document", { id, title }),
   deleteDocument: (id: string) => invoke<void>("delete_document", { id }),
+  /** A copy of a Composition and its Board under a new id (PLAN §14.8). */
+  duplicateComposition: (id: string, title: string) =>
+    invoke<DocumentPayload>("duplicate_composition", { id, title }),
   resolveLink: (target: string) =>
     invoke<DocSummary | null>("resolve_link", { target }),
   resolveMany: (targets: string[]) =>
@@ -857,8 +866,9 @@ export const api = {
   verseCoverage: (book: number, chapter: number) =>
     query<VerseCount[]>({ kind: "verseCoverage", book, chapter }),
   graph: (level: GraphLevel) => query<Graph>({ kind: "graph", level }),
-  search: (text: string, limit = 30) =>
-    query<SearchHit[]>({ kind: "search", text, limit }),
+  /** Full-text search; `types` narrows it to those kinds of page (PLAN §10). */
+  search: (text: string, limit = 30, types: DocType[] = []) =>
+    query<SearchHit[]>({ kind: "search", text, types, limit }),
   suggest: (prefix: string, limit = 12) =>
     query<DocSummary[]>({ kind: "suggest", prefix, limit }),
   tags: () => query<TagCount[]>({ kind: "tags" }),

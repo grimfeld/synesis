@@ -10,3 +10,4 @@ Une seule zone trouve n'importe quel document de votre coffre et lance n'importe
 
 - Chaque tutoriel est aussi une commande : tapez `>tutoriel` pour les voir tous.
 - Un raccourci affiché dans la palette fonctionne partout dans l'application, sauf pendant la saisie dans une zone qui utilise les mêmes touches.
+- Pour ne chercher qu'un type de page, cliquez sa pastille sous la zone, ou tapez `type:` et le type avant vos mots, par exemple `type:composition endurance`. Sans mots, la pastille liste ce type de page, du plus récent au plus ancien. Cliquez de nouveau la pastille pour tout chercher.

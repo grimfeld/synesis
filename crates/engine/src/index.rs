@@ -1287,7 +1287,9 @@ impl Index {
         Ok(Graph { nodes, edges })
     }
 
-    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<SearchHit>> {
+    /// Full-text search over titles and bodies, narrowed to `types` when it
+    /// names any (PLAN §10): the Command Palette's `type:` filter.
+    pub fn search(&self, query: &str, types: &[DocType], limit: usize) -> Result<Vec<SearchHit>> {
         let terms: Vec<String> = query
             .split_whitespace()
             .map(|t| t.replace('"', ""))
@@ -1309,8 +1311,16 @@ impl Index {
             })
             .collect();
         let q = fts.join(" ");
+        // The type names are the engine's own constants, never user text, so
+        // they are spelled into the statement rather than bound one by one.
+        let only = if types.is_empty() {
+            String::new()
+        } else {
+            let list: Vec<String> = types.iter().map(|t| format!("'{}'", t.as_str())).collect();
+            format!(" AND d.type IN ({})", list.join(", "))
+        };
         let mut st = self.conn.prepare(&format!(
-            "SELECT {SUMMARY_COLS}, snippet(docs_fts, 2, '[', ']', '…', 14) AS snip FROM docs_fts f JOIN documents d ON d.id = f.id WHERE docs_fts MATCH ?1 ORDER BY bm25(docs_fts, 0, 5.0, 1.0) LIMIT ?2"
+            "SELECT {SUMMARY_COLS}, snippet(docs_fts, 2, '[', ']', '…', 14) AS snip FROM docs_fts f JOIN documents d ON d.id = f.id WHERE docs_fts MATCH ?1{only} ORDER BY bm25(docs_fts, 0, 5.0, 1.0) LIMIT ?2"
         ))?;
         let rows = st.query_map(params![q, limit as i64], |r| {
             Ok(SearchHit {
@@ -2789,9 +2799,38 @@ tags: [judgment]
         assert_eq!(g.edges.len(), 3);
         let g = idx.graph(GraphLevel::Verse, Lang::En).unwrap();
         assert_eq!(g.edges.len(), 4);
-        let hits = idx.search("endur", 10).unwrap();
+        let hits = idx.search("endur", &[], 10).unwrap();
         assert_eq!(hits[0].doc.id, "n2");
         assert!(hits[0].snippet.contains("[Endurance]"));
+    }
+
+    /// PLAN §10: search is filterable by type, and the filter is an OR over
+    /// the types named.
+    #[test]
+    fn search_narrows_to_the_types_asked_for() {
+        let idx = idx_with(&[
+            ("n1", "Notes/endurance.md", "---\ntype: note\n---\nEndurance under trial."),
+            (
+                "c1",
+                "Compositions/talk.md",
+                "---\ntype: composition\n---\nOn endurance, for the congregation.",
+            ),
+            ("k1", "Concepts/endurance.md", "---\ntype: concept\n---\nEndurance as a theme."),
+        ]);
+        let ids = |types: &[DocType]| {
+            let mut v: Vec<String> = idx
+                .search("endurance", types, 10)
+                .unwrap()
+                .into_iter()
+                .map(|h| h.doc.id)
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(ids(&[]), ["c1", "k1", "n1"]);
+        assert_eq!(ids(&[DocType::Note]), ["n1"]);
+        assert_eq!(ids(&[DocType::Composition, DocType::Concept]), ["c1", "k1"]);
+        assert!(ids(&[DocType::Place]).is_empty());
     }
 
     #[test]

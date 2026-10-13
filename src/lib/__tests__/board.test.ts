@@ -16,6 +16,7 @@ import {
   moveNodes,
   newId,
   nodeAt,
+  placeDocument,
   nodesIn,
   rectFrom,
   removeNodes,
@@ -380,5 +381,39 @@ describe("diffBoards", () => {
       edges: [],
     };
     expect(diffBoards(before, after)[0].label).toHaveLength(48);
+  });
+});
+
+// PLAN §17.10: a card placed from the Candidates panel, with no viewport.
+describe("placeDocument", () => {
+  it("starts an empty Board at the origin", () => {
+    const b = placeDocument({ nodes: [], edges: [] }, "Notes/joy.md", "x");
+    expect(b.nodes).toEqual([
+      { id: "x", type: "file", file: "Notes/joy.md", x: 0, y: 0, width: 260, height: 140 },
+    ]);
+  });
+
+  it("goes to the right of what is there, level with its top, on empty canvas", () => {
+    const start: Board = { nodes: [node("a", -100, -50, 200, 100), node("b", 200, 300, 100, 50)], edges: [] };
+    const b = placeDocument(start, "Notes/joy.md", "x");
+    const card = b.nodes.find((n) => n.id === "x")!;
+    expect(card.x).toBeGreaterThanOrEqual(300 + 40);
+    expect(card.y).toBe(-50);
+    for (const n of start.nodes) expect(intersects(card, n)).toBe(false);
+    // The rest of the Board is untouched.
+    expect(b.nodes.slice(0, 2)).toEqual(start.nodes);
+  });
+
+  it("does not place a document twice, but a section of it is another card", () => {
+    const start: Board = {
+      nodes: [{ ...node("a", 0, 0), type: "file", file: "Notes/joy.md" }],
+      edges: [],
+    };
+    expect(placeDocument(start, "Notes/joy.md")).toBe(start);
+    const sectioned: Board = {
+      nodes: [{ ...node("a", 0, 0), type: "file", file: "Notes/joy.md", subpath: "#Close" }],
+      edges: [],
+    };
+    expect(placeDocument(sectioned, "Notes/joy.md").nodes).toHaveLength(2);
   });
 });

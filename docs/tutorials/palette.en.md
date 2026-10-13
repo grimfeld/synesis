@@ -10,3 +10,4 @@ One box finds any document in your Vault and runs any Command, so you never need
 
 - Every Tutorial is a Command too: type `>tutorial` to see them all.
 - A shortcut shown in the palette works anywhere in the app, except while you are typing in a box that uses the same keys.
+- To search one kind of page, click its chip under the box, or type `type:` and the kind before your words, such as `type:composition endurance`. With no words, the chip lists that kind of page, newest first. Click the chip again to search everything.
