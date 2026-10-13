@@ -2,6 +2,7 @@
 //! All file access in the app goes through here (ADR 0004).
 
 use crate::canvas::{self, Canvas};
+use crate::cloud;
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
     self, Backlink, Candidate, CoverageCell, DocSummary, Graph, GraphLevel, Index, Linkable,
@@ -347,6 +348,14 @@ impl Vault {
                 (None, Some(d)) => d.path.clone(),
                 (None, None) => continue,
             };
+            // Never write over, or move, a file iCloud has evicted: the merged
+            // text is in the CRDT, and `index_file` folds it in once the file
+            // is back (a copy older than the snapshot is replaced there).
+            if cloud::is_evicted(&self.abs(&rel))
+                || current.as_ref().is_some_and(|d| cloud::is_evicted(&self.abs(&d.path)))
+            {
+                continue;
+            }
             if let Some(d) = current.as_ref() {
                 if d.path != rel && self.abs(&d.path).exists() {
                     if let Some(parent) = self.abs(&rel).parent() {
@@ -426,9 +435,28 @@ impl Vault {
         for entry in walkdir::WalkDir::new(&self.root)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| !(e.depth() > 0 && e.file_name().to_string_lossy().starts_with('.')))
+            // Hidden entries are skipped, except iCloud's placeholders: an
+            // evicted document is still the user's (see `cloud`).
+            .filter_entry(|e| {
+                e.depth() == 0
+                    || !e.file_name().to_string_lossy().starts_with('.')
+                    || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
+            })
             .filter_map(|e| e.ok())
         {
+            if entry.file_type().is_file() && cloud::is_placeholder(entry.path()) {
+                // Keep what the index knows about an evicted document; it is
+                // indexed again when iCloud brings it back.
+                if let Some(orig) = cloud::original_of(entry.path()) {
+                    let hidden = orig.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
+                    if !hidden && orig.extension().is_some_and(|x| x == "md") && !orig.exists() {
+                        if let Some(rel) = self.rel(&orig) {
+                            seen.insert(rel);
+                        }
+                    }
+                }
+                continue;
+            }
             if entry.file_type().is_file() && entry.path().extension().map_or(false, |x| x == "md")
             {
                 if let Some(rel) = self.rel(entry.path()) {
@@ -448,7 +476,7 @@ impl Vault {
         // Forget files that vanished. Scripture pages materialised during this
         // scan are not in `seen`, so check the disk rather than the set.
         for path in self.index.all_paths()? {
-            if !seen.contains(&path) && !self.abs(&path).is_file() {
+            if !seen.contains(&path) && !self.abs(&path).is_file() && !cloud::is_evicted(&self.abs(&path)) {
                 self.index.remove_path(&path)?;
             }
         }
@@ -497,6 +525,8 @@ impl Vault {
         let abs = self.abs(rel);
         let text = match fs::read_to_string(&abs) {
             Ok(t) => t,
+            // Evicted, not deleted: keep what the index knows.
+            Err(_) if cloud::is_evicted(&abs) => return Ok(None),
             Err(_) => {
                 self.index.remove_path(rel)?;
                 return Ok(None);
@@ -554,7 +584,7 @@ impl Vault {
         wanted.dedup();
         for (b, c, v) in wanted {
             let rel = templates::scripture_path(b, c, v);
-            if self.index.get_by_path(&rel)?.is_some() || self.abs(&rel).exists() {
+            if self.index.get_by_path(&rel)?.is_some() || cloud::occupied(&self.abs(&rel)) {
                 continue;
             }
             let id = new_id();
@@ -570,12 +600,34 @@ impl Vault {
         self.index.remove_path(rel)
     }
 
+    /// A file the watcher saw disappear. Forgotten if it is really gone;
+    /// kept if iCloud only evicted it (see `cloud`). Returns whether it was
+    /// forgotten.
+    pub fn vanished(&mut self, rel: &str) -> Result<bool> {
+        if cloud::is_evicted(&self.abs(rel)) {
+            return Ok(false);
+        }
+        self.forget(rel)?;
+        Ok(true)
+    }
+
+    /// Everything under the Vault that iCloud has evicted, by the path it
+    /// will have once downloaded: documents, Boards, attachments and the sync
+    /// snapshots alike. The shell asks iCloud for each.
+    pub fn evicted(&self) -> Vec<PathBuf> {
+        cloud::evicted_under(&self.root)
+    }
+
     pub fn read(&self, id: &str) -> Result<DocumentView> {
         let summary = self
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
-        let text = fs::read_to_string(self.abs(&summary.path))?;
+        let abs = self.abs(&summary.path);
+        if cloud::is_evicted(&abs) {
+            return Err(cloud::downloading(&abs));
+        }
+        let text = fs::read_to_string(abs)?;
         let parsed = document::parse(&summary.path, &text);
         Ok(DocumentView {
             summary,
@@ -594,6 +646,9 @@ impl Vault {
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
+        if cloud::is_evicted(&self.abs(&summary.path)) {
+            return Err(cloud::downloading(&self.abs(&summary.path)));
+        }
         // Never let a save drop the id.
         let text = document::with_frontmatter_fields(text, &[("id", id)]);
         write_atomic(&self.abs(&summary.path), &text)?;
@@ -661,6 +716,9 @@ impl Vault {
             .ok_or_else(|| Error::NotFound(id.into()))?;
         let rel = canvas::board_path(&summary.path);
         let abs = self.abs(&rel);
+        if cloud::is_evicted(&abs) {
+            return Err(cloud::downloading(&abs));
+        }
         if let Some(sync) = self.sync.as_mut() {
             sync.record_canvas(id, board)?;
         }
@@ -694,7 +752,7 @@ impl Vault {
                 format!("{folder}/{name}.md")
             };
             if keep.is_some_and(|k| k.to_lowercase() == rel.to_lowercase())
-                || !self.abs(&rel).exists()
+                || !cloud::occupied(&self.abs(&rel))
             {
                 return rel;
             }
@@ -807,6 +865,9 @@ impl Vault {
             // holds, and the file name is a Citation the app derives.
             return Err(Error::Invalid("A Clipping has no title".into()));
         }
+        if cloud::is_evicted(&self.abs(&summary.path)) {
+            return Err(cloud::downloading(&self.abs(&summary.path)));
+        }
         let new_title = document::display_title(&sanitize_title(new_title));
         if new_title == summary.title {
             return self.read(id);
@@ -899,6 +960,11 @@ impl Vault {
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
         let p = self.abs(&summary.path);
+        // Deleting the placeholder would leave the cloud copy to come back;
+        // deleting through it is iCloud's job, once the file is here.
+        if cloud::is_evicted(&p) {
+            return Err(cloud::downloading(&p));
+        }
         if p.exists() {
             fs::remove_file(p)?;
         }

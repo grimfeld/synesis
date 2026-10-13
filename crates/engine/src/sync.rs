@@ -332,6 +332,11 @@ pub struct Sync {
     /// import: `p2p` rewrites the roster whenever a peer is removed, and this
     /// Sync outlives that.
     roster: Option<Roster>,
+    /// Documents whose published snapshot iCloud has evicted. Writing over a
+    /// placeholder makes iCloud keep both files as a conflict, so the publish
+    /// waits until the old snapshot is back (`flush_deferred`). The local
+    /// snapshot is always written, so nothing is lost meanwhile.
+    deferred: std::collections::HashSet<String>,
 }
 
 fn mtime_ms(p: &Path) -> i64 {
@@ -406,6 +411,7 @@ impl Sync {
             docs: HashMap::new(),
             manifest,
             roster,
+            deferred: Default::default(),
         })
     }
 
@@ -451,7 +457,7 @@ impl Sync {
         &self.docs[id]
     }
 
-    fn persist(&self, id: &str, publish: bool) -> Result<()> {
+    fn persist(&mut self, id: &str, publish: bool) -> Result<()> {
         let doc = &self.docs[id];
         doc.commit();
         let bytes = doc
@@ -459,9 +465,31 @@ impl Sync {
             .map_err(|e| crate::Error::Invalid(e.to_string()))?;
         write_atomic(&self.local_snapshot_path(id), &bytes)?;
         if publish {
-            write_atomic(&self.published_path(id), &bytes)?;
+            let published = self.published_path(id);
+            if crate::cloud::is_evicted(&published) {
+                self.deferred.insert(id.to_string());
+            } else {
+                write_atomic(&published, &bytes)?;
+            }
         }
         Ok(())
+    }
+
+    /// Publish what `persist` had to hold back, for each document whose
+    /// evicted snapshot iCloud has since brought back. Returns how many went out.
+    pub fn flush_deferred(&mut self) -> Result<usize> {
+        let ready: Vec<String> = self
+            .deferred
+            .iter()
+            .filter(|id| !crate::cloud::is_evicted(&self.published_path(id)))
+            .cloned()
+            .collect();
+        for id in &ready {
+            self.deferred.remove(id);
+            self.doc(id);
+            self.persist(id, true)?;
+        }
+        Ok(ready.len())
     }
 
     /// The text this device's CRDT currently holds, if the document is known.
@@ -481,7 +509,8 @@ impl Sync {
     /// No-op (and no publish) when nothing changed.
     /// Whether this Device has ever published a snapshot for `id`.
     pub fn is_published(&self, id: &str) -> bool {
-        self.published_path(id).exists()
+        // An evicted snapshot is published; iCloud is holding it.
+        crate::cloud::occupied(&self.published_path(id))
     }
 
     /// Record the text like `record_local`, then make sure the published
@@ -901,6 +930,7 @@ impl Sync {
         };
         // A removal may have landed since this Sync opened.
         self.roster = Roster::beside(&self.local_dir);
+        self.flush_deferred()?;
         let mut touched: Vec<String> = Vec::new();
         for dev in devices.flatten() {
             let dev_name = dev.file_name().to_string_lossy().to_string();
