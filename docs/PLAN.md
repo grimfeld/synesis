@@ -297,6 +297,7 @@ People preparing talks want to arrange their material spatially before writing p
 16. **Fit-all on open, no viewport persistence.** A Board's shape is the point and fit-all shows it. The Timeline persists its range because that range is a query (§16.5); a Board's viewport is not.
 17. **Versions cover text and Board together**, and the diff view gains a Board tab listing nodes added, removed and moved. Restore restores both, said plainly in the confirmation. A Version is a moment (§14.8); restoring half of one is not.
 18. **Export** is a Command producing SVG and PNG of the Board's extent. The renderer is SVG anyway (the `TimelineView` precedent), so this is cheap. Not PDF — that belongs to the later Composition export (§8), and a Board is not a page.
+    **Built (2026-10-13):** `board.export`, "Export the Board", offered on any Composition. One Command, the format picked in the save dialog by extension, as the toolbar button already did. The picture is drawn from the Board on screen, so from the talk the Command switches to the Board and waits for it to mount (`src/lib/activeBoard.ts`, where a loaded, editable Board registers itself).
 
 ### Build order
 

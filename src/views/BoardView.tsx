@@ -58,6 +58,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { IconButton } from "@/components/IconButton";
 import { boardToSvg, svgToPng } from "@/lib/boardExport";
 import { registerFlush } from "@/lib/pending";
+import { registerBoard } from "@/lib/activeBoard";
 import { BoardDrawer } from "@/components/BoardDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -613,6 +614,15 @@ export function BoardView({
       await api.exportBoard(path, await svgToPng(svg), true);
     }
   }, [board]);
+
+  // The `board.export` Command reaches the Board through this (PLAN §17.18).
+  // Only once loaded, so a Command waiting for the Board to mount never gets
+  // one with nothing to export yet; never while delivering, which exports
+  // nothing.
+  useEffect(() => {
+    if (!loaded || delivering) return;
+    return registerBoard({ id, exportPicture: exportBoard });
+  }, [id, loaded, delivering, exportBoard]);
 
   const openNode = useCallback(
     (n: CanvasNode) => {

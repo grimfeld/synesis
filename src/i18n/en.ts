@@ -279,6 +279,7 @@ export const en = {
   boards_hint: "Compositions whose Board references this document.",
   add_to_board: "Add to the Board",
   board_export: "Export the Board",
+  board_export_failed: "The Board could not be shown to export it.",
   reading_trail: "Reading trail",
   no_trail: "Nothing cited from this Source yet.",
   child_sources: "Contains",

@@ -276,6 +276,7 @@ export const fr: Dict = {
   boards_hint: "Compositions dont le tableau référence ce document.",
   add_to_board: "Ajouter au tableau",
   board_export: "Exporter le tableau",
+  board_export_failed: "Le tableau n'a pas pu être affiché pour l'exporter.",
   reading_trail: "Parcours de lecture",
   no_trail: "Rien de cité depuis cette Source pour l’instant.",
   child_sources: "Contient",

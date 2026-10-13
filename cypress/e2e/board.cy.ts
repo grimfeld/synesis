@@ -148,6 +148,36 @@ describe("Board", () => {
     });
   });
 
+  // PLAN §17.18: export is a Command, not only the toolbar's button. Run
+  // from the talk, it opens the Board first, since the picture is drawn from
+  // the Board on screen. The native save dialog is answered here and the
+  // write intercepted, so nothing lands on disk.
+  it("exports from the board.export Command, even from the talk", () => {
+    cy.intercept("POST", "**/invoke/export_board", { statusCode: 200, body: "null" }).as("export");
+    cy.openDoc("Talk on endurance");
+    cy.window().then((win) => {
+      const internals = (win as unknown as { __TAURI_INTERNALS__: { invoke: (c: string, a?: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__;
+      const real = internals.invoke.bind(internals);
+      internals.invoke = (cmd, args) =>
+        cmd === "plugin:dialog|save" ? Promise.resolve("C:/synesis-cy-export/board.svg") : real(cmd, args);
+    });
+    cy.get("[data-testid=tab-talk]").click();
+    cy.runCommand("Export the Board");
+    cy.get("[data-testid=tab-board]").should("have.attr", "aria-selected", "true");
+    cy.wait("@export").its("request.body").should((body) => {
+      expect(body.path).to.equal("C:/synesis-cy-export/board.svg");
+      expect(body.base64).to.equal(false);
+      expect(body.data).to.match(/^<svg /);
+      expect(body.data).to.contain("remaining steadfast");
+    });
+  });
+
+  it("offers board.export only on a Composition", () => {
+    cy.openDoc("Endurance in trials");
+    cy.palette(">Export the Board");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.exist");
+  });
+
   it("arranges by default: a card drags instead of opening", () => {
     openBoard("Talk on endurance");
     // The demo Board carries a `file` node pointing at this Note.

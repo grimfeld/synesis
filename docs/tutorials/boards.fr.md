@@ -14,6 +14,6 @@ Un tableau est l'endroit où vous pensez un discours avant de l'écrire : vos pr
 
 - Le tableau est enregistré à côté de la composition dans un fichier `.canvas`, qu'Obsidian ouvre comme un canevas à part entière.
 - Une version de la composition couvre aussi son tableau, et en restaurer une restaure les deux.
-- **Ajuster au tableau** montre tout d'un coup ; **Exporter le tableau** l'enregistre en image (PNG ou SVG).
+- **Ajuster au tableau** montre tout d'un coup ; [Exporter le tableau](command:board.export) l'enregistre en image (PNG ou SVG), depuis la barre d'outils ou de n'importe où sur la composition.
 - Sur un téléphone, vous pouvez déplacer la vue, zoomer, ajouter des notes et déplacer une carte par un appui long ; les groupes, les liens et la liste Matière demandent un plus grand écran.
 - Le tableau peut aussi être modifié dans Obsidian : pendant qu'il est ouvert ici, les changements enregistrés là-bas y apparaissent en un instant, et les cartes placées dans l'une ou l'autre application sont conservées.

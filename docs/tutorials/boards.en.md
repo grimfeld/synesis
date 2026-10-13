@@ -14,6 +14,6 @@ A Board is where you think a talk out before you write it: your own bubbles, mat
 
 - The Board is saved beside the Composition as a `.canvas` file, which Obsidian opens as a canvas of its own.
 - A Version of the Composition covers its Board too, and restoring one restores both.
-- **Fit to Board** shows everything at once; **Export the Board** saves it as a picture (PNG or SVG).
+- **Fit to Board** shows everything at once; [Export the Board](command:board.export) saves it as a picture (PNG or SVG), from the toolbar or from anywhere on the Composition.
 - On a phone you can pan, zoom, add notes and long-press a card to move it; groups, connections and the Material list need a larger screen.
 - The Board can be edited in Obsidian too: while it is open here, changes saved there appear on it within a moment, and cards you placed in either app are kept.

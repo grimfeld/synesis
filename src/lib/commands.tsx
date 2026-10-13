@@ -17,6 +17,7 @@ import {
   LockOpen,
   Presentation,
   Dices,
+  Download,
   FilePlus,
   House,
   LayoutGrid,
@@ -40,6 +41,7 @@ import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
 import { toast } from "sonner";
+import { whenBoard } from "@/lib/activeBoard";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -227,6 +229,23 @@ export function useCommands(): Command[] {
           keywords: "board mind map canvas talk outline",
           run: () => s.setDocTab(s.docTab === "board" ? "talk" : "board"),
         });
+        // Export the Board as a picture (PLAN §17.18): the toolbar's button,
+        // reachable from anywhere on the Composition. From the talk it opens
+        // the Board first, since the picture is drawn from the Board on screen.
+        list.push({
+          id: "board.export",
+          title: t.board_export,
+          group: "create",
+          icon: Download,
+          keywords: "export board picture image png svg save mind map canvas",
+          run: () => {
+            if (s.docTab === "talk") s.setDocTab("board");
+            void whenBoard(doc.id).then((b) => {
+              if (b) return b.exportPicture();
+              toast.error(t.board_export_failed);
+            }).catch((e) => toast.error(String(e)));
+          },
+        });
         // Talk and Board side by side (PLAN §22.2). Offered even where the
         // split does not fit: the talk shows until there is room.
         list.push({
@@ -363,6 +382,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "skins.gallery",
     "map.fill_kinds",
     "doc.board",
+    "board.export",
     "doc.duplicate",
     "doc.capture",
     "editor.source",
