@@ -13,3 +13,8 @@ cypress/screenshots/
 cypress/videos/
 *.keystore
 *.jks
+
+# Written by the release workflow when MACOS_PROVISION_PROFILE is set
+src-tauri/embedded.provisionprofile
+src-tauri/macos/Synesis.signed.entitlements
+src-tauri/tauri.macos.conf.json

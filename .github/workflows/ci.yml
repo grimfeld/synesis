@@ -39,6 +39,7 @@ jobs:
       - run: npm run build
       - run: cargo test -p engine
       - run: cargo check -p synesis
+      - run: npm run licenses -- --check
 
   web:
     name: Web test build
