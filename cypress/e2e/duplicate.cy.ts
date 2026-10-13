@@ -15,7 +15,9 @@ describe("Duplicate as new Composition", () => {
         expect(copy.type).to.equal("composition");
         cy.task<string>("file:read", `${Cypress.env("vault")}/${orig.path}`).then((before) => {
           cy.task<string>("file:read", `${Cypress.env("vault")}/${copy.path}`).then((after) => {
-            const body = (t: string) => t.replace(/^---[\s\S]*?\n---\n/, "");
+            // The frontmatter differs by design (title, id, created); the
+            // demo file may have CRLF line breaks on Windows.
+            const body = (t: string) => t.replace(/^---[\s\S]*?\r?\n---\r?\n/, "");
             expect(body(after)).to.equal(body(before));
             expect(after).not.to.contain(`id: ${orig.id}`);
           });
