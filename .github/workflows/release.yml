@@ -424,9 +424,12 @@ jobs:
       - name: Generate the iOS project
         run: npm run tauri -- ios init --ci
 
-      # `ios init` ships Tauri's default icon; put ours in.
-      - name: Copy the app icons into the iOS project
-        run: npm run icons:mobile
+      # `ios init` ships Tauri's default icon, an empty entitlements file, and
+      # may not link the system frameworks iroh needs. Put our icons in, add
+      # the iCloud entitlements (ADR 0022), and check SystemConfiguration and
+      # Network are linked (scripts/ios-post-init.mjs).
+      - name: Prepare the iOS project (icons, iCloud, frameworks)
+        run: npm run ios:post-init
 
       # xcodebuild's export errors are terse, so the two that come from the
       # Apple account rather than from this repository get a translation.
@@ -447,6 +450,9 @@ jobs:
               "APPLE_API_KEY, APPLE_API_ISSUER and APPLE_API_KEY_P8, then tag again." \
               "Alternatively sign locally by setting IOS_CERTIFICATE," \
               "IOS_CERTIFICATE_PASSWORD and IOS_MOBILE_PROVISION."
+          fi
+          if grep -qiE "icloud-container|ubiquity-container|iCloud capability" "$RUNNER_TEMP/ios-build.log"; then
+            echo "::error::The provisioning profile does not carry iCloud. In the Apple"               "Developer portal, register the container iCloud.tech.grimfeld.synesis,"               "enable iCloud (CloudKit/iCloud Documents) on the App ID"               "tech.grimfeld.synesis and assign that container to it. Cloud signing"               "then makes a new profile; with IOS_MOBILE_PROVISION, regenerate the"               "profile and update that secret."
           fi
           if grep -q "No profiles for" "$RUNNER_TEMP/ios-build.log"; then
             echo "::error::No App Store provisioning profile exists for the bundle" \

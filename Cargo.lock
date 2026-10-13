@@ -6093,6 +6093,7 @@ dependencies = [
  "notify",
  "notify-debouncer-mini",
  "objc2",
+ "objc2-foundation",
  "regex",
  "reqwest 0.12.28",
  "serde",

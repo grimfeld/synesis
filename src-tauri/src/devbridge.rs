@@ -134,7 +134,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "move_vault" => ok(move_vault(app.clone(), state, arg(&a, "id")?)?),
         "hidden_vaults" => ok(hidden_vaults(app.clone(), state)?),
         "rename_vault" => ok(rename_vault(state, arg(&a, "name")?)?),
-        "suggest_vault_path" => ok(suggest_vault_path(app.clone(), arg(&a, "name")?)?),
+        "suggest_vault_path" => ok(suggest_vault_path(app.clone(), arg(&a, "name")?, arg(&a, "method")?)?),
         "inspect_invite" => ok(inspect_invite(arg(&a, "code")?, arg(&a, "path")?)?),
         "vault_info" => ok(vault_info(state)?),
         "rescan" => ok(rescan(state)?),

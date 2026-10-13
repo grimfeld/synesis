@@ -5,6 +5,7 @@
 pub mod api;
 pub mod attachments;
 pub mod canvas;
+pub mod cloud;
 pub mod config;
 pub mod dates;
 pub mod document;

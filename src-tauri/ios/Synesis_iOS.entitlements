@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The iOS app's entitlements: iCloud Documents in Synesis's own container
+  (ADR 0022). `src-tauri/gen/` is generated and not committed, so
+  `npm run ios:post-init` (scripts/ios-post-init.mjs) writes these keys into
+  the entitlements file `tauri ios init` generates. The App ID must have the
+  iCloud capability with this container assigned, or signing fails.
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array>
+      <string>iCloud.tech.grimfeld.synesis</string>
+    </array>
+    <key>com.apple.developer.icloud-services</key>
+    <array>
+      <string>CloudDocuments</string>
+    </array>
+    <key>com.apple.developer.ubiquity-container-identifiers</key>
+    <array>
+      <string>iCloud.tech.grimfeld.synesis</string>
+    </array>
+  </dict>
+</plist>

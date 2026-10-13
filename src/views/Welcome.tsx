@@ -10,7 +10,7 @@ import { ArrowLeft, ArrowRight, BookOpenText, Check, ChevronRight, FolderOpen, F
 import { cn } from "cn";
 import { api, type SyncLocations } from "@/lib/api";
 import { shortcut } from "@/lib/keys";
-import { destination, methodFor, nameIsUsable, type Route } from "@/lib/onboarding";
+import { destination, icloudUnavailable, joinPath, methodFor, nameIsUsable, type Route } from "@/lib/onboarding";
 import { locationsFor, type Method } from "@/lib/sync";
 import { useStore } from "@/lib/store";
 import { syncTutorialId, tutorial, tutorialSource, tutorialsFor } from "@/lib/tutorials";
@@ -107,11 +107,17 @@ export function Welcome() {
   const suggested = useMemo(() => {
     if (!locations || locations.app_decides_path) return undefined;
     const inMethod = method ? locationsFor(method, locations.locations).find((l) => l.exists) : undefined;
-    return inMethod ? `${inMethod.suggested}` : destination(locations, name).path;
+    if (!inMethod) return destination(locations, name).path;
+    // Synesis's iCloud container holds Vaults directly, each named after
+    // itself: it is already "Synesis" in iCloud Drive.
+    return inMethod.holds_vaults ? joinPath(inMethod.root, name.trim()) : inMethod.suggested;
   }, [locations, method, name]);
   useEffect(() => setPath(suggested), [suggested]);
 
-  const dest = destination(locations, name, path);
+  // Only the synced-folder route puts a Vault in a sync method's folder.
+  const folderMethod = route === "folder" ? method : null;
+  const dest = destination(locations, name, path, folderMethod);
+  const noIcloud = icloudUnavailable(locations, folderMethod);
 
   // The wizard's Tutorials (PLAN §25.10): Pairing, read in place on the
   // pairing screen, and this Device's folder-sync ones, which the folder
@@ -130,7 +136,7 @@ export function Welcome() {
       await api.setSyncMethod(methodFor(route ?? "local", method) as never);
       // The engine has the real free_path: ask it, so a name already taken
       // becomes a sibling rather than a folder that holds another Vault.
-      const target = locations?.app_decides_path ? await api.suggestVaultPath(name.trim()) : dest.path;
+      const target = locations?.app_decides_path ? await api.suggestVaultPath(name.trim(), folderMethod) : dest.path;
       await s.openVault(target);
     } catch (e) {
       setError(String(e));
@@ -306,7 +312,8 @@ export function Welcome() {
                 busy={busy}
                 error={error}
                 onCreate={createVault}
-                hint={locations?.app_decides_path ? t.wizard.point_tool_here(dest.path) : undefined}
+                hint={!locations?.app_decides_path ? undefined : folderMethod !== "icloud" ? t.wizard.point_tool_here(dest.path) : noIcloud ? t.wizard.icloud_unavailable : t.wizard.icloud_here}
+                hintTestId={folderMethod === "icloud" ? (noIcloud ? "icloud-unavailable" : "icloud-here") : undefined}
               />
             </section>
           )}
@@ -424,6 +431,7 @@ function VaultNameAndPlace({
   error,
   onCreate,
   hint,
+  hintTestId,
 }: {
   locations: SyncLocations | null;
   name: string;
@@ -437,6 +445,7 @@ function VaultNameAndPlace({
   error: string | null;
   onCreate: () => void;
   hint?: string;
+  hintTestId?: string;
 }) {
   const t = useT();
   const derived = locations?.app_decides_path ?? false;
@@ -463,7 +472,11 @@ function VaultNameAndPlace({
           </div>
         </div>
       )}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && (
+        <p className="text-xs text-muted-foreground" data-testid={hintTestId}>
+          {hint}
+        </p>
+      )}
       {error && <p className="text-sm text-destructive">{error}</p>}
       <div>
         <Button onClick={onCreate} disabled={busy || !nameIsUsable(derived ? name : path ?? "")} data-testid="vault-create">

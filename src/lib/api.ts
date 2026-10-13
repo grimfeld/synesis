@@ -562,6 +562,9 @@ export interface SyncLocation {
   root: string;
   exists: boolean;
   suggested: string;
+  /** Vaults sit directly in `root`, each named after itself: Synesis's own
+   * iCloud container, which iCloud Drive already shows as "Synesis". */
+  holds_vaults: boolean;
 }
 
 /** Whether this Device may write a Vault where its owner can find it (ADR 0015). */
@@ -783,8 +786,8 @@ export const api = {
   /** Rename the open Vault; the name travels to every Device that holds it. */
   renameVault: (name: string) => invoke<VaultInfo>("rename_vault", { name }),
   /** Where a Vault of this name could go here without disturbing anything. */
-  suggestVaultPath: (name: string) =>
-    invoke<string>("suggest_vault_path", { name }),
+  suggestVaultPath: (name: string, method?: string | null) =>
+    invoke<string>("suggest_vault_path", { name, method: method ?? null }),
   /** Which Vault a code is for, and whether `path` can receive it. */
   inspectInvite: (code: string, path: string) =>
     invoke<InviteInfo>("inspect_invite", { code, path }),
