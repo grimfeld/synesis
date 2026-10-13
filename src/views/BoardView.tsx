@@ -189,6 +189,8 @@ export function BoardView({
 
   // The Board excerpts, keyed by node path (PLAN §17.12).
   const [excerpts, setExcerpts] = useState<Record<string, BoardExcerpt>>({});
+  /** The `refsKey` the excerpts on screen were fetched for. */
+  const [excerptsFor, setExcerptsFor] = useState("");
 
   // What the excerpts were fetched for: every referenced path with the mtime
   // it had. Editing a document *on* the Board changes its mtime and refetches;
@@ -213,9 +215,15 @@ export function BoardView({
       const [path, subpath] = entry.split("\u0000");
       return { path, subpath: subpath || null };
     });
-    api.boardExcerpts(refs).then((got) => {
-      if (live) setExcerpts(got);
-    });
+    api
+      .boardExcerpts(refs)
+      .then((got) => {
+        if (live) setExcerpts(got);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (live) setExcerptsFor(refsKey);
+      });
     return () => {
       live = false;
     };
@@ -622,10 +630,14 @@ export function BoardView({
   // Only once loaded, so a Command waiting for the Board to mount never gets
   // one with nothing to export yet; never while delivering, which exports
   // nothing.
+  // And only once the cards have their text: run from the talk, the Command
+  // exports the moment the Board mounts, and a picture taken before the
+  // excerpts arrive has empty cards.
+  const excerptsReady = excerptsFor === refsKey;
   useEffect(() => {
-    if (!loaded || delivering) return;
+    if (!loaded || delivering || !excerptsReady) return;
     return registerBoard({ id, exportPicture: exportBoard, place: addDocument });
-  }, [id, loaded, delivering, exportBoard, addDocument]);
+  }, [id, loaded, delivering, excerptsReady, exportBoard, addDocument]);
 
   const openNode = useCallback(
     (n: CanvasNode) => {
