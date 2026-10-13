@@ -703,6 +703,8 @@ export const api = {
   /** Re-checked whenever the window regains focus: the grant happens outside the app. */
   storageAccess: () => invoke<StorageAccess>("storage_access"),
   requestStorageAccess: () => invoke<void>("request_storage_access"),
+  /** Phone only: status and navigation bars in `color` (#rrggbb), light icons when `dark`. */
+  setSystemBars: (color: string, dark: boolean) => invoke<void>("set_system_bars", { color, dark }),
   pairingStatus: () => invoke<PairingStatus | null>("pairing_status"),
   pairingInvite: () => invoke<{ code: string }>("pairing_invite"),
   pairingRevokeInvite: () => invoke<{ code: string }>("pairing_revoke_invite"),
