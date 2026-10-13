@@ -103,7 +103,8 @@ function Shell() {
         );
       }
       case "graph":
-        return <GraphView />;
+        // Keyed by the document, so a local graph never inherits another's layout.
+        return <GraphView key={s.view.focus ?? ""} focus={s.view.focus} />;
       case "library":
         return <LibraryView />;
       case "clippings":

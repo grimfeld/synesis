@@ -11,6 +11,7 @@ import {
   type SimulationNodeDatum,
 } from "d3-force";
 import { Maximize2, Search, Waypoints } from "lucide-react";
+import { levelFor, localGraph, nodeIdFor, type Depth } from "@/lib/graph";
 import {
   api,
   type DocType,
@@ -91,13 +92,22 @@ const FILTERABLE: DocType[] = [
   "chapter",
 ];
 
-export function GraphView() {
+/**
+ * The Graph view. With `focus`, the local graph of that document (PLAN §10):
+ * it and its neighbours out to a chosen depth, cut from the whole graph.
+ */
+export function GraphView({ focus }: { focus?: string } = {}) {
   const s = useStore();
   const t = useT();
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [level, setLevel] = useState<GraphLevel>(
+  const [chosenLevel, setLevel] = useState<GraphLevel>(
     s.settings?.graph_level ?? "chapter",
   );
+  const focusDoc = focus ? s.docsById.get(focus) : undefined;
+  const [depth, setDepth] = useState<Depth>(1);
+  // A Scripture page is drawn at its own level, where it has a node; the
+  // reader's chosen level is kept for the whole graph.
+  const level = focusDoc ? levelFor(focusDoc, chosenLevel) : chosenLevel;
   const [graph, setGraph] = useState<Graph | null>(null);
   const [hidden, setHidden] = useState<Set<DocType>>(new Set());
   const [query, setQuery] = useState("");
@@ -105,6 +115,8 @@ export function GraphView() {
   const nodesRef = useRef<N[]>([]);
   const edgesRef = useRef<E[]>([]);
   const view = useRef({ x: 0, y: 0, k: 1 });
+  /** The local graph's own node, read by the draw loop outside React. */
+  const rootRef = useRef<string | null>(null);
   /** The first settled layout frames itself; later ones leave the view alone. */
   const fitted = useRef(false);
   /** Set by any pan, zoom or drag: the view is the reader's from then on. */
@@ -136,25 +148,44 @@ export function GraphView() {
         setGraph((prev) => (prev && sameGraph(prev, g) ? prev : g)),
       )
       .catch(console.error);
-    api.setGraphLevel(level).catch(() => {});
   }, [level, s.changeTick, s.docs]);
+  // The level is a preference of the whole graph: a local graph forced to a
+  // Scripture page's level must not change it.
+  useEffect(() => {
+    api.setGraphLevel(chosenLevel).catch(() => {});
+  }, [chosenLevel]);
+
+  const root = useMemo(
+    () => (graph && focusDoc ? nodeIdFor(graph, focusDoc) : null),
+    [graph, focusDoc],
+  );
+  rootRef.current = root;
+  // A new root or depth is a new picture: frame it once it settles.
+  useEffect(() => {
+    fitted.current = false;
+    touched.current = false;
+  }, [root, depth]);
 
   const visible = useMemo(() => {
     if (!graph) return null;
+    if (focus && !root) return { nodes: [], edges: [] };
+    const scope = root ? localGraph(graph, root, depth) : graph;
     const scriptureHidden = hidden.has("chapter");
     const keep = (n: GraphNode) =>
-      !hidden.has(n.type) &&
-      !(
-        scriptureHidden &&
-        (n.type === "book" || n.type === "chapter" || n.type === "verse")
-      );
-    const nodes = graph.nodes.filter(keep);
+      // The document a local graph is about is never filtered away.
+      n.id === root ||
+      (!hidden.has(n.type) &&
+        !(
+          scriptureHidden &&
+          (n.type === "book" || n.type === "chapter" || n.type === "verse")
+        ));
+    const nodes = scope.nodes.filter(keep);
     const ids = new Set(nodes.map((n) => n.id));
-    const edges = graph.edges.filter(
+    const edges = scope.edges.filter(
       (e) => ids.has(e.source) && ids.has(e.target),
     );
     return { nodes, edges };
-  }, [graph, hidden]);
+  }, [graph, hidden, focus, root, depth]);
 
   // (Re)build the simulation when the visible graph changes; keep positions for known ids.
   useEffect(() => {
@@ -308,6 +339,14 @@ export function GraphView() {
         ctx.lineWidth = 1.5 / k;
         ctx.stroke();
       }
+      // The document a local graph is about wears a ring.
+      if (n.id === rootRef.current) {
+        ctx.strokeStyle = fg;
+        ctx.lineWidth = 2 / k;
+        ctx.beginPath();
+        ctx.arc(n.x!, n.y!, n.r + 3 / k, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
     drawLabels(ctx, { w, h, k, fg, hov, neigh, q });
     ctx.globalAlpha = 1;
@@ -365,7 +404,8 @@ export function GraphView() {
     const order = [...nodesRef.current].sort((a, b) => b.degree - a.degree);
     for (const n of order) {
       const match = q ? n.label.toLowerCase().includes(q) : false;
-      const forced = (hov && (n.id === hov.id || neigh.has(n.id))) || match;
+      const forced =
+        (hov && (n.id === hov.id || neigh.has(n.id))) || match || n.id === rootRef.current;
       // An isolated node names itself only when the view is close enough to read it.
       if (!forced && n.degree === 0 && k < 1.2) continue;
       // Far out the dots are a few pixels wide: naming them all buries the shape of
@@ -572,11 +612,41 @@ export function GraphView() {
   return (
     <div className="flex h-full flex-col">
       <ViewHeader
-        title={t.views.graph}
+        title={focusDoc ? t.local_graph_title(focusDoc.label) : t.views.graph}
         icon={<Waypoints />}
         className="h-auto min-h-12 flex-wrap gap-y-1.5 py-1.5"
         tutorials={{ kind: "graph" }}
       >
+        {focus && (
+          <>
+            <ToggleGroup
+              type="single"
+              value={String(depth)}
+              onValueChange={(v) => v && setDepth(Number(v) as Depth)}
+              variant="outline"
+              size="sm"
+              spacing={1}
+              aria-label={t.local_graph_depth}
+              className="ml-1"
+            >
+              <ToggleGroupItem value="1" data-testid="graph-depth-1" className="h-auto min-h-7 text-xs">
+                {t.local_graph_depth_n(1)}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="2" data-testid="graph-depth-2" className="h-auto min-h-7 text-xs">
+                {t.local_graph_depth_n(2)}
+              </ToggleGroupItem>
+            </ToggleGroup>
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-1 h-auto min-h-7 text-xs"
+              data-testid="graph-whole"
+              onClick={() => s.navigate({ kind: "graph" })}
+            >
+              {t.local_graph_whole}
+            </Button>
+          </>
+        )}
         <div className="relative ml-1">
           <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -587,7 +657,12 @@ export function GraphView() {
             onChange={(e) => setQuery(e.target.value)}
           />
         </div>
-        <Select value={level} onValueChange={(v) => setLevel(v as GraphLevel)}>
+        <Select
+          value={level}
+          // A Scripture page's local graph is drawn at its own level.
+          disabled={level !== chosenLevel}
+          onValueChange={(v) => setLevel(v as GraphLevel)}
+        >
           <SelectTrigger
             size="sm"
             className="h-7 text-xs"
@@ -643,8 +718,14 @@ export function GraphView() {
           {visible?.nodes.length ?? 0} · {visible?.edges.length ?? 0}
         </Badge>
       </ViewHeader>
+      {focus && graph && !root && (
+        <p data-testid="graph-local-missing" className="px-4 py-3 text-sm text-muted-foreground">
+          {t.local_graph_missing}
+        </p>
+      )}
       <canvas
         data-testid="graph-canvas"
+        data-focus={root ?? undefined}
         ref={canvas}
         className="min-h-0 flex-1"
         style={{

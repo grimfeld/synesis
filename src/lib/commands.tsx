@@ -216,6 +216,19 @@ export function useCommands(): Command[] {
           s.openDoc(notes[Math.floor(Math.random() * notes.length)].id);
       },
     });
+    // The local graph of the document being read (PLAN §10): any document,
+    // Writing or Hub.
+    if (s.view.kind === "doc") {
+      const id = s.view.id;
+      list.push({
+        id: "doc.local_graph",
+        title: t.local_graph,
+        group: "navigate",
+        icon: Waypoints,
+        keywords: "graph local neighbours links connections network",
+        run: () => s.navigate({ kind: "graph", focus: id }),
+      });
+    }
     // The Board of the Composition being read. Named "Board" per the glossary,
     // with "mind map" in the keywords so the palette finds it either way.
     if (s.view.kind === "doc") {
@@ -382,6 +395,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "skins.gallery",
     "map.fill_kinds",
     "doc.board",
+    "doc.local_graph",
     "board.export",
     "doc.duplicate",
     "doc.capture",

@@ -14,3 +14,4 @@ The Graph draws your whole Vault at once: every document is a dot, coloured by i
 - A Tag is a Mention too, so a tagged document is joined to the document the Tag names.
 - A dot with a ring is a Chapter or Verse that has no page of its own yet; clicking it opens that page anyway.
 - The Scripture level is remembered; search and the type buttons start afresh each time you open the Graph.
+- [Open local graph](command:doc.local_graph) on any document shows just that document, circled, and what it links to or is linked from. **Two steps** reaches their neighbours too; **Whole graph** goes back to everything. The same button sits in the document's header.

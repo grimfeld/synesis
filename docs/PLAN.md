@@ -100,6 +100,7 @@ Bible text, Notes copied into Compositions, resurfacing / spaced review, browser
 - Place coordinates: lookup from the OpenBible.info dataset with manual override.
 - Inline Topical Mentions use `[[...]]` syntax; nothing but Scripture is auto-detected.
 - Graph: nodes coloured by type, filterable by type, plus a local graph per document.
+  **Built (2026-10-13): the local graph.** `{ kind: "graph", focus }` is the Graph view cut to one document and its neighbours, either direction, at depth 1 or 2 (`src/lib/graph.ts`), from the same whole-graph query, so there is one notion of an edge. Reached by the "Open local graph" Command and a header button on Writing and Hub pages (the Command only, on a phone's Hub). A Scripture page is drawn at its own level, where it has a node, without changing the remembered level; the document is circled and never filtered away by the type buttons.
 - Search: SQLite full-text over titles and bodies, filterable by type.
   **Built (2026-10-13):** `Query::Search` takes `types`; the palette narrows by a `type:` token (`type:composition endurance`, also in the app language's names) or by the chips under the box, which only edit that token, so the query text stays the whole state as `>` already is (§12.4). Scripture is one chip for Book, Chapter and Verse pages; a chip with no words lists that kind, newest first. Logic in `src/lib/paletteQuery.ts`.
 - Mobile uses the same responsive UI, not a separate app.

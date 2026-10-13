@@ -50,7 +50,8 @@ export interface Delivery {
 export type View =
   | { kind: "home" }
   | { kind: "doc"; id: string }
-  | { kind: "graph" }
+  /** `focus`: the local graph of that document (PLAN §10). */
+  | { kind: "graph"; focus?: string }
   | { kind: "library" }
   | { kind: "clippings" }
   | { kind: "map" }

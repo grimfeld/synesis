@@ -348,6 +348,12 @@ export const fr: Dict = {
   lon: "Longitude",
   graph_level: "Niveau des Écritures",
   graph_filter: "Afficher",
+  local_graph: "Ouvrir le graphe local",
+  local_graph_title: (label: string) => `Graphe local : ${label}`,
+  local_graph_depth: "Jusqu'où",
+  local_graph_depth_n: (n: number) => (n === 1 ? "Voisins" : "Deux pas"),
+  local_graph_whole: "Graphe entier",
+  local_graph_missing: "Cette page n'apparaît pas encore dans le graphe à ce niveau.",
   coverage_title: "Couverture",
   coverage_hint:
     "Chapitres colorés selon le nombre de documents qui les mentionnent. Cliquez un chapitre pour ouvrir sa page.",

@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Trash2,
   X,
+  Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
 import {
@@ -276,6 +277,16 @@ export function HubView({ id }: { id: string }) {
           )}
         </span>
         <TutorialButton place={{ kind: "hub", type }} />
+        {/* Not on a phone, where a Source's header is full already: the
+            "Open local graph" Command reaches it there. */}
+        <IconButton
+          label={t.local_graph}
+          data-testid="open-local-graph"
+          className="hidden md:inline-flex"
+          onClick={() => s.navigate({ kind: "graph", focus: sum.id })}
+        >
+          <Waypoints />
+        </IconButton>
         {type === "source" && url && (
           <IconButton
             label={t.open_url}

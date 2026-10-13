@@ -350,6 +350,12 @@ export const en = {
   lon: "Longitude",
   graph_level: "Scripture level",
   graph_filter: "Show",
+  local_graph: "Open local graph",
+  local_graph_title: (label: string) => `Local graph: ${label}`,
+  local_graph_depth: "How far out",
+  local_graph_depth_n: (n: number): string => (n === 1 ? "Neighbours" : "Two steps"),
+  local_graph_whole: "Whole graph",
+  local_graph_missing: "This page is not on the graph at this level yet.",
   coverage_title: "Coverage",
   coverage_hint:
     "Chapters shaded by how many documents mention them. Click a chapter to open its page.",
