@@ -415,10 +415,28 @@ jobs:
           APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
         run: |
+          # The key id is 10 letters and digits; a stray space or newline in
+          # the secret would break the file name Xcode looks for.
+          ID="$APPLE_API_KEY"
+          if ! printf "%s" "$ID" | grep -Eq "^[A-Z0-9]{10}$"; then
+            echo "::error::APPLE_API_KEY must be the 10-character Key ID from App Store Connect → Users and Access → Integrations."
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/private_keys"
-          KEY="$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
-          echo "$APPLE_API_KEY_P8" | base64 -d > "$KEY"
+          KEY="$RUNNER_TEMP/private_keys/AuthKey_${ID}.p8"
+          # Accept the .p8 file as pasted (PEM) or base64-encoded. macOS
+          # base64 -d does not reject PEM text, it writes garbage, so tell the
+          # two apart before decoding.
+          if printf "%s" "$APPLE_API_KEY_P8" | grep -q "BEGIN PRIVATE KEY"; then
+            printf "%s\n" "$APPLE_API_KEY_P8" | tr -d "\r" > "$KEY"
+          else
+            printf "%s" "$APPLE_API_KEY_P8" | tr -d "[:space:]" | base64 -d | tr -d "\r" > "$KEY"
+          fi
           chmod 600 "$KEY"
+          if ! openssl pkey -in "$KEY" -noout 2>/dev/null; then
+            echo "::error::APPLE_API_KEY_P8 is not a readable .p8 key. Set it to the AuthKey_<id>.p8 file, as is or base64-encoded: gh secret set APPLE_API_KEY_P8 < AuthKey_<id>.p8"
+            exit 1
+          fi
           echo "APPLE_API_KEY_PATH=$KEY" >> "$GITHUB_ENV"
 
       - name: Generate the iOS project
