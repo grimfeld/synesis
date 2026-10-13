@@ -136,6 +136,7 @@ export const FEATURE_TUTORIALS = [
   "mentions",
   "linkables",
   "properties",
+  "pictures",
   "source-mode",
   "reading",
   "library",

@@ -827,7 +827,8 @@ it explains.
     (Settings) followed with §26. Talk and Board side by side (Composition
     editor, Board), Reading mode (editor) and the Delivery view (Composition
     editor, Board) followed with §22 and §23, on 2026-10-13: Reading mode after
-    Source mode, Split after Boards, the Delivery view after Versions.
+    Source mode, Split after Boards, the Delivery view after Versions. Pictures
+    (editor, Hub) followed with ADR 0019, after Properties & Dates.
 11. **Progress**: per Device, keyed by Tutorial id (not language): the step
     reached and whether it was finished. Kept in the webview's local storage,
     like Source mode, not in the engine's settings: it is a convenience of the
