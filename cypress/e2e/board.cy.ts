@@ -1,7 +1,16 @@
 // The Board of a Composition: a JSON Canvas laid out by hand (ADR 0009).
 // The demo vault's "Talk on endurance" ships a Board with every node type.
 describe("Board", () => {
-  beforeEach(() => cy.openApp());
+  // Every test starts from the demo Board as shipped: several of them add,
+  // move or recolour nodes, and the ones that aim at a spot on the canvas
+  // (the marquee, a handle, a card) miss once an earlier test's card sits there.
+  beforeEach(() => {
+    cy.readFile("examples/demo-vault/Compositions/talk on endurance.canvas").then((raw) => {
+      const board = typeof raw === "string" ? JSON.parse(raw) : raw;
+      cy.docByTitle("Talk on endurance").then((d) => cy.bridge("save_board", { id: d.id, board }));
+    });
+    cy.openApp();
+  });
 
   /**
    * Open a Composition's Board with the sidebar out of the way. Cypress runs
