@@ -611,6 +611,8 @@ export const en = {
     // The folder route tells the sync tool where to look, rather than hunting
     // for wherever it happens to keep its folder (PLAN §21.6).
     point_tool_here: (p: string) => `Add ${p} as a folder in your sync app, on this device and on the others.`,
+    icloud_here: "Synesis keeps this vault in iCloud Drive › Synesis, where your Mac and your other Apple devices find it.",
+    icloud_unavailable: "iCloud is not available to Synesis on this device, so this vault will stay on this device only. To sync it, sign in to iCloud, turn on iCloud Drive, and allow Synesis under Settings › [your name] › iCloud, then come back here.",
     done_title: "You're set.",
     done_body: "Three things to try once the vault opens.",
     try_capture: "Quick capture",

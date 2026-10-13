@@ -48,6 +48,16 @@ impl Watcher {
                         Ok(r) => r.to_string_lossy().replace('\\', "/"),
                         Err(_) => continue,
                     };
+                    // iCloud evicted something, or is bringing it back: ask
+                    // for it. The real file's own event follows on arrival.
+                    if engine::cloud::is_placeholder(&p) {
+                        if p.is_file() {
+                            if let Some(orig) = engine::cloud::original_of(&p) {
+                                crate::icloud::download(&[orig]);
+                            }
+                        }
+                        continue;
+                    }
                     if rel.starts_with(&format!("{HIDDEN_DIR}/sync/")) {
                         sync_touched = true;
                         continue;
@@ -65,8 +75,9 @@ impl Watcher {
                         if let Ok(Some(d)) = vault.index_file(&rel) {
                             changed.push(d);
                         }
-                    } else {
-                        let _ = vault.forget(&rel);
+                    } else if vault.vanished(&rel).unwrap_or(false) {
+                        // Only a file that is really gone; an evicted one
+                        // stays listed (engine::cloud).
                         removed.push(rel);
                     }
                 }

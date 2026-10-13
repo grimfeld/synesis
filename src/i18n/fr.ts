@@ -605,6 +605,8 @@ export const fr: Dict = {
     grant_hint: "Synesis demande l'accès aux fichiers pour que votre coffre soit un dossier qui vous appartient, et non un contenu enfermé dans l'app.",
     create_vault: "Créer le coffre",
     point_tool_here: (p: string) => `Ajoutez ${p} comme dossier dans votre app de synchro, sur cet appareil et sur les autres.`,
+    icloud_here: "Synesis range ce coffre dans iCloud Drive › Synesis, où votre Mac et vos autres appareils Apple le trouvent.",
+    icloud_unavailable: "iCloud n'est pas disponible pour Synesis sur cet appareil : ce coffre restera sur cet appareil uniquement. Pour le synchroniser, connectez-vous à iCloud, activez iCloud Drive et autorisez Synesis dans Réglages › [votre nom] › iCloud, puis revenez ici.",
     done_title: "Tout est prêt.",
     done_body: "Trois choses à essayer une fois le coffre ouvert.",
     try_capture: "Capture rapide",

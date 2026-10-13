@@ -23,6 +23,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 #[cfg(debug_assertions)]
 mod devbridge;
+mod icloud;
 mod pairing;
 mod storage;
 mod watch;
@@ -224,6 +225,8 @@ pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<Strin
     let root = PathBuf::from(&path);
     // Stop watching the previous vault before touching files.
     *state.watcher.lock().map_err(err)? = None;
+    // A Vault in iCloud may have been evicted, its identity file included.
+    icloud::prepare(&root);
     api::prepare_vault_folder(&root).map_err(err)?;
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let vault = Vault::open(&root, &data_dir, lang).map_err(err)?;
@@ -282,6 +285,10 @@ pub struct SyncLocation {
     pub exists: bool,
     /// Where the wizard proposes to create the vault.
     pub suggested: String,
+    /// Vaults sit directly in `root`, each named after itself, rather than in
+    /// a `Synesis` folder of their own: true of Synesis's iCloud container,
+    /// which iCloud Drive already shows as "Synesis".
+    pub holds_vaults: bool,
 }
 
 #[derive(Serialize)]
@@ -303,6 +310,11 @@ pub struct SyncLocations {
     pub found: Vec<engine::sync::FoundVault>,
 }
 
+/// An empty path is "nowhere", not the current directory.
+fn is_folder(p: &Path) -> bool {
+    !p.as_os_str().is_empty() && p.is_dir()
+}
+
 /// Where the free sync tools keep their folders on this Device, and any vault already in them.
 #[tauri::command]
 fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocations> {
@@ -315,50 +327,67 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
     // is not a place the app can look.
     let home = if mobile { vaults_home.clone() } else { app.path().home_dir().map_err(err)? };
     let env_dir = |k: &str| std::env::var(k).ok().map(PathBuf::from);
-    let mut candidates: Vec<(&str, PathBuf)> = Vec::new();
+    // (method, folder, whether Vaults sit directly in it)
+    let mut candidates: Vec<(&str, PathBuf, bool)> = Vec::new();
+    // Synesis's own iCloud container comes first wherever it can exist: it is
+    // the one folder an iPhone shares with a Mac (PLAN §14, amended).
+    let container = icloud::container(&home);
     match platform.as_str() {
         "windows" => {
-            candidates.push(("icloud", home.join("iCloudDrive")));
-            candidates.push(("onedrive", env_dir("OneDrive").unwrap_or_else(|| home.join("OneDrive"))));
-            candidates.push(("gdrive", home.join("My Drive")));
-            candidates.push(("gdrive", PathBuf::from("G:\\My Drive")));
-            candidates.push(("dropbox", home.join("Dropbox")));
-            candidates.push(("syncthing", home.join("Sync")));
+            if let Some(c) = container {
+                candidates.push(("icloud", c, true));
+            }
+            candidates.push(("icloud", home.join("iCloudDrive"), false));
+            candidates.push(("onedrive", env_dir("OneDrive").unwrap_or_else(|| home.join("OneDrive")), false));
+            candidates.push(("gdrive", home.join("My Drive"), false));
+            candidates.push(("gdrive", PathBuf::from("G:\\My Drive"), false));
+            candidates.push(("dropbox", home.join("Dropbox"), false));
+            candidates.push(("syncthing", home.join("Sync"), false));
         }
         "macos" => {
-            candidates.push(("icloud", home.join("Library/Mobile Documents/com~apple~CloudDocs")));
+            if let Some(c) = container {
+                candidates.push(("icloud", c, true));
+            }
+            candidates.push(("icloud", home.join("Library/Mobile Documents/com~apple~CloudDocs"), false));
             let cloud = home.join("Library/CloudStorage");
             if let Ok(entries) = std::fs::read_dir(&cloud) {
                 for e in entries.flatten() {
                     let n = e.file_name().to_string_lossy().to_string();
                     let m = if n.starts_with("OneDrive") { "onedrive" } else if n.starts_with("GoogleDrive") { "gdrive" } else if n.starts_with("Dropbox") { "dropbox" } else { continue };
-                    candidates.push((m, e.path()));
+                    candidates.push((m, e.path(), false));
                 }
             }
-            candidates.push(("dropbox", home.join("Dropbox")));
-            candidates.push(("syncthing", home.join("Sync")));
+            candidates.push(("dropbox", home.join("Dropbox"), false));
+            candidates.push(("syncthing", home.join("Sync"), false));
         }
         "android" => {
-            candidates.push(("syncthing", PathBuf::from("/storage/emulated/0/Sync")));
+            candidates.push(("syncthing", PathBuf::from("/storage/emulated/0/Sync"), false));
         }
         "ios" => {
-            if let Ok(d) = app.path().document_dir() {
-                candidates.push(("icloud", d));
-            }
+            // The ubiquity container, or an empty path that does not exist
+            // when iCloud is unavailable: the wizard says so and the Vault
+            // stays on this iPhone.
+            candidates.push(("icloud", container.unwrap_or_default(), true));
         }
         _ => {
-            candidates.push(("syncthing", home.join("Sync")));
-            candidates.push(("dropbox", home.join("Dropbox")));
-            candidates.push(("onedrive", home.join("OneDrive")));
-            candidates.push(("gdrive", home.join("GoogleDrive")));
+            candidates.push(("syncthing", home.join("Sync"), false));
+            candidates.push(("dropbox", home.join("Dropbox"), false));
+            candidates.push(("onedrive", home.join("OneDrive"), false));
+            candidates.push(("gdrive", home.join("GoogleDrive"), false));
         }
     }
     let self_id = state.with_vault(|v| Ok(v.device_id().map(str::to_string))).ok().flatten();
-    let roots: Vec<PathBuf> = candidates.iter().filter(|(_, p)| p.is_dir()).map(|(_, p)| p.clone()).collect();
+    let roots: Vec<PathBuf> = candidates.iter().filter(|(_, p, _)| is_folder(p)).map(|(_, p, _)| p.clone()).collect();
     let found = engine::sync::find_vaults(&roots, self_id.as_deref());
     let locations = candidates
         .into_iter()
-        .map(|(method, root)| SyncLocation { method: method.into(), exists: root.is_dir(), suggested: root.join("Synesis").to_string_lossy().to_string(), root: root.to_string_lossy().to_string() })
+        .map(|(method, root, holds_vaults)| SyncLocation {
+            method: method.into(),
+            exists: is_folder(&root),
+            suggested: root.join("Synesis").to_string_lossy().to_string(),
+            root: root.to_string_lossy().to_string(),
+            holds_vaults,
+        })
         .collect();
     let storage = storage::access(&app);
     Ok(SyncLocations {
@@ -515,7 +544,16 @@ fn rename_vault(state: State<AppState>, name: String) -> CmdResult<VaultInfo> {
 /// folder for every Vault (ADR 0014), and what the whole mobile wizard uses
 /// now that the app chooses the folder rather than asking (ADR 0015).
 #[tauri::command]
-fn suggest_vault_path(app: AppHandle, name: String) -> CmdResult<String> {
+fn suggest_vault_path(app: AppHandle, name: String, method: Option<String>) -> CmdResult<String> {
+    // On iOS a Vault meant for iCloud goes in Synesis's container, which
+    // iCloud Drive shows as "Synesis"; the Vault is a folder named after
+    // itself there. Without iCloud it falls back to this iPhone's Documents.
+    if method.as_deref() == Some("icloud") && storage::app_decides_path() {
+        let home = app.path().home_dir().unwrap_or_default();
+        if let Some(parent) = icloud::container(&home) {
+            return Ok(engine::meta::free_path(&parent, &name).display().to_string());
+        }
+    }
     Ok(storage::vault_path(&app, &name)?.display().to_string())
 }
 
@@ -1188,6 +1226,7 @@ pub fn run() {
             #[cfg(desktop)]
             pairing::setup_tray(app.handle())?;
             pairing::autostart(app.handle().clone());
+            icloud::start(app.handle().clone());
             #[cfg(debug_assertions)]
             devbridge::start(app.handle().clone());
             Ok(())
