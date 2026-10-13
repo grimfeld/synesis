@@ -278,7 +278,9 @@ describe("Locale layout", () => {
       it("keeps every Tutorial Settings lists inside the bottom sheet", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=nav-settings]").click();
-        cy.get("[data-testid=settings-sync]").should("be.visible");
+        // Below the fold on a phone (Appearance comes first): scrolled to,
+        // since a card clipped by the page's scroll box is not "visible".
+        cy.get("[data-testid=settings-sync]").scrollIntoView().should("be.visible");
         cy.get("[data-testid=tutorial-button]").click();
         cy.get("[data-testid=tutorial-list-item]").its("length").should("be.gte", 2);
         cy.get("[data-testid=tutorial-list-item]").then((items) => {
