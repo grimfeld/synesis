@@ -142,7 +142,7 @@ function bundledFor(id: string, lang: string): string {
 
 describe("tutorialsFor", () => {
   const places: TutorialPlace[] = [
-    ...(["home", "library", "clippings", "timeline", "map", "graph", "coverage", "settings", "board"] as const).map((kind) => ({ kind })),
+    ...(["home", "library", "clippings", "timeline", "map", "graph", "coverage", "settings", "board", "welcome"] as const).map((kind) => ({ kind })),
     ...(["note", "clipping", "composition"] as DocType[]).map((type) => ({ kind: "editor" as const, type })),
     ...(["source", "book", "chapter", "verse", "place", "character", "concept", "event", "journey"] as DocType[]).map((type) => ({ kind: "hub" as const, type })),
   ];
@@ -161,6 +161,12 @@ describe("tutorialsFor", () => {
   it("offers this Device's folder-sync Tutorials in Settings", () => {
     expect(tutorialsFor({ kind: "settings" }, "android")).toEqual(["skins", "pairing", "sync-syncthing.android", "palette"]);
     expect(tutorialsFor({ kind: "settings" }, "mac")).toEqual(["skins", "pairing", "sync-icloud.mac", "sync-syncthing.mac", "sync-provider.mac", "palette"]);
+  });
+
+  it("offers Pairing and this Device's folder-sync Tutorials on Welcome, without the palette", () => {
+    expect(tutorialsFor({ kind: "welcome" }, "android")).toEqual(["pairing", "sync-syncthing.android"]);
+    expect(tutorialsFor({ kind: "welcome" }, "windows")).toEqual(["pairing", "sync-syncthing.windows", "sync-provider.windows"]);
+    expect(tutorialsFor({ kind: "welcome" })).toEqual(["pairing"]);
   });
 
   it("lists nothing twice", () => {

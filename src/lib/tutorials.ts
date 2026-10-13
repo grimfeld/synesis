@@ -164,16 +164,22 @@ export function syncTutorialId(method: Method, kind: DeviceKind): string {
 
 /** Where a "?" can stand. The editor and a Hub depend on the page's type. */
 export type TutorialPlace =
-  | { kind: "home" | "library" | "clippings" | "timeline" | "map" | "graph" | "coverage" | "settings" | "board" }
+  | { kind: "home" | "library" | "clippings" | "timeline" | "map" | "graph" | "coverage" | "settings" | "board" | "welcome" }
   | { kind: "editor"; type: DocType }
   | { kind: "hub"; type: DocType };
 
 const SCRIPTURE: DocType[] = ["book", "chapter", "verse"];
 
+/** This Device's folder-sync Tutorials, one per method that has a variant for it. */
+function syncFor(deviceKind?: DeviceKind): string[] {
+  return deviceKind ? (["icloud", "syncthing", "provider"] as Method[]).map((m) => syncTutorialId(m, deviceKind)) : [];
+}
+
 /**
  * Which Tutorials a view lists (PLAN §25.1, §25.10). The table lives here, not
  * in the markdown, so one Tutorial can stand on several views. The Command
- * Palette's Tutorial is everywhere, so it is last on every list.
+ * Palette's Tutorial is everywhere a Vault is open, so it is last on every
+ * list but Welcome's, which is shown before there is a Vault to search.
  */
 export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): string[] {
   const list = ((): string[] => {
@@ -194,10 +200,11 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["coverage", "passages"];
       case "board":
         return ["boards", "split", "delivery"];
-      case "settings": {
-        const sync = deviceKind ? (["icloud", "syncthing", "provider"] as Method[]).map((m) => syncTutorialId(m, deviceKind)) : [];
-        return ["skins", "pairing", ...sync];
-      }
+      case "settings":
+        return ["skins", "pairing", ...syncFor(deviceKind)];
+      // The wizard: getting the Vault onto this Device (PLAN §25.10).
+      case "welcome":
+        return ["pairing", ...syncFor(deviceKind)];
       case "editor": {
         const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode", "reading"];
         if (place.type === "composition") return ["compositions", "candidates", "boards", "split", "versions", "delivery", ...writing];
@@ -213,7 +220,7 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
       }
     }
   })();
-  const out = [...list, "palette"];
+  const out = place.kind === "welcome" ? list : [...list, "palette"];
   // A view only lists what exists in some language; the tests make that every language.
   const ids = new Set([...all.values()].map((t) => t.id));
   return out.filter((id, i) => out.indexOf(id) === i && ids.has(id));

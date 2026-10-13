@@ -835,6 +835,12 @@ it explains.
     Tutorials carry a check in the "?" list. Nothing ever prompts: no dots, no
     badges. The Welcome wizard's Done step links three Tutorials: Quick
     capture & Notes, Passages, Command Palette.
+    **Amended 2026-10-13:** Welcome is a place in `tutorialsFor` too, listing
+    Pairing and this Device's folder-sync Tutorials (never the palette's: no
+    Vault is open). The pairing screen shows the Pairing Tutorial in place,
+    folded, as the folder screen already shows the chosen method's sync
+    Tutorial; when the Done step follows the folder route, it adds a fourth
+    link, that method's Tutorial, to check sync once the Vault opens.
 12. **Pictures, on trial**: a card in Settings, below Appearance (local
     storage, as 11), chooses *none*,
     *diagrams* (language-neutral images, no text, one file for both languages)
