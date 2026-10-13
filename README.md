@@ -33,7 +33,7 @@ Pair devices with a QR code / pairing code (Settings → Sync): paired devices s
 
 ## Releasing
 
-[.github/workflows/release.yml](.github/workflows/release.yml) is started by hand on `main` (`gh workflow run` or the Actions tab) with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. The iOS job runs only when the `APPLE_*` signing secrets are set (an unsigned device build is not possible). Android is unsigned unless `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD` are set.
+[.github/workflows/release.yml](.github/workflows/release.yml) is started by `npm run release` (or the Actions tab) on the branch you are on, normally `main`, with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. No platform ships unsigned: the Windows installers are signed through SignPath ([docs/release/signpath.md](docs/release/signpath.md)), and the Windows and Android jobs fail rather than publish an unsigned file. The iOS job runs only when the App Store Connect key is set.
 
 ```sh
 npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; pushes; starts the workflow
@@ -43,19 +43,21 @@ npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, 
 
 The desktop apps update themselves with [tauri-plugin-updater](https://v2.tauri.app/plugin/updater/): at start-up (unless Settings → Updates says otherwise) they read `https://github.com/grimfeld/synesis/releases/latest/download/latest.json`, and offer **Install & restart** when it names a newer version. GitHub serves `releases/latest` from the newest release that is neither a draft nor a prerelease, so a `X.Y.Z-pre` version never reaches installed apps. Phones update through their stores; the web build has no updater.
 
-Each desktop job signs its updater bundle with the updater key, and tauri-action merges its platform into the release's `latest.json`. The installed apps accept only bundles signed by the key whose public half is `plugins.updater.pubkey` in [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json). Release secrets:
+Each desktop job signs its updater bundle with the updater key, and tauri-action merges its platform into the release's `latest.json`; Windows, signed outside tauri-action, is added by the `updater-windows` job. The installed apps accept only bundles signed by the key whose public half is `plugins.updater.pubkey` in [src-tauri/tauri.conf.json](src-tauri/tauri.conf.json). Release secrets:
 
 | Secret | Needed for |
 | --- | --- |
 | `TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | **Required.** Signs the updater bundles; without the key the run stops before tagging. Made with `npm run tauri signer generate`; the public key goes in `tauri.conf.json`. Losing the private key means installed apps can never be updated again, so keep a copy offline. |
 | `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID` | Signing and notarising the macOS builds (optional). |
 | `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` (+ `APPLE_TEAM_ID`) | The iOS job; skipped without them. |
+| `SIGNPATH_API_TOKEN` (secret), `SIGNPATH_ORGANIZATION_ID` (variable) | Signing the Windows installers; the Windows job fails without them ([docs/release/signpath.md](docs/release/signpath.md)). |
+| `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD`, `IOS_MOBILE_PROVISION` | Signing iOS with your own Apple Distribution certificate instead of Xcode cloud signing (optional). |
 | `ANDROID_KEYSTORE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` | Signing the APK; the job fails without them. |
 | `VERCEL_SITE_DEPLOY_HOOK` | Rebuilding the landing page after a release (optional). |
 
 A local `npm run tauri build` needs `TAURI_SIGNING_PRIVATE_KEY` set too, since `bundle.createUpdaterArtifacts` is on.
 
-The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run check` (typecheck + `cargo check --workspace`) so a commit that does not compile is refused.
+The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
 
 ## Licence
 
