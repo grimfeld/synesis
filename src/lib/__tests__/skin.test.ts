@@ -1,11 +1,15 @@
 // Skins (PLAN §24): colour math and how a Skin side becomes CSS variables.
 // The base palette is passed in, so these run without a browser.
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { contrast, ensureContrast, parseColor, toHex } from "../color";
 import {
   BUILTIN_SKINS,
   emptySide,
+  FONTS,
   fontStack,
+  fontsFor,
   freeName,
   keyContrasts,
   pickSkin,
@@ -168,6 +172,31 @@ describe("typography and naming", () => {
     expect(fontStack("literata", "source-serif")).toContain("Literata Variable");
     expect(fontStack(undefined, "source-serif")).toContain("Source Serif 4 Variable");
     expect(fontStack('Bad"; }', "geist")).toBe('"Bad ", ' + fontStack("geist", "geist"));
+  });
+
+  it("offers serif, sans and mono for prose, and no serif for the interface", () => {
+    expect(fontsFor("prose").map((g) => g.kind)).toEqual(["serif", "sans", "mono"]);
+    expect(fontsFor("ui").map((g) => g.kind)).toEqual(["sans", "mono"]);
+    const ids = (role: "prose" | "ui") => fontsFor(role).flatMap((g) => g.fonts.map((f) => f.id));
+    expect(ids("prose")).toEqual(expect.arrayContaining(["ia-writer-quattro", "system-mono"]));
+    expect(ids("ui")).toContain("ia-writer-quattro");
+    expect(ids("ui")).not.toContain("source-serif");
+    expect(new Set(FONTS.map((f) => f.id)).size).toBe(FONTS.length);
+  });
+
+  it("bundles iA Writer Quattro with its licence, in the four faces prose uses", () => {
+    expect(fontStack("ia-writer-quattro", "source-serif")).toMatch(/^"iA Writer Quattro", .*monospace$/);
+    const root = resolve(__dirname, "../../..");
+    const index = readFileSync(resolve(root, "src/index.css"), "utf8");
+    const imported = index.match(/@import "\.\/(assets\/fonts\/ia-writer-quattro\/[^"]+\.css)"/);
+    expect(imported).not.toBeNull();
+    const cssPath = resolve(root, "src", imported![1]);
+    const css = readFileSync(cssPath, "utf8");
+    const faces = [...css.matchAll(/url\("\.\/([^"]+\.woff2)"\)/g)].map((m) => m[1]);
+    expect(faces).toHaveLength(4);
+    for (const f of faces) expect(existsSync(resolve(dirname(cssPath), f))).toBe(true);
+    expect(css.match(/font-family: "iA Writer Quattro"/g)).toHaveLength(4);
+    expect(readFileSync(resolve(dirname(cssPath), "LICENSE.md"), "utf8")).toContain("SIL Open Font License, Version 1.1");
   });
 
   it("clamps sizes to something readable", () => {

@@ -5,6 +5,7 @@
 @import "@fontsource-variable/source-serif-4";
 @import "@fontsource-variable/literata";
 @import "@fontsource-variable/inter";
+@import "./assets/fonts/ia-writer-quattro/ia-writer-quattro.css";
 
 @custom-variant dark (&:is(.dark *));
 
