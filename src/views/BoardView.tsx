@@ -57,6 +57,7 @@ import { useT } from "@/i18n";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { IconButton } from "@/components/IconButton";
 import { boardToSvg, svgToPng } from "@/lib/boardExport";
+import { registerFlush } from "@/lib/pending";
 import { BoardDrawer } from "@/components/BoardDrawer";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -296,6 +297,8 @@ export function BoardView({
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
   useEffect(() => flush, [flush, id]);
+  // And a Command that copies the Board from disk lands it first.
+  useEffect(() => registerFlush(`board:${id}`, flush), [flush, id]);
 
   const pointerBoard = useCallback(
     (e: { clientX: number; clientY: number }): [number, number] => {

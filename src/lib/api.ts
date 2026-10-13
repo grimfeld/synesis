@@ -802,6 +802,9 @@ export const api = {
   renameDocument: (id: string, title: string) =>
     invoke<DocumentPayload>("rename_document", { id, title }),
   deleteDocument: (id: string) => invoke<void>("delete_document", { id }),
+  /** A copy of a Composition and its Board under a new id (PLAN §14.8). */
+  duplicateComposition: (id: string, title: string) =>
+    invoke<DocumentPayload>("duplicate_composition", { id, title }),
   resolveLink: (target: string) =>
     invoke<DocSummary | null>("resolve_link", { target }),
   resolveMany: (targets: string[]) =>

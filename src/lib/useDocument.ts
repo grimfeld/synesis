@@ -5,6 +5,7 @@ import { api, namesApi, type DocumentPayload } from "@/lib/api";
 import { joinFrontmatter, splitFrontmatter } from "@/lib/frontmatter";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
+import { registerFlush } from "@/lib/pending";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -163,6 +164,10 @@ export function useDocument(id: string) {
     window.clearTimeout(saveTimer.current);
     await save();
   }, [save]);
+
+  // A Command that reads this file from disk (Duplicate as new Composition)
+  // flushes it first, so it never copies the text minus the last few words.
+  useEffect(() => registerFlush(`doc:${id}`, flush), [id, flush]);
 
   const rename = useCallback(
     async (title: string) => {

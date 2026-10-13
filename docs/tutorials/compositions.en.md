@@ -12,3 +12,4 @@ A Composition is a talk or a piece you write for others, by hand and from scratc
 
 - An Embed is written `![[…]]` in the file, the way Obsidian writes one, so the vault stays readable there.
 - Edit the Clipping and every Composition that embeds it shows the new words.
+- To adapt a talk to a new occasion, open it and run [Duplicate as new Composition](command:doc.duplicate). The copy has the same text, Tags and Board under a new title ending in "(copy)"; its occasion and date start empty, and it has no Versions of its own. The original is untouched.

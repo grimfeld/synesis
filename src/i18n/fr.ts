@@ -222,6 +222,9 @@ export const fr: Dict = {
   reading_locked: "Le mode lecture est activé. Déverrouillez pour modifier.",
   deliver: "Présenter",
   deliver_command: "Présenter cette Composition",
+  duplicate_command: "Dupliquer en nouvelle Composition",
+  /** The title a duplicated Composition starts with; renamed like any other. */
+  copy_title: (title: string) => `${title} (copie)`,
   delivery_exit: "Quitter",
   delivery_face: "Afficher",
   timer_start: "Démarrer",

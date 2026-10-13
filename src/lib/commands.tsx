@@ -12,6 +12,7 @@ import {
   CircleHelp,
   Code,
   Columns2,
+  Copy,
   Lock,
   LockOpen,
   Presentation,
@@ -38,6 +39,7 @@ import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
+import { toast } from "sonner";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
@@ -235,6 +237,20 @@ export function useCommands(): Command[] {
           keywords: "split side by side board talk both columns pane",
           run: () => s.setDocTab(s.docTab === "split" ? "talk" : "split"),
         });
+        // Adapting a talk to a new occasion is a fork, not a Version
+        // (PLAN §14.8, ADR 0007): the copy carries the Board along.
+        list.push({
+          id: "doc.duplicate",
+          title: t.duplicate_command,
+          group: "create",
+          icon: Copy,
+          keywords: "duplicate copy fork clone new occasion adapt talk composition",
+          run: () => {
+            s.duplicateComposition(doc.id, t.copy_title(doc.title)).catch((e) =>
+              toast.error(String(e)),
+            );
+          },
+        });
         // The Delivery view (PLAN §23.12).
         list.push({
           id: "doc.deliver",
@@ -347,6 +363,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "skins.gallery",
     "map.fill_kinds",
     "doc.board",
+    "doc.duplicate",
     "doc.capture",
     "editor.source",
     ...EDITOR_COMMANDS.map((c) => c.id),

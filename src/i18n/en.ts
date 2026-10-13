@@ -227,6 +227,9 @@ export const en = {
   reading_locked: "Reading mode is on. Unlock to edit.",
   deliver: "Deliver",
   deliver_command: "Deliver this Composition",
+  duplicate_command: "Duplicate as new Composition",
+  /** The title a duplicated Composition starts with; renamed like any other. */
+  copy_title: (title: string) => `${title} (copy)`,
   delivery_exit: "Exit",
   delivery_face: "Show",
   timer_start: "Start",
