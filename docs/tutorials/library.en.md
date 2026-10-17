@@ -12,3 +12,5 @@ A Source is someone else's work that you study: a book, a periodical, an article
 
 - A Source whose kind the app does not know, or a chapter whose parent is missing, waits on the **Unshelved** row until you fix its **Kind** or **Part of**.
 - A parent's page gathers everything cited from the Sources inside it.
+- The **Sources** group in the sidebar files them the same way: a folder per Shelf, with each Source's parts folded under it. Opening a Source unfolds the way to it.
+- A Source's **Kind** is one of nine, picked beside its title. Picking **Chapter** or **Issue** for a Source that sits inside nothing asks at once what it is part of. On a part, the path above its title shows where it sits, and the pencil beside it changes **Part of**.

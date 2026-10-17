@@ -13,3 +13,4 @@ Chaque Source et chaque Sujet a sa page : un Livre, un Chapitre ou un Verset, un
 - **Mentions non liées**, à côté des liens entrants, liste les documents qui écrivent le nom de cette page sans la lier.
 - Un Lieu, un Personnage, un Concept, un Événement ou un Voyage peut porter d'autres noms : ajoutez-les sous **Alias** dans son en-tête, comme Saul pour Paul ou Joppé pour Jaffa. Un lien vers un alias ouvre cette page, et un alias écrit sans lien compte comme mention non liée. Le nom moderne d'un Lieu n'est pas un alias.
 - Une page liste aussi ses tableaux : les compositions dont le tableau porte une carte vers elle.
+- L'en-tête ne garde que ce qui dit ce qu'est la page. Ses autres valeurs, comme la latitude d'un Lieu ou l'URL d'une Source, sont sous **Propriétés**, juste au-dessus d'**À propos**.

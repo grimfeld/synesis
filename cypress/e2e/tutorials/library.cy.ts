@@ -26,7 +26,7 @@ describe("Tutorial: Sources & the Library", () => {
       .scrollIntoView()
       .click();
     cy.hubTitle("The Watchtower");
-    cy.get("[data-testid=hub-trail]").should("contain", "Contains");
+    cy.get("[data-testid=hub-contains]").should("contain", "Contains");
     cy.get("[data-testid=shelf-issue]").should("not.exist");
     cy.tutorialNext();
 
@@ -39,7 +39,7 @@ describe("Tutorial: Sources & the Library", () => {
     cy.get("[data-testid=submit-doc]").click();
     cy.hubTitle("A Book I Am Reading");
     cy.get("[data-testid=add-child-input]").type("Its First Chapter{enter}");
-    cy.get("[data-testid=hub-trail]").should("contain", "Its First Chapter");
+    cy.get("[data-testid=hub-contains]").should("contain", "Its First Chapter");
     cy.tutorialCommand("nav.library");
     cy.get("[data-testid=shelf-book]")
       .contains("[data-testid=library-card]", "A Book I Am Reading")

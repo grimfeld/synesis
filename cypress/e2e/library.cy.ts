@@ -58,7 +58,7 @@ describe("Library", () => {
       .click();
     cy.hubTitle("The Watchtower");
     // The Library is an index; what is inside a Source lives on its Hub.
-    cy.get("[data-testid=hub-trail]").should("contain", "Contains");
+    cy.get("[data-testid=hub-contains]").should("contain", "Contains");
   });
 
   it("shelves a Source whose kind the app does not know as Unshelved", () => {
@@ -91,14 +91,14 @@ describe("Library", () => {
   it("adds a part from the parent's own page, one Enter at a time", () => {
     cy.openDoc("Jesus, the Way");
     cy.get("[data-testid=add-child-input]").type("Chapter 2{enter}");
-    cy.get("[data-testid=hub-trail]").should("contain", "Chapter 2");
+    cy.get("[data-testid=hub-contains]").should("contain", "Chapter 2");
     // The field keeps focus, so a dozen chapters is a dozen keystrokes.
     cy.get("[data-testid=add-child-input]")
       .should("not.be.disabled")
       .and("have.value", "");
     cy.focused().should("have.attr", "data-testid", "add-child-input");
     cy.get("[data-testid=add-child-input]").type("Chapter 10{enter}");
-    cy.get("[data-testid=hub-trail]").should("contain", "Chapter 10");
+    cy.get("[data-testid=hub-contains]").should("contain", "Chapter 10");
     // Inherited, not typed: the parent's book makes its parts chapters.
     cy.docByTitle("Chapter 2").its("type").should("equal", "source");
   });
@@ -109,7 +109,7 @@ describe("Library", () => {
     cy.openDoc("Jesus, the Way");
     cy.get("[data-testid=add-child-input]").type("Chapter 2{enter}");
     cy.get("[data-testid=add-child-input]").type("Chapter 10{enter}");
-    cy.get("[data-testid=hub-trail]")
+    cy.get("[data-testid=hub-contains]")
       .invoke("text")
       .should((text: string) => {
         expect(text.indexOf("Chapter 2")).to.be.lessThan(
@@ -134,8 +134,8 @@ describe("Library", () => {
     // Twelve new files is not something to do silently.
     cy.get("[data-testid=add-children-confirm]").should("contain", "3");
     cy.get("[data-testid=add-children-confirm]").contains("button", "Create").click();
-    cy.get("[data-testid=hub-trail]").should("contain", "Part One");
-    cy.get("[data-testid=hub-trail]").should("contain", "Part Three");
+    cy.get("[data-testid=hub-contains]").should("contain", "Part One");
+    cy.get("[data-testid=hub-contains]").should("contain", "Part Three");
   });
 
   it("opens the dialog with the parent settled when added from its page", () => {
