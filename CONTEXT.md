@@ -45,7 +45,7 @@ The view that shows every Clipping as its own text, newest first, narrowed by Ta
 _Avoid_: Quotes, Commonplace, Excerpts
 
 **Shelf**:
-A row of the Library holding every top-level Source of one kind: all the books together, all the videos together. Kinds that only ever sit inside something else, like a chapter or an issue, never get a Shelf. A Source whose kind has no Shelf, or that is missing the parent it needs, waits on the Unshelved row until the user files it.
+A row of the Library holding every top-level Source of one kind: all the books together, all the videos together. Kinds that only ever sit inside something else, like a chapter or an issue, never get a Shelf. A Source whose kind has no Shelf, or that is missing the parent it needs, waits on the Unshelved row until the user files it. The sidebar arranges Sources on the same Shelves, as folders, with each Source's parts nested beneath it, so a Source stands in the same place in both.
 _Avoid_: Category, section, group, collection
 
 **Cover**:
