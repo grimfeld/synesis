@@ -1139,3 +1139,29 @@ from the decisions above:
 
 - Which online layer serves the close-up detail from zoom 8, and on what
   terms: it is still OpenStreetMap's standard tiles, as before this session.
+
+## 28. Sources: a kind picker, Properties out of the header, a Shelved sidebar (grilling session, 2026-10-17)
+
+Four complaints from use: a Source's kind was a plain text field on its Hub; every Hub opened on a grid of Properties, which reads as the page's content and confuses; the sidebar listed Sources flat, ignoring their parents; and on a Source's Hub the capture box, its parts and its Clippings sat below the fold. Vocabulary in [CONTEXT.md](../CONTEXT.md) is unchanged except that a Source's kind is now a closed set of nine and the sidebar arranges Sources on Shelves. This supersedes §13.2(a) on where Properties sit.
+
+### Decided
+
+1. **A Source's kind is a closed picker of nine**: book, chapter, periodical, issue, article, video, talk, podcast, other — the same list the New dialog already offers. Shown as a chip in the Hub header, the way a Place's kind is, and left out of the Properties grid. The user cannot add Source kinds: Shelves are keyed by kind, so a custom one would only ever reach Unshelved, which "other" already covers. A hand-written value the app does not know (`kind: sermon`) is shown as-is with a hint that it is Unshelved; picking a known kind replaces it, and nothing rewrites the file unasked (ADR 0003). `kind` stays `PropertyType::Text` in the engine (§20.3).
+2. **Properties leave every Hub's header.** The header keeps what identifies the page: type, title, Tags, and the values a type edits with a control of its own (a Source's kind and Cover, a Place's kind and mini-map, a Topical Subject's Aliases). The rest of the Properties grid moves to its own **Properties** section near the bottom, open, edited inline as before, after Backlinks and Unlinked mentions and directly above About — the two sections that are the file's own content, together. Writings are unchanged: their Properties stay in the right panel.
+3. **A Source's header**: a breadcrumb of its parents above the title (*Watchtower › June 2024 issue ›*), each step opening its Hub, with an edit button opening the existing "Part of" picker; a muted line under the title built from kind and date ("Book · 2019"); a compact Cover beside the title, about 96px wide rather than 160. A top-level Source has no breadcrumb, and its "Part of" is edited in the Properties section. `date` and `url` move down with the other Properties; Open URL stays in the toolbar; `cover` stays owned by the Cover.
+4. **A Source's Hub, top to bottom**: header; capture box; **Contains** (its parts and the add-a-part row) as a section of its own, shown when the Source has parts or is a container kind (book, periodical, issue); Clippings; reading trail; then Boards, Backlinks, Unlinked mentions, Properties, About. Contains moves out of the end of the reading trail because it is navigation, and capture, Contains and Clippings are what a sitting with a Source is for.
+5. **The sidebar arranges Sources on Shelves.** One folder per Shelf kind, in Shelf order (Books, Periodicals, Videos, Talks, Podcasts, Articles, Other), then Unshelved; empty folders are hidden. Same rule as the Library (`shelve()` in `src/lib/library.ts`), so a Source stands in the same place in both: a chapter is under its book in Books, never in a Chapters folder, and a parentless chapter or an unknown kind sits in Unshelved.
+6. **Inside a folder, Sources nest by parent**, to any depth (periodical › issue › article), sorted naturally. A parent row is a real Source: clicking it opens its Hub, its chevron folds its parts. Folders and parents start collapsed; the folder and parents of the open Source unfold on their own so the active row is always visible. Nothing is inherited from a parent (§20.9); "inheritance" in the request meant nesting.
+7. **Picking chapter or issue on a Source with no parent opens the "Part of" picker** at once, narrowed to the kind that holds it (books for a chapter, periodicals for an issue), with its "Create X" row. Dismissing it keeps the kind and leaves the Source on Unshelved, in the Library and the sidebar alike: fast capture is never blocked (§20.2). The reverse does nothing automatically — a book with chapters changed to a video keeps its chapters.
+
+### Declined
+
+- User-defined Source kinds, as Places have (§27.12): they could only ever be Unshelved.
+- A collapsed Properties disclosure in the header, or a right panel on Hubs: both keep Properties as the first thing the page offers.
+- A sidebar tree by parent alone, without kind folders.
+- Folders for chapters and issues: the junk drawer §20.1 rejected for Shelves.
+
+### Open
+
+- Tutorials to reread and walk: the Source Hub's and the Library's, for the new order, the kind picker and the sidebar folders (PLAN §25).
+- `locales.cy.ts` cases for the breadcrumb and the folder labels in French at phone width.
