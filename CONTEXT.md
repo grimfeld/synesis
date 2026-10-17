@@ -33,7 +33,7 @@ _Avoid_: Revision, snapshot, backup, draft
 ### Things the user collects
 
 **Source**:
-Someone else's work that the user studied, at whatever unit the user cites: a periodical, an issue, an article, a book, a chapter, a video, a talk. Has structured metadata (kind, URL, date, Cover) and is cited by Notes and Clippings. A Source may sit inside a parent Source, so a chapter belongs to its book and an issue to its periodical, and a parent's page gathers everything cited from its descendants. Its page is also where Clippings and Notes citing it are written, so a sitting with one chapter does not mean leaving it.
+Someone else's work that the user studied, at whatever unit the user cites: a periodical, an issue, an article, a book, a chapter, a video, a talk. Has structured metadata (kind, URL, date, Cover) and is cited by Notes and Clippings. A Source may sit inside a parent Source, so a chapter belongs to its book and an issue to its periodical, and a parent's page gathers everything cited from its descendants. Its page is also where Clippings and Notes citing it are written, so a sitting with one chapter does not mean leaving it. Its kind is one of nine: book, chapter, periodical, issue, article, video, talk, podcast, other. The user cannot add kinds; a work that fits none is "other".
 _Avoid_: Reference, resource, material, publication (a periodical is just a Source with children)
 
 **Library**:
