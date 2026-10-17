@@ -1161,7 +1161,9 @@ Four complaints from use: a Source's kind was a plain text field on its Hub; eve
 - A sidebar tree by parent alone, without kind folders.
 - Folders for chapters and issues: the junk drawer §20.1 rejected for Shelves.
 
+8. **A Source's page announces a saved change of its parent or kind** (`announceChanged`). The sidebar, the Library and the breadcrumb all read `library()`, and the engine announces only changes made outside the app, so without it a part moved from its breadcrumb stayed under its old parent until something else changed. Found walking the web build, whose in-memory files have no mtime to key on either.
+9. **On a phone the Cover sits under the title**, small, with "Save a copy" beside it: beside the title, the column left breaks a title like "The Watchtower" mid-word at 375px.
+
 ### Open
 
-- Tutorials to reread and walk: the Source Hub's and the Library's, for the new order, the kind picker and the sidebar folders (PLAN §25).
-- `locales.cy.ts` cases for the breadcrumb and the folder labels in French at phone width.
+- Nothing from this session.

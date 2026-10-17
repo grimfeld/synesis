@@ -10,9 +10,9 @@ describe("Tutorial: Properties & Dates", () => {
     cy.hubTitle("Ephesus");
     cy.openTutorial("properties");
 
-    // 1. Properties in the header card, each with a widget for its type.
+    // 1. Properties near the foot of the page, each with a widget for its type.
     cy.tutorialStep(0);
-    cy.get("[data-testid=hub-header] [data-testid=property-lat]").should("have.attr", "data-prop-type", "number");
+    cy.get("[data-testid=hub-properties] [data-testid=property-lat]").should("have.attr", "data-prop-type", "number");
     cy.get("[data-testid=property-lat] input").should("have.attr", "type", "number");
     cy.get("[data-testid=property-modern_name]").should("have.attr", "data-prop-type", "text");
     cy.tutorialNext();

@@ -19,6 +19,11 @@ describe("Mobile sidebar", () => {
 
     openSheet();
     cy.get("[data-testid=group-source]").click();
+    cy.get("[data-testid=source-folder][data-shelf=periodical]").click();
+    cy.contains("[data-testid=doc-item]", /^The Watchtower$/)
+      .parent()
+      .find("[data-testid=source-node-toggle]")
+      .click();
     cy.get("[data-testid=doc-item]").contains("The Watchtower 2024-03").click();
     cy.hubTitle("The Watchtower 2024-03");
     cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");

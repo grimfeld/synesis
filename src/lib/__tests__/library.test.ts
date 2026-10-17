@@ -3,16 +3,23 @@
 import { describe, expect, it } from "vitest";
 import type { LibraryEntry } from "../api";
 import {
+  ancestorsOf,
   CHILD_KINDS,
   COVER_BG,
   childKindFor,
   coverBg,
   coverKind,
+  descendantIds,
+  holderKindFor,
   isChildKind,
+  isContainerKind,
+  isSourceKind,
   isShelfKind,
   SHELF_KINDS,
   shelfOf,
   shelve,
+  SOURCE_KINDS,
+  sourceFolders,
   UNSHELVED,
 } from "../library";
 
@@ -171,5 +178,103 @@ describe("coverBg", () => {
     const ids = Array.from({ length: 60 }, (_, i) => `01SOURCE${i}`);
     const used = new Set(ids.map(coverBg));
     expect(used.size).toBeGreaterThan(1);
+  });
+});
+
+describe("Source kinds (PLAN §28.1)", () => {
+  it("is the closed set of nine, every Shelf kind and child kind among them", () => {
+    expect(SOURCE_KINDS).toHaveLength(9);
+    for (const k of [...SHELF_KINDS, ...CHILD_KINDS]) expect(isSourceKind(k)).toBe(true);
+    expect(isSourceKind("sermon")).toBe(false);
+  });
+
+  it("names what holds a chapter and an issue, and nothing for the rest", () => {
+    expect(holderKindFor("chapter")).toBe("book");
+    expect(holderKindFor("issue")).toBe("periodical");
+    expect(holderKindFor("book")).toBeNull();
+    expect(holderKindFor("sermon")).toBeNull();
+    // A holder always takes the part back: the round trip agrees with the
+    // kind a new part of it defaults to.
+    for (const k of CHILD_KINDS) expect(childKindFor(holderKindFor(k)!)).toBe(k);
+  });
+
+  it("offers Contains up front only on kinds that have a part", () => {
+    expect(isContainerKind("book")).toBe(true);
+    expect(isContainerKind("issue")).toBe(true);
+    expect(isContainerKind("video")).toBe(false);
+  });
+});
+
+describe("the sidebar's Source folders (PLAN §28.5–6)", () => {
+  const wt = entry({ id: "wt", title: "The Watchtower", kind: "periodical" });
+  const issue = entry({ id: "i1", title: "2024-03", kind: "issue", parent_id: "wt" });
+  const article = entry({ id: "a1", title: "Keep Enduring", kind: "article", parent_id: "i1" });
+  const book = entry({ id: "b", title: "Insight", kind: "book" });
+  const chapter = entry({ id: "c", title: "Ephesus", kind: "chapter", parent_id: "b" });
+  const lostChapter = entry({ id: "lc", title: "Chapter 9", kind: "chapter" });
+
+  it("files Sources on the Library's Shelves and nests parts to any depth", () => {
+    const f = sourceFolders([book, chapter, wt, issue, article]);
+    expect(f.map((x) => x.id)).toEqual(["book", "periodical"]);
+    const [p] = f[1].nodes;
+    expect(p.entry.id).toBe("wt");
+    expect(p.children[0].entry.id).toBe("i1");
+    expect(p.children[0].children[0].entry.id).toBe("a1");
+    expect(f[0].nodes[0].children.map((n) => n.entry.id)).toEqual(["c"]);
+  });
+
+  it("has no folder for chapters: a lost one waits on Unshelved", () => {
+    const f = sourceFolders([book, lostChapter]);
+    expect(f.map((x) => x.id)).toEqual(["book", UNSHELVED]);
+    expect(f[1].nodes[0].entry.id).toBe("lc");
+  });
+
+  it("hides empty folders", () => {
+    expect(sourceFolders([])).toEqual([]);
+  });
+
+  it("keeps the engine's order among siblings", () => {
+    const c2 = entry({ id: "c2", title: "Chapter 2", kind: "chapter", parent_id: "b" });
+    const c10 = entry({ id: "c10", title: "Chapter 10", kind: "chapter", parent_id: "b" });
+    const f = sourceFolders([book, c2, c10]);
+    expect(f[0].nodes[0].children.map((n) => n.entry.title)).toEqual(["Chapter 2", "Chapter 10"]);
+  });
+
+  it("shows a parent loop once, on Unshelved, rather than losing it", () => {
+    const x = entry({ id: "x", title: "X", parent_id: "y" });
+    const y = entry({ id: "y", title: "Y", parent_id: "x" });
+    const f = sourceFolders([x, y]);
+    expect(f.map((s) => s.id)).toEqual([UNSHELVED]);
+    const ids: string[] = [];
+    const walk = (n: { entry: { id: string }; children: typeof n[] }) => {
+      ids.push(n.entry.id);
+      n.children.forEach(walk);
+    };
+    f[0].nodes.forEach(walk);
+    expect(ids.sort()).toEqual(["x", "y"]);
+  });
+});
+
+describe("a Source's ancestors and descendants", () => {
+  const all = [
+    entry({ id: "wt", kind: "periodical" }),
+    entry({ id: "i1", kind: "issue", parent_id: "wt" }),
+    entry({ id: "a1", kind: "article", parent_id: "i1" }),
+  ];
+
+  it("lists ancestors outermost first", () => {
+    expect(ancestorsOf(all, "a1").map((e) => e.id)).toEqual(["wt", "i1"]);
+    expect(ancestorsOf(all, "wt")).toEqual([]);
+    expect(ancestorsOf(all, "missing")).toEqual([]);
+  });
+
+  it("stops at a loop", () => {
+    const loop = [entry({ id: "x", parent_id: "y" }), entry({ id: "y", parent_id: "x" })];
+    expect(ancestorsOf(loop, "x").map((e) => e.id)).toEqual(["y"]);
+  });
+
+  it("collects a Source and everything inside it", () => {
+    expect([...descendantIds(all, "wt")].sort()).toEqual(["a1", "i1", "wt"]);
+    expect([...descendantIds(all, "a1")]).toEqual(["a1"]);
   });
 });
