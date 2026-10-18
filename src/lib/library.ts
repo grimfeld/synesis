@@ -116,6 +116,144 @@ export function shelve(entries: LibraryEntry[]): Shelf[] {
   return shelves;
 }
 
+/**
+ * Every kind a Source may be, in the order the picker offers them: each
+ * container followed by what it holds. Closed (PLAN §28.1): a work that fits
+ * none is "other", and a kind written by hand that is not here is shown as
+ * written and stands on Unshelved.
+ */
+export const SOURCE_KINDS = [
+  "book",
+  "chapter",
+  "periodical",
+  "issue",
+  "article",
+  "video",
+  "talk",
+  "podcast",
+  "other",
+] as const;
+
+export type SourceKind = (typeof SOURCE_KINDS)[number];
+
+const SOURCE_SET: ReadonlySet<string> = new Set(SOURCE_KINDS);
+
+/** Whether this is one of the nine kinds the app knows. */
+export function isSourceKind(kind: string): kind is SourceKind {
+  return SOURCE_SET.has(kind);
+}
+
+/**
+ * The kind of Source that holds one of this kind, for a kind that only exists
+ * inside something: a chapter's book, an issue's periodical. `null` for a kind
+ * that stands on its own.
+ */
+export function holderKindFor(kind: string): SourceKind | null {
+  switch (kind) {
+    case "chapter":
+      return "book";
+    case "issue":
+      return "periodical";
+    default:
+      return null;
+  }
+}
+
+/**
+ * Kinds whose page offers Contains even before anything is in it: the kinds
+ * `childKindFor` has a part for (§28.4). Anything else shows Contains only
+ * once it holds something.
+ */
+export function isContainerKind(kind: string): boolean {
+  return kind === "book" || kind === "periodical" || kind === "issue";
+}
+
+/** One Source in the sidebar's tree, with the Sources sitting inside it. */
+export interface SourceNode {
+  entry: LibraryEntry;
+  children: SourceNode[];
+}
+
+/** One sidebar folder: a Shelf, and the trees of the Sources standing on it. */
+export interface SourceFolder {
+  id: ShelfId;
+  nodes: SourceNode[];
+}
+
+/**
+ * Arrange every Source the way the sidebar shows it (PLAN §28.5–6): a folder
+ * per Shelf, by the same rule as the Library, and each Source's parts nested
+ * beneath it to any depth.
+ *
+ * A parent loop (A inside B inside A) leaves no top of the loop to start
+ * from; whatever no Shelf reached is filed on Unshelved, so a Source is never
+ * missing from the sidebar, and each appears exactly once.
+ */
+export function sourceFolders(entries: LibraryEntry[]): SourceFolder[] {
+  const kids = new Map<string, LibraryEntry[]>();
+  for (const e of entries) {
+    if (!e.parent_id) continue;
+    kids.set(e.parent_id, [...(kids.get(e.parent_id) ?? []), e]);
+  }
+  const placed = new Set<string>();
+  const grow = (entry: LibraryEntry): SourceNode => {
+    placed.add(entry.id);
+    const children = (kids.get(entry.id) ?? [])
+      .filter((c) => !placed.has(c.id))
+      .map(grow);
+    return { entry, children };
+  };
+  const folders: SourceFolder[] = shelve(entries).map((s) => ({
+    id: s.id,
+    nodes: s.entries.map(grow),
+  }));
+  // One at a time: growing the first of a loop places the rest of it.
+  const lost: SourceNode[] = [];
+  for (const e of entries) if (!placed.has(e.id)) lost.push(grow(e));
+  if (lost.length) {
+    const rest = folders.find((f) => f.id === UNSHELVED);
+    if (rest) rest.nodes.push(...lost);
+    else folders.push({ id: UNSHELVED, nodes: lost });
+  }
+  return folders;
+}
+
+/**
+ * The Sources this one sits inside, outermost first: the breadcrumb on its
+ * page, and what the sidebar unfolds to show it. Stops at a loop rather than
+ * walking it forever.
+ */
+export function ancestorsOf(entries: LibraryEntry[], id: string): LibraryEntry[] {
+  const byId = new Map(entries.map((e) => [e.id, e]));
+  const chain: LibraryEntry[] = [];
+  const seen = new Set([id]);
+  let parent = byId.get(id)?.parent_id;
+  while (parent && !seen.has(parent)) {
+    const p = byId.get(parent);
+    if (!p) break;
+    seen.add(parent);
+    chain.unshift(p);
+    parent = p.parent_id;
+  }
+  return chain;
+}
+
+/** This Source and every Source inside it, at any depth. */
+export function descendantIds(entries: LibraryEntry[], id: string): Set<string> {
+  const out = new Set([id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const e of entries) {
+      if (e.parent_id && out.has(e.parent_id) && !out.has(e.id)) {
+        out.add(e.id);
+        grew = true;
+      }
+    }
+  }
+  return out;
+}
+
 /** How a `cover` value is meant to be resolved (ADR 0012). */
 export type CoverKind =
   | { kind: "remote"; url: string }

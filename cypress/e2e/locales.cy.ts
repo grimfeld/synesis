@@ -215,6 +215,22 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps a Source's breadcrumb, kind and the sidebar's folders inside the screen", () => {
+        // Two parents above the title, the kind picker with its date beside
+        // it, and folder names that run longer in French (PLAN §28).
+        cy.openDoc("Keep Enduring with Joy");
+        cy.get("[data-testid=hub-breadcrumb]").should("exist");
+        cy.get("[data-testid=hub-source-kind]").should("exist");
+        expectNoOverflow();
+        cy.get("[data-testid=part-of-edit]").click();
+        cy.get("[data-testid=part-of-popover]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=doc-item][data-active=true]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps a condensed Backlink row, badges and all, inside the screen", () => {
         // The longest row the panel can produce: a merged `via` list after
         // "via"/"Liens entrants", beside the kind markers and the mention

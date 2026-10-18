@@ -22,7 +22,16 @@ import {
   type AmbiguousTitle,
   type DocSummary,
   type DocType,
+  type LibraryEntry,
 } from "@/lib/api";
+import {
+  ancestorsOf,
+  sourceFolders,
+  UNSHELVED,
+  type SourceFolder,
+  type SourceNode,
+} from "@/lib/library";
+import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -224,6 +233,12 @@ function DocumentsTab() {
   }, [s.docs]);
   const toggle = (k: string) => setOpen((o) => ({ ...o, [k]: !o[k] }));
   const active = s.view.kind === "doc" ? s.view.id : null;
+  // Opening a Source from anywhere shows it here (§28.6): its group unfolds,
+  // and the tree inside unfolds the rest of the way.
+  const activeIsSource = !!active && byType.get("source")?.some((d) => d.id === active);
+  useEffect(() => {
+    if (activeIsSource) setOpen((o) => (o.source ? o : { ...o, source: true }));
+  }, [active, activeIsSource]);
   return (
     <>
       {ORDER.map((type) => {
@@ -247,6 +262,9 @@ function DocumentsTab() {
               </SidebarGroupAction>
             }
           >
+            {type === "source" ? (
+              <SourceTree activeId={active} />
+            ) : (
             <SidebarMenu>
               {list.map((d) => (
                 <SidebarMenuItem key={d.id}>
@@ -264,6 +282,7 @@ function DocumentsTab() {
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>
+            )}
           </CollapsibleGroup>
         );
       })}
@@ -277,6 +296,141 @@ function DocumentsTab() {
       <Unresolved />
       <AmbiguousTitles />
     </>
+  );
+}
+
+/**
+ * The Sources, on the Library's Shelves (PLAN §28.5–6): a folder per kind
+ * that has any, then Unshelved, and each Source's parts beneath it. A parent
+ * is a Source too, so its row opens it and only its chevron folds it.
+ */
+function SourceTree({ activeId }: { activeId: string | null }) {
+  const t = useT();
+  const { data } = useQuery<LibraryEntry[]>({
+    key: ["sidebar-sources"],
+    deps: { types: ["source"] },
+    fetch: () => api.library(),
+    quiet: true,
+  });
+  const entries = useMemo(() => data ?? [], [data]);
+  const folders = useMemo(() => sourceFolders(entries), [entries]);
+  // Everything starts folded; what is open is remembered per row.
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set());
+  const toggle = (k: string) =>
+    setOpen((o) => {
+      const n = new Set(o);
+      if (n.has(k)) n.delete(k);
+      else n.add(k);
+      return n;
+    });
+  // Unfold the way to the open Source, so its row is always in sight.
+  // Only adds: whatever else the reader unfolded stays as it was.
+  useEffect(() => {
+    if (!activeId) return;
+    const folder = folders.find((f) => f.nodes.some((n) => holds(n, activeId)));
+    if (!folder) return;
+    const want = [`f:${folder.id}`, ...ancestorsOf(entries, activeId).map((a) => `s:${a.id}`)];
+    setOpen((o) => (want.every((k) => o.has(k)) ? o : new Set([...o, ...want])));
+  }, [activeId, entries, folders]);
+  return (
+    <SidebarMenu>
+      {folders.map((f: SourceFolder) => {
+        const key = `f:${f.id}`;
+        const isOpen = open.has(key);
+        return (
+          <SidebarMenuItem key={f.id}>
+            <SidebarMenuButton
+              data-testid="source-folder"
+              data-shelf={f.id}
+              size="sm"
+              className="pl-6"
+              aria-expanded={isOpen}
+              onClick={() => toggle(key)}
+            >
+              <ChevronRight
+                className={cn(
+                  "size-3.5 text-muted-foreground transition-transform",
+                  isOpen && "rotate-90",
+                )}
+              />
+              <span>{f.id === UNSHELVED ? t.shelf_unshelved : t.shelf_folders[f.id]}</span>
+            </SidebarMenuButton>
+            <SidebarMenuBadge>{f.nodes.length}</SidebarMenuBadge>
+            {isOpen && (
+              <ul className="flex min-w-0 flex-col gap-0.5 py-0.5">
+                {f.nodes.map((n) => (
+                  <SourceRow key={n.entry.id} node={n} depth={1} open={open} toggle={toggle} activeId={activeId} />
+                ))}
+              </ul>
+            )}
+          </SidebarMenuItem>
+        );
+      })}
+    </SidebarMenu>
+  );
+}
+
+function holds(n: SourceNode, id: string): boolean {
+  return n.entry.id === id || n.children.some((c) => holds(c, id));
+}
+
+function SourceRow({
+  node,
+  depth,
+  open,
+  toggle,
+  activeId,
+}: {
+  node: SourceNode;
+  depth: number;
+  open: ReadonlySet<string>;
+  toggle: (k: string) => void;
+  activeId: string | null;
+}) {
+  const s = useStore();
+  const t = useT();
+  const key = `s:${node.entry.id}`;
+  const isOpen = open.has(key);
+  const parent = node.children.length > 0;
+  return (
+    <li className="min-w-0">
+      {/* Indented by depth rather than by nested menus, whose borders and
+          margins would eat a 16rem rail by the third level. */}
+      <div className="flex min-w-0 items-center" style={{ paddingLeft: `${depth * 0.75 + 0.75}rem` }}>
+        {parent ? (
+          <button
+            type="button"
+            data-testid="source-node-toggle"
+            aria-expanded={isOpen}
+            aria-label={isOpen ? t.parts_hide : t.parts_show}
+            className="flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            onClick={() => toggle(key)}
+          >
+            <ChevronRight className={cn("size-3.5 transition-transform", isOpen && "rotate-90")} />
+          </button>
+        ) : (
+          <span className="size-5 shrink-0" />
+        )}
+        <SidebarMenuButton
+          data-testid="doc-item"
+          size="sm"
+          className="min-w-0 flex-1"
+          isActive={activeId === node.entry.id}
+          onClick={() => s.openDoc(node.entry.id)}
+          title={node.entry.title}
+        >
+          <TypeDot type="source" className="ml-0.5" />
+          <span>{node.entry.title}</span>
+        </SidebarMenuButton>
+      </div>
+      {parent && isOpen && (
+        <ul className="flex min-w-0 flex-col gap-0.5 pt-0.5">
+          {node.children.map((c) => (
+            <SourceRow key={c.entry.id} node={c} depth={depth + 1} open={open} toggle={toggle} activeId={activeId} />
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 

@@ -33,7 +33,7 @@ _Avoid_: Revision, snapshot, backup, draft
 ### Things the user collects
 
 **Source**:
-Someone else's work that the user studied, at whatever unit the user cites: a periodical, an issue, an article, a book, a chapter, a video, a talk. Has structured metadata (kind, URL, date, Cover) and is cited by Notes and Clippings. A Source may sit inside a parent Source, so a chapter belongs to its book and an issue to its periodical, and a parent's page gathers everything cited from its descendants. Its page is also where Clippings and Notes citing it are written, so a sitting with one chapter does not mean leaving it.
+Someone else's work that the user studied, at whatever unit the user cites: a periodical, an issue, an article, a book, a chapter, a video, a talk. Has structured metadata (kind, URL, date, Cover) and is cited by Notes and Clippings. A Source may sit inside a parent Source, so a chapter belongs to its book and an issue to its periodical, and a parent's page gathers everything cited from its descendants. Its page is also where Clippings and Notes citing it are written, so a sitting with one chapter does not mean leaving it. Its kind is one of nine: book, chapter, periodical, issue, article, video, talk, podcast, other. The user cannot add kinds; a work that fits none is "other".
 _Avoid_: Reference, resource, material, publication (a periodical is just a Source with children)
 
 **Library**:
@@ -45,7 +45,7 @@ The view that shows every Clipping as its own text, newest first, narrowed by Ta
 _Avoid_: Quotes, Commonplace, Excerpts
 
 **Shelf**:
-A row of the Library holding every top-level Source of one kind: all the books together, all the videos together. Kinds that only ever sit inside something else, like a chapter or an issue, never get a Shelf. A Source whose kind has no Shelf, or that is missing the parent it needs, waits on the Unshelved row until the user files it.
+A row of the Library holding every top-level Source of one kind: all the books together, all the videos together. Kinds that only ever sit inside something else, like a chapter or an issue, never get a Shelf. A Source whose kind has no Shelf, or that is missing the parent it needs, waits on the Unshelved row until the user files it. The sidebar arranges Sources on the same Shelves, as folders, with each Source's parts nested beneath it, so a Source stands in the same place in both.
 _Avoid_: Category, section, group, collection
 
 **Cover**:

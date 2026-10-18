@@ -50,7 +50,7 @@ function Drawn({ entry }: { entry: LibraryEntry }) {
       )}
     >
       {/* White regardless of theme: the spine colours are deep in both. */}
-      <span className="line-clamp-4 text-sm font-medium text-white">
+      <span className="line-clamp-4 text-sm font-medium break-words hyphens-auto text-white">
         {entry.title}
       </span>
       <span className="min-w-0 truncate text-[10px] uppercase tracking-wide text-white/70">

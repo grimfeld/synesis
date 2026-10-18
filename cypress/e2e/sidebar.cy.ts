@@ -21,6 +21,12 @@ describe("Sidebar", () => {
 
   it("expands a group and opens a document", () => {
     cy.get("[data-testid=group-source]").click();
+    // Sources stand in Shelf folders, each part under its parent (PLAN §28.5).
+    cy.get("[data-testid=source-folder][data-shelf=periodical]").click();
+    cy.contains("[data-testid=doc-item]", /^The Watchtower$/)
+      .parent()
+      .find("[data-testid=source-node-toggle]")
+      .click();
     cy.get("[data-testid=doc-item]").contains("The Watchtower 2024-03").click();
     cy.hubTitle("The Watchtower 2024-03");
     cy.get("[data-testid=doc-item][data-active=true]").should(

@@ -544,7 +544,6 @@ function TypePicker({
   );
 }
 
-/** Picker over existing documents of some types, with free text fallback. */
 /**
  * Pick an existing document, or say explicitly that you are creating one.
  *
@@ -554,7 +553,7 @@ function TypePicker({
  * accepted value is either a document (`doc` is passed, and with it the id) or
  * a deliberate "Create X" — nothing becomes a link by accident.
  */
-function DocPicker({
+export function DocPicker({
   types,
   value,
   onChange,
@@ -562,8 +561,13 @@ function DocPicker({
   placeholder,
   disabled,
   testId,
+  filter,
+  autoFocus,
 }: {
   types: DocType[];
+  /** Narrows the candidates further, e.g. a Source never inside itself. */
+  filter?: (d: DocSummary) => boolean;
+  autoFocus?: boolean;
   value: string;
   onChange: (v: string, doc?: DocSummary) => void;
   /** Offered as an explicit row when the typed name matches nothing. */
@@ -575,8 +579,8 @@ function DocPicker({
   const s = useStore();
   const t = useT();
   const list = useMemo(
-    () => s.docs.filter((d) => types.includes(d.type)),
-    [s.docs, types],
+    () => s.docs.filter((d) => types.includes(d.type) && (!filter || filter(d))),
+    [s.docs, types, filter],
   );
   // What the user is typing, kept apart from the accepted value: the box may
   // show a half-typed name that is not yet anybody's title.
@@ -612,6 +616,7 @@ function DocPicker({
         placeholder={placeholder}
         disabled={disabled}
         data-testid={testId}
+        autoFocus={autoFocus}
         onChange={(e) => {
           setDraft(e.target.value);
           // Typing clears any previous pick: the value is only ever a

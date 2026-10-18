@@ -12,3 +12,5 @@ Une Source est l'œuvre de quelqu'un d'autre que vous étudiez : un livre, un p�
 
 - Une Source d'un genre que l'application ne connaît pas, ou un chapitre dont le parent manque, attend sur la rangée **À ranger** jusqu'à ce que vous corrigiez son **Genre** ou **Fait partie de**.
 - La page d'un parent rassemble tout ce qui est cité depuis les Sources qu'il contient.
+- Le groupe **Sources** de la barre latérale les range de la même façon : un dossier par étagère, et les parties de chaque Source repliées sous elle. Ouvrir une Source déplie le chemin jusqu'à elle.
+- Le **Genre** d'une Source est l'un des neuf, choisi à côté de son titre. Choisir **Chapitre** ou **Numéro** pour une Source qui ne fait partie de rien demande aussitôt de quoi elle fait partie. Sur une partie, le chemin au-dessus du titre montre où elle se range, et le crayon à côté change **Fait partie de**.

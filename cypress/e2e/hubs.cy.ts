@@ -6,7 +6,8 @@ describe("Hub pages", () => {
     cy.get("[data-testid=right-panel]").should("not.exist");
     cy.hubTitle("The Watchtower");
     cy.get("[data-testid=hub-header]").should("contain", "Source");
-    cy.get("[data-testid=hub-header] input[value=periodical]").should("exist");
+    // Kind is a picker of the nine, not a text field (PLAN §28.1).
+    cy.get("[data-testid=hub-source-kind]").should("contain", "Periodical");
     cy.get("button[aria-label='Open link']").should("exist");
     // A Clipping has its own section, showing its words rather than a title
     // it does not have (ADR 0013).
@@ -14,11 +15,9 @@ describe("Hub pages", () => {
       cy.contains("Endurance is not merely putting up");
       cy.contains("par. 12");
     });
-    cy.get("[data-testid=hub-trail]").within(() => {
-      // The reading trail keeps everything else that cites the periodical.
-      cy.contains("Contains");
-      cy.contains("The Watchtower 2024-03");
-    });
+    // Its parts are a section of their own, above the Clippings (§28.4).
+    cy.get("[data-testid=hub-contains]").should("contain", "The Watchtower 2024-03");
+    cy.get("[data-testid=hub-trail]").should("not.contain", "Contains");
     // This Source has an About body, so the editor is open with its text.
     cy.get("[data-testid=hub-about] .cm-content").should(
       "contain",
@@ -142,7 +141,7 @@ describe("Hub pages", () => {
     cy.openDoc("Ephesus");
     cy.get("[data-testid=hub-map] .leaflet-container").should("exist");
     cy.hubTitle("Ephesus");
-    cy.get("[data-testid=hub-header] input[value*=Selçuk]").should("exist");
+    cy.get("[data-testid=hub-properties] input[value*=Selçuk]").should("exist");
     cy.get("[data-testid=hub-map]").click();
     cy.get("h1").should("contain", "Map");
   });

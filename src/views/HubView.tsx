@@ -18,6 +18,7 @@ import {
   ImagePlus,
   MapPin,
   PenLine,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -34,6 +35,7 @@ import {
   type DocumentPayload,
   type Journey,
   type GazetteerHit,
+  type LibraryEntry,
   type TrailEntry,
   type UnlinkedMentions as UnlinkedMentionsData,
   type VerseCount,
@@ -42,9 +44,18 @@ import {
 import { SPAN, type SectionProps } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { formatShortcut, shortcut } from "@/lib/keys";
-import { childKindFor } from "@/lib/library";
+import {
+  ancestorsOf,
+  childKindFor,
+  descendantIds,
+  holderKindFor,
+  isContainerKind,
+  isSourceKind,
+  SOURCE_KINDS,
+  type SourceKind,
+} from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
-import { setField, splitFrontmatter } from "@/lib/frontmatter";
+import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
@@ -54,7 +65,7 @@ import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { attachPictures } from "@/editor/pictures";
 import type { EditorEnv } from "@/editor/decorations";
-import { stamp } from "@/components/Dialogs";
+import { DocPicker, stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
 import { KindPicker } from "@/components/KindPicker";
 import { EventDate, TypeDot } from "@/components/DocLink";
@@ -79,6 +90,19 @@ import { TutorialButton } from "@/components/TutorialPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export function HubView({ id }: { id: string }) {
   const s = useStore();
@@ -116,6 +140,33 @@ export function HubView({ id }: { id: string }) {
     [unlinkedData],
   );
   const boards = useMemo(() => boardsData ?? [], [boardsData]);
+  // A Source's place among the others: the breadcrumb of what it sits
+  // inside, and what its "Part of" picker may offer (§28.3). The Library's
+  // own query, so a parent resolves exactly as it does on a Shelf.
+  const isSource = doc?.summary.type === "source";
+  const { data: libraryData } = useQuery<LibraryEntry[]>({
+    key: [id, mtime],
+    deps: { types: ["source"] },
+    fetch: () => api.library(),
+    enabled: isSource,
+  });
+  const library = useMemo(() => libraryData ?? [], [libraryData]);
+  // Where a Source sits is read by the sidebar, the Library and this page's
+  // breadcrumb, none of which a page's own save reaches: the engine announces
+  // only changes made outside the app. So a saved change of parent or kind is
+  // announced here, once it is on disk.
+  const placeKey = isSource
+    ? JSON.stringify([id, fmString(doc!.frontmatter.parent), fmString(doc!.frontmatter.kind)])
+    : null;
+  const lastPlace = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = lastPlace.current;
+    lastPlace.current = placeKey;
+    if (!prev || !placeKey || prev === placeKey) return;
+    if (JSON.parse(prev)[0] !== id) return;
+    s.announceChanged([id]).catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [placeKey]);
 
   // Linking rewrites another document, so both lists are refetched together:
   // what leaves one joins the other (ADR 0011).
@@ -393,6 +444,7 @@ export function HubView({ id }: { id: string }) {
             onRename={d.rename}
             fm={d.fm}
             onFmChange={d.onFmChange}
+            library={library}
           />
           <div className="mt-8 space-y-8">
             <TypeSection
@@ -438,6 +490,16 @@ export function HubView({ id }: { id: string }) {
                 data={unlinked}
                 onChanged={reload}
                 inline
+              />
+            )}
+            {/* Last but About: the file's own values, out of the header so
+                they never read as the page's content (§28.2). */}
+            {!isScripture && (
+              <HubProperties
+                doc={doc}
+                fm={d.fm}
+                onFmChange={d.onFmChange}
+                library={library}
               />
             )}
             <About
@@ -502,11 +564,13 @@ function SourceCover({
   };
 
   return (
-    <div data-testid="hub-cover" className="w-full md:w-40">
+    // Beside the title from tablet width up; on a phone that column would
+    // break the title mid-word, so it sits under it, small (§28.3).
+    <div data-testid="hub-cover" className="flex items-end gap-3 md:block md:w-24">
       <button
         type="button"
         data-testid="hub-cover-choose"
-        className="group relative block w-full rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+        className="group relative block w-20 shrink-0 rounded-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none md:w-full"
         aria-label={t.cover_choose}
         title={t.cover_choose}
         disabled={busy}
@@ -532,7 +596,7 @@ function SourceCover({
           type="button"
           size="sm"
           variant="outline"
-          className="mt-2 w-full"
+          className="h-auto min-h-8 text-xs whitespace-normal md:mt-2 md:w-full"
           data-testid="hub-cover-save-copy"
           disabled={busy}
           onClick={async () => {
@@ -563,6 +627,7 @@ function HubHeader({
   onRename,
   fm,
   onFmChange,
+  library,
 }: {
   doc: DocumentPayload;
   title: string;
@@ -570,41 +635,31 @@ function HubHeader({
   onRename: (t: string) => Promise<void>;
   fm: string;
   onFmChange: (fm: string) => void;
+  library: LibraryEntry[];
 }) {
   const s = useStore();
   const t = useT();
   const type = doc.summary.type;
-  const isScripture = type === "book" || type === "chapter" || type === "verse";
-  // Every Topical Subject may go by other names. Scripture generates its
-  // own, and a Source's other names are not something it links by.
-  const hasAliases =
-    type === "place" ||
-    type === "character" ||
-    type === "concept" ||
-    type === "event" ||
-    type === "journey";
-  // Properties this page edits somewhere of its own, so the Properties grid
-  // leaves them out rather than offering the same value a second time.
-  const owned = useMemo(
-    () => [
-      ...(SPAN[type] ?? []),
-      ...(hasAliases ? ["aliases"] : []),
-      // A Place's kind has its own picker (PLAN §27.12), not a text field.
-      ...(type === "place" ? ["kind"] : []),
-    ],
-    [type, hasAliases],
-  );
+  const hasAliases = HAS_ALIASES.includes(type);
   const kindText = typeof doc.frontmatter.kind === "string" ? doc.frontmatter.kind : "";
   const placeKind = useMemo(() => kindOf(kindText, kindCatalogue(s.placeKinds)), [kindText, s.placeKinds]);
   const isPlace =
     type === "place" && doc.summary.lat != null && doc.summary.lon != null;
   const aliasSuggestions = useMemo(() => [] as { value: string }[], []);
+  // Only what says what this page is (§28.2): its type, title and Tags, and
+  // the values a type edits with a control of its own. Every other Property
+  // is at the foot of the page.
   return (
     <div
       data-testid="hub-header"
-      className="grid gap-4 rounded-2xl border bg-card p-6 shadow-xs md:grid-cols-[1fr_auto]"
+      className={cn(
+        "grid gap-4 rounded-2xl border bg-card p-6 shadow-xs md:grid-cols-[1fr_auto]",
+      )}
     >
       <div className="min-w-0">
+        {type === "source" && (
+          <SourceBreadcrumb doc={doc} fm={fm} onFmChange={onFmChange} library={library} />
+        )}
         <div className="mb-1 flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase">
           <TypeDot type={type} />
           {t.types[type]}
@@ -614,6 +669,9 @@ function HubHeader({
           readOnly={readOnlyTitle}
           onRename={onRename}
         />
+        {type === "source" && (
+          <SourceKindLine doc={doc} fm={fm} onFmChange={onFmChange} library={library} />
+        )}
         <TagsRow doc={doc} fm={fm} onFmChange={onFmChange} />
         {hasAliases && (
           <div className="mt-2 flex items-start gap-2">
@@ -636,20 +694,6 @@ function HubHeader({
             <KindPicker
               value={kindText}
               onChange={(k) => onFmChange(setField(fm, "kind", k))}
-            />
-          </div>
-        )}
-        {!isScripture && (
-          <div className="mt-4 border-t pt-4">
-            {/* Whatever the rest of this page already edits: the Span in the
-                Dates section, the Aliases in their own row above. Offering the
-                same value twice is how one of them comes to disagree. */}
-            <Properties
-              doc={doc}
-              fm={fm}
-              onFmChange={onFmChange}
-              hide={owned}
-              inline
             />
           </div>
         )}
@@ -678,7 +722,302 @@ function HubHeader({
   );
 }
 
-/** A pin as the Map draws it, without a name: the mini-map is about one Place. */
+// Every Topical Subject may go by other names. Scripture generates its own,
+// and a Source's other names are not something it links by.
+const HAS_ALIASES: readonly DocType[] = ["place", "character", "concept", "event", "journey"];
+
+/**
+ * Properties this page edits somewhere of its own, so the Properties section
+ * leaves them out rather than offering the same value a second time.
+ */
+function ownedProperties(type: DocType): string[] {
+  return [
+    ...(SPAN[type] ?? []),
+    ...(HAS_ALIASES.includes(type) ? ["aliases"] : []),
+    // A Place's kind has its own picker (PLAN §27.12), and so has a
+    // Source's (§28.1), with its Cover and its "Part of" (§28.3).
+    ...(type === "place" ? ["kind"] : []),
+    ...(type === "source" ? ["kind", "cover", "parent"] : []),
+  ];
+}
+
+/**
+ * The file's own values, at the foot of a Hub (§28.2): out of the header,
+ * where a grid of fields read as what the page was about.
+ */
+function HubProperties({
+  doc,
+  fm,
+  onFmChange,
+  library,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+  library: LibraryEntry[];
+}) {
+  const t = useT();
+  const type = doc.summary.type;
+  const owned = useMemo(() => ownedProperties(type), [type]);
+  // A Source inside another changes that from its breadcrumb; one that
+  // stands alone has no breadcrumb, so its "Part of" is here (§28.3).
+  const own = library.find((e) => e.id === doc.summary.id);
+  const standsAlone = type === "source" && !!own && !own.parent_id;
+  return (
+    <section data-testid="hub-properties">
+      <PanelTitle className="mb-3">{t.properties}</PanelTitle>
+      {standsAlone && (
+        <div className="mb-1.5 flex items-center gap-2 text-sm" data-testid="hub-part-of">
+          <span className="w-24 shrink-0 truncate text-xs text-muted-foreground">
+            {t.parent_source}
+          </span>
+          <div className="min-w-0 flex-1">
+            <PartOfPicker doc={doc} fm={fm} onFmChange={onFmChange} library={library} />
+          </div>
+        </div>
+      )}
+      {/* Whatever the rest of this page already edits: the Span in the Dates
+          section, the Aliases in their own row. Offering the same value twice
+          is how one of them comes to disagree. */}
+      <Properties
+        doc={doc}
+        fm={fm}
+        onFmChange={onFmChange}
+        hide={owned}
+        inline
+      />
+    </section>
+  );
+}
+
+/**
+ * Choose the Source this one sits inside (§20.11): an existing Source, picked
+ * by name, or an explicit "Create X". Never itself or one of its own parts,
+ * which would make a loop. `holder` narrows it to the kind that holds this
+ * one, when a chapter or an issue was just named (§28.7).
+ */
+function PartOfPicker({
+  doc,
+  fm,
+  onFmChange,
+  library,
+  holder,
+  onDone,
+  autoFocus,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+  library: LibraryEntry[];
+  holder?: SourceKind | null;
+  onDone?: () => void;
+  autoFocus?: boolean;
+}) {
+  const s = useStore();
+  const id = doc.summary.id;
+  const current = linkTarget(fmString(doc.frontmatter.parent));
+  const kindOfId = useMemo(() => new Map(library.map((e) => [e.id, e.kind.trim().toLowerCase()])), [library]);
+  const inside = useMemo(() => descendantIds(library, id), [library, id]);
+  const filter = useCallback(
+    (d: DocSummary) => !inside.has(d.id) && (!holder || kindOfId.get(d.id) === holder),
+    [inside, holder, kindOfId],
+  );
+  return (
+    <DocPicker
+      types={SOURCE_TYPES}
+      testId="part-of-picker"
+      value={current}
+      filter={filter}
+      autoFocus={autoFocus}
+      // Only a pick writes: typing clears the box, never the file.
+      onChange={(_, d) => {
+        if (!d) return;
+        onFmChange(setField(fm, "parent", `[[${d.title}]]`));
+        onDone?.();
+      }}
+      onCreate={async (name) => {
+        const created = await s.createDoc("source", name, { kind: holder ?? "book" }, undefined, false);
+        onFmChange(setField(fm, "parent", `[[${created.summary.title}]]`));
+        onDone?.();
+      }}
+    />
+  );
+}
+
+const SOURCE_TYPES: DocType[] = ["source"];
+
+/**
+ * Where a Source sits (§28.3): each Source it is inside, outermost first,
+ * each opening its own page, then the way to change it. Nothing for a Source
+ * that stands alone.
+ */
+function SourceBreadcrumb({
+  doc,
+  fm,
+  onFmChange,
+  library,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+  library: LibraryEntry[];
+}) {
+  const s = useStore();
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const chain = useMemo(() => ancestorsOf(library, doc.summary.id), [library, doc.summary.id]);
+  if (chain.length === 0) return null;
+  return (
+    <nav
+      data-testid="hub-breadcrumb"
+      aria-label={t.parent_source}
+      className="mb-2 flex min-w-0 flex-wrap items-center gap-x-1 gap-y-0.5 text-sm text-muted-foreground"
+    >
+      {chain.map((a) => (
+        <span key={a.id} className="flex min-w-0 items-center gap-1">
+          <button
+            type="button"
+            data-testid="breadcrumb-step"
+            className="min-w-0 truncate underline-offset-4 hover:text-foreground hover:underline"
+            onClick={() => s.openDoc(a.id)}
+          >
+            {a.title}
+          </button>
+          <ChevronRight className="size-3.5 shrink-0" />
+        </span>
+      ))}
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <IconButton label={t.part_of_change} size="icon-xs" data-testid="part-of-edit">
+            <Pencil />
+          </IconButton>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 space-y-2" data-testid="part-of-popover">
+          {/* Above the picker, where its list of names cannot cover it. */}
+          <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1">
+            <span className="text-xs font-medium text-muted-foreground">{t.parent_source}</span>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-auto min-h-7 px-2 text-xs whitespace-normal"
+              data-testid="part-of-clear"
+              onClick={() => {
+                onFmChange(removeField(fm, "parent"));
+                setOpen(false);
+              }}
+            >
+              <X />
+              {t.part_of_clear}
+            </Button>
+          </div>
+          <PartOfPicker
+            doc={doc}
+            fm={fm}
+            onFmChange={onFmChange}
+            library={library}
+            onDone={() => setOpen(false)}
+            autoFocus
+          />
+        </PopoverContent>
+      </Popover>
+    </nav>
+  );
+}
+
+/**
+ * A Source's kind, as a picker of the nine (§28.1), and its date beside it:
+ * "Book · 2019". Naming a chapter or an issue on a Source that sits inside
+ * nothing asks at once what holds it (§28.7); dismissing that keeps the kind,
+ * and the Source waits on Unshelved.
+ */
+function SourceKindLine({
+  doc,
+  fm,
+  onFmChange,
+  library,
+}: {
+  doc: DocumentPayload;
+  fm: string;
+  onFmChange: (fm: string) => void;
+  library: LibraryEntry[];
+}) {
+  const t = useT();
+  const [ask, setAsk] = useState<SourceKind | null>(null);
+  const raw = fmString(doc.frontmatter.kind).trim();
+  const kind = raw.toLowerCase();
+  const known = isSourceKind(kind);
+  const date = fmString(doc.frontmatter.date).trim();
+  const own = library.find((e) => e.id === doc.summary.id);
+  const hasParent = own ? !!own.parent_id : !!linkTarget(fmString(doc.frontmatter.parent));
+  const kinds = t.kinds as Record<SourceKind, string>;
+  return (
+    <>
+      <Popover open={ask !== null} onOpenChange={(o) => !o && setAsk(null)}>
+        <PopoverAnchor asChild>
+          <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" data-testid="hub-kind-line">
+            <Select
+              value={known ? kind : raw}
+              onValueChange={(k) => {
+                onFmChange(setField(fm, "kind", k));
+                const holder = holderKindFor(k);
+                // After the menu has closed and handed focus back to its
+                // trigger: opened sooner, that focus move dismisses it.
+                if (holder && !hasParent) setTimeout(() => setAsk(holder), 0);
+              }}
+            >
+              <SelectTrigger
+                size="sm"
+                aria-label={t.kind}
+                data-testid="hub-source-kind"
+                className="h-auto min-h-7 max-w-full text-xs whitespace-normal"
+              >
+                <SelectValue placeholder={t.kind} />
+              </SelectTrigger>
+              <SelectContent>
+                {/* A hand-written kind is shown as written, never rewritten
+                    until the user picks one of the nine (ADR 0003). */}
+                {raw && !known && (
+                  <SelectItem value={raw} disabled>
+                    {raw}
+                  </SelectItem>
+                )}
+                {SOURCE_KINDS.map((k) => (
+                  <SelectItem key={k} value={k} data-testid={`kind-option-${k}`}>
+                    {kinds[k]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {date && (
+              <span className="min-w-0 text-sm text-muted-foreground" data-testid="hub-source-date">
+                · {date}
+              </span>
+            )}
+          </div>
+        </PopoverAnchor>
+        <PopoverContent align="start" className="w-72 space-y-2" data-testid="part-of-ask">
+          <div className="text-sm font-medium">{t.part_of_ask}</div>
+          <p className="text-xs text-muted-foreground">{t.part_of_ask_hint}</p>
+          <PartOfPicker
+            doc={doc}
+            fm={fm}
+            onFmChange={onFmChange}
+            library={library}
+            holder={ask}
+            onDone={() => setAsk(null)}
+            autoFocus
+          />
+        </PopoverContent>
+      </Popover>
+      {raw && !known && (
+        <p className="mt-1 text-xs text-muted-foreground" data-testid="hub-kind-unknown">
+          {t.kind_unknown(raw)}
+        </p>
+      )}
+    </>
+  );
+}
+
 function miniPin(kind: KindDef | null): string {
   const color =
     getComputedStyle(document.documentElement).getPropertyValue(kind?.token ?? "--c-place").trim() || "#c04f6b";
@@ -1535,9 +1874,36 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
     m.delete(id);
     return [...(own ? [own] : []), ...m.values()];
   }, [trail, id]);
+  // Contains is offered up front by the kinds that have parts, and by any
+  // Source that already holds some (§28.4).
+  const showContains = children.length > 0 || isContainerKind(sourceKind.trim().toLowerCase());
+  // What a sitting with a Source is for comes first: keeping something from
+  // it, its parts, and what was kept (§28.4).
   return (
     <>
       <SourceCapture source={doc.summary} />
+      {showContains && (
+        <section data-testid="hub-contains" className="mb-6">
+          <PanelTitle className="mb-3">
+            {t.child_sources}
+            {children.length > 0 && (
+              <span className="ml-2 font-normal tabular-nums">{children.length}</span>
+            )}
+          </PanelTitle>
+          {children.length > 0 && (
+            <ul className="space-y-0.5">
+              {children.map((c) => (
+                <li key={c.id}>
+                  <DocLink doc={c} />
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="mt-2">
+            <AddChildren parent={doc.summary} parentKind={sourceKind} />
+          </div>
+        </section>
+      )}
       {clippings.length > 0 && (
         <section data-testid="hub-clippings" className="mb-6">
           <PanelTitle className="mb-3">{t.types_plural.clipping}</PanelTitle>
@@ -1565,9 +1931,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
       )}
       <section data-testid="hub-trail">
         <PanelTitle className="mb-3">{t.reading_trail}</PanelTitle>
-        {groups.length === 0 && children.length === 0 && (
-          <Empty text={t.no_trail} />
-        )}
+        {groups.length === 0 && <Empty text={t.no_trail} />}
         <div className="space-y-4">
           {groups.map((g) => (
             <div key={g.source.id}>
@@ -1602,21 +1966,6 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
               </ul>
             </div>
           ))}
-          <div>
-            <div className="mb-1 text-xs font-semibold text-muted-foreground">
-              {t.child_sources}
-            </div>
-            <ul className="space-y-0.5">
-              {children.map((c) => (
-                <li key={c.id}>
-                  <DocLink doc={c} />
-                </li>
-              ))}
-            </ul>
-            <div className="mt-2">
-              <AddChildren parent={doc.summary} parentKind={sourceKind} />
-            </div>
-          </div>
         </div>
       </section>
     </>
