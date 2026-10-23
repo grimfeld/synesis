@@ -2,9 +2,10 @@
 
 Windows installers are signed for free by [SignPath Foundation](https://signpath.org),
 which signs open-source releases built by a public CI. The release workflow
-(`.github/workflows/release.yml`, job `windows`) refuses to publish an unsigned
-installer, so until the steps below are done the Windows job fails and every
-other platform still ships.
+(`.github/workflows/release.yml`, job `windows`) runs the SignPath steps only
+when `SIGNPATH_API_TOKEN` and `SIGNPATH_ORGANIZATION_ID` are set. Until the
+steps below are done it publishes the installers unsigned and warns in the run:
+Windows SmartScreen then asks users for "More info → Run anyway".
 
 ## One-time setup
 

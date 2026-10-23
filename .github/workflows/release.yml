@@ -30,9 +30,9 @@
 # run stops before tagging (.github/actions/require-updater-key).
 #
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
-#   Windows .msi / .exe, signed through SignPath Foundation (SIGNPATH_API_TOKEN
-#           secret, SIGNPATH_ORGANIZATION_ID variable; docs/release/signpath.md).
-#           The job fails rather than publish an unsigned installer.
+#   Windows .msi / .exe, signed through SignPath Foundation when SIGNPATH_API_TOKEN
+#           (secret) and SIGNPATH_ORGANIZATION_ID (variable) are set
+#           (docs/release/signpath.md); unsigned, with a warning, until then.
 #   Linux   .AppImage / .deb / .rpm
 #   Android .apk, signed with the ANDROID_* secrets. Android cannot install an
 #           unsigned package, so the job fails rather than publish one.
@@ -557,21 +557,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Windows warns on every unsigned installer and SmartScreen blocks it
-      # outright for most people, so stop before building anything.
-      - name: Refuse to build without signing
+      # No desktop build without the updater signing key (see the note at the top).
+      - uses: ./.github/actions/require-updater-key
+        with:
+          private-key: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+
+      # Until SignPath is set up the installers ship unsigned: Windows warns
+      # on them and SmartScreen asks for "More info → Run anyway", but they
+      # install and update. The SignPath steps below run only when it is set.
+      - name: Is SignPath set up?
+        id: signpath
         env:
           SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
           SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
         run: |
-          missing=""
-          [ -n "$SIGNPATH_API_TOKEN" ] || missing="$missing SIGNPATH_API_TOKEN (secret)"
-          [ -n "$SIGNPATH_ORGANIZATION_ID" ] || missing="$missing SIGNPATH_ORGANIZATION_ID (variable)"
-          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] || missing="$missing TAURI_SIGNING_PRIVATE_KEY (secret)"
-          if [ -n "$missing" ]; then
-            echo "::error::No unsigned Windows installer is published. Missing:$missing. See docs/release/signpath.md."
-            exit 1
+          if [ -n "$SIGNPATH_API_TOKEN" ] && [ -n "$SIGNPATH_ORGANIZATION_ID" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::SIGNPATH_API_TOKEN (secret) or SIGNPATH_ORGANIZATION_ID (variable) is not set, so the Windows installers ship unsigned. See docs/release/signpath.md."
           fi
 
       - uses: actions/setup-node@v4
@@ -596,6 +600,7 @@ jobs:
 
       - name: Hand the exe over for signing
         id: exe
+        if: steps.signpath.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-exe-unsigned
@@ -603,6 +608,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign the exe
+        if: steps.signpath.outputs.enabled == 'true'
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -617,6 +623,7 @@ jobs:
           output-artifact-directory: signed-exe
 
       - name: Put the signed exe in place
+        if: steps.signpath.outputs.enabled == 'true'
         run: cp signed-exe/synesis.exe target/release/synesis.exe
 
       # Updater artifacts are made below, after signing, so the bundler must
@@ -632,6 +639,7 @@ jobs:
 
       - name: Hand the installers over for signing
         id: installers
+        if: steps.signpath.outputs.enabled == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: windows-installers-unsigned
@@ -639,6 +647,7 @@ jobs:
           if-no-files-found: error
 
       - name: Sign the installers
+        if: steps.signpath.outputs.enabled == 'true'
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -652,8 +661,13 @@ jobs:
           wait-for-completion-timeout-in-seconds: 7200
           output-artifact-directory: out
 
-      # Belt and braces: never publish a file SignPath did not sign.
+      - name: Use the unsigned installers
+        if: steps.signpath.outputs.enabled != 'true'
+        run: mkdir -p out && cp installers/* out/
+
+      # Belt and braces: with SignPath set up, never publish a file it did not sign.
       - name: Check every file carries a valid signature
+        if: steps.signpath.outputs.enabled == 'true'
         shell: pwsh
         run: |
           $bad = Get-ChildItem out -File | Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' }
