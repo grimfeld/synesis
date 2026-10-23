@@ -40,6 +40,13 @@ pub fn container(home: &Path) -> Option<PathBuf> {
     }
     #[cfg(target_os = "macos")]
     {
+        // A Mac build signed with the iCloud entitlement (and its
+        // provisioning profile) can ask for the container, which creates it;
+        // one without gets nothing back and uses the folder only once an
+        // iPhone has made it.
+        if let Some(d) = apple::container_documents() {
+            return Some(d);
+        }
         let d = home.join("Library/Mobile Documents").join(CONTAINER_DIR).join("Documents");
         return d.is_dir().then_some(d);
     }
@@ -149,7 +156,6 @@ mod apple {
     /// thread, and the caller waits a bounded time for the answer. A found
     /// container is remembered; "not available" is asked again next time,
     /// since the user may have signed in meanwhile.
-    #[cfg(target_os = "ios")]
     pub fn container_documents() -> Option<PathBuf> {
         use std::sync::Mutex;
         static FOUND: Mutex<Option<PathBuf>> = Mutex::new(None);

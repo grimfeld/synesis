@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The Mac app's entitlements when it is signed with a Developer ID
+  provisioning profile that carries iCloud (ADR 0022): with them the app can
+  create Synesis's iCloud container instead of waiting for an iPhone to.
+  iCloud is a restricted entitlement, so macOS kills an app that claims it
+  without such a profile embedded. The release workflow therefore uses this
+  file only when MACOS_PROVISION_PROFILE is set, and fills in TEAM_ID from
+  APPLE_TEAM_ID (.github/workflows/release.yml, "iCloud for the Mac").
+-->
+<plist version="1.0">
+  <dict>
+    <key>com.apple.application-identifier</key>
+    <string>TEAM_ID.tech.grimfeld.synesis</string>
+    <key>com.apple.developer.team-identifier</key>
+    <string>TEAM_ID</string>
+    <key>com.apple.developer.icloud-container-environment</key>
+    <string>Production</string>
+    <key>com.apple.developer.icloud-container-identifiers</key>
+    <array>
+      <string>iCloud.tech.grimfeld.synesis</string>
+    </array>
+    <key>com.apple.developer.icloud-services</key>
+    <array>
+      <string>CloudDocuments</string>
+    </array>
+    <key>com.apple.developer.ubiquity-container-identifiers</key>
+    <array>
+      <string>iCloud.tech.grimfeld.synesis</string>
+    </array>
+  </dict>
+</plist>

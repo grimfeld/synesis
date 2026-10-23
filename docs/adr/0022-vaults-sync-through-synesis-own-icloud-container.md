@@ -63,3 +63,8 @@ container, which the new build can no longer reach.
 - `NSUbiquitousContainers` is read by iOS only when the bundle version changes,
   so the Synesis folder appears in iCloud Drive from the first build that
   carries it, not on reinstall of the same version.
+- Only an app with the iCloud entitlement can create the container. The iPhone
+  always has it; the Mac has it only when built with a Developer ID
+  provisioning profile that carries iCloud (`MACOS_PROVISION_PROFILE`, a
+  restricted entitlement macOS refuses to launch without one). Otherwise, and
+  always on Windows, the container is used once an iPhone has made it.
