@@ -67,7 +67,6 @@ impl Matcher {
     pub fn find(&self, body: &str) -> Vec<Occurrence> {
         let mut skip = zones(body);
         skip.extend(heading_spans(body, &skip));
-        skip.extend(passage_spans(body));
         let links = link_spans(body);
         let haystack = fold(body);
         let mut out = Vec::new();
@@ -96,6 +95,12 @@ impl Matcher {
                 end,
                 matched: body[start..end].to_string(),
             });
+        }
+        // Parsing Passages costs more than everything above, so it runs only
+        // when there is a hit left to drop.
+        if !out.is_empty() {
+            let passages = passage_spans(body);
+            out.retain(|o| !in_zone(&passages, o.start, o.end));
         }
         out
     }
