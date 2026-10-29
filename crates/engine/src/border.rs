@@ -313,12 +313,30 @@ pub fn accept(root: &Path, name: &str, bytes: &[u8]) -> bool {
 /// Write a Border file, stamped newer than whatever is on disk so a local edit
 /// outranks a peer's clock that runs fast.
 pub fn write(root: &Path, rel: &str, corners: &[LatLon]) -> Result<()> {
+    put(root, rel, |updated| drawn(corners, updated))
+}
+
+/// Copy a GeoJSON file picked from disk in as a Border: refused, with the
+/// reason, unless it holds an area; otherwise kept whole (every piece, every
+/// member it carries) with the `updated` stamp Pairing compares added.
+pub fn import(root: &Path, rel: &str, text: &str) -> Result<()> {
+    parse(text).map_err(crate::Error::Invalid)?;
+    let mut v: Value = serde_json::from_str(text)?;
+    put(root, rel, |updated| {
+        v["updated"] = json!(updated);
+        Ok(serde_json::to_string_pretty(&v)? + "\n")
+    })
+}
+
+/// Write a Border file atomically, stamped newer than whatever is on disk so
+/// a local edit outranks a peer's clock that runs fast.
+fn put(root: &Path, rel: &str, text: impl FnOnce(i64) -> Result<String>) -> Result<()> {
     let p = join(root, rel);
     if crate::cloud::is_evicted(&p) {
         return Err(crate::cloud::downloading(&p));
     }
     let previous = fs::read(&p).ok().map(|b| crate::config::stamp_at(&p, &b)).unwrap_or(0);
-    let text = drawn(corners, crate::config::now_ms().max(previous + 1))?;
+    let text = text(crate::config::now_ms().max(previous + 1))?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
     }

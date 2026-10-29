@@ -434,6 +434,9 @@ export const en = {
   border_file: (path: string) => `Kept in ${path}`,
   border_saved: "Border saved.",
   border_deleted: "Border deleted.",
+  border_import: "Import Border",
+  border_imported: "Border imported.",
+  border_import_failed: (error: string) => `Border not imported. ${error}`,
   border_delete_title: "Delete this Border?",
   border_delete_body:
     "This file is removed from the Vault, and the region is shown on the Map by its name alone.",

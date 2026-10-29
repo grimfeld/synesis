@@ -151,6 +151,18 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=confirm-batch]").click();
     cy.get("[data-testid=map-border]").should("not.exist");
     pin("Egypt").should("have.class", "no-pin");
+    // Import one instead, from the region's page: both pieces are drawn.
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.tutorialCommand("map.import_border");
+    cy.get("[data-testid=border-input]").selectFile("cypress/fixtures/egypt.geojson", { force: true });
+    cy.get("[data-testid=border-file]").should("contain", "Egypt.geojson");
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=map-border]").should("have.length", 1);
+    cy.openDoc("Egypt");
+    cy.get("[data-testid=hub-border-delete]").click();
+    cy.get("[data-testid=confirm-batch]").click();
+    cy.get("[data-testid=border-none]").should("exist");
     cy.tutorialNext();
 
     // 8. Do it once: a Journey through a Place the gazetteer makes, kind and all.
