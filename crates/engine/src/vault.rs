@@ -191,7 +191,13 @@ impl Vault {
             sync: Some(sync),
             schema,
         };
-        v.scan()?;
+        // An index written by an older parser is re-parsed in full, once:
+        // its unchanged files would otherwise keep the old rows forever.
+        let stale = v.index.parser_stale()?;
+        v.scan_files(stale)?;
+        if stale {
+            v.index.set_parser_version(index::PARSER_VERSION)?;
+        }
         Ok(v)
     }
 
@@ -429,6 +435,12 @@ impl Vault {
     /// Walk the folder and bring the index up to date. Files whose mtime is
     /// unchanged are skipped; files that vanished are forgotten.
     pub fn scan(&mut self) -> Result<Vec<DocSummary>> {
+        self.scan_files(false)
+    }
+
+    /// [`Vault::scan`], re-parsing every file when `all` is set rather than
+    /// only those whose mtime moved.
+    fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut seen = std::collections::HashSet::new();
         let mut changed = self.apply_remote()?;
         let mut files = Vec::new();
@@ -466,7 +478,7 @@ impl Vault {
         }
         for (rel, mtime) in files {
             seen.insert(rel.clone());
-            if self.index.mtime_of(&rel)? == Some(mtime) {
+            if !all && self.index.mtime_of(&rel)? == Some(mtime) {
                 continue;
             }
             if let Some(d) = self.index_file(&rel)? {
@@ -1520,6 +1532,47 @@ mod tests {
             after.contains("Les fils d'[[Israël]] sortirent."),
             "only the name is linked: {after:?}"
         );
+    }
+
+    #[test]
+    fn a_new_parser_version_reindexes_unchanged_files_once() {
+        // Files whose mtime has not moved are skipped on open, so a change to
+        // the parser would never reach them. The index records which parser
+        // wrote it; a different one re-parses everything once.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let note = dir.path().join("Notes/a.md");
+        fs::write(&note, "Romans 8:28.\n").unwrap();
+        let data = dir.path().join(".data");
+        let on_29 = |v: &Vault| {
+            v.index
+                .mentions_of(45, Some(8), Some(29), Lang::En, None)
+                .unwrap()
+                .len()
+        };
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0);
+        drop(v);
+
+        // Change the text behind the index's back, keeping the mtime: the
+        // index only learns of it through a full re-index.
+        let when = fs::metadata(&note).unwrap().modified().unwrap();
+        fs::write(&note, "Romans 8:28.\n\nv. 29\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&note)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0, "same parser, unchanged mtime: skipped");
+        v.index.set_parser_version(index::PARSER_VERSION - 1).unwrap();
+        drop(v);
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 1, "an older parser's index is re-parsed");
+        assert!(!v.index.parser_stale().unwrap());
     }
 
     #[test]
