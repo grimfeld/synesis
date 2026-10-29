@@ -1,6 +1,14 @@
 // The Pane model (Vitest, jsdom): `npm run test:unit`.
 import { describe, expect, it } from "vitest";
-import { initialPanes, panesReducer, shownPanes, type PaneAction, type PanesState } from "../panes";
+import {
+  initialPanes,
+  panesReducer,
+  restoreLayout,
+  savedLayout,
+  shownPanes,
+  type PaneAction,
+  type PanesState,
+} from "../panes";
 
 const doc = (id: string) => ({ kind: "doc", id }) as const;
 
@@ -165,5 +173,72 @@ describe("swap", () => {
   it("does nothing with one Pane", () => {
     const s = run({ type: "open", view: doc("a") });
     expect(panesReducer(s, { type: "swap" })).toBe(s);
+  });
+});
+
+describe("the divider between Panes", () => {
+  it("starts half and half and moves", () => {
+    expect(initialPanes().ratio).toBe(0.5);
+    expect(run({ type: "setRatio", ratio: 0.3 }).ratio).toBe(0.3);
+  });
+
+  it("keeps each document's width when the Panes swap", () => {
+    const s = run({ type: "openInOther", view: doc("b") }, { type: "setRatio", ratio: 0.3 }, { type: "swap" });
+    expect(s.ratio).toBeCloseTo(0.7);
+  });
+});
+
+describe("saving and restoring the layout", () => {
+  const all = () => true;
+
+  it("saves nothing with a single Pane, so the app opens on Home", () => {
+    expect(savedLayout(run({ type: "open", view: doc("a") }))).toBeNull();
+  });
+
+  it("restores both Panes, the last-used one and the divider, without history", () => {
+    const s = run(
+      { type: "open", view: doc("a") },
+      { type: "openInOther", view: doc("b") },
+      { type: "setRatio", ratio: 0.4 },
+      { type: "focus", pane: 0 },
+    );
+    const back = restoreLayout(JSON.parse(JSON.stringify(savedLayout(s))), all);
+    expect(back?.panes.map((p) => p.view)).toEqual([doc("a"), doc("b")]);
+    expect(back?.panes[0].back).toEqual([]);
+    expect(back?.lastUsed).toBe(0);
+    expect(back?.ratio).toBe(0.4);
+  });
+
+  it("opens Home in place of a document that is gone", () => {
+    const s = run({ type: "open", view: doc("a") }, { type: "openInOther", view: { kind: "graph", focus: "b" } });
+    const back = restoreLayout(savedLayout(s), (id) => id === "a");
+    expect(back?.panes.map((p) => p.view)).toEqual([doc("a"), { kind: "home" }]);
+  });
+
+  it("ignores anything that is not a saved layout", () => {
+    for (const raw of [null, "x", {}, { views: [doc("a")] }, { views: [{ kind: "nope" }, doc("a")], lastUsed: 0, ratio: 0.5 }])
+      expect(restoreLayout(raw, all)).toBeNull();
+  });
+
+  it("keeps a broken divider or last-used Pane in range", () => {
+    const back = restoreLayout({ views: [doc("a"), doc("b")], lastUsed: 7, ratio: "wide" }, all);
+    expect(back?.lastUsed).toBe(0);
+    expect(back?.ratio).toBe(0.5);
+  });
+});
+
+describe("acting on a named Pane", () => {
+  const two = run({ type: "open", view: doc("a") }, { type: "openInOther", view: doc("b") });
+
+  it("goes back in that Pane without moving the last-used one", () => {
+    const s = panesReducer(two, { type: "back", pane: 0 });
+    expect(s.panes.map((p) => p.view)).toEqual([{ kind: "home" }, doc("b")]);
+    expect(s.lastUsed).toBe(1);
+  });
+
+  it("sets that Pane's face", () => {
+    const s = panesReducer(two, { type: "setDocTab", tab: "split", pane: 0 });
+    expect(s.panes[0].docTab).toBe("split");
+    expect(s.panes[1]?.docTab).toBe("talk");
   });
 });
