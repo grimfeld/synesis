@@ -1101,6 +1101,12 @@ fn detect_passages(state: State<AppState>, text: String) -> CmdResult<Vec<Detect
     Ok(api::detect_passages(&text, lang))
 }
 
+/// The live preview under a Date field: how the engine reads what is typed.
+#[tauri::command]
+fn read_date(text: String) -> api::DatePreview {
+    api::read_date(&text)
+}
+
 #[tauri::command]
 fn books(state: State<AppState>) -> CmdResult<Vec<BookMeta>> {
     let lang = state.settings.lock().map_err(err)?.lang;
@@ -1345,6 +1351,7 @@ pub fn run() {
             read_picture,
             find_source_by_url,
             detect_passages,
+            read_date,
             books,
             fetch_url_metadata,
             skin_gallery,
