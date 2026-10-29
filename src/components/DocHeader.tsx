@@ -3,7 +3,7 @@ import { Plus, X } from "lucide-react";
 import { cn } from "cn";
 import { fmString, type DocumentPayload } from "@/lib/api";
 import { setField } from "@/lib/frontmatter";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane } from "@/lib/store";
 import { useT } from "@/i18n";
 import { getActiveEditor } from "@/editor/active";
 import { Badge } from "@/components/ui/badge";
@@ -181,7 +181,7 @@ export function ChipsRow({ doc, fm, onFmChange, field, prefix = "", addLabel, li
       {values.map((v) => (
         <Badge key={v} data-testid="chip" variant="secondary" className={cn("group h-6 max-w-full gap-1 pr-1 pl-2 font-normal", linkable && "text-tag")}>
           {linkable ? (
-            <button type="button" className="min-w-0 truncate hover:underline underline-offset-2" title={`${prefix}${v}`} onClick={() => s.openLink(v)}>
+            <button type="button" className="min-w-0 truncate hover:underline underline-offset-2" title={`${prefix}${v}`} onClick={(e) => s.openLink(v, otherPane(e))}>
               {prefix}
               {v}
             </button>

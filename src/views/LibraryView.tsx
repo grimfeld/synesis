@@ -11,7 +11,7 @@ import { ChevronLeft, ChevronRight, LibraryBig } from "lucide-react";
 import { api, type LibraryEntry } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { shelve, UNSHELVED, type Shelf } from "@/lib/library";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Cover } from "@/components/Cover";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -37,7 +37,7 @@ function Card({ entry }: { entry: LibraryEntry }) {
       // Fixed width so a Shelf reads as a row of spines; `shrink-0` keeps the
       // flex row from squeezing them as it fills.
       className="group w-32 shrink-0 text-left focus-visible:outline-none sm:w-36"
-      onClick={() => s.openDoc(entry.id)}
+      onClick={(e) => s.openDoc(entry.id, otherPane(e))}
       title={entry.title}
     >
       <Cover

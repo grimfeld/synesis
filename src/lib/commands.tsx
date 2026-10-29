@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
+  ArrowLeftRight,
   ArrowRight,
   BookOpenText,
   CalendarRange,
@@ -30,7 +31,9 @@ import {
   Settings,
   LibraryBig,
   Quote,
+  SquareSplitHorizontal,
   Waypoints,
+  X,
   Zap,
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
@@ -170,6 +173,35 @@ export function useCommands(): Command[] {
       overEditor: !IS_MAC,
       run: s.forward,
     });
+    // Panes (spec #35): what the last-used Pane shows, opened beside it; and,
+    // with two open, closing the last-used one or swapping their sides.
+    if (s.twoPanesFit)
+      list.push({
+        id: "pane.open_other",
+        title: t.pane_open_other,
+        group: "navigate",
+        icon: SquareSplitHorizontal,
+        keywords: "pane split side by side two documents beside open other",
+        run: () => s.openInOther(s.view),
+      });
+    if (s.panes.panes.length === 2) {
+      list.push({
+        id: "pane.close",
+        title: t.pane_close,
+        group: "navigate",
+        icon: X,
+        keywords: "pane close one single",
+        run: () => s.dispatchPanes({ type: "close" }),
+      });
+      list.push({
+        id: "pane.swap",
+        title: t.pane_swap,
+        group: "navigate",
+        icon: ArrowLeftRight,
+        keywords: "pane swap switch sides exchange left right",
+        run: () => s.dispatchPanes({ type: "swap" }),
+      });
+    }
     list.push({
       id: "nav.passage",
       title: t.open_passage,
@@ -425,6 +457,9 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     ...["home", "graph", "library", "clippings", "map", "timeline", "coverage", "settings"].map((v) => `nav.${v}`),
     "nav.back",
     "nav.forward",
+    "pane.open_other",
+    "pane.close",
+    "pane.swap",
     "nav.passage",
     "nav.sync",
     "nav.random",

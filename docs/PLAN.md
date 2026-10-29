@@ -569,6 +569,8 @@ foreclosed; this section fills it in. No new vocabulary.
    needs per-pane history, a second current document for the side panel and the
    palette, and a rule for which pane Back acts on. The side panel and the
    HoverCard already cover reading a Note while writing.
+   **Superseded by §29:** two Panes now show any two documents side by side,
+   each with its own history; this split lives on inside a Pane.
 2. **A third state of the existing tab control: Talk | Split | Board.**
    `docTab` becomes `"talk" | "split" | "board"`, with a "Split Talk and Board"
    Command beside the existing toggle. One control, one piece of state, no
@@ -643,8 +645,8 @@ foreclosed; this section fills it in. No new vocabulary.
 - **Dragging a card from the Board into the talk to insert a `[[link]]`.**
   Turning a Board ref into a Mention deserves its own decision, not a side
   effect of a layout change.
-- **A general split pane** (decision 1), **a vertical stack on narrow screens**
-  (decision 5), **a persisted divider** (decision 4).
+- **A general split pane** (decision 1; superseded by §29, Panes), **a vertical
+  stack on narrow screens** (decision 5), **a persisted divider** (decision 4).
 
 ### Deferred
 
@@ -1167,3 +1169,27 @@ Four complaints from use: a Source's kind was a plain text field on its Hub; eve
 ### Open
 
 - Nothing from this session.
+
+## 29. Panes: two documents side by side (grilling session, 2026-10-29)
+
+Studying means reading one document while writing another: a Note beside the Clipping it answers, or a Character's Hub beside a meditation. §22.1 declined a general split pane because it needed per-pane history, a rule for which document the side panel and the Command Palette act on, and a rule for Back. This session gives those rules. Vocabulary in [CONTEXT.md](../CONTEXT.md): **Pane**, **Window**. Spec #35.
+
+### Decided
+
+1. **At most two Panes in a Window**, side by side, never stacked. Each has its own view, its own Back and Forward, and its own talk/Board split (§22), which keeps working inside it.
+2. **The last-used Pane** is the one a press or a key went to last. The side panel, the Command Palette, Back and the editor Commands follow it, and Commands that open something ("New Clipping") open it there. It is marked by a thin line along its top. Focus alone does not move it: a dialog closing hands focus back to the Pane it came from, which would take the side panel away from a Pane just opened.
+3. **Cmd/Ctrl-click on a link opens it in the other Pane**, opening the second Pane from one. The Command "Open in other Pane" (also a button in a document's header) does the same for the page in use; "Close Pane" closes the last-used one and "Swap Panes" swaps their sides, each keeping its width.
+4. **The side panel is drawn once, beside both Panes**, for the last-used one's document, rather than inside a Pane between them.
+5. **Width.** Two Panes show when each gets the split's minimum, `MIN_PANE` (320px). Below it, and always on a phone, only the last-used Pane shows; the other stays in state and returns with the room. Where two do not fit, a Cmd/Ctrl-click opens as a plain click. A divider resizes them, as in §22.4.
+6. **One pure reducer** (`src/lib/panes.ts`) owns every transition; the store renders each Pane through a scope that gives its views that Pane's view, history and split.
+7. **The layout is restored per Device and per Vault** (`localStorage`, keyed by the Vault's root): two Panes come back with their views, the last-used one and the divider, without their histories. A single Pane saves nothing, so the app opens on Home as it always has. A document gone since shows Home in its place.
+
+### Declined
+
+- More than two Panes, Panes stacked vertically, tabs.
+- Dragging a Pane out into a Window.
+- Making a Pane last-used on focus (decision 2).
+
+### Deferred
+
+- The same document in both Panes sharing one live document, so typing shows in both at once (#50), and separate desktop Windows (#51).

@@ -59,7 +59,7 @@ import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane, usePane } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
@@ -87,6 +87,7 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { TutorialButton } from "@/components/TutorialPanel";
+import { PaneButtons } from "@/components/Panes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
@@ -178,7 +179,7 @@ export function HubView({ id }: { id: string }) {
   const env = useMemo<EditorEnv>(
     () => ({
       names: d.names,
-      onOpenLink: (target) => s.openLink(target),
+      onOpenLink: (target, other) => void s.openLink(target, other),
       onOpenPassage: (p) => s.openPassage(p),
       onPassageHover: (i) =>
         setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
@@ -327,6 +328,7 @@ export function HubView({ id }: { id: string }) {
             ""
           )}
         </span>
+        <PaneButtons />
         <TutorialButton place={{ kind: "hub", type }} />
         {/* Not on a phone, where a Source's header is full already: the
             "Open local graph" Command reaches it there. */}
@@ -879,7 +881,7 @@ function SourceBreadcrumb({
             type="button"
             data-testid="breadcrumb-step"
             className="min-w-0 truncate underline-offset-4 hover:text-foreground hover:underline"
-            onClick={() => s.openDoc(a.id)}
+            onClick={(e) => s.openDoc(a.id, otherPane(e))}
           >
             {a.title}
           </button>
@@ -1228,7 +1230,7 @@ function JourneySection({
                 <button
                   type="button"
                   className="block max-w-full truncate text-left text-sm hover:underline underline-offset-2"
-                  onClick={() => s.openLink(linkTarget(stop.target))}
+                  onClick={(e) => s.openLink(linkTarget(stop.target), otherPane(e))}
                 >
                   {stop.doc?.title ?? linkTarget(stop.target)}
                 </button>
@@ -1914,7 +1916,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                   type="button"
                   data-testid="hub-clipping"
                   className="flex w-full min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
-                  onClick={() => s.openDoc(e.doc.id)}
+                  onClick={(ev) => s.openDoc(e.doc.id, otherPane(ev))}
                 >
                   <span className="w-16 shrink-0 truncate pt-0.5 text-xs text-muted-foreground tabular-nums">
                     {e.locator ?? "—"}
@@ -1939,7 +1941,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                 <button
                   type="button"
                   className="mb-1 flex items-center gap-2 text-sm font-medium hover:underline underline-offset-4"
-                  onClick={() => s.openDoc(g.source.id)}
+                  onClick={(e) => s.openDoc(g.source.id, otherPane(e))}
                 >
                   <TypeDot type="source" />
                   {g.source.title}
@@ -1951,7 +1953,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                     <button
                       type="button"
                       className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                      onClick={() => s.openDoc(e.doc.id)}
+                      onClick={(ev) => s.openDoc(e.doc.id, otherPane(ev))}
                     >
                       <span className="w-16 shrink-0 truncate text-xs text-muted-foreground tabular-nums">
                         {e.locator ?? "—"}
@@ -2080,7 +2082,7 @@ function MentionList({ items }: { items: Backlink[] }) {
           <button
             type="button"
             className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-            onClick={() => s.openDoc(b.doc.id)}
+            onClick={(e) => s.openDoc(b.doc.id, otherPane(e))}
           >
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={b.doc.type} />
@@ -2130,6 +2132,7 @@ function About({
 }) {
   const s = useStore();
   const t = useT();
+  const pane = usePane();
   const [open, setOpen] = useState(body.trim().length > 0);
   useEffect(() => {
     if (body.trim()) setOpen(true);
@@ -2167,7 +2170,8 @@ function About({
             names={names}
             tags={s.tags}
             placeholder={prompt}
-            autofocus={!body.trim()}
+            autofocus={!body.trim() && pane.active}
+            register={pane.active}
             sourceMode={s.sourceMode}
             compact
             pictureTitle={title}

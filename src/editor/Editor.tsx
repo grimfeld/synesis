@@ -39,7 +39,7 @@ import { pictureDisplay, pictureHost, pictureInput } from "./pictures";
 import { useT } from "@/i18n";
 import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
-import { EDITOR_COMMANDS, setActiveEditor } from "./active";
+import { EDITOR_COMMANDS, releaseActiveEditor, setActiveEditor } from "./active";
 import { toCodeMirrorKey } from "@/lib/keys";
 import { api, type DetectedRange, type TagCount } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
@@ -154,7 +154,7 @@ export function Editor({
       get names() {
         return namesRef.current;
       },
-      onOpenLink: (t) => envRef.current.onOpenLink(t),
+      onOpenLink: (t, o) => envRef.current.onOpenLink(t, o),
       onOpenPassage: (p, a) => envRef.current.onOpenPassage(p, a),
       onPassageHover: (i) => envRef.current.onPassageHover(i),
       onLinkHover: (i) => envRef.current.onLinkHover(i),
@@ -247,12 +247,19 @@ export function Editor({
     if (autofocus) view.focus();
     return () => {
       window.clearTimeout(detectTimer.current);
-      if (register) setActiveEditor(null);
+      releaseActiveEditor(view);
       view.destroy();
       viewRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // With two Panes, Commands act on the editor in the last-used one: the
+  // flag moves as the user moves between them (spec #35).
+  useEffect(() => {
+    if (register) setActiveEditor(viewRef.current);
+    else releaseActiveEditor(viewRef.current);
+  }, [register]);
 
   // Live Preview <-> Source mode.
   useEffect(() => {

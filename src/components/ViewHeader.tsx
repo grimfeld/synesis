@@ -3,6 +3,7 @@ import { cn } from "cn";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { TutorialButton } from "@/components/TutorialPanel";
+import { PaneButtons } from "@/components/Panes";
 import type { TutorialPlace } from "@/lib/tutorials";
 import type { DeviceKind } from "@/lib/syncRules";
 
@@ -19,6 +20,8 @@ export function ViewHeader({ title, icon, children, className, tutorials, device
       {title && <h1 className="min-w-0 truncate text-sm font-semibold">{title}</h1>}
       {children}
       {tutorials && <TutorialButton place={tutorials} deviceKind={deviceKind} className={children ? undefined : "ml-auto"} />}
+      {/* Close this Pane while two are showing (spec #35). */}
+      <PaneButtons openOther={false} />
     </header>
   );
 }
