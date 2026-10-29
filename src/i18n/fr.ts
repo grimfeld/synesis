@@ -431,6 +431,9 @@ export const fr: Dict = {
   border_file: (path: string) => `Conservée dans ${path}`,
   border_saved: "Frontière enregistrée.",
   border_deleted: "Frontière supprimée.",
+  border_import: "Importer une frontière",
+  border_imported: "Frontière importée.",
+  border_import_failed: (error: string) => `Frontière non importée. ${error}`,
   border_delete_title: "Supprimer cette frontière ?",
   border_delete_body:
     "Ce fichier est retiré du coffre, et la région n’est plus montrée sur la Carte que par son nom.",

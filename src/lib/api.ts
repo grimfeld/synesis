@@ -938,6 +938,12 @@ export const api = {
   /** Write a Border drawn on the Map: a `.geojson` beside the Place, and `border`. */
   saveBorder: (id: string, corners: LatLon[]) =>
     invoke<DocumentPayload>("save_border", { id, corners }),
+  /**
+   * Import a `.geojson` file picked from disk as a Place's Border: copied whole
+   * beside the Place, and `border`. Refused, saying why, when it holds no area.
+   */
+  importBorder: (id: string, fileName: string, text: string) =>
+    invoke<DocumentPayload>("import_border", { id, fileName, text }),
   /** Remove a Place's Border file and its `border` Property. */
   deleteBorder: (id: string) => invoke<DocumentPayload>("delete_border", { id }),
   setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>

@@ -102,6 +102,48 @@ describe("Borders", () => {
     });
   });
 
+  it("imports a Border from a .geojson file, every piece kept", () => {
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.get("[data-testid=hub-border-import]").click();
+    cy.get("[data-testid=border-input]").selectFile("cypress/fixtures/egypt.geojson", { force: true });
+    cy.get("[data-testid=border-file]").should("contain", "Egypt.geojson");
+    // Two pieces: the drawing mode cannot edit it corner by corner.
+    cy.get("[data-testid=hub-border-draw]").should("contain", "Draw Border");
+    cy.docByTitle("Egypt").then((egypt) => {
+      const dir = egypt.path.replace(/[^/]+$/, "");
+      cy.task<string | null>("file:read", vaultFile(`${dir}Egypt.geojson`)).then((text) => {
+        const geo = JSON.parse(text ?? "{}");
+        expect(geo.features[0].properties.name).to.equal("Egypt");
+        expect(geo.features[0].geometry.type).to.equal("MultiPolygon");
+        expect(geo.features[0].geometry.coordinates).to.have.length(2);
+      });
+      cy.task<string>("file:read", vaultFile(egypt.path)).then((text) => {
+        expect(text).to.match(/^border: "\[\[Egypt\.geojson\]\]"$/m);
+      });
+      // On the Map the region is one filled area of two pieces.
+      cy.runCommand("Go to Map");
+      cy.get(`[data-testid=map-border][data-id=${egypt.id}]`)
+        .should("have.length", 1)
+        .invoke("attr", "d")
+        .then((d) => expect(String(d).match(/M/g)).to.have.length(2));
+    });
+  });
+
+  it("refuses a .geojson file with no area in it, saying why", () => {
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.get("[data-testid=hub-border-import]").click();
+    cy.get("[data-testid=border-input]").selectFile("cypress/fixtures/roads.geojson", { force: true });
+    cy.get("[data-sonner-toast]").should("contain", "roads.geojson").and("contain", "no Polygon");
+    cy.get("[data-testid=border-none]").should("exist");
+    cy.docByTitle("Egypt").then((egypt) => {
+      const dir = egypt.path.replace(/[^/]+$/, "");
+      cy.task<boolean>("file:exists", vaultFile(`${dir}Egypt.geojson`)).should("equal", false);
+      cy.task<string>("file:read", vaultFile(egypt.path)).should("not.match", /^border:/m);
+    });
+  });
+
   it("warns on the Place when its Border file cannot be read", () => {
     cy.docByTitle("Egypt").then((egypt) => {
       const dir = egypt.path.replace(/[^/]+$/, "");

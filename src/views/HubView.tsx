@@ -22,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Upload,
   X,
   Waypoints,
 } from "lucide-react";
@@ -62,7 +63,7 @@ import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
 import { editableCorners, isRegion } from "@/lib/border";
-import { useBorders, useDeleteBorder } from "@/lib/useBorders";
+import { useBorders, useDeleteBorder, useImportBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
@@ -1490,6 +1491,7 @@ function BorderSection({ doc }: { doc: DocumentPayload }) {
   const t = useT();
   const borders = useBorders();
   const confirmDelete = useDeleteBorder();
+  const importBorder = useImportBorder();
   const id = doc.summary.id;
   const border = borders.find((b) => b.doc === id);
   const region = isRegion({ type: doc.summary.type, kind: doc.frontmatter.kind });
@@ -1541,6 +1543,16 @@ function BorderSection({ doc }: { doc: DocumentPayload }) {
         >
           <MapPin />
           {border && editableCorners(border) ? t.border_edit : t.border_draw}
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-auto min-h-8"
+          data-testid="hub-border-import"
+          onClick={() => importBorder(id)}
+        >
+          <Upload />
+          {t.border_import}
         </Button>
         {border && (
           <Button
