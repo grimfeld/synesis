@@ -194,6 +194,17 @@ export const fr: Dict = {
     url: "URL",
   },
   date_placeholder: "v. 1513 av. n. è.",
+  add_date: "Ajouter une Date",
+  add_lifespan: "Ajouter naissance et mort",
+  add_span: "Ajouter début et fin",
+  add_date_half: (label: string) => `Ajouter « ${label} »`,
+  add_date_named: "Date…",
+  date_name_placeholder: "Nom, par ex. onction",
+  date_name_add: "Ajouter",
+  date_name_taken: (name: string, type: string) =>
+    `« ${name} » est déjà une Propriété de type ${type} dans ce coffre. Un nom a le même type partout ; choisissez-en un autre.`,
+  date_name_reserved: (name: string) =>
+    `« ${name} » est réservé et ne peut pas être une Propriété.`,
   add_property: "Ajouter une propriété",
   candidates: "Matière candidate",
   candidates_hint:
