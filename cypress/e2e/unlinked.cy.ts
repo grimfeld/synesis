@@ -69,6 +69,29 @@ describe("Unlinked mentions", () => {
     });
   });
 
+  it("never counts the Book name inside a Passage, on the Hub or in the editor", () => {
+    // "Psalm 23 reflections" writes "John 10:11-15": the Book, not the
+    // Character John. Patmos writes "John's exile": the Character. The Hub
+    // and the editor's Linkables must agree on both.
+    cy.openDoc("John");
+    cy.get("[data-testid=unlinked-mentions]", { timeout: 10000 })
+      .should("contain", "Patmos")
+      .and("not.contain", "Psalm 23 reflections");
+
+    // Patmos first, so the panel is known to offer John where he is named.
+    cy.openDoc("Patmos");
+    cy.get("button[aria-label='Link: John']", { timeout: 10000 }).should(
+      "exist",
+    );
+
+    // David and Jesus are linked already, so with John 10:11-15 skipped the
+    // note has nothing left to offer.
+    cy.openDoc("Psalm 23 reflections");
+    cy.get(".cm-content").should("contain", "John 10:11-15");
+    cy.get("[data-testid=linkables]").parent().find("li").should("have.length", 0);
+    cy.get("button[aria-label='Link: John']").should("not.exist");
+  });
+
   it("shows no section on a Scripture page", () => {
     // A Passage is already a Mention, so Scripture has none by construction —
     // and the Book "John" shares its name with a Character.

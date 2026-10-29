@@ -10,6 +10,7 @@ A name you wrote without linking is easy to miss. While you write, the app shows
 ## Good to know
 
 - Scripture is never listed: a Passage is already a Mention.
+- A name inside a Passage belongs to the Book: "John 3:16" never offers the Character John, but "John" on its own does.
 - An alias counts: writing "Saul" offers a link to Paul when Saul is one of Paul's aliases.
 - Linking one occurrence takes the name off the list; the others stay plain prose.
 - On a page, **Link all** links the first mention in each listed document, after showing you which ones. **Undo** in the notice puts the words back.
