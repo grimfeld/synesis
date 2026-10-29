@@ -361,6 +361,12 @@
 /* Routes (PLAN §19.10): the arrowhead is a rotated triangle on the leg, so
    direction reads at a glance without hunting for the Stop numbers. */
 .map-route { pointer-events: stroke; }
+/* An Event in the Period (CONTEXT.md: Map): a small diamond in the Event colour
+   beside its Place's pin, several stacked one above the other. */
+.map-event-icon { background: none; border: none; --halo: var(--c-atlas-land, var(--background)); }
+.map-event { position: absolute; left: -16px; top: calc(-14px - var(--i, 0) * 11px); width: 9px; height: 9px; transform: rotate(45deg); background: var(--c-event); box-shadow: 0 0 0 1.5px var(--halo); cursor: pointer; }
+.map-event-icon:hover .map-event, .map-event-icon:focus-visible .map-event { transform: rotate(45deg) scale(1.35); }
+.map-event-icon:focus-visible { outline: none; }
 .map-arrow { background: none; border: none; }
 .map-arrow span { display: block; width: 0; height: 0; transform: rotate(var(--a, 0deg)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid var(--c, currentColor); }
 /* The atlas (ADR 0018): the sea is the container, land and water are Skin-filled

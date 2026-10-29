@@ -97,6 +97,10 @@ export const fr: Dict = {
   period_clear: "Effacer la Période",
   period_undated: (n: number) =>
     n === 1 ? "1 non daté non affiché" : `${n} non datés non affichés`,
+  period_slider: "Curseur de la Période",
+  period_slider_from: "Début de la Période",
+  period_slider_to: "Fin de la Période",
+  period_slider_middle: "Déplacer la Période",
   tl_mini_events: "Événements",
   bce: "av. n. è.",
   ce: "de n. è.",
