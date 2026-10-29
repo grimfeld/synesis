@@ -201,6 +201,17 @@ export const en = {
     url: "URL",
   },
   date_placeholder: "c. 1513 BCE",
+  add_date: "Add Date",
+  add_lifespan: "Add lifespan",
+  add_span: "Add Span",
+  add_date_half: (label: string) => `Add ${label}`,
+  add_date_named: "Date…",
+  date_name_placeholder: "Name, e.g. anointed",
+  date_name_add: "Add",
+  date_name_taken: (name: string, type: string) =>
+    `“${name}” is already a ${type} Property in this vault. A name has one type everywhere; choose another.`,
+  date_name_reserved: (name: string) =>
+    `“${name}” is reserved and cannot be a Property.`,
   candidates: "Candidate material",
   candidates_hint:
     "Notes and Clippings sharing Tags or Passages with this Composition, not yet linked from it.",

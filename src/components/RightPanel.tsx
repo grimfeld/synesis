@@ -32,6 +32,7 @@ import {
   type BacklinkGroup,
 } from "@/lib/backlinks";
 import { removeField, setField } from "@/lib/frontmatter";
+import { checkNewProperty } from "@/lib/propertyName";
 import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
 import { useQuery } from "@/lib/useQuery";
@@ -303,8 +304,9 @@ export function Properties({
     doc.summary.type === "book" ||
     doc.summary.type === "chapter" ||
     doc.summary.type === "verse";
-  const newName = adding.trim().replace(/[^\w-]/g, "");
-  const knownType = newName ? s.schema.types[newName] : undefined;
+  const check = checkNewProperty(adding, s.schema.types);
+  const newName = check.ok || check.reason !== "empty" ? check.name : "";
+  const knownType = check.ok ? check.known : undefined;
   // Not a component defined inline: that would remount every input on each render.
   // A disabled fieldset turns off every control inside it — inputs, selects,
   // the type menus — so no widget needs to learn about the lock one by one.
@@ -361,7 +363,7 @@ export function Properties({
         data-testid="add-property"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!newName || RESERVED_PROPERTIES.includes(newName)) return;
+          if (!check.ok) return;
           const type = knownType ?? addingType;
           if (!knownType) await s.setPropertyType(newName, type);
           onFmChange(
