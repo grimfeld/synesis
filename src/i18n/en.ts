@@ -226,6 +226,7 @@ export const en = {
   pane_close: "Close Pane",
   pane_swap: "Swap Panes",
   pane_divider: "Resize the Panes",
+  window_open: "Open in new Window",
   reading_mode: "Reading mode",
   reading_mode_on: "Reading mode is on: nothing here can be edited. Unlock to write.",
   reading_unlock: "Unlock to edit",

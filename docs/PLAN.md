@@ -1184,13 +1184,11 @@ Studying means reading one document while writing another: a Note beside the Cli
 6. **One pure reducer** (`src/lib/panes.ts`) owns every transition; the store renders each Pane through a scope that gives its views that Pane's view, history and split.
 7. **The layout is restored per Device and per Vault** (`localStorage`, keyed by the Vault's root): two Panes come back with their views, the last-used one and the divider, without their histories. A single Pane saves nothing, so the app opens on Home as it always has. A document gone since shows Home in its place.
 8. **One live document per id** (`src/lib/liveDocument.ts`). Every Pane showing a document shares one copy of its text, which alone saves it, so one Pane can never save over the other's typing. Each editor joins it: its typing goes in, and the other editors apply it at once as the smallest change, kept out of their own Undo, so their caret stays put. A load, a restored Version or a panel rewriting the text replaces it wholesale in every editor. The last Pane to close it saves what is pending. A desktop Window (#51) keeps its own and has the engine relay its edits to the others, which take them in as `receive`.
+9. **Windows (#51), desktop only.** The Command "Open in new Window" asks the engine (`open_window`) for a separate app Window on the document in the last-used Pane. Each Window has its own Panes and history; a secondary Window shares the Vault the main one opened rather than opening it again, and neither restores nor saves the Vault's Pane layout, which stays the main Window's. Every Window talks to the same engine process, so the engine relays the text: each Window tells it which documents it shows (`show_documents`) and sends its edits, whole text, after a 30 ms pause (`relay_edit`); the engine passes each to the other Windows showing that document (`doc:edited`, bookkeeping in `engine::windows`). Saving stays with each Window's live document, and the watcher's echo of the other Window's save is recognised as text already shown. Closing a secondary Window leaves the main one; closing the main Window quits, unless it hides to the tray for background sync, and quitting closes them all. Not on a phone, not in the web build, not through the dev bridge: none of them can make a Window. Checked by hand, since Cypress drives a single webview.
 
 ### Declined
 
 - More than two Panes, Panes stacked vertically, tabs.
 - Dragging a Pane out into a Window.
 - Making a Pane last-used on focus (decision 2).
-
-### Deferred
-
-- Separate desktop Windows (#51).
+- Merging typing made in two Windows at the same instant: the last edit relayed wins, as it would between two people sharing one keyboard (decision 9).

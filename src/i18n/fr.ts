@@ -221,6 +221,7 @@ export const fr: Dict = {
   pane_close: "Fermer le volet",
   pane_swap: "Échanger les volets",
   pane_divider: "Redimensionner les volets",
+  window_open: "Ouvrir dans une nouvelle fenêtre",
   reading_mode: "Mode lecture",
   reading_mode_on: "Le mode lecture est activé : rien ici ne peut être modifié. Déverrouillez pour écrire.",
   reading_unlock: "Déverrouiller pour modifier",
