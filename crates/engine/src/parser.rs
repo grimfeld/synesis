@@ -5,7 +5,8 @@
 //!   bare book names are never detected;
 //! - the book name must start with an uppercase letter or a digit ("Job 3" yes, "my job 3" no);
 //! - contextual "v. 17" / "verses 3, 4" resolve against the last explicit
-//!   reference in the same paragraph and are flagged `inferred`;
+//!   reference in the same section (since the last heading, across blank
+//!   lines) and are flagged `inferred`;
 //! - nothing is detected inside code spans, fenced code blocks or URLs;
 //! - every Passage is validated against the versification; invalid chapters or
 //!   verses are dropped rather than clamped.
@@ -54,7 +55,11 @@ static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
+    Regex::new(&format!(
+        r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}",
+        crate::attachments::PICTURE_SYNTAX
+    ))
+    .expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
@@ -267,13 +272,17 @@ fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
     zones.iter().any(|&(a, b)| start < b && end > a)
 }
 
-/// Byte offsets at which a new paragraph begins (after a blank line).
-fn paragraph_breaks(text: &str) -> Vec<usize> {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n[ \t]*\n").unwrap());
-    RE.find_iter(text).map(|m| m.end()).collect()
+/// Byte offsets at which a new section begins: the start of every ATX heading
+/// line outside code. A bare verse only resolves within its section.
+fn section_breaks(text: &str, zones: &[(usize, usize)]) -> Vec<usize> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^ {0,3}#{1,6}(?:[ \t]|$)").unwrap());
+    RE.find_iter(text)
+        .map(|m| m.start())
+        .filter(|&at| !in_zone(zones, at, at + 1))
+        .collect()
 }
 
-fn paragraph_of(breaks: &[usize], pos: usize) -> usize {
+fn section_of(breaks: &[usize], pos: usize) -> usize {
     breaks.partition_point(|&b| b <= pos)
 }
 
@@ -317,7 +326,7 @@ pub fn detect(text: &str) -> Vec<Detected> {
         });
     }
 
-    let breaks = paragraph_breaks(text);
+    let breaks = section_breaks(text, &zones);
     let explicit = out.clone();
     let mut inferred = Vec::new();
     for caps in CONTEXT_RE.captures_iter(text) {
@@ -331,10 +340,10 @@ pub fn detect(text: &str) -> Vec<Detected> {
         {
             continue;
         }
-        let para = paragraph_of(&breaks, start);
+        let section = section_of(&breaks, start);
         let ctx = explicit
             .iter()
-            .filter(|d| d.end <= start && paragraph_of(&breaks, d.start) == para)
+            .filter(|d| d.end <= start && section_of(&breaks, d.start) == section)
             .last();
         let ctx = match ctx {
             Some(c) => c,
@@ -482,14 +491,65 @@ mod tests {
             vec!["Romans 8:28", "Romans 8:29", "Romans 8:31", "Romans 8:32"]
         );
         assert!(d[1].inferred && d[2].inferred && !d[0].inferred);
-        // New paragraph: no context.
-        assert_eq!(refs("Romans 8:28.\n\nv. 29 alone"), vec!["Romans 8:28"]);
+        // New paragraph, same section: still in context.
+        assert_eq!(
+            refs("Romans 8:28.\n\nv. 29 alone"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
         // No prior reference: nothing.
         assert!(refs("v. 29 alone").is_empty());
         // French keyword.
         assert_eq!(
             refs("Jean 3:16, puis verset 17"),
             vec!["John 3:16", "John 3:17"]
+        );
+    }
+
+    #[test]
+    fn bare_verses_are_scoped_to_the_section() {
+        // Blank lines between the reference and the bare verse keep the context.
+        let d = detect("Read Romans 8:28.\n\nA thought.\n\nVerse 29 follows.");
+        assert_eq!(d.len(), 2);
+        assert!(d[1].inferred);
+        assert_eq!(d[1].passages[0].display(Lang::En), "Romans 8:29");
+        // A heading ends the context.
+        assert_eq!(
+            refs("Romans 8:28.\n\n## Next\n\nv. 3 alone"),
+            vec!["Romans 8:28"]
+        );
+        assert_eq!(
+            refs("Romans 8:28.\n# Next\nv. 3 alone"),
+            vec!["Romans 8:28"]
+        );
+        // A reference in the heading itself belongs to the new section.
+        assert_eq!(
+            refs("Romans 8:28.\n\n## John 3\n\nv. 16"),
+            vec!["Romans 8:28", "John 3", "John 3:16"]
+        );
+        // A later explicit reference takes over.
+        assert_eq!(
+            refs("Romans 8:28.\n\nThen John 3:16.\n\nv. 17"),
+            vec!["Romans 8:28", "John 3:16", "John 3:17"]
+        );
+        // Inferred references never become the context for later ones.
+        assert_eq!(
+            refs("Romans 8:28, v. 29.\n\n## Next\n\nv. 30"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // French keyword across a blank line.
+        assert_eq!(
+            refs("Jean 3:16\n\nverset 17"),
+            vec!["John 3:16", "John 3:17"]
+        );
+        // A "#" line inside a code block is not a heading.
+        assert_eq!(
+            refs("Romans 8:28.\n\n```\n# comment\n```\n\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // "#tag" is a Tag, not a heading.
+        assert_eq!(
+            refs("Romans 8:28.\n#faith\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
         );
     }
 
