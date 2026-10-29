@@ -2921,6 +2921,38 @@ tags: [judgment]
     }
 
     #[test]
+    fn a_passage_naming_the_book_is_not_an_unlinked_mention() {
+        let idx = idx_with(&[
+            ("ch", "Characters/Jérémie.md", "---\ntype: character\n---\n"),
+            ("n1", "Notes/A.md", "Relire Jérémie 48:2 demain."),
+            ("n2", "Notes/B.md", "Jérémie pleure sur la ville."),
+            ("n3", "Notes/C.md", "Jérémie 48:2, puis v. 12 encore."),
+        ]);
+        let u = idx.unlinked_mentions("ch", 50).unwrap();
+        let ids: Vec<_> = u.items.iter().map(|m| m.doc.id.as_str()).collect();
+        assert_eq!(ids, vec!["n2"]);
+        assert_eq!(u.total, 1);
+    }
+
+    #[test]
+    fn a_passage_naming_the_book_is_not_linkable() {
+        let idx = idx_with(&[
+            ("ch", "Characters/Jérémie.md", "---\ntype: character\n---\n"),
+            ("c", "Concepts/Verset.md", "---\ntype: concept\n---\n"),
+            ("n", "Notes/A.md", ""),
+        ]);
+        assert!(idx.linkables("n", "Relire Jérémie 48:2.", 50).unwrap().is_empty());
+        // A name inside the inferred "verset 12" is skipped as well.
+        assert!(idx
+            .linkables("n", "Jérémie 48:2, puis verset 12.", 50)
+            .unwrap()
+            .is_empty());
+        let l = idx.linkables("n", "Jérémie pleure.", 50).unwrap();
+        let got: Vec<_> = l.iter().map(|x| (x.doc.id.as_str(), x.count)).collect();
+        assert_eq!(got, vec![("ch", 1)]);
+    }
+
+    #[test]
     fn unlinked_mentions_report_a_total_past_the_cap() {
         let idx = idx_with(&[
             ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
