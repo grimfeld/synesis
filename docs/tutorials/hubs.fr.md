@@ -12,5 +12,6 @@ Chaque Source et chaque Sujet a sa page : un Livre, un Chapitre ou un Verset, un
 - Une étiquette et un lien dans une phrase sont la même mention : les deux créent un lien entrant.
 - **Mentions non liées**, à côté des liens entrants, liste les documents qui écrivent le nom de cette page sans la lier.
 - Un Lieu, un Personnage, un Concept, un Événement ou un Voyage peut porter d'autres noms : ajoutez-les sous **Alias** dans son en-tête, comme Saul pour Paul ou Joppé pour Jaffa. Un lien vers un alias ouvre cette page, et un alias écrit sans lien compte comme mention non liée. Le nom moderne d'un Lieu n'est pas un alias.
+- Un Personnage est dans un Lieu de deux façons : en le nommant sous `places` dans ses Propriétés, ce qui vaut pour toute sa vie, ou par un Événement qui nomme les deux, ce qui vaut pour le temps de l'Événement. La page d'un Lieu liste ses **Personnages présents**, et celle d'un Personnage ses **Lieux**, chacun avec quand.
 - Une page liste aussi ses tableaux : les compositions dont le tableau porte une carte vers elle.
 - L'en-tête ne garde que ce qui dit ce qu'est la page. Ses autres valeurs, comme la latitude d'un Lieu ou l'URL d'une Source, sont sous **Propriétés**, juste au-dessus d'**À propos**.

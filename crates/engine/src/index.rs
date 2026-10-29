@@ -197,6 +197,20 @@ pub struct EventLink {
     pub subject: String,
 }
 
+/// A Character in a Place (CONTEXT.md, Character). Named in the Character's own `places`
+/// list, it holds for their whole life: `event` is `None` and so is the span,
+/// because the Character's own Span applies. Through an Event naming both, it
+/// holds only for the Event's time: `start` and `end` are the Event's, either
+/// `None` when missing or not a Date.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaceTie {
+    pub character: DocSummary,
+    pub place: DocSummary,
+    pub event: Option<DocSummary>,
+    pub start: Option<BibleDate>,
+    pub end: Option<BibleDate>,
+}
+
 /// One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocTag {
@@ -1471,6 +1485,112 @@ impl Index {
             names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
         let rows = st.query_map(args.as_slice(), row_summary)?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every Character↔Place tie, or only those touching `id` (a Character or
+    /// a Place). By Character title; within one Character, their `places` in
+    /// the order written, then Events earliest first, undated last.
+    ///
+    /// Only a Character's `places` count: a Journey's is its route, not anyone's
+    /// home. An Event ties each of its `characters` that is a Character to its
+    /// `place` when that is a Place; links that resolve to nothing, or to
+    /// another type, tie no one.
+    pub fn place_ties(&self, id: Option<&str>) -> Result<Vec<PlaceTie>> {
+        let resolve_as = |target: &str, t: DocType| -> Result<Option<DocSummary>> {
+            Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
+        };
+        // (Character title, 0 for `places` | 1 for an Event, order within, tie)
+        let mut keyed: Vec<(String, u8, f64, String, PlaceTie)> = Vec::new();
+
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
+             WHERE d.type = 'character' AND l.property = 'places' ORDER BY d.id, l.start"
+        ))?;
+        let rows: Vec<(DocSummary, String)> = st
+            .query_map([], |r| Ok((row_summary(r)?, r.get::<_, String>("target")?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        for (n, (character, target)) in rows.into_iter().enumerate() {
+            if let Some(place) = resolve_as(&target, DocType::Place)? {
+                if keyed.iter().any(|k| {
+                    k.1 == 0 && k.4.character.id == character.id && k.4.place.id == place.id
+                }) {
+                    continue;
+                }
+                keyed.push((
+                    character.title.to_lowercase(),
+                    0,
+                    n as f64,
+                    String::new(),
+                    PlaceTie {
+                        character,
+                        place,
+                        event: None,
+                        start: None,
+                        end: None,
+                    },
+                ));
+            }
+        }
+
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'event' ORDER BY d.title"
+        ))?;
+        let events: Vec<DocSummary> = st
+            .query_map([], row_summary)?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut targets = self.conn.prepare(
+            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
+        )?;
+        for event in events {
+            let links: Vec<(String, String)> = targets
+                .query_map([&event.id], |r| Ok((r.get(0)?, r.get(1)?)))?
+                .collect::<rusqlite::Result<_>>()?;
+            let mut place = None;
+            for (_, target) in links.iter().filter(|(p, _)| p == "place") {
+                if let Some(p) = resolve_as(target, DocType::Place)? {
+                    place = Some(p);
+                    break;
+                }
+            }
+            let Some(place) = place else { continue };
+            let start = event.start.as_deref().and_then(BibleDate::parse);
+            let end = event.end.as_deref().and_then(BibleDate::parse);
+            let mut seen = HashSet::new();
+            for (_, target) in links.iter().filter(|(p, _)| p == "characters") {
+                let Some(character) = resolve_as(target, DocType::Character)? else {
+                    continue;
+                };
+                if !seen.insert(character.id.clone()) {
+                    continue;
+                }
+                keyed.push((
+                    character.title.to_lowercase(),
+                    1,
+                    start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
+                    event.title.to_lowercase(),
+                    PlaceTie {
+                        character,
+                        place: place.clone(),
+                        event: Some(event.clone()),
+                        start,
+                        end,
+                    },
+                ));
+            }
+        }
+
+        keyed.sort_by(|a, b| {
+            a.0.cmp(&b.0)
+                .then(a.4.character.id.cmp(&b.4.character.id))
+                .then(a.1.cmp(&b.1))
+                .then(a.2.total_cmp(&b.2))
+                .then(a.3.cmp(&b.3))
+        });
+        Ok(keyed
+            .into_iter()
+            .map(|k| k.4)
+            .filter(|t| id.is_none_or(|id| t.character.id == id || t.place.id == id))
+            .collect())
     }
 
     pub fn places(&self) -> Result<Vec<DocSummary>> {
@@ -2760,6 +2880,81 @@ tags: [judgment]
             .map(|x| x.id)
             .collect();
         assert_eq!(ev, vec!["b", "x", "a", "n", "u"]);
+    }
+
+    /// The two ways a Character is in a Place (CONTEXT.md): their own `places`
+    /// list, for their whole life, and an Event naming both, for its time.
+    fn ties_vault() -> Index {
+        idx_with(&[
+            ("jer", "Characters/Jeremiah.md", "---\ntype: character\nborn: c. 650 BCE\nplaces: [\"[[Anathoth]]\", \"[[Jerusalem]]\", \"[[Nowhere]]\", \"[[Paul]]\"]\n---\n"),
+            ("paul", "Characters/Paul.md", "---\ntype: character\n---\n"),
+            ("ana", "Places/Anathoth.md", "---\ntype: place\n---\n"),
+            ("jeru", "Places/Jerusalem.md", "---\ntype: place\n---\n"),
+            ("eph", "Places/Ephesus.md", "---\ntype: place\n---\n"),
+            ("stay", "Events/Paul in Ephesus.md", "---\ntype: event\nstart: 52 CE\nend: 55 CE\nplace: \"[[Ephesus]]\"\ncharacters: [\"[[Paul]]\", \"[[Grace]]\"]\n---\n"),
+            ("visit", "Events/Paul in Jerusalem.md", "---\ntype: event\nstart: 49 CE\nplace: \"[[Jerusalem]]\"\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // An Event with no Place ties no one.
+            ("talk", "Events/A talk.md", "---\ntype: event\nstart: 50 CE\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // A Concept named in `characters` is not a Character.
+            ("grace", "Concepts/Grace.md", "---\ntype: concept\n---\n"),
+            // A Journey's `places` is its route, not anyone's home.
+            ("trip", "Journeys/Trip.md", "---\ntype: journey\nplaces: [\"[[Ephesus]]\"]\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // `places` ties only Characters.
+            ("love", "Concepts/Love.md", "---\ntype: concept\nplaces: [\"[[Ephesus]]\"]\n---\n"),
+        ])
+    }
+
+    fn tie_rows(ties: &[PlaceTie]) -> Vec<(&str, &str, Option<&str>, Option<i32>, Option<i32>)> {
+        ties.iter()
+            .map(|t| {
+                (
+                    t.character.id.as_str(),
+                    t.place.id.as_str(),
+                    t.event.as_ref().map(|e| e.id.as_str()),
+                    t.start.map(|d| d.year),
+                    t.end.map(|d| d.year),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn place_ties_come_from_places_and_from_events() {
+        let idx = ties_vault();
+        let all = idx.place_ties(None).unwrap();
+        assert_eq!(
+            tie_rows(&all),
+            vec![
+                // `places` holds for the whole life: no span of its own.
+                ("jer", "ana", None, None, None),
+                ("jer", "jeru", None, None, None),
+                // An Event holds only for its own time, earliest first.
+                ("paul", "jeru", Some("visit"), Some(49), None),
+                ("paul", "eph", Some("stay"), Some(52), Some(55)),
+            ]
+        );
+    }
+
+    #[test]
+    fn place_ties_narrow_to_one_character_or_one_place() {
+        let idx = ties_vault();
+        let jerusalem = idx.place_ties(Some("jeru")).unwrap();
+        assert_eq!(
+            tie_rows(&jerusalem),
+            vec![
+                ("jer", "jeru", None, None, None),
+                ("paul", "jeru", Some("visit"), Some(49), None),
+            ]
+        );
+        let paul = idx.place_ties(Some("paul")).unwrap();
+        assert_eq!(
+            tie_rows(&paul),
+            vec![
+                ("paul", "jeru", Some("visit"), Some(49), None),
+                ("paul", "eph", Some("stay"), Some(52), Some(55)),
+            ]
+        );
+        assert!(idx.place_ties(Some("love")).unwrap().is_empty());
     }
 
     #[test]

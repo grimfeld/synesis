@@ -294,6 +294,20 @@ export interface EventLink {
   subject: string;
 }
 
+/**
+ * A Character in a Place (CONTEXT.md, Character). From the Character's own
+ * `places`: `event`, `start` and `end` are null, and the Character's Span
+ * applies. From an Event naming both: the Event, and its `start`/`end` when
+ * they are Dates.
+ */
+export interface PlaceTie {
+  character: DocSummary;
+  place: DocSummary;
+  event: DocSummary | null;
+  start: BibleDate | null;
+  end: BibleDate | null;
+}
+
 /** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17). */
 export interface DocTag {
   doc: string;
@@ -682,6 +696,7 @@ export type Query =
   | { kind: "eventsNaming"; id: string }
   | { kind: "eventLinks" }
   | { kind: "timelineTags" }
+  | { kind: "placeTies"; id: string | null }
   | { kind: "journeys" }
   | { kind: "placeFacts" }
   | { kind: "kindSuggestions" };
@@ -887,6 +902,9 @@ export const api = {
     query<DocSummary[]>({ kind: "eventsNaming", id }),
   eventLinks: () => query<EventLink[]>({ kind: "eventLinks" }),
   timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
+  /** Every Character↔Place tie, or only those touching one Character or Place. */
+  placeTies: (id: string | null = null) =>
+    query<PlaceTie[]>({ kind: "placeTies", id }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
   /** Places without a kind the gazetteer can name (PLAN §27.13). */
   kindSuggestions: () => query<KindSuggestion[]>({ kind: "kindSuggestions" }),
