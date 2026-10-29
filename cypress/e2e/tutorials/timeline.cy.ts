@@ -49,8 +49,27 @@ describe("Tutorial: Timeline", () => {
     cy.get("body").type("{esc}");
     cy.tutorialNext();
 
-    // 4. A mark opens its Hub, which shows its Lane in miniature.
+    // 4. A Period narrows to what overlaps it, and clears in one click.
     cy.tutorialStep(3);
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-clear]").click();
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("exist"),
+    );
+    cy.tutorialNext();
+
+    // 5. A mark opens its Hub, which shows its Lane in miniature.
+    cy.tutorialStep(4);
     cy.get("[data-testid=tl-search]").type("Death of Jesus");
     cy.docByTitle("Death of Jesus").then((ev) => {
       cy.get(`[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark][data-doc=${ev.id}]`).click({ force: true });
@@ -62,8 +81,8 @@ describe("Tutorial: Timeline", () => {
     cy.get("[data-testid=tl-search]").should("have.value", "Death of Jesus").clear();
     cy.tutorialNext();
 
-    // 5. Do it once: a new Event with a Start Date lands on the Events Lane.
-    cy.tutorialStep(4);
+    // 6. Do it once: a new Event with a Start Date lands on the Events Lane.
+    cy.tutorialStep(5);
     cy.tutorialCommand("create.event");
     cy.get("[data-testid=new-doc-form]").should("contain", "Event");
     cy.get("[data-testid=new-doc-form] input").first().type("Paul shipwrecked on Malta");

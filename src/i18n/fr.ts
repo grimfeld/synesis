@@ -91,6 +91,12 @@ export const fr: Dict = {
   tl_filtered_empty:
     "Aucune Piste ne correspond aux filtres. Effacez-les ou élargissez la vue.",
   tl_open_in_timeline: "Ouvrir dans la Chronologie",
+  period: "Période",
+  period_from: "De",
+  period_to: "À",
+  period_clear: "Effacer la Période",
+  period_undated: (n: number) =>
+    n === 1 ? "1 non daté non affiché" : `${n} non datés non affichés`,
   tl_mini_events: "Événements",
   bce: "av. n. è.",
   ce: "de n. è.",

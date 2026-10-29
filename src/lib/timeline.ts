@@ -49,7 +49,7 @@ export function formatYear(y: number, t: { bce: string; ce: string }): string {
  * with the rest of the UI's per-type table (`SPAN` in lib/docTypes.tsx); a
  * suggestion is not a constraint.
  */
-const SPAN_PAIRS: [string, string][] = [
+export const SPAN_PAIRS: [string, string][] = [
   ["start", "end"],
   ["born", "died"],
 ];
@@ -306,10 +306,12 @@ export function resolveLabels(
   return placed.map((p) => (kept.has(p.key) ? p : { ...p, label: null }));
 }
 
-/** What the Timeline's five filters currently restrict to (PLAN §16.2). */
+/**
+ * What the Timeline's own filters currently restrict to (PLAN §16.2). Tags
+ * are not here: they belong to the Period filter the Map shares (lib/period).
+ */
 export interface Filters {
   hiddenTypes: DocType[];
-  tags: string[];
   props: string[];
   search: string;
   inView: boolean;
@@ -317,7 +319,6 @@ export interface Filters {
 
 export const NO_FILTERS: Filters = {
   hiddenTypes: [],
-  tags: [],
   props: [],
   search: "",
   inView: true,
@@ -327,7 +328,6 @@ export const NO_FILTERS: Filters = {
 export function activeCount(f: Filters): number {
   return (
     f.hiddenTypes.length +
-    f.tags.length +
     f.props.length +
     (f.search.trim() ? 1 : 0)
   );
@@ -339,23 +339,14 @@ export function activeCount(f: Filters): number {
  * paired, so asking for `born` alone leaves a point rather than a `born`/`died`
  * bar (PLAN §16.2).
  */
-export function filterRows(
-  rows: DatedProperty[],
-  f: Filters,
-  tagsByDoc: Map<string, string[]>,
-): DatedProperty[] {
+export function filterRows(rows: DatedProperty[], f: Filters): DatedProperty[] {
   const hidden = new Set(f.hiddenTypes);
   const wanted = new Set(f.props.map(fold));
-  const tags = new Set(f.tags.map(fold));
   const needle = fold(f.search.trim());
   return rows.filter((r) => {
     if (hidden.has(r.doc.type)) return false;
     if (wanted.size > 0 && !wanted.has(fold(r.name))) return false;
     if (needle && !fold(r.doc.title).includes(needle)) return false;
-    if (tags.size > 0) {
-      const own = tagsByDoc.get(r.doc.id) ?? [];
-      if (!own.some((tg) => tags.has(fold(tg)))) return false;
-    }
     return true;
   });
 }

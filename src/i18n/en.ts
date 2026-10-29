@@ -91,6 +91,11 @@ export const en = {
   tl_filtered_empty:
     "No Lane matches the filters. Clear them, or widen the view.",
   tl_open_in_timeline: "Open in Timeline",
+  period: "Period",
+  period_from: "From",
+  period_to: "To",
+  period_clear: "Clear Period",
+  period_undated: (n: number) => `${n} undated not shown`,
   tl_mini_events: "Events",
   bce: "BCE",
   ce: "CE",
