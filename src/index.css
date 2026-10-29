@@ -361,6 +361,14 @@
 /* Routes (PLAN §19.10): the arrowhead is a rotated triangle on the leg, so
    direction reads at a glance without hunting for the Stop numbers. */
 .map-route { pointer-events: stroke; }
+/* Borders (ADR 0023): a filled, outlined area in the region's colour, and the
+   corner handles of the one being drawn. */
+.map-border { cursor: pointer; }
+.map-border-draft { pointer-events: none; }
+.map-border-corner { background: none; border: none; }
+.map-border-corner span { display: block; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 3px; background: var(--popover); box-shadow: 0 0 0 2px var(--c, var(--primary)), 0 1px 3px rgb(0 0 0 / .3); cursor: move; }
+.map-border-corner.is-first span { background: var(--c, var(--primary)); }
+.map-drawing.leaflet-container { cursor: crosshair; }
 .map-arrow { background: none; border: none; }
 .map-arrow span { display: block; width: 0; height: 0; transform: rotate(var(--a, 0deg)); border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid var(--c, currentColor); }
 /* The atlas (ADR 0018): the sea is the container, land and water are Skin-filled
