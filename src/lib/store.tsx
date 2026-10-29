@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
@@ -30,7 +31,15 @@ import {
 import { NO_FILTERS, type Filters } from "./timeline";
 import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
-import { DEFAULT_RATIO } from "./split";
+import {
+  activePane,
+  initialPanes,
+  panesReducer,
+  type DocTab,
+  type PaneAction,
+  type PanesState,
+  type View,
+} from "./panes";
 import { flushPending } from "./pending";
 import {
   clampSize,
@@ -39,25 +48,12 @@ import {
   type TimerState,
 } from "./delivery";
 
-/** Which face of a Composition is showing (PLAN §22.2). */
-export type DocTab = "talk" | "split" | "board";
+export type { DocTab, View } from "./panes";
 
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
   id: string;
 }
-
-export type View =
-  | { kind: "home" }
-  | { kind: "doc"; id: string }
-  /** `focus`: the local graph of that document (PLAN §10). */
-  | { kind: "graph"; focus?: string }
-  | { kind: "library" }
-  | { kind: "clippings" }
-  | { kind: "map" }
-  | { kind: "coverage" }
-  | { kind: "timeline" }
-  | { kind: "settings" };
 
 export type Dialog =
   | {
@@ -116,6 +112,10 @@ interface Store {
   /** The Vault's custom Place kinds (PLAN §27.4); the built-ins ship in `map.ts`. */
   placeKinds: CustomKind[];
   setPlaceKinds: (kinds: CustomKind[]) => Promise<void>;
+  /** The Window's Panes (spec #35). `view`, Back and the split follow `lastUsed`. */
+  panes: PanesState;
+  dispatchPanes: (a: PaneAction) => void;
+  /** The view in the last-used Pane. */
   view: View;
   canBack: boolean;
   canForward: boolean;
@@ -273,11 +273,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [books, setBooks] = useState<BookMeta[]>([]);
   const [tags, setTags] = useState<TagCount[]>([]);
-  const [view, setView] = useState<View>({ kind: "home" });
-  const [history, setHistory] = useState<{ back: View[]; forward: View[] }>({
-    back: [],
-    forward: [],
-  });
+  const [panes, dispatchPanes] = useReducer(panesReducer, undefined, initialPanes);
+  const pane = activePane(panes);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<ChangedPayload | null>(null);
@@ -296,12 +293,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [deliveryTimer, setDeliveryTimerState] = useState<TimerState>(
     () => newTimer(null),
   );
-  // A Board belongs to the Composition being read, so opening another
-  // document starts on its text rather than on the Board of the last one.
-  const [docTab, setDocTab] = useState<DocTab>("talk");
-  const [splitRatio, setSplitRatio] = useState(DEFAULT_RATIO);
-  const viewRef = useRef(view);
-  viewRef.current = view;
+  // The talk/Board split belongs to each Pane (spec #35).
+  const setDocTab = useCallback((tab: DocTab) => dispatchPanes({ type: "setDocTab", tab }), []);
+  const setSplitRatio = useCallback((ratio: number) => dispatchPanes({ type: "setSplitRatio", ratio }), []);
   const booted = useRef(false);
 
   const lang: Lang = settings?.lang ?? "en";
@@ -341,8 +335,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         api.books(),
       ]);
       // Navigation resets first: once `info` is set the shell renders and the user may click.
-      setView({ kind: "home" });
-      setHistory({ back: [], forward: [] });
+      dispatchPanes({ type: "reset" });
       setSettings(settings);
       setBooks(books);
       await refresh();
@@ -352,8 +345,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const attachVault = useCallback(async () => {
     const [i, settings, books] = await Promise.all([api.vaultInfo(), api.getSettings(), api.books()]);
-    setView({ kind: "home" });
-    setHistory({ back: [], forward: [] });
+    dispatchPanes({ type: "reset" });
     setSettings(settings);
     setBooks(books);
     await refresh();
@@ -411,37 +403,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const navigate = useCallback((v: View) => {
-    setHistory((h) => ({
-      back: [...h.back.slice(-49), viewRef.current],
-      forward: [],
-    }));
-    setView(v);
+    dispatchPanes({ type: "open", view: v });
     if (window.innerWidth < 900) setSidebarOpen(false);
   }, []);
 
-  const back = useCallback(() => {
-    setHistory((h) => {
-      if (h.back.length === 0) return h;
-      const target = h.back[h.back.length - 1];
-      setView(target);
-      return {
-        back: h.back.slice(0, -1),
-        forward: [...h.forward, viewRef.current],
-      };
-    });
-  }, []);
-
-  const forward = useCallback(() => {
-    setHistory((h) => {
-      if (h.forward.length === 0) return h;
-      const target = h.forward[h.forward.length - 1];
-      setView(target);
-      return {
-        back: [...h.back, viewRef.current],
-        forward: h.forward.slice(0, -1),
-      };
-    });
-  }, []);
+  const back = useCallback(() => dispatchPanes({ type: "back" }), []);
+  const forward = useCallback(() => dispatchPanes({ type: "forward" }), []);
 
   const openDoc = useCallback(
     (id: string) => navigate({ kind: "doc", id }),
@@ -652,9 +619,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     placeKinds,
     setPlaceKinds,
     announceChanged,
-    view,
-    canBack: history.back.length > 0,
-    canForward: history.forward.length > 0,
+    panes,
+    dispatchPanes,
+    view: pane.view,
+    canBack: pane.back.length > 0,
+    canForward: pane.forward.length > 0,
     dialog,
     changeTick,
     lastChange,
@@ -667,8 +636,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     delivery,
     deliverySize,
     deliveryTimer,
-    docTab,
-    splitRatio,
+    docTab: pane.docTab,
+    splitRatio: pane.splitRatio,
     openVault,
     attachVault,
     closeVault,
