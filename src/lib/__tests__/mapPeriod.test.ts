@@ -1,7 +1,7 @@
 // The Map in a Period (CONTEXT.md: Period, Map): Places through the Period
 // module, Journeys that overlap it, and Events in it as marks at their Place.
 import { describe, expect, it } from "vitest";
-import type { DatedProperty, DocSummary, DocType, EventLink, Journey } from "../api";
+import type { DatedProperty, DocSummary, DocType, EventLink, Journey, PlaceTie } from "../api";
 import { mapInPeriod } from "../mapPeriod";
 
 function doc(id: string, type: DocType): DocSummary {
@@ -125,5 +125,56 @@ describe("mapInPeriod", () => {
       ),
     });
     expect(r.events).toEqual([]);
+  });
+});
+
+// The shared Tags and Places on the Map: the same rules as the Timeline's,
+// through the ties (CONTEXT.md: Period, Character).
+describe("mapInPeriod with the shared Tags and Places", () => {
+  const peter = doc("peter", "character");
+  const year = (y: number) => ({ year: y, month: null, day: null, approx: false });
+  const shared = {
+    ...input,
+    rows: [...input.rows, dated(david, "died", bce(1037)), dated(peter, "born", 1), dated(peter, "died", 64)],
+    characters: [david, peter],
+    placeTies: [
+      { character: david, place: jerusalem, event: null, start: null, end: null },
+      { character: peter, place: jerusalem, event: pentecost, start: year(33), end: null },
+    ] as PlaceTie[],
+    tagsByDoc: new Map([
+      ["david", ["king"]],
+      ["peter", ["apostle"]],
+      ["ephesus", ["apostle"]],
+    ]),
+  };
+
+  it("keeps a Place carrying a shared Tag, or where someone carrying it is tied", () => {
+    const kept = (tags: string[], period: { from: number; to: number } | null) =>
+      ids(mapInPeriod({ ...shared, tags, period }).places);
+    expect(kept(["king"], null)).toEqual(["jerusalem"]);
+    expect(kept(["king"], { from: bce(1050), to: bce(1040) })).toEqual(["jerusalem"]);
+    // David is dead by 30 CE: Jerusalem has no king then.
+    expect(kept(["king"], { from: 30, to: 60 })).toEqual([]);
+    // Ephesus carries "apostle" itself; Peter is in Jerusalem at Pentecost.
+    expect(kept(["apostle"], { from: 30, to: 60 })).toEqual(["ephesus", "jerusalem"]);
+    expect(kept(["apostle"], { from: 40, to: 60 })).toEqual(["ephesus"]);
+  });
+
+  it("draws only the chosen Places, any of them, and their Event marks", () => {
+    const r = mapInPeriod({ ...shared, chosenPlaces: [ephesus.id, babylon.id], period: { from: 30, to: 60 } });
+    // Babylon is chosen but lies outside the Period.
+    expect(ids(r.places)).toEqual(["ephesus"]);
+    expect(r.events).toEqual([]);
+    // Journeys are routes, not Places: only the Period decides them.
+    expect(r.journeys.map((j) => j.doc.id)).toEqual(["paul-trip", "wander"]);
+  });
+
+  it("lists the Characters at each Place in the Period", () => {
+    const at = (period: { from: number; to: number } | null) =>
+      ids(mapInPeriod({ ...shared, period }).charactersAt.get(jerusalem.id) ?? []);
+    expect(at(null)).toEqual(["david", "peter"]);
+    expect(at({ from: bce(1050), to: bce(1040) })).toEqual(["david"]);
+    expect(at({ from: 30, to: 40 })).toEqual(["peter"]);
+    expect(at({ from: 40, to: 60 })).toEqual([]);
   });
 });

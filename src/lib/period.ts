@@ -7,8 +7,10 @@
 //   how many it left out;
 // - a Place with no Span is in, whatever the Period;
 // - a Place's Span missing one end runs on without limit that way; anything
-//   else with a single Date counts at that Date alone.
-import type { DatedProperty, DocSummary, DocType } from "./api";
+//   else with a single Date counts at that Date alone;
+// - chosen Places, any of them, keep themselves and the Characters and Events
+//   tied to them (`Tie`) for as long as the tie holds within the Period.
+import type { DatedProperty, DocSummary, DocType, EventLink, PlaceTie } from "./api";
 import { fold } from "./names";
 import { SPAN_PAIRS, yearOf } from "./timeline";
 
@@ -25,11 +27,20 @@ export interface Period {
 export interface PeriodFilter {
   /** Null when no Period is set: nothing is hidden for its Dates. */
   period: Period | null;
-  /** Tags an item must carry one of; empty means no Tag restriction. */
+  /**
+   * Tags an item must carry one of; empty means no Tag restriction. A Place
+   * also counts as carrying a Tag that something tied to it in the Period
+   * carries.
+   */
   tags: string[];
+  /**
+   * Place ids, any of them: only these Places, and the Characters and Events
+   * tied to one of them in the Period. Empty means no Place restriction.
+   */
+  places: string[];
 }
 
-export const NO_PERIOD_FILTER: PeriodFilter = { period: null, tags: [] };
+export const NO_PERIOD_FILTER: PeriodFilter = { period: null, tags: [], places: [] };
 
 /** The years a document covers; an open end is ±Infinity. */
 export interface Span {
@@ -115,28 +126,149 @@ function overlaps(span: Span, p: Period): boolean {
   return span.from < hi && span.to >= lo;
 }
 
+/**
+ * A Character or Event in a Place (CONTEXT.md: Character, Period), as the
+ * filter weighs it.
+ */
+export interface Tie {
+  /** The Character or Event. */
+  doc: string;
+  place: string;
+  /**
+   * "own": holds whenever the document itself is in the Period, so a
+   * Character's `places` follow its life and an Event its own Dates.
+   * Otherwise the Span of the Event that ties them, or null when that Event
+   * has no Date: then it holds only while no Period is set.
+   */
+  when: "own" | Span | null;
+}
+
+/**
+ * The ties the filter weighs: the engine's Character↔Place ties, and each
+ * Event at the Place it names. `eventLinks` also name an Event's Characters;
+ * those are ties to no Place, and never match one.
+ */
+export function tiesOf(placeTies: PlaceTie[], eventLinks: EventLink[]): Tie[] {
+  const out: Tie[] = [];
+  for (const t of placeTies) {
+    if (!t.event) {
+      out.push({ doc: t.character.id, place: t.place.id, when: "own" });
+      continue;
+    }
+    const a = t.start ?? t.end;
+    const b = t.end ?? t.start;
+    out.push({
+      doc: t.character.id,
+      place: t.place.id,
+      when: a && b ? { from: yearOf(a), to: yearOf(b) } : null,
+    });
+  }
+  for (const l of eventLinks) out.push({ doc: l.event, place: l.subject, when: "own" });
+  return out;
+}
+
+/** Whether a tie holds in the Period, the document itself being in it. */
+function holds(t: Tie, p: Period | null): boolean {
+  if (t.when === "own") return true;
+  if (!p) return true;
+  return t.when != null && overlaps(t.when, p);
+}
+
+/** Where the Period alone puts an item: in, out, or out for having no Date. */
+function inPeriod(it: PeriodItem, p: Period | null): boolean | "undated" {
+  if (!p) return true;
+  if (it.span) return overlaps(it.span, p);
+  // A Character or Event with no Date lies outside every Period; anything
+  // else undated (a Place with no Span) lies inside every one.
+  return UNDATED_OUT.has(it.doc.type) ? "undated" : true;
+}
+
+/**
+ * The parts of the filter, decided once over all the items:
+ *
+ * - Tags: an item carrying one is in; so is a Place where something carrying
+ *   one, and in the Period, is tied in the Period ("prophet" keeps Jerusalem
+ *   while Jeremiah is there);
+ * - Places, any of them: a chosen Place is in, and so is a Character or Event
+ *   tied to one in the Period; nothing else is;
+ * - the Period, as `inPeriod` says.
+ */
+function decide<T extends PeriodItem>(items: T[], f: PeriodFilter, ties: Tie[]) {
+  const p = ordered(f.period);
+  const tags = new Set(f.tags.map(fold));
+  const chosen = new Set(f.places);
+  const ownTag = (it: PeriodItem) =>
+    tags.size === 0 || it.tags.some((tg) => tags.has(fold(tg)));
+  const byId = new Map(items.map((it) => [it.doc.id, it]));
+  // What counts as being somewhere with a Tag: in the Period, carrying one.
+  const present = (id: string) => {
+    const it = byId.get(id);
+    return !!it && it.doc.type !== "place" && ownTag(it) && inPeriod(it, p) === true;
+  };
+  const tiesByPlace = new Map<string, Tie[]>();
+  const tiesByDoc = new Map<string, Tie[]>();
+  const add = (m: Map<string, Tie[]>, k: string, t: Tie) => {
+    const list = m.get(k);
+    if (list) list.push(t);
+    else m.set(k, [t]);
+  };
+  for (const t of ties) {
+    if (!holds(t, p)) continue;
+    add(tiesByPlace, t.place, t);
+    add(tiesByDoc, t.doc, t);
+  }
+  const tagged = (it: PeriodItem) =>
+    ownTag(it) ||
+    (it.doc.type === "place" &&
+      (tiesByPlace.get(it.doc.id) ?? []).some((t) => present(t.doc)));
+  const placed = (it: PeriodItem) => {
+    if (chosen.size === 0) return true;
+    if (it.doc.type === "place") return chosen.has(it.doc.id);
+    return (tiesByDoc.get(it.doc.id) ?? []).some((t) => chosen.has(t.place));
+  };
+  return { p, tiesByPlace, present, tagged, placed };
+}
+
 /** The items the filter keeps, and how many undated ones the Period hid. */
 export function filterByPeriod<T extends PeriodItem>(
   items: T[],
   f: PeriodFilter,
-): { visible: T[]; undated: number } {
-  const p = ordered(f.period);
-  const tags = new Set(f.tags.map(fold));
-  let undated = 0;
+  ties: Tie[] = [],
+): { visible: T[]; undated: number; undatedItems: T[] } {
+  const { p, tagged, placed } = decide(items, f, ties);
+  const undatedItems: T[] = [];
   const visible = items.filter((it) => {
-    // Tags first, so the count only names what the Period alone left out.
-    if (tags.size > 0 && !it.tags.some((tg) => tags.has(fold(tg)))) return false;
-    if (!p) return true;
-    if (it.span) return overlaps(it.span, p);
-    // A Character or Event with no Date lies outside every Period; anything
-    // else undated (a Place with no Span) lies inside every one.
-    if (UNDATED_OUT.has(it.doc.type)) {
-      undated++;
-      return false;
-    }
-    return true;
+    // Tags and Places first, so the count only names what the Period alone
+    // left out.
+    if (!tagged(it) || !placed(it)) return false;
+    const inside = inPeriod(it, p);
+    if (inside === "undated") undatedItems.push(it);
+    return inside === true;
   });
-  return { visible, undated };
+  return { visible, undated: undatedItems.length, undatedItems };
+}
+
+/**
+ * The Characters in each Place during the Period (a Place's pin card on the
+ * Map): tied to it in the Period, themselves in it, and carrying a chosen Tag
+ * when there are any. In the items' order, each once.
+ */
+export function charactersAt(
+  items: PeriodItem[],
+  f: PeriodFilter,
+  ties: Tie[],
+): Map<string, DocSummary[]> {
+  const { tiesByPlace, present } = decide(items, f, ties);
+  const byId = new Map(items.map((it) => [it.doc.id, it.doc]));
+  const out = new Map<string, DocSummary[]>();
+  for (const [place, ts] of tiesByPlace) {
+    const ids = new Set(
+      ts.map((t) => t.doc).filter((id) => byId.get(id)?.type === "character" && present(id)),
+    );
+    const docs = items.filter((it) => ids.has(it.doc.id)).map((it) => it.doc);
+    if (docs.length > 0) out.set(place, docs);
+  }
+  return out;
 }
 
 /** A year as people say it, without its era: astronomical 0 is 1 BCE. */
