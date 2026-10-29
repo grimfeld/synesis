@@ -37,7 +37,7 @@ describe("Unlinked mentions", () => {
     cy.docByTitle("The brothers at Antioch").then((note) => {
       cy.openDoc("Antioch");
       cy.get("[data-testid=unlinked-mentions]")
-        .find("button[aria-label^='Link:']")
+        .find("[data-testid=unlinked-link]")
         .first()
         .click();
 
@@ -80,7 +80,7 @@ describe("Unlinked mentions", () => {
 
     // Patmos first, so the panel is known to offer John where he is named.
     cy.openDoc("Patmos");
-    cy.get("button[aria-label='Link: John']", { timeout: 10000 }).should(
+    cy.get("[data-testid=linkable-link][data-target='John']", { timeout: 10000 }).should(
       "exist",
     );
 
@@ -89,7 +89,7 @@ describe("Unlinked mentions", () => {
     cy.openDoc("Psalm 23 reflections");
     cy.get(".cm-content").should("contain", "John 10:11-15");
     cy.get("[data-testid=linkables]").parent().find("li").should("have.length", 0);
-    cy.get("button[aria-label='Link: John']").should("not.exist");
+    cy.get("[data-testid=linkable-link][data-target='John']").should("not.exist");
   });
 
   it("sees a name after a French elision, in the Hub and the editor alike", () => {
@@ -104,13 +104,13 @@ describe("Unlinked mentions", () => {
       cy.openDoc("Les fils sortirent");
       cy.get("[data-testid=linkables]")
         .parent()
-        .find("button[aria-label='Link: Egypt']")
+        .find("[data-testid=linkable-link][data-target='Egypt']")
         .should("exist");
 
       cy.openDoc("Egypt");
       cy.get("[data-testid=unlinked-mentions]")
         .should("contain", "Les fils sortirent")
-        .find("button[aria-label='Link: Les fils sortirent']")
+        .find("[data-testid=unlinked-link][data-target='Les fils sortirent']")
         .click();
       cy.get("[data-testid=backlinks]", { timeout: 10000 }).should(
         "contain",
@@ -159,7 +159,7 @@ describe("Linkables", () => {
     cy.get("[data-testid=linkables]").should("exist");
     cy.get("[data-testid=linkables]")
       .parent()
-      .find("button[aria-label^='Link:']")
+      .find("[data-testid=linkable-link]")
       .should("have.length", 3);
   });
 
@@ -208,7 +208,7 @@ describe("Linkables", () => {
           cy.bridge("save_document", { id: note.id, text: crlf });
           cy.openApp();
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']", { timeout: 10000 }).click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']", { timeout: 10000 }).click();
           cy.get("[data-testid=save-status]", { timeout: 10000 }).should(
             "have.attr",
             "data-status",
@@ -255,7 +255,7 @@ describe("Linkables", () => {
       cy.bridge<{ text: string }>("get_document", { id: note.id }).then(
         (before) => {
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']").click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']").click();
           // Asserted on the open page, with no reload in between. Live Preview
           // hides the brackets, so the proof that the link reached the editor
           // is the rendered link itself, not the literal "[[Troas]]".
@@ -288,7 +288,7 @@ describe("Linkables", () => {
             .parent()
             .should("contain", "Paul")
             .and("contain", "2×");
-          cy.get("button[aria-label='Link: Paul']").click();
+          cy.get("[data-testid=linkable-link][data-target='Paul']").click();
           cy.get("[data-testid=linkables]", { timeout: 10000 })
             .parent()
             .should("not.contain", "Paul");
@@ -315,7 +315,7 @@ describe("Linkables", () => {
       cy.bridge<{ text: string }>("get_document", { id: note.id }).then(
         (before) => {
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']").click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']").click();
           // The words are unchanged; only the brackets are new.
           // The editor saves on a debounce, so the file is checked through a
           // retrying assertion rather than read once and raced.

@@ -55,11 +55,7 @@ static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(
-        r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}",
-        crate::attachments::PICTURE_SYNTAX
-    ))
-    .expect("skip regex")
+    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
