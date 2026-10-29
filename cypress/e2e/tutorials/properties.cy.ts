@@ -42,9 +42,9 @@ describe("Tutorial: Properties & Dates", () => {
     cy.tutorialStep(2);
     cy.openDoc("Ephesus");
     cy.hubTitle("Ephesus");
-    // A range in one value is not a Date: the preview says to split it.
+    // Two Dates in one value are not a Date: the preview says a Span is two.
     cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("1050–1000 BCE");
-    cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-error", "looks_like_range");
+    cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-error", "span_in_one_value");
     cy.get("[data-testid=property-founded] input").clear().type("c. 1050 BCE");
     // Read as typed, before it is saved.
     cy.get("[data-testid=date-preview-founded]").should("contain", "≈ 1050 BCE · year");

@@ -139,24 +139,43 @@ pub fn detect_passages(text: &str, lang: Lang) -> Vec<DetectedRange> {
 /// The live preview under a Date field: `{ ok: true, …parts }` or
 /// `{ ok: false, error }`. The engine is the only Date parser (ADR 0005); the
 /// UI formats the parts and never reads the text itself.
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
+///
+/// `ok` is written from the variant, so a reading with an error, or an error
+/// with parts, cannot be sent.
+#[derive(Debug, PartialEq, Eq)]
 pub enum DatePreview {
-    Read {
-        ok: bool,
-        #[serde(flatten)]
-        date: DateReading,
-    },
-    NotADate {
-        ok: bool,
-        error: DateError,
-    },
+    Read(DateReading),
+    NotADate(DateError),
+}
+
+impl Serialize for DatePreview {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Read<'a> {
+            ok: bool,
+            #[serde(flatten)]
+            date: &'a DateReading,
+        }
+        #[derive(Serialize)]
+        struct NotADate {
+            ok: bool,
+            error: DateError,
+        }
+        match self {
+            DatePreview::Read(date) => Read { ok: true, date }.serialize(s),
+            DatePreview::NotADate(error) => NotADate {
+                ok: false,
+                error: *error,
+            }
+            .serialize(s),
+        }
+    }
 }
 
 pub fn read_date(text: &str) -> DatePreview {
     match BibleDate::read(text) {
-        Ok(date) => DatePreview::Read { ok: true, date },
-        Err(error) => DatePreview::NotADate { ok: false, error },
+        Ok(date) => DatePreview::Read(date),
+        Err(error) => DatePreview::NotADate(error),
     }
 }
 
@@ -363,9 +382,11 @@ mod tests {
         assert_eq!(v["bce"], true);
         assert_eq!(v["approx"], true);
         assert_eq!(v["precision"], "year");
+        assert_eq!(v["era"], "common");
+        assert_eq!(v["month"], serde_json::Value::Null);
         assert_eq!(
             serde_json::to_value(read_date("1513–1473 BCE")).unwrap(),
-            json!({ "ok": false, "error": "looks_like_range" })
+            json!({ "ok": false, "error": "span_in_one_value" })
         );
     }
 }

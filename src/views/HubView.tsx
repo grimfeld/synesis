@@ -1429,15 +1429,14 @@ function SpanDate({
   name,
   value,
   invalid,
-  fm,
-  onFmChange,
+  onWrite,
   autoFocus,
 }: {
   name: string;
   value: string;
   invalid: boolean;
-  fm: string;
-  onFmChange: (fm: string) => void;
+  /** Write the value typed, or `null` to remove the Property. */
+  onWrite: (value: string | null) => void;
   /** Just added through "Add Date": the user means to type it now. */
   autoFocus?: boolean;
 }) {
@@ -1447,7 +1446,7 @@ function SpanDate({
   const commit = () => {
     const next = text.trim();
     if (next === value.trim()) return;
-    onFmChange(setField(fm, name, next === "" ? null : next));
+    onWrite(next === "" ? null : next);
   };
   // The preview under the field reads the text as typed, so it also says why a
   // saved value is not a Date; the red border marks what is saved.
@@ -1526,6 +1525,7 @@ function DatesSection({
   const dates = useMemo(() => data?.dates ?? [], [data]);
   const events = useMemo(() => data?.events ?? [], [data]);
   const eventDates = useMemo(() => data?.eventDates ?? [], [data]);
+  const s = useStore();
   // Names added through "Add Date" and not yet typed into, and the one to
   // focus. Forgotten when another page opens.
   const [added, setAdded] = useState<string[]>([]);
@@ -1542,14 +1542,23 @@ function DatesSection({
   // The suggested pair first, then a Date just named, then any other Date the
   // document carries — a Character's `reign_start` keeps its place below the
   // lifespan.
+  //
+  // A named Date is edited here only until it is written. From then on it is
+  // a Property like any other, edited in the Properties section and shown
+  // here read-only, so no value has two fields to disagree.
   const byName = new Map(dates.map((d) => [d.name, d]));
   const editable = [
     ...(span ?? []).filter((n) => present.includes(n)),
-    ...added.filter((n) => !span?.includes(n)),
+    ...added.filter((n) => !span?.includes(n) && !byName.has(n)),
   ].map((name) => ({ name, row: byName.get(name) ?? null }));
-  const others = dates.filter(
-    (d) => !span?.includes(d.name) && !added.includes(d.name),
-  );
+  const others = dates.filter((d) => !span?.includes(d.name));
+  // A name is typed Date for the whole Vault (ADR 0006) when its first value
+  // is written, not when it is named: a Date named and left empty leaves no
+  // trace.
+  const write = async (name: string, value: string | null) => {
+    if (value != null && !s.schema.types[name]) await s.setPropertyType(name, "date");
+    onFmChange(setField(fm, name, value));
+  };
   const anyParsed =
     dates.some((d) => d.date) ||
     eventDates.some((e) => e.dates.some((d) => d.date));
@@ -1582,8 +1591,7 @@ function DatesSection({
                   name={name}
                   value={row?.text ?? ""}
                   invalid={row != null && !row.date}
-                  fm={fm}
-                  onFmChange={onFmChange}
+                  onWrite={(v) => write(name, v).catch(console.error)}
                   autoFocus={focus === name}
                 />
               </li>
@@ -1591,7 +1599,7 @@ function DatesSection({
             {others.map((d) => (
               <li
                 key={d.name}
-                className="flex items-center gap-3 text-sm"
+                className="flex min-w-0 items-baseline gap-3 text-sm"
                 data-testid={`date-${d.name}`}
                 data-valid={d.date ? "true" : "false"}
               >
@@ -1601,20 +1609,20 @@ function DatesSection({
                 >
                   {propertyLabel(d.name, t)}
                 </span>
-                <span
-                  className={cn("tabular-nums", !d.date && "text-destructive")}
-                >
-                  {d.text}
-                </span>
-                {!d.date && (
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <span
-                    className="flex items-center gap-1 text-xs text-destructive"
-                    title={t.date_invalid}
+                    className={cn(
+                      "break-words tabular-nums",
+                      !d.date && "text-destructive",
+                    )}
                   >
-                    <CircleAlert className="size-3.5" />
-                    {t.date_invalid}
+                    {d.text}
                   </span>
-                )}
+                  {/* Why it is not a Date, as the field's own preview says it. */}
+                  {!d.date && (
+                    <DatePreview text={d.text} testId={`date-preview-${d.name}`} />
+                  )}
+                </div>
               </li>
             ))}
           </ul>
@@ -1640,9 +1648,9 @@ function DatesSection({
  * The Dates section's "Add Date" menu, and the name field its "Date…" opens.
  *
  * Naming follows the Properties panel's rule (`checkNewProperty`) with the
- * type fixed to Date: a new name is typed Date for the whole Vault, and a
- * name the Vault already types otherwise is refused, since a name has one
- * type everywhere (ADR 0006).
+ * type fixed to Date: a name the Vault already types otherwise is refused,
+ * since a name has one type everywhere (ADR 0006). A new name is typed Date
+ * once its first value is written (`DatesSection`), not here.
  */
 function AddDate({
   type,
@@ -1664,7 +1672,7 @@ function AddDate({
     setName("");
     setError(null);
   };
-  const submit = async () => {
+  const submit = () => {
     const check = checkNewProperty(name, s.schema.types, "date");
     if (!check.ok) {
       if (check.reason === "taken")
@@ -1672,7 +1680,6 @@ function AddDate({
       else if (check.reason === "reserved") setError(t.date_name_reserved(check.name));
       return;
     }
-    if (!check.known) await s.setPropertyType(check.name, "date");
     close();
     onAdd([check.name]);
   };
@@ -1728,7 +1735,7 @@ function AddDate({
           data-testid="date-name-form"
           onSubmit={(e) => {
             e.preventDefault();
-            submit().catch(console.error);
+            submit();
           }}
         >
           <Input

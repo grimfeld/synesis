@@ -29,3 +29,11 @@ export function checkNewProperty(
   if (fixed && known && known !== fixed) return { ok: false, reason: "taken", name, type: known };
   return { ok: true, name, known };
 }
+
+/**
+ * The name as it would be saved, whether or not it can be added — what the
+ * add field shows its type beside — or "" when nothing usable was typed.
+ */
+export function nameTyped(check: NameCheck): string {
+  return check.ok || check.reason !== "empty" ? check.name : "";
+}

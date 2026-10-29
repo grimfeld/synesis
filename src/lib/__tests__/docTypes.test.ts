@@ -2,7 +2,7 @@
 // live inside an async submit handler beside four engine calls, so the only
 // way to check them was to drive the app.
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER, SPAN, dateAdds, titleFor } from "../docTypes";
+import { FRONTMATTER, RUNS_ON, SPAN, dateAdds, titleFor } from "../docTypes";
 import type { DocType } from "../api";
 
 const stamp = () => "2026-09-17 14.30";
@@ -149,6 +149,21 @@ describe("SPAN", () => {
     // A Span is a *pair*; one Date is not a Span (CONTEXT.md).
     for (const pair of Object.values(SPAN)) {
       if (pair) expect(pair).toHaveLength(2);
+    }
+  });
+});
+
+describe("RUNS_ON", () => {
+  it("lets only a Place's Span run on with its start alone", () => {
+    // A city still standing (CONTEXT.md, Place). A Character with `born`
+    // alone is not known to be alive; an Event's lone `start` is its moment.
+    const open = (Object.keys(RUNS_ON) as DocType[]).filter((t) => RUNS_ON[t]);
+    expect(open).toEqual(["place"]);
+  });
+
+  it("only lets a type run on that suggests a Span", () => {
+    for (const t of Object.keys(RUNS_ON) as DocType[]) {
+      if (RUNS_ON[t]) expect(SPAN[t]).not.toBeNull();
     }
   });
 });

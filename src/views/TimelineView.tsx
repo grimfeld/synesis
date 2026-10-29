@@ -24,6 +24,7 @@ import {
   formatYear,
   niceStep,
   placeMarks,
+  runsOnAttr,
   propertyNames,
   resolveLabels,
   type Lane,
@@ -466,7 +467,7 @@ export function TimelineView() {
                           data-doc={cluster ? undefined : m.doc.id}
                           data-count={cluster ? p.marks.length : undefined}
                           data-approx={m.approx ? "true" : "false"}
-                          data-runs-on={m.runsOn && !cluster ? "true" : undefined}
+                          data-runs-on={runsOnAttr(p)}
                           className="cursor-pointer"
                           onClick={open}
                           onPointerEnter={(e) =>

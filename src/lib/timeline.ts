@@ -2,6 +2,7 @@
 // Hub mini-timeline. Lanes, year projection, label collision and Clusters live
 // here so both shells stay dumb SVG and the logic is tested once (`test:unit`).
 import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink } from "./api";
+import { RUNS_ON, SPAN } from "./docTypes";
 import { fold } from "./names";
 
 /** One thing drawn on a Lane: a point Date, or a span when it has a `to`. */
@@ -72,8 +73,9 @@ export function buildLanes(
   propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
   const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
+  // Unread Dates too: they draw nothing, but an end that is written and
+  // unreadable still means the Span has an end (`RUNS_ON` below).
   for (const r of rows) {
-    if (!r.date) continue;
     const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
     g.dates.push(r);
     byDoc.set(r.doc.id, g);
@@ -104,13 +106,14 @@ export function buildLanes(
         used.add(b);
       }
     }
-    // A Place that began and has not ended runs on (CONTEXT.md, Place). Only
-    // a Place: a Character with `born` alone is not known to be alive, and an
-    // Event's lone `start` is its moment.
-    const start = named.get("start");
-    if (doc.type === "place" && start?.date && !used.has("start") && !named.get("end")?.date) {
+    // A Span that began and has no end runs on where its type says so
+    // (`RUNS_ON`): a city still standing. An end that is written but
+    // unreadable is a mistake to fix, not an open end.
+    const pair = SPAN[doc.type];
+    const start = pair ? named.get(pair[0]) : undefined;
+    if (RUNS_ON[doc.type] && pair && start?.date && !used.has(pair[0]) && !named.has(pair[1])) {
       out.push({
-        key: `${doc.id}:start-`,
+        key: `${doc.id}:${pair[0]}-`,
         doc,
         label: label("span"),
         text: `${start.text} –`,
@@ -120,7 +123,7 @@ export function buildLanes(
         approx: start.date.approx,
         type: doc.type,
       });
-      used.add("start");
+      used.add(pair[0]);
     }
     for (const d of dates) {
       if (used.has(d.name) || !d.date) continue;
@@ -232,6 +235,14 @@ export interface Placed {
   overSpan?: boolean;
 }
 
+/**
+ * `data-runs-on` for a placed mark: "true" on a bar that runs on, nothing
+ * otherwise. A Cluster never runs on, whatever its first member is.
+ */
+export function runsOnAttr(p: Placed): "true" | undefined {
+  return p.marks.length === 1 && p.marks[0].runsOn ? "true" : undefined;
+}
+
 /** Points closer than this merge into one Cluster: a mark's diameter plus a gap. */
 export const CLUSTER_PX = 14;
 
@@ -245,7 +256,7 @@ export const CLUSTER_PX = 14;
 export function placeMarks(
   marks: Mark[],
   x: (year: number) => number,
-  right = -Infinity,
+  right: number,
 ): Placed[] {
   const isSpan = (m: Mark) => m.to != null || m.runsOn === true;
   const spans = marks.filter(isSpan);

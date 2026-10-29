@@ -298,7 +298,7 @@ export type HebrewMonth =
 export type DateErrorKind =
   | "no_era"
   | "unknown_month"
-  | "looks_like_range"
+  | "span_in_one_value"
   | "unreadable";
 
 /**
@@ -308,11 +308,15 @@ export type DateErrorKind =
 export type DatePreview =
   | {
       ok: true;
-      /** Astronomical year: 1 BCE is 0. */
-      year: number;
       /** The year as people say it, in the era `bce` names. */
       era_year: number;
       bce: boolean;
+      /**
+       * The era markers the text was written with: BCE/CE or av./de n. è.
+       * ("common"), BC/AD or av./ap. J.-C. ("christian"). The preview answers
+       * in the same family.
+       */
+      era: "common" | "christian";
       month: number | null;
       /** Set when the text named a Hebrew month; null for a civil one. */
       month_name: HebrewMonth | null;

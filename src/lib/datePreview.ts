@@ -22,7 +22,9 @@ export function datePreviewText(
     p.day != null ? String(p.day) : null,
     month,
     String(p.era_year),
-    p.bce ? t.bce : t.ce,
+    // The user's own family of markers, in the app language: "1513 BC" is
+    // not answered with "1513 BCE".
+    p.era === "christian" ? (p.bce ? t.bc : t.ad) : p.bce ? t.bce : t.ce,
   ].filter((x): x is string => x != null);
   return { ok: true, text: `${parts.join(" ")} · ${t.date_precision[p.precision]}` };
 }
