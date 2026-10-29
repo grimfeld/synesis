@@ -62,6 +62,20 @@ describe("Tutorial: Timeline", () => {
     cy.docByTitle("Moses").then((moses) =>
       cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("not.exist"),
     );
+    // Places narrow further: David names Bethlehem in his `places`.
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Bethlehem");
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Solomon").then((solomon) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${solomon.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-place-remove]").click();
     cy.get("[data-testid=period-clear]").click();
     cy.docByTitle("Moses").then((moses) =>
       cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("exist"),

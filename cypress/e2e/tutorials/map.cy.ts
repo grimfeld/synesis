@@ -106,6 +106,21 @@ describe("Tutorial: Map & Journeys", () => {
     cy.docByTitle("Solomon's temple built").then((ev) =>
       cy.get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`).should("exist"),
     );
+    // A pin's card lists the Characters there in the Period.
+    cy.contains("[data-testid=map-pin]", "Jerusalem").find(".map-pin").click({ force: true });
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=map-pin-card-character][data-id="${david.id}"]`).should("exist"),
+    );
+    cy.get("[data-testid=map-pin-card-close]").click();
+    // Places draws only the Places picked.
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Jerusalem");
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    markers().should("have.length", 1);
+    cy.get("[data-testid=period-place-remove]").click();
     // The slider's middle moves the Period whole.
     cy.get("[data-testid=period-slider-middle]").focus().type("{shift}{rightarrow}");
     cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");

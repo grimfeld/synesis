@@ -1,13 +1,15 @@
 // The Period (CONTEXT.md): one filter the Timeline and the Map share. The
 // fixture asks the question the feature exists for, "prophets, 640–580 BCE".
 import { describe, expect, it } from "vitest";
-import type { DatedProperty, DocSummary, DocType } from "../api";
+import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink, PlaceTie } from "../api";
 import {
+  charactersAt,
   fieldToYear,
   filterByPeriod,
   formatPeriod,
   itemsOf,
   NO_PERIOD_FILTER,
+  tiesOf,
   yearToField,
   type Period,
   type PeriodFilter,
@@ -157,6 +159,127 @@ describe("filterByPeriod", () => {
     const { ids, undated } = run({ tags: ["prophet", "apostle"] });
     expect(ids).toEqual(["habakkuk", "isaiah", "jeremiah", "paul"]);
     expect(undated).toBe(0);
+  });
+});
+
+// Places in the filter (CONTEXT.md: Period, Character): a Character is in a
+// Place for life through its own `places`, or for an Event's time through an
+// Event naming both; an Event is at its own `place`.
+describe("filterByPeriod with Places", () => {
+  const anathoth = doc("anathoth", "place"); // no Span
+  const ephesus = doc("ephesus", "place"); // no Span
+  const year = (y: number): BibleDate => ({ year: y, month: null, day: null, approx: false });
+  const tie = (
+    character: DocSummary,
+    place: DocSummary,
+    event: DocSummary | null = null,
+    start: number | null = null,
+    end: number | null = null,
+  ): PlaceTie => ({
+    character,
+    place,
+    event,
+    start: start == null ? null : year(start),
+    end: end == null ? null : year(end),
+  });
+  const ephesusStay = doc("paul-in-ephesus", "event");
+  const placeTies = [
+    tie(jeremiah, anathoth),
+    tie(jeremiah, jerusalem),
+    tie(isaiah, jerusalem),
+    tie(habakkuk, jerusalem), // an undated prophet
+    tie(paul, ephesus, ephesusStay, 52, 55),
+  ];
+  const eventLinks: EventLink[] = [
+    { event: fall.id, subject: jerusalem.id },
+    { event: ephesusStay.id, subject: ephesus.id },
+  ];
+  const ties = tiesOf(placeTies, eventLinks);
+  const all = itemsOf(
+    [...rows, dated(ephesusStay, "start", 52), dated(ephesusStay, "end", 55)],
+    [...undatedDocs, anathoth, ephesus],
+    tags,
+  );
+  const runP = (f: Partial<PeriodFilter>) => {
+    const r = filterByPeriod(all, { ...NO_PERIOD_FILTER, ...f }, ties);
+    return { ids: r.visible.map((i) => i.doc.id).sort(), undated: r.undated };
+  };
+  const placesOnly = (f: Partial<PeriodFilter>) =>
+    runP(f).ids.filter((id) => all.find((i) => i.doc.id === id)!.doc.type === "place");
+
+  it("keeps the chosen Places and what is tied to them, and nothing else", () => {
+    expect(runP({ places: [jerusalem.id] }).ids).toEqual([
+      "fall-of-jerusalem",
+      "habakkuk",
+      "isaiah",
+      "jeremiah",
+      "jerusalem",
+    ]);
+  });
+
+  it("reads several Places as any of them", () => {
+    expect(runP({ places: [anathoth.id, ephesus.id] }).ids).toEqual([
+      "anathoth",
+      "ephesus",
+      "jeremiah",
+      "paul",
+      "paul-in-ephesus",
+    ]);
+  });
+
+  it("holds a tie through an Event only for that Event's time", () => {
+    // Paul is alive in 30–40 CE, but in Ephesus only in 52–55 CE.
+    expect(runP({ places: [ephesus.id], period: period(30, 40) }).ids).toEqual(["ephesus"]);
+    expect(runP({ places: [ephesus.id], period: period(50, 60) }).ids).toEqual([
+      "ephesus",
+      "paul",
+      "paul-in-ephesus",
+    ]);
+  });
+
+  it("combines Places with Tags and the Period: prophets in Jerusalem, 640–580 BCE", () => {
+    const { ids, undated } = runP({
+      places: [jerusalem.id],
+      tags: ["prophet"],
+      period: period(bce(640), bce(580)),
+    });
+    // Isaiah is a prophet of Jerusalem, but died before the Period began.
+    // Jerusalem stays: a prophet is there in those years.
+    expect(ids).toEqual(["jeremiah", "jerusalem"]);
+    // Habakkuk is a prophet of Jerusalem with no Date: left out, and counted.
+    expect(undated).toBe(1);
+  });
+
+  it("keeps a Place for a Tag carried by what is tied to it in the Period", () => {
+    // Jeremiah, a prophet, is in Anathoth and Jerusalem in 640–580 BCE.
+    expect(placesOnly({ tags: ["prophet"], period: period(bce(640), bce(580)) })).toEqual([
+      "anathoth",
+      "jerusalem",
+    ]);
+    // In 30–60 CE no prophet is anywhere, and no Place carries the Tag itself.
+    expect(placesOnly({ tags: ["prophet"], period: period(30, 60) })).toEqual([]);
+    // Paul, an apostle, is in Ephesus only while he stays there.
+    expect(placesOnly({ tags: ["apostle"], period: period(30, 40) })).toEqual([]);
+    expect(placesOnly({ tags: ["apostle"], period: period(50, 60) })).toEqual(["ephesus"]);
+  });
+
+  it("keeps a Place that carries a chosen Tag itself", () => {
+    const tagged = itemsOf([], [ephesus], new Map([["ephesus", ["Apostle"]]]));
+    const r = filterByPeriod(tagged, { ...NO_PERIOD_FILTER, tags: ["apostle"] }, []);
+    expect(r.visible.map((i) => i.doc.id)).toEqual(["ephesus"]);
+  });
+
+  it("lists the Characters at a Place in the Period", () => {
+    const at = (place: string, f: Partial<PeriodFilter>) =>
+      (charactersAt(all, { ...NO_PERIOD_FILTER, ...f }, ties).get(place) ?? [])
+        .map((d) => d.id)
+        .sort();
+    expect(at(jerusalem.id, {})).toEqual(["habakkuk", "isaiah", "jeremiah"]);
+    expect(at(jerusalem.id, { period: period(bce(640), bce(580)) })).toEqual(["jeremiah"]);
+    expect(at(ephesus.id, { period: period(30, 40) })).toEqual([]);
+    expect(at(ephesus.id, { period: period(50, 60) })).toEqual(["paul"]);
+    // The shared Tags narrow the list too.
+    expect(at(jerusalem.id, { tags: ["apostle"] })).toEqual([]);
   });
 });
 

@@ -29,7 +29,7 @@ import {
   type Lane,
   type Placed,
 } from "@/lib/timeline";
-import { filterByPeriod, itemsOf } from "@/lib/period";
+import { filterByPeriod, itemsOf, NO_PERIOD_FILTER, tiesOf } from "@/lib/period";
 import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
 import { PeriodBar } from "@/components/PeriodBar";
@@ -133,17 +133,24 @@ export function TimelineView() {
     key: [],
     deps: { any: true },
     fetch: async () => {
-      const [rows, links, docTags] = await Promise.all([
+      const [rows, links, docTags, placeTies] = await Promise.all([
         api.timeline(),
         api.eventLinks(),
         api.timelineTags(),
+        api.placeTies(),
       ]);
-      return { rows, links, docTags };
+      return { rows, links, docTags, placeTies };
     },
   });
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const links = useMemo(() => data?.links ?? [], [data]);
   const docTags = useMemo(() => data?.docTags ?? [], [data]);
+  // Who is where, and which Place each Event names: the shared Places keep
+  // what is tied to them (CONTEXT.md: Character, Period).
+  const ties = useMemo(
+    () => tiesOf(data?.placeTies ?? [], data?.links ?? []),
+    [data],
+  );
 
   useEffect(() => {
     const el = host.current;
@@ -181,18 +188,20 @@ export function TimelineView() {
   // narrow the rows: every Character and Event is an item, dated or not, so
   // the ones the Period hides for having no Date can be counted.
   const perioded = useMemo(() => {
+    // Undated Places too: a chosen one, or one a Tag keeps, is no Lane, but
+    // it is what Characters and Events are tied to.
     const undatedDocs = s.docs.filter(
-      (d) => d.type === "character" || d.type === "event",
+      (d) => d.type === "character" || d.type === "event" || d.type === "place",
     );
     // The Timeline's Kinds chips still apply: a hidden kind is not "left out".
     const hidden = new Set(f.hiddenTypes);
     const items = itemsOf(rows, undatedDocs, tagsByDoc).filter(
       (it) => !hidden.has(it.doc.type),
     );
-    const { visible, undated } = filterByPeriod(items, pf);
+    const { visible, undated } = filterByPeriod(items, pf, ties);
     const keep = new Set(visible.map((it) => it.doc.id));
     return { rows: rows.filter((r) => keep.has(r.doc.id)), undated };
-  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf]);
+  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf, ties]);
   const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const allLanes = useMemo(
     () => buildLanes(rows, links, t.events, label),
@@ -310,7 +319,7 @@ export function TimelineView() {
     [matched, f.inView, from, to],
   );
   const filtered =
-    activeCount(f) + pf.tags.length > 0 || pf.period != null;
+    activeCount(f) + pf.tags.length + pf.places.length > 0 || pf.period != null;
   const tagChips = useMemo(
     () => [...new Set(docTags.map((d) => d.tag))],
     [docTags],
@@ -593,7 +602,7 @@ export function TimelineView() {
                     props: [],
                     search: "",
                   });
-                  s.setPeriodFilter({ period: null, tags: [] });
+                  s.setPeriodFilter(NO_PERIOD_FILTER);
                 }}
               >
                 {t.tl_filter_clear}
