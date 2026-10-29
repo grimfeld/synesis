@@ -387,7 +387,7 @@ mod tests {
         assert!(found(&["Israël"], "ad'Israël").is_empty());
         assert!(found(&["Abraham"], "presqu'Abraham").is_empty());
         // A longer word and accents are unchanged.
-        assert!(found(&["Israël"], "les fils d'Israëlites").is_empty());
+        assert!(found(&["Élie"], "d'Éliézer").is_empty());
         assert!(found(&["Israël"], "les fils d'Israel").is_empty());
     }
 

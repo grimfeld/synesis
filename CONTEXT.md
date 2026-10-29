@@ -100,7 +100,7 @@ A Mention that isn't: text in another document that matches this Hub's name or o
 _Avoid_: Unlinked reference, ghost link, potential backlink
 
 **Linkable**:
-A name in the document being written that matches a Topical Subject or a Source and is not yet a Mention. Shown while writing, so the user can turn it into a Mention in place. A name counts only as a whole word, though a French elision before it does not hide it ("d'Israël", "l'Égypte"); a longer word containing it ("Israëlites") is not that name, and needs an Alias. A name inside a Passage is never Linkable, and never an Unlinked mention: the "Jérémie" of "Jérémie 48:2" is the Book, not the Character. The mirror of an Unlinked mention, seen from the other end: the same documents that gather Unlinked mentions are the ones that can appear as a Linkable. Scripture is never Linkable, because a Passage is already a Mention.
+A name in the document being written that matches a Topical Subject or a Source and is not yet a Mention. Shown while writing, so the user can turn it into a Mention in place. A name counts only as a whole word, though a French elision before it does not hide it ("d'Israël", "l'Égypte"); a longer word containing it ("Pauline" for Paul) is not that name, and needs an Alias. A name inside a Passage is never Linkable, and never an Unlinked mention: the "Jérémie" of "Jérémie 48:2" is the Book, not the Character. The mirror of an Unlinked mention, seen from the other end: the same documents that gather Unlinked mentions are the ones that can appear as a Linkable. Scripture is never Linkable, because a Passage is already a Mention.
 _Avoid_: Link suggestion, autolink, loose name
 
 **Place**:
