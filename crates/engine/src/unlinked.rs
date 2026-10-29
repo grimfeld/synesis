@@ -11,7 +11,7 @@
 //! *which* names and *which* documents; this module decides where a name
 //! genuinely occurs and what replaces it.
 
-use crate::document::{in_zone, zones};
+use crate::document::{headings, in_zone, zones};
 use crate::parser;
 use aho_corasick::{AhoCorasick, MatchKind};
 
@@ -66,7 +66,7 @@ impl Matcher {
     /// caller working in whole-file offsets adds its own `body_offset`.
     pub fn find(&self, body: &str) -> Vec<Occurrence> {
         let mut skip = zones(body);
-        skip.extend(heading_spans(body));
+        skip.extend(heading_spans(body, &skip));
         skip.extend(passage_spans(body));
         let links = link_spans(body);
         let haystack = fold(body);
@@ -119,19 +119,11 @@ fn passage_spans(body: &str) -> Vec<(usize, usize)> {
 /// with a heading that repeats its own title, so without this the first row
 /// offered on a Hub is "# The brothers at Antioch" — a name the writer put
 /// there as a label, not a sentence they forgot to link.
-fn heading_spans(body: &str) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    for line in body.split_inclusive('\n') {
-        let t = line.trim_start();
-        let hashes = t.len() - t.trim_start_matches('#').len();
-        // A space after the hashes is what separates a heading from a `#tag`.
-        if (1..=6).contains(&hashes) && t[hashes..].starts_with(' ') {
-            out.push((at, at + line.len()));
-        }
-        at += line.len();
-    }
-    out
+fn heading_spans(body: &str, zones: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    headings(body, zones)
+        .into_iter()
+        .map(|h| (h.start, h.end))
+        .collect()
 }
 
 /// Lowercase `s` without moving a single byte.
@@ -440,6 +432,16 @@ mod tests {
         assert!(found(&["Verset"], "Jérémie 48:2 et verset 3.").is_empty());
         // Without a context the words are prose, and the name matches.
         assert_eq!(found(&["Verset"], "Le verset 3 seul."), ["verset"]);
+    }
+
+    #[test]
+    fn headings_follow_the_commonmark_rule() {
+        // A tab after the hashes makes a heading, which is skipped.
+        assert!(found(&["Antioch"], "#\tAntioch\n").is_empty());
+        // Four spaces of indent do not: the line is prose here.
+        assert_eq!(found(&["Antioch"], "    # Antioch\n"), ["Antioch"]);
+        // A bare "#" is an empty heading and takes nothing from the next line.
+        assert_eq!(found(&["Antioch"], "#\nAntioch\n"), ["Antioch"]);
     }
 
     #[test]
