@@ -85,6 +85,10 @@ describe("Add Date", () => {
     cy.get("[data-testid=date-name-error]").should("contain", "modern_name");
     cy.get("[data-testid=date-name-input]").clear().type("destroyed_by_goths{enter}");
     cy.get("[data-testid=date-name-form]").should("not.exist");
+    // Named but not yet written: nothing is recorded vault-wide.
+    cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
+      expect(s.types.destroyed_by_goths).to.equal(undefined);
+    });
     cy.focused()
       .should("have.attr", "data-testid", "date-input-destroyed_by_goths")
       .type("262 CE")
@@ -93,6 +97,40 @@ describe("Add Date", () => {
     cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
       expect(s.types.destroyed_by_goths).to.equal("date");
     });
+    // Written, it is a Property like any other: one field, in Properties,
+    // and a read-only line under Dates.
+    cy.get("[data-testid=date-input-destroyed_by_goths]").should("not.exist");
+    cy.get("[data-testid=hub-properties] [data-testid=property-destroyed_by_goths]").should(
+      "have.length",
+      1,
+    );
+  });
+
+  it("records nothing when a named Date is left empty", () => {
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-named]").click();
+    cy.get("[data-testid=date-name-input]").type("abandoned_moment{enter}");
+    cy.get("[data-testid=date-input-abandoned_moment]").should("be.visible");
+    cy.openDoc("Paul");
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=date-input-abandoned_moment]").should("not.exist");
+    cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
+      expect(s.types.abandoned_moment).to.equal(undefined);
+    });
+  });
+
+  it("says why a read-only Date under Dates is not one", () => {
+    cy.bridge("set_property_type", { name: "rebuilt", propType: "date" });
+    cy.bridge("create_document", {
+      docType: "place",
+      title: "Jericho Rebuilt",
+      fields: { rebuilt: "c. 870" },
+    });
+    cy.openApp();
+    cy.openDoc("Jericho Rebuilt");
+    cy.get("[data-testid=date-rebuilt]").should("have.attr", "data-valid", "false");
+    cy.get("[data-testid=date-preview-rebuilt]").should("have.attr", "data-error", "no_era");
   });
 });
 
@@ -235,13 +273,13 @@ describe("Date preview", () => {
     cy.get("[data-testid=date-input-born]").type("{esc}");
   });
 
-  it("tells you to split a range typed in one value into the pair", () => {
+  it("tells you a Span typed in one value is two Dates", () => {
     cy.openDoc("David");
     cy.get("[data-testid=date-input-born]").clear().type("1107–1037 BCE");
     cy.get("[data-testid=date-preview-born]")
       .should("have.attr", "data-ok", "false")
-      .and("have.attr", "data-error", "looks_like_range")
-      .and("contain", "Split it into the pair");
+      .and("have.attr", "data-error", "span_in_one_value")
+      .and("contain", "A Span is two Dates");
     cy.get("[data-testid=date-input-born]").should("have.value", "1107–1037 BCE");
     cy.get("[data-testid=date-input-born]").type("{esc}");
   });
@@ -265,7 +303,7 @@ describe("Date preview", () => {
     cy.get("[data-testid=date-preview-founded]").should(
       "have.attr",
       "data-error",
-      "looks_like_range",
+      "span_in_one_value",
     );
   });
 });

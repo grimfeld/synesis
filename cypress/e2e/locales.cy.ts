@@ -66,7 +66,7 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
-      // The Date preview's range hint is the longest line under a field, and
+      // The Date preview's Span hint is the longest line under a field, and
       // it sits beside a label on a 390px screen.
       it("keeps the Date preview inside its row on a phone", () => {
         cy.bridge("create_document", {
@@ -84,7 +84,7 @@ describe("Locale layout", () => {
         cy.get("[data-testid=date-preview-born]").should(
           "have.attr",
           "data-error",
-          "looks_like_range",
+          "span_in_one_value",
         );
         expectNoOverflow();
         cy.get("[data-testid=date-input-born]").clear().type("c. 1250 BCE");

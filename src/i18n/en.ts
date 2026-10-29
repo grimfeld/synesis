@@ -94,6 +94,9 @@ export const en = {
   tl_mini_events: "Events",
   bce: "BCE",
   ce: "CE",
+  /** The era markers of a Date written "1513 BC" or "33 AD", answered in kind. */
+  bc: "BC",
+  ad: "AD",
   backlinks: "Backlinks",
   no_backlinks: "Nothing links here yet.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -128,8 +131,6 @@ export const en = {
   via: "via",
   inferred: "inferred",
   dates: "Dates",
-  date_invalid:
-    "Not a Date the app can read. Write it like “c. 1513 BCE” or “14 Nisan 33 CE”.",
   events: "Events",
   no_events: "No Event names this page yet.",
   start: "Start",
@@ -233,8 +234,8 @@ export const en = {
   date_errors: {
     no_era: "Not a Date: no era. Add BCE or CE, as in “c. 1513 BCE”.",
     unknown_month: "Not a Date: unknown month. Write it like “14 Nisan 33 CE”.",
-    looks_like_range:
-      "Not a Date: one value cannot hold a range. Split it into the pair, such as Start and End, one Date each.",
+    span_in_one_value:
+      "Not a Date: this holds two. A Span is two Dates: put the start and the end in two Properties, such as Start and End.",
     unreadable:
       "Not a Date the app can read. Write it like “c. 1513 BCE” or “14 Nisan 33 CE”.",
   },

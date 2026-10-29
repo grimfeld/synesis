@@ -94,6 +94,8 @@ export const fr: Dict = {
   tl_mini_events: "Événements",
   bce: "av. n. è.",
   ce: "de n. è.",
+  bc: "av. J.-C.",
+  ad: "ap. J.-C.",
   backlinks: "Liens entrants",
   no_backlinks: "Rien ne pointe ici pour l’instant.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -129,8 +131,6 @@ export const fr: Dict = {
   inferred: "déduit",
   properties: "Propriétés",
   dates: "Dates",
-  date_invalid:
-    "Date illisible pour l’application. Écrivez-la comme « v. 1513 av. n. è. » ou « 14 nisan 33 de n. è. ».",
   events: "Événements",
   no_events: "Aucun Événement ne nomme encore cette page.",
   start: "Début",
@@ -194,7 +194,7 @@ export const fr: Dict = {
     url: "URL",
   },
   date_placeholder: "v. 1513 av. n. è.",
-  add_date: "Ajouter une Date",
+  add_date: "Ajouter une date",
   add_lifespan: "Ajouter naissance et mort",
   add_span: "Ajouter début et fin",
   add_date_half: (label: string) => `Ajouter « ${label} »`,
@@ -224,8 +224,8 @@ export const fr: Dict = {
   date_errors: {
     no_era: "Pas une Date : ère manquante. Ajoutez av. n. è. ou de n. è., comme dans « v. 1513 av. n. è. ».",
     unknown_month: "Pas une Date : mois inconnu. Écrivez-la comme « 14 nisan 33 de n. è. ».",
-    looks_like_range:
-      "Pas une Date : une seule valeur ne peut contenir une période. Séparez-la en deux, comme Début et Fin, une Date chacune.",
+    span_in_one_value:
+      "Pas une Date : cette valeur en contient deux. Une Span, ce sont deux Dates : mettez le début et la fin dans deux Propriétés, comme Début et Fin.",
     unreadable:
       "Date illisible pour l’application. Écrivez-la comme « v. 1513 av. n. è. » ou « 14 nisan 33 de n. è. ».",
   },
