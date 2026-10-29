@@ -2070,6 +2070,24 @@ impl Index {
         Ok(out)
     }
 
+    /// `(id, path, value)` for every document of a type that sets `name`.
+    pub fn property_on(&self, doc_type: DocType, name: &str) -> Result<Vec<(String, String, Value)>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, path, frontmatter FROM documents WHERE type = ?1 ORDER BY title_norm",
+        )?;
+        let rows: Vec<(String, String, String)> = st
+            .query_map([doc_type.as_str()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, path, fm)| {
+                let v: Value = serde_json::from_str(&fm).ok()?;
+                let value = v.get(name).filter(|x| !x.is_null())?.clone();
+                Some((id, path, value))
+            })
+            .collect())
+    }
+
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         let mut st = self
             .conn
@@ -2077,7 +2095,8 @@ impl Index {
             // something the user wrote, and an id resolves to nothing — a card
             // on a Board is not a link pointing nowhere.
             .prepare(
-                "SELECT target, COUNT(*) FROM links WHERE kind = 'prose' GROUP BY norm ORDER BY 2 DESC",
+                // A `border` names a `.geojson` file (ADR 0023), never a document.
+                "SELECT target, COUNT(*) FROM links WHERE kind = 'prose' AND (property IS NULL OR property != 'border') GROUP BY norm ORDER BY 2 DESC",
             )?;
         let rows: Vec<(String, i64)> = st
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?

@@ -61,6 +61,8 @@ import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } fro
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
+import { editableCorners, isRegion } from "@/lib/border";
+import { useBorders, useDeleteBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
@@ -737,7 +739,7 @@ function ownedProperties(type: DocType): string[] {
     ...(HAS_ALIASES.includes(type) ? ["aliases"] : []),
     // A Place's kind has its own picker (PLAN §27.12), and so has a
     // Source's (§28.1), with its Cover and its "Part of" (§28.3).
-    ...(type === "place" ? ["kind"] : []),
+    ...(type === "place" ? ["kind", "border"] : []),
     ...(type === "source" ? ["kind", "cover", "parent"] : []),
   ];
 }
@@ -1100,6 +1102,7 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
   ),
   place: ({ doc, fm, onFmChange }) => (
     <>
+      <BorderSection doc={doc} />
       <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
       <TiesSection doc={doc} />
     </>
@@ -1473,6 +1476,86 @@ function SpanDate({
         </span>
       )}
     </>
+  );
+}
+
+/**
+ * A region's Border (ADR 0023): where its file is, whether it can be drawn,
+ * and the way to the Map to draw, edit or delete it. Shown on every region,
+ * and on any other Place that names a Border, so a warning is never hidden
+ * because the kind changed.
+ */
+function BorderSection({ doc }: { doc: DocumentPayload }) {
+  const s = useStore();
+  const t = useT();
+  const borders = useBorders();
+  const confirmDelete = useDeleteBorder();
+  const id = doc.summary.id;
+  const border = borders.find((b) => b.doc === id);
+  const region = isRegion({ type: doc.summary.type, kind: doc.frontmatter.kind });
+  if (!region && !border && doc.frontmatter.border == null) return null;
+  const warning = !border
+    ? null
+    : border.status === "missing"
+      ? t.border_missing(border.path)
+      : border.status === "malformed"
+        ? t.border_malformed(border.error ?? "")
+        : border.status === "downloading"
+          ? t.border_downloading
+          : null;
+  const draw = () => {
+    s.setBorderDraw({ placeId: id });
+    s.navigate({ kind: "map" });
+  };
+  return (
+    <section data-testid="hub-border" className="space-y-2">
+      <PanelTitle>{t.border}</PanelTitle>
+      {warning ? (
+        <p
+          data-testid="border-warning"
+          data-status={border?.status}
+          className="flex min-w-0 items-start gap-1.5 text-sm text-destructive"
+        >
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{warning}</span>
+        </p>
+      ) : border ? (
+        <p data-testid="border-file" className="min-w-0 break-words text-sm text-muted-foreground">
+          {t.border_file(border.path)}
+        </p>
+      ) : (
+        <p data-testid="border-none" className="text-sm text-muted-foreground">
+          {t.border_none}
+        </p>
+      )}
+      {border?.status === "ok" && !editableCorners(border) && (
+        <p className="text-xs text-muted-foreground">{t.border_pieces}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-auto min-h-8"
+          data-testid="hub-border-draw"
+          onClick={draw}
+        >
+          <MapPin />
+          {border && editableCorners(border) ? t.border_edit : t.border_draw}
+        </Button>
+        {border && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto min-h-8"
+            data-testid="hub-border-delete"
+            onClick={() => confirmDelete(id, border.path)}
+          >
+            <Trash2 />
+            {t.border_delete}
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 

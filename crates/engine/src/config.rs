@@ -69,7 +69,7 @@ fn stamp_of(bytes: &[u8]) -> Option<i64> {
     serde_json::from_slice::<Value>(bytes).ok()?.get("updated")?.as_i64()
 }
 
-fn stamp_at(p: &Path, bytes: &[u8]) -> i64 {
+pub(crate) fn stamp_at(p: &Path, bytes: &[u8]) -> i64 {
     stamp_of(bytes).unwrap_or_else(|| mtime_ms(p))
 }
 
@@ -112,28 +112,35 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
     if !is_synced(name) || serde_json::from_slice::<Value>(bytes).is_err() {
         return false;
     }
-    let p = path(hidden, name);
+    accept_at(&path(hidden, name), bytes)
+}
+
+/// Write `bytes` to `p` when they carry a newer stamp than the file there.
+/// Shared with Borders (ADR 0023), which travel the same way.
+pub(crate) fn accept_at(p: &Path, bytes: &[u8]) -> bool {
     // Never written over while iCloud holds it (see `cloud`).
-    if crate::cloud::is_evicted(&p) {
+    if crate::cloud::is_evicted(p) {
         return false;
     }
-    let incoming = ConfigEntry { name: name.into(), stamp: stamp_at(&p, bytes), size: bytes.len() as u64 };
-    let mine = fs::read(&p).ok().map(|b| ConfigEntry { name: name.into(), stamp: stamp_at(&p, &b), size: b.len() as u64 });
+    let name = p.to_string_lossy().to_string();
+    let incoming = ConfigEntry { name: name.clone(), stamp: stamp_at(p, bytes), size: bytes.len() as u64 };
+    let mine = fs::read(p).ok().map(|b| ConfigEntry { name, stamp: stamp_at(p, &b), size: b.len() as u64 });
     if !is_newer(&incoming, mine.as_ref()) {
         return false;
     }
     if let Some(parent) = p.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let tmp = p.with_extension("json.part");
+    let ext = p.extension().map(|e| e.to_string_lossy().to_string()).unwrap_or_default();
+    let tmp = p.with_extension(format!("{ext}.part"));
     if fs::write(&tmp, bytes).is_err() {
         return false;
     }
-    let ok = fs::rename(&tmp, &p).is_ok();
+    let ok = fs::rename(&tmp, p).is_ok();
     if ok {
         // Keep the mtime in step with the stamp, for readers that fall back to it.
         let t = UNIX_EPOCH + Duration::from_millis(incoming.stamp.max(0) as u64);
-        let _ = fs::File::open(&p).and_then(|f| f.set_modified(t));
+        let _ = fs::File::open(p).and_then(|f| f.set_modified(t));
     }
     ok
 }

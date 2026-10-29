@@ -151,8 +151,32 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-name").should("contain", "Troas");
     cy.tutorialNext();
 
-    // 8. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    // 8. A region's Border: drawn from its Hub, filled on the Map, edited, deleted.
     cy.tutorialStep(7);
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.get("[data-testid=hub-border-draw]").should("contain", "Draw Border").click();
+    cy.get("[data-testid=border-toolbar]").should("be.visible");
+    cy.get("[data-testid=map]").click(200, 150);
+    cy.get("[data-testid=map]").click(320, 150);
+    cy.get("[data-testid=map]").click(320, 260);
+    cy.get("[data-testid=map]").dblclick(200, 260);
+    cy.get("[data-testid=border-toolbar]").should("not.exist");
+    cy.get("[data-testid=map-border]").should("have.length", 1);
+    cy.openDoc("Egypt");
+    cy.get("[data-testid=hub-border-draw]").should("contain", "Edit Border").click();
+    cy.get("[data-testid=border-corner]").should("have.length", 4);
+    cy.get("[data-testid=border-save]").click();
+    cy.tutorialCommand("map.draw_border");
+    cy.docByTitle("Egypt").then((egypt) => cy.get("[data-testid=border-region]").select(egypt.id));
+    cy.get("[data-testid=border-delete]").click();
+    cy.get("[data-testid=confirm-batch]").click();
+    cy.get("[data-testid=map-border]").should("not.exist");
+    pin("Egypt").should("have.class", "no-pin");
+    cy.tutorialNext();
+
+    // 9. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    cy.tutorialStep(8);
     cy.tutorialCommand("create.journey");
     cy.get("[data-testid=new-doc-title]").type("Paul's first journey");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();

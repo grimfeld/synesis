@@ -166,6 +166,8 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         )?),
         "undo_link_mentions" => ok(undo_link_mentions(state, arg(&a, "texts")?)?),
         "fill_kinds" => ok(fill_kinds(state, arg(&a, "fills")?)?),
+        "save_border" => ok(save_border(state, arg(&a, "id")?, arg(&a, "corners")?)?),
+        "delete_border" => ok(delete_border(state, arg(&a, "id")?)?),
         "ensure_scripture_page" => ok(ensure_scripture_page(
             state,
             arg(&a, "book")?,
