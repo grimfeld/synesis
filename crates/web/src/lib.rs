@@ -263,6 +263,11 @@ impl State {
                 let (id, corners): (String, Vec<[f64; 2]>) = (arg(&a, "id")?, arg(&a, "corners")?);
                 ok(api::save_border(self.vault_mut()?, &id, &corners).map_err(err)?)
             }
+            "import_border" => {
+                let (id, name, text): (String, String, String) =
+                    (arg(&a, "id")?, arg(&a, "fileName")?, arg(&a, "text")?);
+                ok(api::import_border(self.vault_mut()?, &id, &name, &text).map_err(err)?)
+            }
             "delete_border" => {
                 let id: String = arg(&a, "id")?;
                 ok(api::delete_border(self.vault_mut()?, &id).map_err(err)?)
