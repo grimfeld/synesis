@@ -97,6 +97,12 @@ export const fr: Dict = {
   period_clear: "Effacer la Période",
   period_undated: (n: number) =>
     n === 1 ? "1 non daté non affiché" : `${n} non datés non affichés`,
+  period_places: "Lieux",
+  period_places_search: "Chercher un Lieu",
+  period_places_none: "Aucun Lieu ne correspond",
+  period_remove: (name: string) => `Retirer ${name}`,
+  map_characters_here: "Personnages ici",
+  map_characters_none: "Aucun Personnage ici pendant cette Période",
   period_slider: "Curseur de la Période",
   period_slider_from: "Début de la Période",
   period_slider_to: "Fin de la Période",

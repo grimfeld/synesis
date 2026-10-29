@@ -11,6 +11,7 @@ import {
   type KindSuggestion,
   type LatLon,
   type PlaceFact,
+  type PlaceTie,
 } from "@/lib/api";
 import { addCorner, canClose, editableCorners, isRegion } from "@/lib/border";
 import { useBorders, useDeleteBorder } from "@/lib/useBorders";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/map";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { mapInPeriod, type EventMark } from "@/lib/mapPeriod";
+import { NO_PERIOD_FILTER, ordered } from "@/lib/period";
 import { sliderExtent } from "@/lib/periodSlider";
 import { yearOf } from "@/lib/timeline";
 import { addAtlas, removeMap, type Atlas } from "@/lib/atlas";
@@ -166,6 +168,39 @@ export function MapView() {
   drawingRef.current = !!s.borderDraw;
   // Fit once per set of Places; after that the view is the reader's to keep.
   const fitted = useRef("");
+  // A Place's pin card (CONTEXT.md: Map): in a Period, a click on a pin opens
+  // it, listing the Characters there then; without one, a click opens the Hub.
+  const [pinCard, setPinCard] = useState<{
+    id: string;
+    left: number;
+    top?: number;
+    bottom?: number;
+  } | null>(null);
+  const periodOn = useRef(false);
+  periodOn.current = !!ordered(s.periodFilter.period);
+  const openPin = useRef<(id: string) => void>(() => {});
+  openPin.current = (id: string) => {
+    if (drawingRef.current) return;
+    const m = map.current;
+    const el = host.current;
+    const p = placesById.current.get(id);
+    if (!periodOn.current || !m || !el || !p || p.lat == null || p.lon == null) {
+      openDoc.current(id);
+      return;
+    }
+    const at = m.latLngToContainerPoint([p.lat, p.lon]);
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const CARD = 256;
+    const left = Math.max(8, Math.min(at.x - CARD / 2, w - CARD - 8));
+    // Below the pin in the top half, above it in the bottom half.
+    setPinCard(
+      at.y < h / 2
+        ? { id, left, top: at.y + 16 }
+        : { id, left, bottom: h - at.y + 16 },
+    );
+  };
+  const placesById = useRef(new Map<string, DocSummary>());
 
   // Three reads, three answers about what is stale. A Place's own page moves
   // the markers; a Journey's moves the routes; but the Book a Place is
@@ -186,14 +221,23 @@ export function MapView() {
     deps: { types: ["journey"] },
     fetch: () => api.journeys(),
   });
-  // The Period (CONTEXT.md) needs every Date, and which Place each Event
-  // names, so it can keep what overlaps it and mark Events at their Place.
-  const { data: datedData } = useQuery<{ rows: DatedProperty[]; links: EventLink[] }>({
+  // The Period (CONTEXT.md) needs every Date, which Place each Event names,
+  // and who is in which Place, so it can keep what overlaps it, mark Events at
+  // their Place, and say who is there.
+  const { data: datedData } = useQuery<{
+    rows: DatedProperty[];
+    links: EventLink[];
+    ties: PlaceTie[];
+  }>({
     key: [],
     deps: { any: true },
     fetch: async () => {
-      const [rows, links] = await Promise.all([api.timeline(), api.eventLinks()]);
-      return { rows, links };
+      const [rows, links, ties] = await Promise.all([
+        api.timeline(),
+        api.eventLinks(),
+        api.placeTies(),
+      ]);
+      return { rows, links, ties };
     },
   });
   // Places the gazetteer could give a kind (PLAN §27.13), for the legend's offer.
@@ -205,6 +249,7 @@ export function MapView() {
   const fillKinds = useFillKinds();
   const borders = useBorders();
   const places = useMemo(() => placesData ?? [], [placesData]);
+  placesById.current = new Map(places.map((p) => [p.id, p]));
   const rawFacts = useMemo(() => factsData ?? [], [factsData]);
   const journeys = useMemo(() => journeysData ?? [], [journeysData]);
 
@@ -233,6 +278,23 @@ export function MapView() {
 
   const mf = s.mapFilters;
   const pf = s.periodFilter;
+  // The shared Tags, asked for by Tag: a Place carries one, or someone tied
+  // to it does (lib/period).
+  const { data: taggedData } = useQuery({
+    key: [pf.tags.join(" ")],
+    deps: { any: true },
+    enabled: pf.tags.length > 0,
+    fetch: async () => {
+      const lists = await Promise.all(pf.tags.map((tg) => api.taggedDocuments(tg)));
+      return pf.tags.map((tag, i) => ({ tag, docs: lists[i] }));
+    },
+  });
+  const tagsByDoc = useMemo(() => {
+    const m = new Map<string, string[]>();
+    for (const { tag, docs } of pf.tags.length > 0 ? (taggedData ?? []) : [])
+      for (const d of docs) m.set(d.id, [...(m.get(d.id) ?? []), tag]);
+    return m;
+  }, [taggedData, pf.tags]);
   // The Period the Timeline shares: Places and Journeys that overlap it, and
   // the Events in it, marked at their Place (lib/mapPeriod).
   const rows = datedData?.rows;
@@ -251,11 +313,16 @@ export function MapView() {
         regions: unpinnedRegions,
         journeys,
         events: s.docs.filter((d) => d.type === "event"),
+        characters: s.docs.filter((d) => d.type === "character"),
         rows: rows ?? [],
         eventLinks: datedData?.links ?? [],
+        placeTies: datedData?.ties ?? [],
         period: pf.period,
+        tags: pf.tags,
+        chosenPlaces: pf.places,
+        tagsByDoc,
       }),
-    [places, unpinnedRegions, journeys, s.docs, rows, datedData?.links, pf.period],
+    [places, unpinnedRegions, journeys, s.docs, rows, datedData, pf, tagsByDoc],
   );
   // The slider's track: every year the Vault's Dates name, as the Timeline's.
   const extent = useMemo(
@@ -328,7 +395,8 @@ export function MapView() {
     () => inPeriod.journeys.map((j) => ({ id: j.doc.id, title: j.doc.title })),
     [inPeriod.journeys],
   );
-  const filtered = activeCount(mf) > 0 || pf.period != null;
+  const filtered =
+    activeCount(mf) + pf.tags.length + pf.places.length > 0 || pf.period != null;
 
   // Event marks at the Places on screen, numbered per Place so they stack.
   const marks = useMemo(() => {
@@ -367,6 +435,8 @@ export function MapView() {
       el.dataset.center = `${c.lat.toFixed(3)},${c.lng.toFixed(3)}`;
     };
     map.current.on("moveend zoomend", mark);
+    // The card points at its pin: once the map moves, or is clicked, it goes.
+    map.current.on("movestart zoomstart click", () => setPinCard(null));
     mark();
     // Names are measured, so measure again whenever their boxes can have
     // moved: a zoom, the end of an animated fit, and the web font arriving.
@@ -472,11 +542,9 @@ export function MapView() {
         // rather than the other way round when they touch.
         zIndexOffset: paint.muted ? -2000 : stops ? 2000 : Math.min(facts.mentions.get(p.id) ?? 0, 1000),
       }).addTo(g);
-      mk.on("click", () => {
-        if (!drawingRef.current) openDoc.current(p.id);
-      });
+      mk.on("click", () => openPin.current(p.id));
       mk.on("keypress", (e: L.LeafletKeyboardEvent) => {
-        if (e.originalEvent.key === "Enter") openDoc.current(p.id);
+        if (e.originalEvent.key === "Enter") openPin.current(p.id);
       });
       placed.push({
         id: p.id,
@@ -796,6 +864,69 @@ export function MapView() {
             </div>
           </div>
         )}
+        {pinCard &&
+          periodOn.current &&
+          shown.some((p) => p.id === pinCard.id) &&
+          (() => {
+            const place = s.docsById.get(pinCard.id);
+            const here = inPeriod.charactersAt.get(pinCard.id) ?? [];
+            return (
+              <div
+                data-testid="map-pin-card"
+                data-id={pinCard.id}
+                className="absolute z-[1000] flex w-64 min-w-0 max-w-[calc(100%-1rem)] flex-col gap-1.5 rounded-md border bg-popover p-2 text-xs text-popover-foreground shadow-md"
+                style={{ left: pinCard.left, top: pinCard.top, bottom: pinCard.bottom }}
+              >
+                <div className="flex min-w-0 items-start gap-1">
+                  <button
+                    type="button"
+                    data-testid="map-pin-card-open"
+                    className="min-w-0 flex-1 text-left text-sm font-semibold hover:underline"
+                    onClick={() => {
+                      setPinCard(null);
+                      s.openDoc(pinCard.id);
+                    }}
+                  >
+                    {place?.title ?? pinCard.id}
+                  </button>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={t.close}
+                    data-testid="map-pin-card-close"
+                    onClick={() => setPinCard(null)}
+                  >
+                    <X />
+                  </Button>
+                </div>
+                <p className="min-w-0 font-medium text-muted-foreground">{t.map_characters_here}</p>
+                {here.length === 0 ? (
+                  <p data-testid="map-pin-card-none" className="min-w-0 text-muted-foreground">
+                    {t.map_characters_none}
+                  </p>
+                ) : (
+                  <ul className="thin-scroll flex max-h-48 min-w-0 flex-col overflow-auto">
+                    {here.map((c) => (
+                      <li key={c.id} className="min-w-0">
+                        <button
+                          type="button"
+                          data-testid="map-pin-card-character"
+                          data-id={c.id}
+                          className="w-full min-w-0 truncate rounded px-1 py-0.5 text-left hover:bg-accent"
+                          onClick={() => {
+                            setPinCard(null);
+                            s.openDoc(c.id);
+                          }}
+                        >
+                          {c.title}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            );
+          })()}
         {shown.length > 0 && (
           <MapLegend
             kinds={legend.kinds}
@@ -833,7 +964,7 @@ export function MapView() {
                     search: "",
                     mentionedOnly: false,
                   });
-                  s.setPeriodFilter({ ...pf, period: null });
+                  s.setPeriodFilter(NO_PERIOD_FILTER);
                 }}
               >
                 {t.tl_filter_clear}

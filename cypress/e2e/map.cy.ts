@@ -471,4 +471,82 @@ describe("Map", () => {
     cy.get("[data-testid=period-clear]").click();
     cy.get("[data-testid=map] .map-route").should("have.length.greaterThan", 0);
   });
+
+  // Places and Tags in the shared filter (CONTEXT.md: Period, Character).
+  const pickPlace = (title: string) => {
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").clear().type(title);
+    cy.docByTitle(title).then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+  };
+  const pinIds = () =>
+    cy
+      .get("[data-testid=map] [data-testid=map-pin]")
+      .then(($pins) => [...$pins].map((el) => el.getAttribute("data-id")).sort());
+
+  it("draws only the Places chosen, any of them", () => {
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=map] [data-testid=map-pin]").should("have.length.greaterThan", 2);
+    pickPlace("Jerusalem");
+    pickPlace("Bethlehem");
+    cy.docByTitle("Jerusalem").then((jerusalem) =>
+      cy.docByTitle("Bethlehem").then((bethlehem) =>
+        pinIds().should("deep.equal", [jerusalem.id, bethlehem.id].sort()),
+      ),
+    );
+    // A chip removes its Place; the last one gone, every Place is back.
+    cy.get("[data-testid=period-place-remove]").first().click();
+    cy.get("[data-testid=period-place-remove]").click();
+    cy.get("[data-testid=map] [data-testid=map-pin]").should("have.length.greaterThan", 2);
+  });
+
+  it("keeps a Place for a shared Tag carried by what is there in the Period", () => {
+    // "prayer" is on no Place, but on Solomon's temple, built in Jerusalem
+    // in 1034 BCE, and on the Exodus, which set out from Egypt.
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prayer").click();
+    cy.get("body").type("{esc}");
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-tag][data-id=prayer]").should("exist");
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+    );
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    setPeriod("1100", "1000");
+    cy.docByTitle("Jerusalem").then((jerusalem) =>
+      pinIds().should("deep.equal", [jerusalem.id]),
+    );
+    // The chip drops the Tag on both views.
+    cy.get("[data-testid=period-tag-remove]").click();
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-tag]").should("not.exist");
+  });
+
+  it("lists the Characters here on a Place's pin card in a Period", () => {
+    cy.runCommand("Go to Map");
+    setPeriod("1100", "1000");
+    // David names Jerusalem in his `places`, and lives 1107–1037 BCE.
+    cy.contains("[data-testid=map-pin]", "Jerusalem").find(".map-pin").click({ force: true });
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get("[data-testid=map-pin-card]").should("have.attr", "data-id", p.id),
+    );
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=map-pin-card-character][data-id="${david.id}"]`).should("exist"),
+    );
+    // Paul is in Ephesus only in his own century.
+    cy.docByTitle("Paul").then((paul) =>
+      cy.get(`[data-testid=map-pin-card-character][data-id="${paul.id}"]`).should("not.exist"),
+    );
+    cy.get("[data-testid=map-pin-card-close]").click();
+    cy.get("[data-testid=map-pin-card]").should("not.exist");
+    // The card's title opens the Place, a Character's name opens the Character.
+    cy.contains("[data-testid=map-pin]", "Jerusalem").find(".map-pin").click({ force: true });
+    cy.get("[data-testid=map-pin-card-character]").contains("David").click();
+    cy.hubTitle("David");
+  });
 });

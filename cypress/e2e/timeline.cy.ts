@@ -222,6 +222,69 @@ describe("Timeline", () => {
     );
   });
 
+  // Places in the shared filter (CONTEXT.md: Period, Character): a Character
+  // is in a Place for life through its `places`, or for an Event's time
+  // through an Event naming both.
+  const pickPlace = (title: string) => {
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").clear().type(title);
+    cy.docByTitle(title).then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+  };
+  const lane = (title: string) =>
+    cy.docByTitle(title).then((d) => cy.get(`[data-testid=tl-lane][data-lane=${d.id}]`));
+  const eventMark = (title: string) =>
+    cy
+      .docByTitle(title)
+      .then((ev) => cy.get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`));
+
+  it("narrows to the Places chosen, any of them, and what is tied to them", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    // David names Bethlehem in his `places`; David is anointed there.
+    pickPlace("Bethlehem");
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place][data-id="${p.id}"]`).should("exist"),
+    );
+    lane("David").should("exist");
+    lane("Moses").should("not.exist");
+    eventMark("David anointed king").should("exist");
+    eventMark("Solomon's temple built").should("not.exist");
+    // Several Places are any of them: Paul is in Ephesus during his stay.
+    pickPlace("Ephesus");
+    lane("David").should("exist");
+    lane("Paul").should("exist");
+    eventMark("Paul in Ephesus").should("exist");
+    // In 1100–1000 BCE only Bethlehem's ties hold.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    lane("David").should("exist");
+    lane("Paul").should("not.exist");
+    // Removing Bethlehem leaves nothing tied to Ephesus in those years.
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place][data-id="${p.id}"] [data-testid=period-place-remove]`).click(),
+    );
+    cy.get("[data-testid=tl-lane][data-type=character]").should("not.exist");
+    cy.get("[data-testid=tl-empty-clear]").click();
+    cy.get("[data-testid=period-place]").should("not.exist");
+    lane("Moses").should("exist");
+  });
+
+  it("keeps the Places chosen on the Timeline when the Map opens", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    pickPlace("Jerusalem");
+    cy.runCommand("Go to Map");
+    cy.docByTitle("Jerusalem").then((p) => {
+      cy.get(`[data-testid=period-place][data-id="${p.id}"]`).should("exist");
+      cy.get("[data-testid=map] [data-testid=map-pin]")
+        .should("have.length", 1)
+        .and("have.attr", "data-id", p.id);
+    });
+  });
+
   it("gathers crowded Dates into a Cluster that opens and zooms apart", () => {
     cy.get("[data-testid=nav-timeline]").click();
     cy.get("[data-testid=tl-lane][data-lane=events] [data-testid=tl-cluster]")

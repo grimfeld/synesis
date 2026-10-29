@@ -77,6 +77,33 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Places chosen with the Period sit on its row as chips beside
+      // "Lieux", and a pin card lists "Personnages ici" over the map.
+      it("keeps the Period's Place chips and a pin card inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        for (const title of ["Jerusalem", "Bethlehem", "Mount Sinai"]) {
+          cy.get("[data-testid=period-places]").click();
+          cy.get("[data-testid=period-places-search]").clear().type(title);
+          cy.docByTitle(title).then((p) =>
+            cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+          );
+          expectNoOverflow();
+          cy.get("body").type("{esc}");
+        }
+        cy.get("[data-testid=period-place]").should("have.length", 3);
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        cy.get("body").type("{esc}");
+        cy.docByTitle("Jerusalem").then((p) =>
+          cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"] .map-pin`).click({ force: true }),
+        );
+        cy.get("[data-testid=map-pin-card]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // The Skin editor packs colour rows, sliders and font pickers with
       // long French labels ("Bordures des champs", "Taille d'écriture").
       it("keeps the Skin editor inside its card on a phone", () => {
