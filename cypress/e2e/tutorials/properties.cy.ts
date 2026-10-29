@@ -50,15 +50,33 @@ describe("Tutorial: Properties & Dates", () => {
       .and("contain", "c. 1050 BCE");
     cy.tutorialNext();
 
-    // 4. Do it once: a Character with Born and Died makes a Span on the Timeline.
+    // 4. Add Date offers the kind's pair, only its missing half, and a named Date.
     cy.tutorialStep(3);
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add Span").click();
+    cy.focused().should("have.attr", "data-testid", "date-input-start");
+    cy.get("[data-testid=date-input-end]").should("have.value", "");
+    cy.get("[data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("not.exist");
+    cy.get("[data-testid=add-date-named]").click();
+    // A name the Vault types otherwise is refused.
+    cy.get("[data-testid=date-name-input]").type("modern_name{enter}");
+    cy.get("[data-testid=date-name-error]").should("contain", "Text");
+    cy.get("[data-testid=date-name-input]").clear().type("{esc}");
+    cy.get("[data-testid=date-name-form]").should("not.exist");
+    cy.tutorialNext();
+
+    // 5. Do it once: a Character's lifespan, added from Add Date, makes a Span on the Timeline.
+    cy.tutorialStep(4);
     cy.tutorialCommand("create.character");
     cy.get("[data-testid=new-doc-form]").should("contain", "Character");
     cy.get("[data-testid=new-doc-title]").type("Caleb");
-    cy.get("[data-testid=new-born]").type("c. 1553 BCE");
-    cy.get("[data-testid=new-died]").type("c. 1450 BCE");
     cy.get("[data-testid=submit-doc]").click();
     cy.hubTitle("Caleb");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add lifespan").click();
+    cy.focused().type("c. 1553 BCE").blur();
+    cy.get("[data-testid=date-input-died]").type("c. 1450 BCE").blur();
     cy.get("[data-testid=date-born]").should("have.attr", "data-valid", "true");
     cy.get("[data-testid=date-died]").should("have.attr", "data-valid", "true");
     cy.tutorialCommand("nav.timeline");

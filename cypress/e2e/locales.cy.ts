@@ -41,7 +41,28 @@ describe("Locale layout", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=group-character]").click();
         cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
+        cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+        cy.get("[data-testid=add-date-pair]").click();
         cy.get("[data-testid=date-input-born]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // "Ajouter naissance et mort", the menu beside "Dates", and the refusal
+      // of a name the Vault types otherwise, at 390px (the Add Date control).
+      it("keeps Add Date, its menu and its name field inside the Hub", () => {
+        cy.bridge("create_document", {
+          docType: "place",
+          title: "Nineveh",
+          fields: {},
+        });
+        cy.openApp();
+        cy.openDoc("Nineveh");
+        cy.get("[data-testid=hub-dates] [data-testid=add-date]").scrollIntoView().should("be.visible").click();
+        cy.get("[data-testid=add-date-pair]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=add-date-named]").click();
+        cy.get("[data-testid=date-name-input]").type("lat{enter}");
+        cy.get("[data-testid=date-name-error]").should("be.visible");
         expectNoOverflow();
       });
 
