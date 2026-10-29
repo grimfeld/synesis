@@ -18,10 +18,10 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane]")
       .first()
       .should("have.attr", "data-lane", "events");
-    // Eleven Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
+    // Thirteen Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
     cy.get("[data-testid=tl-lane][data-type=character]").should(
       "have.length",
-      11,
+      13,
     );
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(0)
@@ -29,9 +29,10 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(1)
       .should("contain", "Noah");
-    cy.get("[data-testid=tl-lane][data-type=place]")
-      .should("have.length", 1)
-      .and("contain", "Jerusalem");
+    // Jerusalem, and Judah, the region whose Border holds it.
+    cy.get("[data-testid=tl-lane][data-type=place]").should("have.length", 2);
+    cy.contains("[data-testid=tl-lane][data-type=place]", "Jerusalem").should("exist");
+    cy.contains("[data-testid=tl-lane][data-type=place]", "Judah").should("exist");
     // At fit zoom the 1st-century Events collapse into Clusters, so the Lane's
     // marks and the counts on its Clusters together still account for all 19.
     cy.get("[data-testid=tl-lane][data-lane=events]").then(($lane) => {
@@ -140,7 +141,9 @@ describe("Timeline", () => {
     // reads "Died" — a built-in Property is labelled in the reader's language,
     // while the filter itself still holds the front-matter name.
     cy.get("[data-slot=popover-content]").contains("button", "Died").click();
-    cy.get("[data-testid=tl-lane]").should("have.length.lessThan", 13);
+    cy.get("@all").then((all) => {
+      cy.get("[data-testid=tl-lane]").should("have.length.lessThan", Number(all));
+    });
     cy.get("[data-testid=tl-filter-clear]").click();
     cy.get("@all").then((all) => {
       cy.get("[data-testid=tl-lane]").should("have.length", Number(all));
@@ -271,6 +274,47 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-empty-clear]").click();
     cy.get("[data-testid=period-place]").should("not.exist");
     lane("Moses").should("exist");
+  });
+
+  // A region takes in every Place inside its Border (ADR 0023): the demo
+  // vault's Judah holds Jerusalem, Bethlehem and Anathoth.
+  it("answers prophets in Judah, 640–580 BCE, through Judah's Border", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    pickPlace("Judah");
+    // Jeremiah names Anathoth and Jerusalem, both inside Judah's Border;
+    // David names Bethlehem and Jerusalem. Moses names no Place in it.
+    lane("Jeremiah").should("exist");
+    lane("David").should("exist");
+    lane("Moses").should("not.exist");
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prophet").click();
+    cy.get("body").type("{esc}");
+    lane("David").should("not.exist");
+    lane("Isaiah").should("exist");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("640");
+    cy.get("[data-testid=period-to]").type("580");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "640–580 BCE");
+    // Isaiah died long before; Jeremiah is the prophet of those years.
+    cy.get("[data-testid=tl-lane][data-type=character]")
+      .should("have.length", 1)
+      .and("contain", "Jeremiah");
+    // The same question on the Map: Judah's Border, and the Places in it
+    // where a prophet is in those years.
+    cy.runCommand("Go to Map");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id="${judah.id}"]`).should("exist"),
+    );
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+    );
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
   });
 
   it("keeps the Places chosen on the Timeline when the Map opens", () => {

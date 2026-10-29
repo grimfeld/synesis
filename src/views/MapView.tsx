@@ -12,6 +12,7 @@ import {
   type LatLon,
   type PlaceFact,
   type PlaceTie,
+  type RegionMember,
 } from "@/lib/api";
 import { addCorner, canClose, editableCorners, isRegion } from "@/lib/border";
 import { useBorders, useDeleteBorder } from "@/lib/useBorders";
@@ -228,16 +229,20 @@ export function MapView() {
     rows: DatedProperty[];
     links: EventLink[];
     ties: PlaceTie[];
+    members: RegionMember[];
   }>({
     key: [],
     deps: { any: true },
     fetch: async () => {
-      const [rows, links, ties] = await Promise.all([
+      // `members`: the Places inside each region's Border, so a chosen region
+      // takes them in (ADR 0023).
+      const [rows, links, ties, members] = await Promise.all([
         api.timeline(),
         api.eventLinks(),
         api.placeTies(),
+        api.regions(),
       ]);
-      return { rows, links, ties };
+      return { rows, links, ties, members };
     },
   });
   // Places the gazetteer could give a kind (PLAN §27.13), for the legend's offer.
@@ -317,6 +322,7 @@ export function MapView() {
         rows: rows ?? [],
         eventLinks: datedData?.links ?? [],
         placeTies: datedData?.ties ?? [],
+        regionMembers: datedData?.members ?? [],
         period: pf.period,
         tags: pf.tags,
         chosenPlaces: pf.places,

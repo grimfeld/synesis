@@ -19,6 +19,9 @@ describe("Tutorial: Map & Journeys", () => {
 
   const markers = () => cy.get("[data-testid=map] [data-testid=map-pin]");
   const pin = (title: string) => cy.contains("[data-testid=map-pin]", title);
+  // The demo vault's Judah has a Border of its own; the walk draws Egypt's.
+  const egyptBorder = () =>
+    cy.docByTitle("Egypt").then((egypt) => cy.get(`[data-testid=map-border][data-id=${egypt.id}]`));
 
   it("can be followed to the end", () => {
     // Opened from a Place's Hub, which lists it, the way a user who is
@@ -177,7 +180,7 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map]").click(320, 260);
     cy.get("[data-testid=map]").dblclick(200, 260);
     cy.get("[data-testid=border-toolbar]").should("not.exist");
-    cy.get("[data-testid=map-border]").should("have.length", 1);
+    egyptBorder().should("have.length", 1);
     cy.openDoc("Egypt");
     cy.get("[data-testid=hub-border-draw]").should("contain", "Edit Border").click();
     cy.get("[data-testid=border-corner]").should("have.length", 4);
@@ -186,7 +189,7 @@ describe("Tutorial: Map & Journeys", () => {
     cy.docByTitle("Egypt").then((egypt) => cy.get("[data-testid=border-region]").select(egypt.id));
     cy.get("[data-testid=border-delete]").click();
     cy.get("[data-testid=confirm-batch]").click();
-    cy.get("[data-testid=map-border]").should("not.exist");
+    egyptBorder().should("not.exist");
     pin("Egypt").should("have.class", "no-pin");
     // Import one instead, from the region's page: both pieces are drawn.
     cy.openDoc("Egypt");
@@ -195,15 +198,58 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=border-input]").selectFile("cypress/fixtures/egypt.geojson", { force: true });
     cy.get("[data-testid=border-file]").should("contain", "Egypt.geojson");
     cy.runCommand("Go to Map");
-    cy.get("[data-testid=map-border]").should("have.length", 1);
+    egyptBorder().should("have.length", 1);
     cy.openDoc("Egypt");
     cy.get("[data-testid=hub-border-delete]").click();
     cy.get("[data-testid=confirm-batch]").click();
     cy.get("[data-testid=border-none]").should("exist");
     cy.tutorialNext();
 
-    // 9. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    // 9. A chosen region draws its Border and the Places inside it, and its
+    //    Border only in the years of its own Dates.
     cy.tutorialStep(8);
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Judah");
+    cy.docByTitle("Judah").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("640");
+    cy.get("[data-testid=period-to]").type("580");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "640–580 BCE");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id=${judah.id}]`).should("exist"),
+    );
+    for (const inside of ["Jerusalem", "Bethlehem", "Anathoth"])
+      cy.docByTitle(inside).then((p) =>
+        cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+      );
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    // Paul's day: the kingdom had ended, and its Border is hidden.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").clear().type("30");
+    cy.get("[data-testid=period-from-era]").click();
+    cy.get("[data-testid=period-to]").clear().type("60");
+    cy.get("[data-testid=period-to-era]").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "30–60 CE");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id=${judah.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-place-remove]").click();
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+    );
+    cy.tutorialNext();
+
+    // 10. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    cy.tutorialStep(9);
     cy.tutorialCommand("create.journey");
     cy.get("[data-testid=new-doc-title]").type("Paul's first journey");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();

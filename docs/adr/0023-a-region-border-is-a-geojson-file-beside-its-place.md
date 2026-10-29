@@ -15,4 +15,5 @@ Historical borders need area shapes, while a Place has only been a point (`lat`,
 ## Consequences
 
 - The Vault gains a non-markdown file type that Obsidian ignores, like Boards' `.canvas` files (ADR 0009). Pairing carries it whole, like attachments (ADR 0020).
-- Containment is computed geometrically (point in polygon) at index time, and only for Places that have coordinates.
+- Containment is computed geometrically (point in polygon) at index time, and only for Places that have coordinates. A Place on the line counts as inside. The index keeps a copy of each region's polygons beside the Places found inside it, so a Place saved alone is tested against every Border without reading a file, and a Border saved alone against every Place. Because the file can change under an unchanged Place (another tool, Pairing, iCloud), containment is also recomputed when a `.geojson` file changes on disk or arrives from a paired Device, after every Border command, and on every scan. A Border file iCloud has not downloaded yet keeps the containment it had; a missing or malformed one contains nothing.
+- The Map still reads Border files when it draws them, rather than from the index, so it can say why a file cannot be drawn (missing, malformed, downloading).

@@ -377,6 +377,9 @@ fn put_border(
         let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, Some(&link));
         v.write(id, &text)?
     };
+    // The Place may be unchanged (a Border rewritten in place): the Places
+    // inside it are recomputed from the new file either way.
+    v.border_file_changed(&rel)?;
     Ok(payload(v, view))
 }
 
@@ -393,6 +396,7 @@ pub fn delete_border(v: &mut Vault, id: &str) -> crate::Result<DocumentPayload> 
         }
     }
     if !view.frontmatter.contains_key(crate::border::PROPERTY) {
+        v.border_file_changed("")?;
         return Ok(payload(v, view));
     }
     let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, None);
@@ -580,6 +584,110 @@ mod border_tests {
         v.scan().unwrap();
         assert!(import_border(&mut v, "n", "islands.geojson", ISLANDS).is_err());
         assert!(!dir.path().join("Notes/N.geojson").exists());
+    }
+
+    // ---- Containment (ADR 0023): which Places lie inside a region's Border.
+
+    fn place(dir: &std::path::Path, id: &str, lat: f64, lon: f64) {
+        fs::write(
+            dir.join(format!("Places/{id}.md")),
+            format!("---\nid: {id}\ntype: place\nlat: {lat}\nlon: {lon}\n---\n"),
+        )
+        .unwrap();
+    }
+
+    /// The Places inside `region`, sorted.
+    fn members(v: &Vault, region: &str) -> Vec<String> {
+        let mut out: Vec<String> = match v.query(Query::Regions).unwrap() {
+            Answer::Regions(r) => r.into_iter().filter(|m| m.region == region).map(|m| m.place).collect(),
+            other => panic!("{other:?}"),
+        };
+        out.sort();
+        out
+    }
+
+    /// Judah's Border is lat 31–32, lon 35–36.
+    const SQUARE: [[f64; 2]; 4] = [[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [32.0, 35.0]];
+
+    fn with_places() -> (tempfile::TempDir, Vault) {
+        let (dir, mut v) = vault();
+        place(dir.path(), "jerusalem", 31.5, 35.5);
+        place(dir.path(), "babylon", 32.5, 44.4);
+        place(dir.path(), "frontier", 31.0, 35.5);
+        v.scan().unwrap();
+        (dir, v)
+    }
+
+    #[test]
+    fn a_region_contains_the_places_inside_and_on_its_border() {
+        let (_dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        assert_eq!(members(&v, "judah"), ["frontier", "jerusalem"]);
+    }
+
+    #[test]
+    fn a_region_without_a_border_contains_nothing() {
+        let (_dir, v) = with_places();
+        assert!(members(&v, "judah").is_empty());
+    }
+
+    #[test]
+    fn every_piece_of_an_imported_multipolygon_contains() {
+        let (dir, mut v) = with_places();
+        place(dir.path(), "isle", 30.1, 34.1);
+        v.scan().unwrap();
+        import_border(&mut v, "judah", "islands.geojson", ISLANDS).unwrap();
+        // The frontier town sits on a corner of the first piece; the isle
+        // lies in the second.
+        assert_eq!(members(&v, "judah"), ["frontier", "isle"]);
+    }
+
+    #[test]
+    fn containment_follows_an_edited_border_and_a_moved_place() {
+        let (dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        // Drawn again, smaller: the frontier town falls outside.
+        save_border(&mut v, "judah", &[[31.2, 35.0], [31.2, 36.0], [32.0, 36.0], [32.0, 35.0]]).unwrap();
+        assert_eq!(members(&v, "judah"), ["jerusalem"]);
+        // Babylon moved into it, as an edit in Obsidian would.
+        place(dir.path(), "babylon", 31.8, 35.8);
+        v.index_file("Places/babylon.md").unwrap();
+        assert_eq!(members(&v, "judah"), ["babylon", "jerusalem"]);
+        // The Border file changed on disk, with the Place untouched.
+        fs::write(
+            dir.path().join("Places/Judah.geojson"),
+            r#"{"type":"Polygon","coordinates":[[[35,31],[36,31],[36,31.6],[35,31.6],[35,31]]]}"#,
+        )
+        .unwrap();
+        v.border_file_changed("Places/Judah.geojson").unwrap();
+        assert_eq!(members(&v, "judah"), ["frontier", "jerusalem"]);
+        // And removed with its Property: nothing is inside any more.
+        delete_border(&mut v, "judah").unwrap();
+        assert!(members(&v, "judah").is_empty());
+    }
+
+    #[test]
+    fn a_border_changed_while_closed_is_read_again_on_open() {
+        let (dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        fs::write(
+            dir.path().join("Places/Judah.geojson"),
+            r#"{"type":"Polygon","coordinates":[[[44,32],[45,32],[45,33],[44,33],[44,32]]]}"#,
+        )
+        .unwrap();
+        v.scan().unwrap();
+        assert_eq!(members(&v, "judah"), ["babylon"]);
+    }
+
+    #[test]
+    fn a_vanished_place_or_region_leaves_no_containment() {
+        let (dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        fs::remove_file(dir.path().join("Places/jerusalem.md")).unwrap();
+        v.scan().unwrap();
+        assert_eq!(members(&v, "judah"), ["frontier"]);
+        v.delete("judah").unwrap();
+        assert!(members(&v, "judah").is_empty());
     }
 
     #[test]

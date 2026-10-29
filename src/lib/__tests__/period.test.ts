@@ -1,7 +1,15 @@
 // The Period (CONTEXT.md): one filter the Timeline and the Map share. The
 // fixture asks the question the feature exists for, "prophets, 640–580 BCE".
 import { describe, expect, it } from "vitest";
-import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink, PlaceTie } from "../api";
+import type {
+  BibleDate,
+  DatedProperty,
+  DocSummary,
+  DocType,
+  EventLink,
+  PlaceTie,
+  RegionMember,
+} from "../api";
 import {
   charactersAt,
   fieldToYear,
@@ -280,6 +288,75 @@ describe("filterByPeriod with Places", () => {
     expect(at(ephesus.id, { period: period(50, 60) })).toEqual(["paul"]);
     // The shared Tags narrow the list too.
     expect(at(jerusalem.id, { tags: ["apostle"] })).toEqual([]);
+  });
+});
+
+describe("filterByPeriod with regions", () => {
+  // Judah's Border takes in Jerusalem and Anathoth; Samaria has no Border.
+  const judah = doc("judah", "place");
+  const samaria = doc("samaria", "place");
+  const anathoth = doc("anathoth", "place");
+  const regions: RegionMember[] = [
+    { place: jerusalem.id, region: judah.id },
+    { place: anathoth.id, region: judah.id },
+  ];
+  const placeTies: PlaceTie[] = [jeremiah, isaiah, habakkuk].map((character) => ({
+    character,
+    place: jerusalem,
+    event: null,
+    start: null,
+    end: null,
+  }));
+  const ties = tiesOf(placeTies, [{ event: fall.id, subject: jerusalem.id }]);
+  const all = itemsOf(
+    [...rows, dated(judah, "start", bce(930)), dated(judah, "end", bce(587))],
+    [...undatedDocs, anathoth, samaria],
+    tags,
+  );
+  const runR = (f: Partial<PeriodFilter>, members = regions) => {
+    const r = filterByPeriod(all, { ...NO_PERIOD_FILTER, ...f }, ties, members);
+    return { ids: r.visible.map((i) => i.doc.id).sort(), undated: r.undated };
+  };
+
+  it("takes in every Place inside a chosen region's Border, and what is tied to them", () => {
+    expect(runR({ places: [judah.id] }).ids).toEqual([
+      "anathoth",
+      "fall-of-jerusalem",
+      "habakkuk",
+      "isaiah",
+      "jeremiah",
+      "jerusalem",
+      "judah",
+    ]);
+  });
+
+  it("answers prophets in Judah, 640–580 BCE", () => {
+    const { ids, undated } = runR({
+      places: [judah.id],
+      tags: ["prophet"],
+      period: period(bce(640), bce(580)),
+    });
+    // Jeremiah is in Jerusalem, inside Judah, in those years; Isaiah died
+    // before them. Judah stays, a prophet being inside it; Anathoth, where
+    // no prophet is tied, does not.
+    expect(ids).toEqual(["jeremiah", "jerusalem", "judah"]);
+    expect(undated).toBe(1);
+  });
+
+  it("reads a region with no Border as containing nothing", () => {
+    expect(runR({ places: [samaria.id] }).ids).toEqual(["samaria"]);
+    // Nor does a region whose Border holds no Place.
+    expect(runR({ places: [judah.id] }, []).ids).toEqual(["judah"]);
+  });
+
+  it("combines a region with another Place as any of them", () => {
+    expect(runR({ places: [samaria.id, judah.id], tags: ["prophet"] }).ids).toEqual([
+      "habakkuk",
+      "isaiah",
+      "jeremiah",
+      "jerusalem",
+      "judah",
+    ]);
   });
 });
 

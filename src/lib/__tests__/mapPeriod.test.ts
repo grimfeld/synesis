@@ -169,6 +169,35 @@ describe("mapInPeriod with the shared Tags and Places", () => {
     expect(r.journeys.map((j) => j.doc.id)).toEqual(["paul-trip", "wander"]);
   });
 
+  it("draws a chosen region, the Places inside its Border, and their Event marks", () => {
+    // Judah's Border takes in Jerusalem; it is drawn without a pin.
+    const judah = { ...doc("judah", "place"), lat: null, lon: null };
+    const rows = [...shared.rows, dated(judah, "start", bce(930)), dated(judah, "end", bce(587))];
+    const r = mapInPeriod({
+      ...shared,
+      rows,
+      regions: [judah],
+      regionMembers: [{ place: jerusalem.id, region: judah.id }],
+      chosenPlaces: [judah.id],
+      period: { from: bce(640), to: bce(580) },
+    });
+    expect(ids(r.places)).toEqual(["jerusalem"]);
+    expect(ids(r.regions)).toEqual(["judah"]);
+    expect(r.events).toEqual([{ event: fall, place: jerusalem.id }]);
+    // In Paul's day Judah's Border is hidden; Jerusalem, with no Span, still
+    // lies where the Border was drawn, so choosing Judah still takes it in.
+    const later = mapInPeriod({
+      ...shared,
+      rows,
+      regions: [judah],
+      regionMembers: [{ place: jerusalem.id, region: judah.id }],
+      chosenPlaces: [judah.id],
+      period: { from: 30, to: 60 },
+    });
+    expect(ids(later.regions)).toEqual([]);
+    expect(ids(later.places)).toEqual(["jerusalem"]);
+  });
+
   it("lists the Characters at each Place in the Period", () => {
     const at = (period: { from: number; to: number } | null) =>
       ids(mapInPeriod({ ...shared, period }).charactersAt.get(jerusalem.id) ?? []);
