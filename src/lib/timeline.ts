@@ -49,7 +49,7 @@ export function formatYear(y: number, t: { bce: string; ce: string }): string {
  * with the rest of the UI's per-type table (`SPAN` in lib/docTypes.tsx); a
  * suggestion is not a constraint.
  */
-const SPAN_PAIRS: [string, string][] = [
+export const SPAN_PAIRS: [string, string][] = [
   ["start", "end"],
   ["born", "died"],
 ];
