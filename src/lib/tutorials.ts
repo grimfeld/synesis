@@ -145,6 +145,7 @@ export const FEATURE_TUTORIALS = [
   "candidates",
   "boards",
   "split",
+  "panes",
   "versions",
   "delivery",
   "hubs",
@@ -211,12 +212,12 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
       case "welcome":
         return ["pairing", ...syncFor(deviceKind)];
       case "editor": {
-        const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode", "reading"];
+        const writing = ["capture", "passages", "mentions", "linkables", "properties", "pictures", "source-mode", "reading", "panes"];
         if (place.type === "composition") return ["compositions", "candidates", "boards", "split", "versions", "delivery", ...writing];
         return writing;
       }
       case "hub": {
-        const base = ["hubs", "mentions", "linkables", "properties", "pictures"];
+        const base = ["hubs", "mentions", "linkables", "properties", "pictures", "panes"];
         if (SCRIPTURE.includes(place.type)) return ["passages", "hubs", "pictures"];
         if (place.type === "source") return ["library", "clippings", ...base];
         if (place.type === "place" || place.type === "journey") return ["map", ...base];

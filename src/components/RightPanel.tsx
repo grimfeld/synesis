@@ -179,6 +179,8 @@ export function RightPanel({
   return (
     <aside
       data-testid="right-panel"
+      // Which document it describes: with two Panes, the last-used one's.
+      data-doc={doc.summary.id}
       className={cn(
         "thin-scroll flex flex-col overflow-y-auto bg-sidebar text-sidebar-foreground",
         inSheet ? "h-full w-full" : "w-80 shrink-0 border-l",
