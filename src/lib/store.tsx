@@ -35,6 +35,9 @@ import {
   activePane,
   initialPanes,
   panesReducer,
+  restoreLayout,
+  savedLayout,
+  type PaneIndex,
   type DocTab,
   type PaneAction,
   type PanesState,
@@ -97,6 +100,13 @@ export type Dialog =
 const SOURCE_MODE_KEY = "synesis.sourceMode";
 const READING_MODE_KEY = "synesis.readingMode";
 const DELIVERY_SIZE_KEY = "synesis.deliverySize";
+/** The Pane layout, per Device (localStorage) and per Vault (its root). */
+const PANES_KEY = (root: string) => `synesis.panes:${root}`;
+
+/** Whether a click asks for the other Pane: Cmd-click on macOS, Ctrl-click elsewhere. */
+export function otherPane(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
+  return e.metaKey || e.ctrlKey;
+}
 
 interface Store {
   settings: Settings | null;
@@ -115,6 +125,14 @@ interface Store {
   /** The Window's Panes (spec #35). `view`, Back and the split follow `lastUsed`. */
   panes: PanesState;
   dispatchPanes: (a: PaneAction) => void;
+  /**
+   * Whether two Panes fit side by side right now (spec #35). Never on a
+   * phone; set by the Pane layout, which measures the room it has.
+   */
+  twoPanesFit: boolean;
+  setTwoPanesFit: (b: boolean) => void;
+  /** Open a view in the other Pane, or in this one where two do not fit. */
+  openInOther: (v: View) => void;
   /** The view in the last-used Pane. */
   view: View;
   canBack: boolean;
@@ -154,12 +172,13 @@ interface Store {
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
   closeVault: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<unknown>;
   navigate: (v: View) => void;
   back: () => void;
   forward: () => void;
-  openDoc: (id: string) => void;
-  openLink: (target: string) => Promise<void>;
+  /** `other`: in the other Pane (Cmd/Ctrl-click, spec #35). */
+  openDoc: (id: string, other?: boolean) => void;
+  openLink: (target: string, other?: boolean) => Promise<void>;
   openPassage: (p: PassageInfo) => Promise<void>;
   openScripture: (
     book: number,
@@ -250,6 +269,15 @@ function writeFlag(key: string, b: boolean) {
   }
 }
 
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 function readDeliverySize(): number {
   try {
     const n = Number(localStorage.getItem(DELIVERY_SIZE_KEY));
@@ -275,6 +303,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [tags, setTags] = useState<TagCount[]>([]);
   const [panes, dispatchPanes] = useReducer(panesReducer, undefined, initialPanes);
   const pane = activePane(panes);
+  const [twoPanesFit, setTwoPanesFit] = useState(false);
+  // The Vault whose layout the Panes show: nothing is saved between a reset
+  // and the restore, or switching Vaults would wipe the one being left.
+  const layoutFor = useRef<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<ChangedPayload | null>(null);
@@ -316,6 +348,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setInfo(i);
     setSchema(sc);
     setPlaceKindsState(pk);
+    return { docs: d, info: i };
   }, []);
 
   const setPlaceKinds = useCallback(async (kinds: CustomKind[]) => {
@@ -335,21 +368,29 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         api.books(),
       ]);
       // Navigation resets first: once `info` is set the shell renders and the user may click.
+      layoutFor.current = null;
       dispatchPanes({ type: "reset" });
       setSettings(settings);
       setBooks(books);
-      await refresh();
+      const { docs, info } = await refresh();
+      // Two Panes left open come back as they were (spec #35); one Pane opens on Home.
+      const ids = new Set(docs.map((d) => d.id));
+      const restored = restoreLayout(readJson(PANES_KEY(info.root)), (id) => ids.has(id));
+      if (restored) dispatchPanes({ type: "load", state: restored });
+      layoutFor.current = info.root;
     },
     [refresh],
   );
 
   const attachVault = useCallback(async () => {
     const [i, settings, books] = await Promise.all([api.vaultInfo(), api.getSettings(), api.books()]);
+    layoutFor.current = null;
     dispatchPanes({ type: "reset" });
     setSettings(settings);
     setBooks(books);
     await refresh();
     setInfo(i);
+    layoutFor.current = i.root;
   }, [refresh]);
 
   const closeVault = useCallback(async () => {
@@ -410,15 +451,25 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const back = useCallback(() => dispatchPanes({ type: "back" }), []);
   const forward = useCallback(() => dispatchPanes({ type: "forward" }), []);
 
+  // On a phone, or wherever two Panes do not fit, "the other Pane" is this one:
+  // a Cmd/Ctrl-click opens as a plain click would (spec #35).
+  const openInOther = useCallback(
+    (v: View) => {
+      if (!twoPanesFit) return navigate(v);
+      dispatchPanes({ type: "openInOther", view: v });
+    },
+    [navigate, twoPanesFit],
+  );
+
   const openDoc = useCallback(
-    (id: string) => navigate({ kind: "doc", id }),
-    [navigate],
+    (id: string, other = false) => (other ? openInOther : navigate)({ kind: "doc", id }),
+    [navigate, openInOther],
   );
 
   const openLink = useCallback(
-    async (target: string) => {
+    async (target: string, other = false) => {
       const d = await api.resolveLink(target);
-      if (d) openDoc(d.id);
+      if (d) openDoc(d.id, other);
       else setDialog({ kind: "create-link", target });
     },
     [openDoc],
@@ -605,6 +656,19 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Keep the layout for the next time this Vault opens on this Device.
+  const vaultRoot = info?.root;
+  useEffect(() => {
+    if (!vaultRoot || layoutFor.current !== vaultRoot) return;
+    const saved = savedLayout(panes);
+    try {
+      if (saved) localStorage.setItem(PANES_KEY(vaultRoot), JSON.stringify(saved));
+      else localStorage.removeItem(PANES_KEY(vaultRoot));
+    } catch {
+      /* preference only */
+    }
+  }, [panes, vaultRoot]);
+
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const value: Store = {
@@ -621,6 +685,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     announceChanged,
     panes,
     dispatchPanes,
+    twoPanesFit,
+    setTwoPanesFit,
+    openInOther,
     view: pane.view,
     canBack: pane.back.length > 0,
     canForward: pane.forward.length > 0,
@@ -671,5 +738,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   return (
     <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
+}
+
+/** Which Pane a subtree is drawn in, and how it stands (spec #35). */
+export interface PaneInfo {
+  index: PaneIndex;
+  /** The last-used Pane: the side panel, the palette and Back follow it. */
+  active: boolean;
+  /** Two Panes are on screen. */
+  two: boolean;
+}
+
+const PaneContext = createContext<PaneInfo>({ index: 0, active: true, two: false });
+
+export function usePane(): PaneInfo {
+  return useContext(PaneContext);
+}
+
+/**
+ * Draw `children` as Pane `index`: within it the store's view, history and
+ * talk/Board split are that Pane's, and its Back, Forward and split act on it.
+ * Everything else, navigation included, follows the last-used Pane, which a
+ * press or a key inside the Pane makes this one.
+ */
+export function PaneScope({ index, two, children }: { index: PaneIndex; two: boolean; children: ReactNode }) {
+  const s = useStore();
+  const p = s.panes.panes[index] ?? activePane(s.panes);
+  const { dispatchPanes } = s;
+  const scoped: Store = {
+    ...s,
+    view: p.view,
+    canBack: p.back.length > 0,
+    canForward: p.forward.length > 0,
+    docTab: p.docTab,
+    splitRatio: p.splitRatio,
+    back: () => dispatchPanes({ type: "back", pane: index }),
+    forward: () => dispatchPanes({ type: "forward", pane: index }),
+    setDocTab: (tab) => dispatchPanes({ type: "setDocTab", tab, pane: index }),
+    setSplitRatio: (ratio) => dispatchPanes({ type: "setSplitRatio", ratio, pane: index }),
+  };
+  const info = useMemo(() => ({ index, active: s.panes.lastUsed === index, two }), [index, s.panes.lastUsed, two]);
+  return (
+    <StoreContext.Provider value={scoped}>
+      <PaneContext.Provider value={info}>{children}</PaneContext.Provider>
+    </StoreContext.Provider>
   );
 }

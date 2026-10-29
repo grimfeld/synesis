@@ -12,7 +12,8 @@ export const TAG_RE = /(^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]+)/gu;
 
 export interface EditorEnv {
   names: NameIndex;
-  onOpenLink: (target: string) => void;
+  /** `other`: Cmd/Ctrl-click, for the other Pane (spec #35). */
+  onOpenLink: (target: string, other?: boolean) => void;
   onOpenPassage: (p: PassageInfo, alt: boolean) => void;
   onPassageHover: (info: { p: PassageInfo[]; x: number; y: number } | null) => void;
   onLinkHover: (info: { target: string; x: number; y: number } | null) => void;
@@ -216,7 +217,7 @@ export const interactions = EditorView.domEventHandlers({
       return true;
     }
     if (el.dataset.link !== undefined) {
-      env.onOpenLink(el.dataset.link);
+      env.onOpenLink(el.dataset.link, e.metaKey || e.ctrlKey);
       e.preventDefault();
       return true;
     }

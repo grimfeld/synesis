@@ -1,7 +1,7 @@
 import { cn } from "cn";
 import type { DocSummary, DocType } from "@/lib/api";
 import { eventDateText } from "@/lib/events";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane } from "@/lib/store";
 
 /** Tailwind background class for each document type (colours live in index.css). */
 export const TYPE_BG: Record<DocType, string> = {
@@ -88,7 +88,7 @@ export function DocLink({
         active && "bg-accent font-medium",
         className,
       )}
-      onClick={() => s.openDoc(doc.id)}
+      onClick={(e) => s.openDoc(doc.id, otherPane(e))}
       title={doc.path}
     >
       <TypeDot type={doc.type} />

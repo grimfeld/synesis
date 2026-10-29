@@ -33,7 +33,7 @@ import {
 } from "@/lib/library";
 import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import {
@@ -273,7 +273,7 @@ function DocumentsTab() {
                     size="sm"
                     className="pl-8"
                     isActive={active === d.id}
-                    onClick={() => s.openDoc(d.id)}
+                    onClick={(e) => s.openDoc(d.id, otherPane(e))}
                     title={d.path}
                   >
                     <TypeDot type={d.type} className="ml-0.5" />
@@ -416,7 +416,7 @@ function SourceRow({
           size="sm"
           className="min-w-0 flex-1"
           isActive={activeId === node.entry.id}
-          onClick={() => s.openDoc(node.entry.id)}
+          onClick={(e) => s.openDoc(node.entry.id, otherPane(e))}
           title={node.entry.title}
         >
           <TypeDot type="source" className="ml-0.5" />
@@ -485,7 +485,7 @@ function TagsTab() {
                           data-testid="tag-doc"
                           size="sm"
                           isActive={active === d.id}
-                          onClick={() => s.openDoc(d.id)}
+                          onClick={(e) => s.openDoc(d.id, otherPane(e))}
                           title={d.path}
                         >
                           <TypeDot type={d.type} />
@@ -681,7 +681,7 @@ function ScriptureGroup({
                                   }
                                   size="xs"
                                   className="h-5 min-w-6 px-1 tabular-nums"
-                                  onClick={() => s.openDoc(v.id)}
+                                  onClick={(e) => s.openDoc(v.id, otherPane(e))}
                                 >
                                   {v.verse}
                                 </Button>
@@ -738,7 +738,7 @@ function AmbiguousTitles() {
                 data-testid="ambiguous-item"
                 size="sm"
                 className="pl-10"
-                onClick={() => s.openDoc(dd.id)}
+                onClick={(e) => s.openDoc(dd.id, otherPane(e))}
                 title={dd.path}
               >
                 <span className="truncate text-muted-foreground">
