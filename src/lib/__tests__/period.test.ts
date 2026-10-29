@@ -3,10 +3,12 @@
 import { describe, expect, it } from "vitest";
 import type { DatedProperty, DocSummary, DocType } from "../api";
 import {
+  fieldToYear,
   filterByPeriod,
   formatPeriod,
   itemsOf,
   NO_PERIOD_FILTER,
+  yearToField,
   type Period,
   type PeriodFilter,
 } from "../period";
@@ -161,5 +163,22 @@ describe("formatPeriod", () => {
   });
   it("puts the ends in order whichever was typed first", () => {
     expect(formatPeriod(period(bce(580), bce(640)), eras)).toBe("640–580 BCE");
+  });
+});
+
+describe("year fields", () => {
+  it("turns a typed year and era into a Period end, and back", () => {
+    expect(fieldToYear("640", true)).toBe(-639);
+    expect(fieldToYear("30", false)).toBe(30);
+    expect(fieldToYear("1", true)).toBe(0);
+    expect(yearToField(-639)).toEqual({ text: "640", bce: true });
+    expect(yearToField(30)).toEqual({ text: "30", bce: false });
+    expect(yearToField(null)).toEqual({ text: "", bce: true });
+  });
+  it("reads an empty or nonsense field as an open end", () => {
+    expect(fieldToYear("", true)).toBeNull();
+    expect(fieldToYear("  ", false)).toBeNull();
+    expect(fieldToYear("abc", true)).toBeNull();
+    expect(fieldToYear("0", true)).toBeNull(); // there is no year 0
   });
 });

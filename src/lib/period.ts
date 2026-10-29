@@ -159,3 +159,21 @@ export function formatPeriod(
   if (era(p.from) === era(p.to)) return `${bare(p.from)}–${bare(p.to)} ${era(p.to)}`;
   return `${full(p.from)} – ${full(p.to)}`;
 }
+
+/**
+ * A year field and its era as a Period end: "640" BCE is -639. Empty, or not
+ * a positive whole year, is an open end (there is no year 0).
+ */
+export function fieldToYear(text: string, bce: boolean): number | null {
+  const t = text.trim();
+  if (!/^\d+$/.test(t)) return null;
+  const n = Number(t);
+  if (n < 1) return null;
+  return bce ? 1 - n : n;
+}
+
+/** A Period end as a year field and its era; an open end is an empty BCE field. */
+export function yearToField(y: number | null): { text: string; bce: boolean } {
+  if (y == null) return { text: "", bce: true };
+  return { text: bare(y), bce: y <= 0 };
+}
