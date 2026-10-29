@@ -209,6 +209,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         ))?),
         "find_source_by_url" => ok(find_source_by_url(state, arg(&a, "url")?)?),
         "detect_passages" => ok(detect_passages(state, arg(&a, "text")?)?),
+        "read_date" => ok(read_date(arg(&a, "text")?)),
         "books" => ok(books(state)?),
         "fetch_url_metadata" => ok(tauri::async_runtime::block_on(fetch_url_metadata(arg(
             &a, "url",

@@ -83,6 +83,7 @@ import { Cover } from "@/components/Cover";
 import { DocLink } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { MiniTimeline } from "@/components/MiniTimeline";
+import { DatePreview } from "@/components/DatePreview";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -1448,8 +1449,10 @@ function SpanDate({
     if (next === value.trim()) return;
     onFmChange(setField(fm, name, next === "" ? null : next));
   };
+  // The preview under the field reads the text as typed, so it also says why a
+  // saved value is not a Date; the red border marks what is saved.
   return (
-    <>
+    <div className="min-w-0 flex-1 space-y-0.5">
       <Input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -1467,16 +1470,8 @@ function SpanDate({
           invalid && "border-destructive text-destructive",
         )}
       />
-      {invalid && (
-        <span
-          className="flex shrink-0 items-center gap-1 text-xs text-destructive"
-          title={t.date_invalid}
-        >
-          <CircleAlert className="size-3.5" />
-          {t.date_invalid}
-        </span>
-      )}
-    </>
+      <DatePreview text={text} testId={`date-preview-${name}`} />
+    </div>
   );
 }
 
@@ -1573,12 +1568,12 @@ function DatesSection({
             {editable.map(({ name, row }) => (
               <li
                 key={name}
-                className="flex min-w-0 items-center gap-3 text-sm"
+                className="flex min-w-0 items-start gap-3 text-sm"
                 data-testid={`date-${name}`}
                 data-valid={row?.date ? "true" : "false"}
               >
                 <span
-                  className="w-24 shrink-0 truncate text-xs text-muted-foreground"
+                  className="w-24 shrink-0 truncate pt-1.5 text-xs text-muted-foreground"
                   title={name}
                 >
                   {propertyLabel(name, t)}

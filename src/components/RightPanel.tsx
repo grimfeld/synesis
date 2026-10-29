@@ -67,6 +67,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
+import { DatePreview } from "./DatePreview";
 import { PanelTitle } from "./Field";
 
 interface Props {
@@ -435,6 +436,10 @@ function PropertyRow({
   const shown = Array.isArray(value)
     ? value.map(fmString).join(", ")
     : fmString(value);
+  // What a Date field holds as typed, for its live preview; the field itself
+  // stays uncontrolled and commits on blur like every other Property.
+  const [typed, setTyped] = useState(shown);
+  useEffect(() => setTyped(shown), [shown]);
   const link =
     propType === "link" || /^\[\[.*\]\]$/.test(shown.trim())
       ? linkTarget(shown)
@@ -487,10 +492,11 @@ function PropertyRow({
   );
   return (
     <div
-      className="flex items-center gap-2 text-sm"
+      className="min-w-0 space-y-0.5"
       data-testid={`property-${name}`}
       data-prop-type={propType}
     >
+    <div className="flex items-center gap-2 text-sm">
       {retypable ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
@@ -557,6 +563,9 @@ function PropertyRow({
                 ? "[[…]]"
                 : undefined
           }
+          onChange={
+            propType === "date" ? (e) => setTyped(e.target.value) : undefined
+          }
           onBlur={(e) => commit(e.target.value)}
         />
       )}
@@ -572,6 +581,15 @@ function PropertyRow({
           <ExternalLink />
         </Button>
       )}
+    </div>
+    {propType === "date" && (
+      // Indented past the label (w-24 + gap-2), under the value it reads.
+      <DatePreview
+        text={typed}
+        testId={`date-preview-${name}`}
+        className="pl-26"
+      />
+    )}
     </div>
   );
 }

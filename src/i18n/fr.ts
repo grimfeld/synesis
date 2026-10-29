@@ -205,6 +205,30 @@ export const fr: Dict = {
     `« ${name} » est déjà une Propriété de type ${type} dans ce coffre. Un nom a le même type partout ; choisissez-en un autre.`,
   date_name_reserved: (name: string) =>
     `« ${name} » est réservé et ne peut pas être une Propriété.`,
+  date_approx: "v.",
+  date_precision: { year: "année", month: "mois", day: "jour" },
+  hebrew_months: {
+    nisan: "nisan",
+    iyyar: "iyar",
+    sivan: "sivan",
+    tammuz: "tammouz",
+    ab: "av",
+    elul: "éloul",
+    tishri: "tishri",
+    heshvan: "heshvan",
+    chislev: "kislev",
+    tebeth: "tébeth",
+    shebat: "shebat",
+    adar: "adar",
+  },
+  date_errors: {
+    no_era: "Pas une Date : ère manquante. Ajoutez av. n. è. ou de n. è., comme dans « v. 1513 av. n. è. ».",
+    unknown_month: "Pas une Date : mois inconnu. Écrivez-la comme « 14 nisan 33 de n. è. ».",
+    looks_like_range:
+      "Pas une Date : une seule valeur ne peut contenir une période. Séparez-la en deux, comme Début et Fin, une Date chacune.",
+    unreadable:
+      "Date illisible pour l’application. Écrivez-la comme « v. 1513 av. n. è. » ou « 14 nisan 33 de n. è. ».",
+  },
   add_property: "Ajouter une propriété",
   candidates: "Matière candidate",
   candidates_hint:

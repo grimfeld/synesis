@@ -355,6 +355,7 @@ impl State {
             "detect_passages" => {
                 ok(api::detect_passages(&arg::<String>(&a, "text")?, self.lang()))
             }
+            "read_date" => ok(api::read_date(&arg::<String>(&a, "text")?)),
             "books" => ok(api::books(self.lang())),
             "hidden_dir" => ok(engine::vault::HIDDEN_DIR),
             "ui_log" => ok(()),

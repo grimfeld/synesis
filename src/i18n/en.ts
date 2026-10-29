@@ -212,6 +212,32 @@ export const en = {
     `“${name}” is already a ${type} Property in this vault. A name has one type everywhere; choose another.`,
   date_name_reserved: (name: string) =>
     `“${name}” is reserved and cannot be a Property.`,
+  /** Before an approximate year in the Date preview: "≈ 1513 BCE". */
+  date_approx: "≈",
+  date_precision: { year: "year", month: "month", day: "day" },
+  hebrew_months: {
+    nisan: "Nisan",
+    iyyar: "Iyyar",
+    sivan: "Sivan",
+    tammuz: "Tammuz",
+    ab: "Ab",
+    elul: "Elul",
+    tishri: "Tishri",
+    heshvan: "Heshvan",
+    chislev: "Chislev",
+    tebeth: "Tebeth",
+    shebat: "Shebat",
+    adar: "Adar",
+  },
+  /** Why a Date field's value is not a Date, under the field as you type. */
+  date_errors: {
+    no_era: "Not a Date: no era. Add BCE or CE, as in “c. 1513 BCE”.",
+    unknown_month: "Not a Date: unknown month. Write it like “14 Nisan 33 CE”.",
+    looks_like_range:
+      "Not a Date: one value cannot hold a range. Split it into the pair, such as Start and End, one Date each.",
+    unreadable:
+      "Not a Date the app can read. Write it like “c. 1513 BCE” or “14 Nisan 33 CE”.",
+  },
   candidates: "Candidate material",
   candidates_hint:
     "Notes and Clippings sharing Tags or Passages with this Composition, not yet linked from it.",
