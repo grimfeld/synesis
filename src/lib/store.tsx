@@ -43,6 +43,11 @@ import {
 /** Which face of a Composition is showing (PLAN §22.2). */
 export type DocTab = "talk" | "split" | "board";
 
+/** The Map's Border drawing mode: the region Place being drawn, if picked. */
+export interface BorderDraw {
+  placeId: string | null;
+}
+
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
   id: string;
@@ -156,6 +161,12 @@ interface Store {
    * Composition returns to the same face (PLAN §17.9).
    */
   docTab: DocTab;
+  /**
+   * The Map's Border drawing mode (ADR 0023), when it is on: which region is
+   * being drawn, or `null` until the reader picks one on the Map.
+   */
+  borderDraw: BorderDraw | null;
+  setBorderDraw: (d: BorderDraw | null) => void;
   /** The talk's share of the width when split. Session-only (PLAN §22.4). */
   splitRatio: number;
   openVault: (path?: string) => Promise<void>;
@@ -309,6 +320,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // A Board belongs to the Composition being read, so opening another
   // document starts on its text rather than on the Board of the last one.
   const [docTab, setDocTab] = useState<DocTab>("talk");
+  const [borderDraw, setBorderDraw] = useState<BorderDraw | null>(null);
+  // Drawing a Border happens on the Map; leaving it ends the drawing.
+  useEffect(() => {
+    if (view.kind !== "map") setBorderDraw(null);
+  }, [view]);
   const [splitRatio, setSplitRatio] = useState(DEFAULT_RATIO);
   const viewRef = useRef(view);
   viewRef.current = view;
@@ -679,6 +695,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deliverySize,
     deliveryTimer,
     docTab,
+    borderDraw,
+    setBorderDraw,
     splitRatio,
     openVault,
     attachVault,

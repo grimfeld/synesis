@@ -208,6 +208,22 @@ export function useCommands(): Command[] {
         fillKinds().catch(console.error);
       },
     });
+    // Draw a region's Border on the Map (ADR 0023). From a region's page it
+    // draws that region; anywhere else the Map asks which one.
+    {
+      const here = s.view.kind === "doc" ? s.docsById.get(s.view.id) : undefined;
+      list.push({
+        id: "map.draw_border",
+        title: t.border_draw,
+        group: "create",
+        icon: MapPin,
+        keywords: "border frontier outline region area polygon map draw geojson",
+        run: () => {
+          s.setBorderDraw({ placeId: here?.type === "place" ? here.id : null });
+          s.navigate({ kind: "map" });
+        },
+      });
+    }
     list.push({
       id: "nav.random",
       title: t.random_note,
@@ -430,6 +446,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "nav.random",
     "skins.gallery",
     "map.fill_kinds",
+    "map.draw_border",
     "doc.board",
     "doc.split",
     "doc.deliver",

@@ -19,7 +19,8 @@
 //! A round also carries the Vault's config files whole (ADR 0016) and every
 //! picture in `Attachments/` (ADR 0020). An attachment is immutable once
 //! written, so it is matched by content hash and fetched when missing; nothing
-//! is ever deleted or overwritten.
+//! is ever deleted or overwritten. Region Borders (`.geojson` files beside
+//! their Places, ADR 0023) travel whole too, newest stamp wins, like config.
 //!
 //! One connection per peer is kept open and reused by both sides' rounds, so a
 //! peer is online for as long as it is reachable, not just during a round. An
@@ -192,6 +193,11 @@ enum Request {
     AttachmentManifest(Vec<AttachmentEntry>),
     GetAttachment(String),
     PutAttachment { entry: AttachmentEntry, bytes: Vec<u8> },
+    /// Region Borders (ADR 0023), vault-relative `.geojson` paths. Last, so
+    /// an older peer fails only these.
+    BorderManifest(Vec<ConfigEntry>),
+    GetBorder(String),
+    PutBorder { name: String, bytes: Vec<u8> },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -206,6 +212,7 @@ enum Response {
     Hello(EndpointAddr),
     ConfigManifest(Vec<ConfigEntry>),
     AttachmentManifest(Vec<AttachmentEntry>),
+    BorderManifest(Vec<ConfigEntry>),
 }
 
 /// One picture in `Attachments/`, as a peer advertises it (ADR 0020).
@@ -233,6 +240,8 @@ pub enum Event {
     Config { names: Vec<String> },
     /// Pictures a peer delivered (ADR 0020), vault-relative paths.
     Attachments { names: Vec<String> },
+    /// Border files a peer delivered (ADR 0023), vault-relative paths.
+    Borders { names: Vec<String> },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -274,6 +283,8 @@ pub struct Node {
     relays: bool,
     /// `Attachments/`, whose pictures travel whole (ADR 0020).
     attachments_dir: PathBuf,
+    /// The Vault itself, where Border files sit beside their Places (ADR 0023).
+    vault_root: PathBuf,
     /// Each attachment's hash, keyed by name and kept while its size and
     /// modification time stand, so a round every 30 seconds does not reread
     /// every picture in the Vault.
@@ -370,6 +381,7 @@ impl Node {
             relay: relay_url,
             relays: relay.as_deref() != Some(""),
             attachments_dir: vault_root.join(crate::attachments::FOLDER),
+            vault_root: vault_root.to_path_buf(),
             hashes: Mutex::new(HashMap::new()),
         });
         tokio::spawn(Node::accept_loop(node.clone()));
@@ -649,6 +661,14 @@ impl Node {
                 }
                 Response::Ok
             }
+            Request::BorderManifest(_) => Response::BorderManifest(crate::border::manifest(&self.vault_root)),
+            Request::GetBorder(name) => Response::File(crate::border::read_file(&self.vault_root, &name)),
+            Request::PutBorder { name, bytes } => {
+                if crate::border::accept(&self.vault_root, &name, &bytes) {
+                    self.emit(Event::Borders { names: vec![name] }).await;
+                }
+                Response::Ok
+            }
         };
         let out = postcard::to_allocvec(&resp).map_err(|e| e.to_string())?;
         send.write_all(&out).await.map_err(|e| e.to_string())?;
@@ -895,6 +915,42 @@ impl Node {
         let _ = self.config_round(conn).await;
         // Likewise for attachments (ADR 0020).
         let _ = self.attachment_round(conn).await;
+        // And Borders (ADR 0023).
+        let _ = self.border_round(conn).await;
+        Ok(())
+    }
+
+    /// Border files both ways, whole, newest stamp wins (ADR 0023): a Border
+    /// is edited in place, so it travels like a config file, not a picture.
+    async fn border_round(&self, conn: &Connection) -> Result<(), String> {
+        let root = &self.vault_root;
+        let mine = crate::border::manifest(root);
+        let theirs = match request(conn, &Request::BorderManifest(mine.clone())).await? {
+            Response::BorderManifest(t) => t,
+            _ => return Err("bad border manifest reply".into()),
+        };
+        let mine_by: HashMap<_, _> = mine.iter().map(|e| (e.name.as_str(), e)).collect();
+        let theirs_by: HashMap<_, _> = theirs.iter().map(|e| (e.name.as_str(), e)).collect();
+        let mut got = Vec::new();
+        for e in &theirs {
+            if crate::border::is_synced(&e.name) && config::is_newer(e, mine_by.get(e.name.as_str()).copied()) {
+                if let Response::File(Some(bytes)) = request(conn, &Request::GetBorder(e.name.clone())).await? {
+                    if crate::border::accept(root, &e.name, &bytes) {
+                        got.push(e.name.clone());
+                    }
+                }
+            }
+        }
+        for e in &mine {
+            if config::is_newer(e, theirs_by.get(e.name.as_str()).copied()) {
+                if let Some(bytes) = crate::border::read_file(root, &e.name) {
+                    request(conn, &Request::PutBorder { name: e.name.clone(), bytes }).await?;
+                }
+            }
+        }
+        if !got.is_empty() {
+            self.emit(Event::Borders { names: got }).await;
+        }
         Ok(())
     }
 
@@ -1413,6 +1469,28 @@ mod tests {
         assert!(!att_b.join("athens 3.png").exists());
         assert!(!att_a.join("athens 3.png").exists());
         assert_eq!(fs::read(att_a.join("athens.png")).unwrap(), b"A's athens");
+
+        // Borders travel too (ADR 0023): drawn on A, then edited on B.
+        let rel = "Places/Judah.geojson";
+        crate::border::write(&vault_a, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        a.notify_changed();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !vault_b.join(rel).exists() {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("B receives A's Border");
+        crate::border::write(&vault_b, rel, &[[30.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        b.notify_changed();
+        let edited = fs::read(vault_b.join(rel)).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while fs::read(vault_a.join(rel)).ok().as_ref() != Some(&edited) {
+                tokio::time::sleep(Duration::from_millis(200)).await;
+            }
+        })
+        .await
+        .expect("A receives B's edit of the Border");
 
         // Each remembers the other's own address for the next dial.
         for (local, peer) in [("local-a", &hex_b), ("local-b", &hex_a)] {

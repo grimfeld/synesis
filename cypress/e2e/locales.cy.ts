@@ -284,6 +284,20 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // A region's Border section on its Hub (« Pas encore de frontière… »,
+      // « Tracer la frontière ») and the Map's drawing bar with its region
+      // picker, hint and « Enregistrer la frontière ».
+      it("keeps a region's Border section and the Border drawing bar inside the screen", () => {
+        cy.openDoc("Egypt");
+        cy.get("[data-testid=hub-border]").scrollIntoView().should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=hub-border-draw]").click();
+        cy.get("[data-testid=border-toolbar]").should("be.visible");
+        cy.get("[data-testid=border-hint]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=border-cancel]").click();
+      });
+
       // The Map's legend and filter popover (« Couleur selon », « Choisissez-en
       // jusqu'à cinq à comparer », « En compléter 1 depuis le répertoire »), and
       // a Place's kind picker with « Nouveau genre… » and its icon grid.

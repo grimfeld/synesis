@@ -181,6 +181,7 @@ export const fr: Dict = {
    */
   property_labels: {
     aliases: "Aussi appelé",
+    border: "Frontière",
     born: "Naissance",
     characters: "Personnages",
     cover: "Couverture",
@@ -414,6 +415,30 @@ export const fr: Dict = {
   kind_label: "Libellé",
   kind_delete: (name: string) => `Supprimer ${name}`,
   fill_kinds: "Compléter les genres des Lieux depuis le répertoire",
+  border: "Frontière",
+  border_draw: "Tracer la frontière",
+  border_edit: "Modifier la frontière",
+  border_delete: "Supprimer la frontière",
+  border_save: "Enregistrer la frontière",
+  border_undo: "Annuler le dernier coin",
+  border_hint:
+    "Cliquez pour placer les coins, faites glisser un coin pour le déplacer, double-cliquez pour fermer.",
+  border_pick: "Région",
+  border_pick_none: "Choisir une région",
+  border_no_regions: "Aucune région pour l’instant. Donnez d’abord le genre région à un Lieu.",
+  border_none:
+    "Pas encore de frontière. Sans elle, la région est montrée sur la Carte par son nom, et aucun Lieu ne s’y trouve.",
+  border_file: (path: string) => `Conservée dans ${path}`,
+  border_saved: "Frontière enregistrée.",
+  border_deleted: "Frontière supprimée.",
+  border_delete_title: "Supprimer cette frontière ?",
+  border_delete_body:
+    "Ce fichier est retiré du coffre, et la région n’est plus montrée sur la Carte que par son nom.",
+  border_missing: (path: string) => `Le fichier de frontière ${path} n’est pas dans le coffre.`,
+  border_malformed: (error: string) => `Le fichier de frontière ne peut pas être tracé : ${error}`,
+  border_downloading: "Le fichier de frontière est encore en cours de téléchargement depuis iCloud.",
+  border_pieces:
+    "Cette frontière a plusieurs morceaux ou un trou : elle ne peut pas être modifiée coin par coin. Tracez-la de nouveau pour la remplacer.",
   fill_kinds_short: (n: number) => `En compléter ${n} depuis le répertoire`,
   fill_kinds_title: "Compléter les genres des Lieux ?",
   fill_kinds_body: (n: number) =>

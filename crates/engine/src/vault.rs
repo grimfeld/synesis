@@ -1149,11 +1149,31 @@ impl Vault {
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
             Query::KindSuggestions => Answer::KindSuggestions(self.kind_suggestions()?),
+            Query::Borders => Answer::Borders(self.borders()?),
         })
     }
 
     pub fn list(&self, doc_type: Option<DocType>) -> Result<Vec<DocSummary>> {
         self.index.list(doc_type)
+    }
+
+    /// Every Place that names a Border, with the Border read from its file
+    /// (ADR 0023). Read on every ask rather than indexed: the file can change
+    /// under the Place (Pairing, iCloud, another tool) without the Place
+    /// itself changing.
+    pub fn borders(&self) -> Result<Vec<crate::border::Border>> {
+        let mut out = Vec::new();
+        for (id, path, value) in self.index.property_on(DocType::Place, crate::border::PROPERTY)? {
+            let Some(rel) = Self::border_path(&path, &value) else { continue };
+            out.push(crate::border::read(&self.root, &id, &rel));
+        }
+        Ok(out)
+    }
+
+    /// The vault-relative Border file a Place's `border` value names.
+    pub fn border_path(place_path: &str, value: &Value) -> Option<String> {
+        let target = crate::border::link_target(value)?;
+        crate::border::path_for(place_path, &target)
     }
     pub fn get(&self, id: &str) -> Result<Option<DocSummary>> {
         self.index.get(id)

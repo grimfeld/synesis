@@ -185,6 +185,7 @@ export const en = {
    */
   property_labels: {
     aliases: "Also known as",
+    border: "Border",
     born: "Born",
     characters: "Characters",
     cover: "Cover",
@@ -417,6 +418,30 @@ export const en = {
   kind_label: "Label",
   kind_delete: (name: string) => `Delete ${name}`,
   fill_kinds: "Fill in Place kinds from the gazetteer",
+  border: "Border",
+  border_draw: "Draw Border",
+  border_edit: "Edit Border",
+  border_delete: "Delete Border",
+  border_save: "Save Border",
+  border_undo: "Undo last corner",
+  border_hint:
+    "Click to place corners, drag a corner to move it, double-click to close.",
+  border_pick: "Region",
+  border_pick_none: "Pick a region",
+  border_no_regions: "No region yet. Give a Place the kind region first.",
+  border_none:
+    "No Border yet. Without one the region is shown on the Map by its name, and no Place lies inside it.",
+  border_file: (path: string) => `Kept in ${path}`,
+  border_saved: "Border saved.",
+  border_deleted: "Border deleted.",
+  border_delete_title: "Delete this Border?",
+  border_delete_body:
+    "This file is removed from the Vault, and the region is shown on the Map by its name alone.",
+  border_missing: (path: string) => `The Border file ${path} is not in the Vault.`,
+  border_malformed: (error: string) => `The Border file cannot be drawn: ${error}`,
+  border_downloading: "The Border file is still downloading from iCloud.",
+  border_pieces:
+    "This Border has several pieces or a hole, so it cannot be edited corner by corner. Draw it again to replace it.",
   fill_kinds_short: (n: number) => `Fill in ${n} from the gazetteer`,
   fill_kinds_title: "Fill in Place kinds?",
   fill_kinds_body: (n: number) =>

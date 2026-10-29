@@ -328,6 +328,25 @@ export interface PlaceFact {
 }
 
 /** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
+/** A position as Leaflet takes it: latitude first. */
+export type LatLon = [number, number];
+
+/** What became of reading a region's Border file (ADR 0023). */
+export type BorderStatus = "ok" | "missing" | "malformed" | "downloading";
+
+/** A region Place's Border, read from the `.geojson` file its `border` names. */
+export interface Border {
+  /** The Place's id. */
+  doc: string;
+  /** The file, vault-relative. */
+  path: string;
+  status: BorderStatus;
+  /** Why the file could not be read. */
+  error: string | null;
+  /** Each piece of the area, as rings of [lat, lon]: outer ring, then holes. */
+  polygons: LatLon[][][];
+}
+
 export interface KindSuggestion {
   id: string;
   title: string;
@@ -553,7 +572,9 @@ export type PairingEvent =
   /** Config files a peer delivered (ADR 0016), relative to `.bible-study/`. */
   | { kind: "config"; names: string[] }
   /** Pictures a peer delivered (ADR 0020), vault-relative paths. */
-  | { kind: "attachments"; names: string[] };
+  | { kind: "attachments"; names: string[] }
+  /** Region Borders a peer delivered (ADR 0023), vault-relative paths. */
+  | { kind: "borders"; names: string[] };
 
 export type SyncMethod =
   "pairing" | "icloud" | "syncthing" | "provider" | "none";
@@ -699,7 +720,8 @@ export type Query =
   | { kind: "placeTies"; id: string | null }
   | { kind: "journeys" }
   | { kind: "placeFacts" }
-  | { kind: "kindSuggestions" };
+  | { kind: "kindSuggestions" }
+  | { kind: "borders" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -911,6 +933,13 @@ export const api = {
   /** Write the kinds the user confirmed; only ever adds a missing one. */
   fillKinds: (fills: KindSuggestion[]) => invoke<FillResult>("fill_kinds", { fills }),
   journeys: () => query<Journey[]>({ kind: "journeys" }),
+  /** Every region Border, with a status for any that cannot be drawn (ADR 0023). */
+  borders: () => query<Border[]>({ kind: "borders" }),
+  /** Write a Border drawn on the Map: a `.geojson` beside the Place, and `border`. */
+  saveBorder: (id: string, corners: LatLon[]) =>
+    invoke<DocumentPayload>("save_border", { id, corners }),
+  /** Remove a Place's Border file and its `border` Property. */
+  deleteBorder: (id: string) => invoke<DocumentPayload>("delete_border", { id }),
   setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
     invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),
   /** The Vault's custom Place kinds (PLAN §27.4). */
