@@ -91,6 +91,12 @@ export const fr: Dict = {
   tl_filtered_empty:
     "Aucune Piste ne correspond aux filtres. Effacez-les ou élargissez la vue.",
   tl_open_in_timeline: "Ouvrir dans la Chronologie",
+  period: "Période",
+  period_from: "De",
+  period_to: "À",
+  period_clear: "Effacer la Période",
+  period_undated: (n: number) =>
+    n === 1 ? "1 non daté non affiché" : `${n} non datés non affichés`,
   tl_mini_events: "Événements",
   bce: "av. n. è.",
   ce: "de n. è.",
@@ -133,6 +139,9 @@ export const fr: Dict = {
     "Date illisible pour l’application. Écrivez-la comme « v. 1513 av. n. è. » ou « 14 nisan 33 de n. è. ».",
   events: "Événements",
   no_events: "Aucun Événement ne nomme encore cette page.",
+  ties_characters: "Personnages présents",
+  ties_places: "Lieux",
+  tie_lifelong: "Toute sa vie",
   start: "Début",
   end: "Fin",
   versions: "Versions",

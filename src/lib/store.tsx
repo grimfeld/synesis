@@ -28,6 +28,7 @@ import {
   type VaultInfo,
 } from "./api";
 import { NO_FILTERS, type Filters } from "./timeline";
+import { NO_PERIOD_FILTER, type PeriodFilter } from "./period";
 import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
 import { DEFAULT_RATIO } from "./split";
@@ -145,6 +146,13 @@ interface Store {
    *  round-trip to a Hub and back does not lose them. */
   timelineFilters: Filters;
   setTimelineFilters: (f: Filters) => void;
+  /**
+   * The Period and the Tags chosen with it: one selection the Timeline and the
+   * Map share, so setting it on one view shows the same thing on the other.
+   * Session-only, like the Tag chips it replaced.
+   */
+  periodFilter: PeriodFilter;
+  setPeriodFilter: (f: PeriodFilter) => void;
   mapFilters: MapFilters;
   setMapFilters: (f: MapFilters) => void;
   /**
@@ -295,6 +303,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 900);
   const [timelineFilters, setTimelineFiltersState] =
     useState<Filters>(NO_FILTERS);
+  const [periodFilter, setPeriodFilter] =
+    useState<PeriodFilter>(NO_PERIOD_FILTER);
   const [mapFilters, setMapFiltersState] =
     useState<MapFilters>(NO_MAP_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
@@ -676,6 +686,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lastChange,
     sidebarOpen,
     timelineFilters,
+    periodFilter,
     mapFilters,
     panelOpen,
     sourceMode,
@@ -705,6 +716,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSyncMethod,
     setSidebarOpen,
     setTimelineFilters,
+    setPeriodFilter,
     setMapFilters,
     setPanelOpen,
     setSourceMode,

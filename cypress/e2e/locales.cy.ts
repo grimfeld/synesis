@@ -45,6 +45,25 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Period row carries the Period as text ("1100–1000 av. n. è."),
+      // "1 non daté non affiché" and "Effacer la Période" side by side on a
+      // 390px screen; its popover sets a year field beside an era button.
+      it("keeps the Timeline's Period row inside the screen", () => {
+        cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-timeline]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-testid=period-undated]").should("be.visible");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // The Skin editor packs colour rows, sliders and font pickers with
       // long French labels ("Bordures des champs", "Taille d'écriture").
       it("keeps the Skin editor inside its card on a phone", () => {

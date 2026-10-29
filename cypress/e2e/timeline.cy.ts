@@ -173,6 +173,55 @@ describe("Timeline", () => {
     });
   });
 
+  it("narrows to a Period, counts the undated, combines Tags, and clears it", () => {
+    // Every Character in the demo vault is dated; Jael is not.
+    cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+    cy.openApp();
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "Period");
+    cy.get("[data-testid=period-clear]").should("not.exist");
+    // 1100–1000 BCE: David (1107–1037 BCE) overlaps it, Moses (1593–1473 BCE)
+    // lies wholly before it. Both fields start in BCE.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from-era]").should("have.attr", "data-bce", "true");
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-undated]").should("contain", "1 undated not shown");
+    // The Period stays set across a trip to another view and back.
+    cy.get("[data-testid=nav-home]").click();
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    // A Tag narrows further: of the Events, only the Temple is tagged "prayer"
+    // within the Period, and no Character carries it.
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prayer").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=tl-lane][data-type=character]").should("not.exist");
+    cy.docByTitle("Solomon's temple built").then((ev) =>
+      cy
+        .get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`)
+        .should("exist"),
+    );
+    // Jael carries no "prayer" Tag, so the Period no longer leaves her out.
+    cy.get("[data-testid=period-undated]").should("not.exist");
+    // Clearing the Period brings the whole chronology back; the Tag stays.
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-text]").should("contain", "Period");
+    cy.docByTitle("The Exodus").then((ev) =>
+      cy
+        .get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`)
+        .should("exist"),
+    );
+  });
+
   it("gathers crowded Dates into a Cluster that opens and zooms apart", () => {
     cy.get("[data-testid=nav-timeline]").click();
     cy.get("[data-testid=tl-lane][data-lane=events] [data-testid=tl-cluster]")

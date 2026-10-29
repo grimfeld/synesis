@@ -43,6 +43,7 @@ import {
 } from "@/lib/api";
 import { SPAN, type SectionProps } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
+import { hubTies } from "@/lib/ties";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import {
   ancestorsOf,
@@ -1094,12 +1095,16 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
     <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
   ),
   character: ({ doc, fm, onFmChange }) => (
-    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+    <>
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
+    </>
   ),
   place: ({ doc, fm, onFmChange }) => (
     <>
       <BorderSection doc={doc} />
       <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
     </>
   ),
   concept: ({ doc, fm, onFmChange }) => (
@@ -1690,6 +1695,57 @@ function DatesSection({
           </ul>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Who was in this Place, or where this Character was (CONTEXT.md, Character):
+ * one row per Character or Place, merged from the Character's own `places`,
+ * which holds for their whole life, and from Events naming both, each holding
+ * for the Event's time. Read-only: `places` is edited in Properties, Events
+ * on their own pages.
+ */
+function TiesSection({ doc }: { doc: DocumentPayload }) {
+  const t = useT();
+  const id = doc.summary.id;
+  const isPlace = doc.summary.type === "place";
+  const { data } = useQuery({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["character", "place", "event"] },
+    fetch: () => api.placeTies(id),
+  });
+  const rows = useMemo(() => hubTies(data ?? [], id), [data, id]);
+  if (rows.length === 0) return null;
+  return (
+    <section data-testid="hub-ties">
+      <PanelTitle className="mb-3">
+        {isPlace ? t.ties_characters : t.ties_places}
+      </PanelTitle>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li
+            key={r.other.id}
+            data-testid="hub-tie"
+            data-lifelong={r.lifelong ? "true" : "false"}
+            className="min-w-0"
+          >
+            <DocLink doc={r.other} />
+            <ul className="ml-6 min-w-0 space-y-0.5 text-xs text-muted-foreground">
+              {r.lifelong && (
+                <li data-testid="hub-tie-lifelong" className="px-2">
+                  {t.tie_lifelong}
+                </li>
+              )}
+              {r.events.map((e) => (
+                <li key={e.id} data-testid="hub-tie-event" className="min-w-0">
+                  <DocLink doc={e} className="py-0.5 text-xs" />
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

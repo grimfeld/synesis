@@ -29,8 +29,10 @@ import {
   type Lane,
   type Placed,
 } from "@/lib/timeline";
+import { filterByPeriod, itemsOf } from "@/lib/period";
 import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
+import { PeriodBar } from "@/components/PeriodBar";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
 import { propertyLabel, useT } from "@/i18n";
@@ -153,19 +155,52 @@ export function TimelineView() {
   }, []);
 
   const f = s.timelineFilters;
+  const pf = s.periodFilter;
+  // The Tags the Lanes carry come with the Dates; an undated Character or
+  // Event only matters to the "undated not shown" count, and only when it
+  // carries a chosen Tag, so those are asked for by Tag.
+  const { data: undatedTagged } = useQuery({
+    key: [pf.tags.join("\u0000")],
+    deps: { any: true },
+    enabled: pf.tags.length > 0,
+    fetch: async () => {
+      const lists = await Promise.all(pf.tags.map((tg) => api.taggedDocuments(tg)));
+      return pf.tags.map((tag, i) => ({ tag, docs: lists[i] }));
+    },
+  });
   const tagsByDoc = useMemo(() => {
     const m = new Map<string, string[]>();
     for (const dt of docTags) m.set(dt.doc, [...(m.get(dt.doc) ?? []), dt.tag]);
+    for (const { tag, docs } of pf.tags.length > 0 ? (undatedTagged ?? []) : [])
+      for (const d of docs)
+        if (!m.has(d.id) || !m.get(d.id)!.includes(tag))
+          m.set(d.id, [...(m.get(d.id) ?? []), tag]);
     return m;
-  }, [docTags]);
+  }, [docTags, undatedTagged, pf.tags]);
+  // The Period filter decides per document, before the Timeline's own filters
+  // narrow the rows: every Character and Event is an item, dated or not, so
+  // the ones the Period hides for having no Date can be counted.
+  const perioded = useMemo(() => {
+    const undatedDocs = s.docs.filter(
+      (d) => d.type === "character" || d.type === "event",
+    );
+    // The Timeline's Kinds chips still apply: a hidden kind is not "left out".
+    const hidden = new Set(f.hiddenTypes);
+    const items = itemsOf(rows, undatedDocs, tagsByDoc).filter(
+      (it) => !hidden.has(it.doc.type),
+    );
+    const { visible, undated } = filterByPeriod(items, pf);
+    const keep = new Set(visible.map((it) => it.doc.id));
+    return { rows: rows.filter((r) => keep.has(r.doc.id)), undated };
+  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf]);
   const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const allLanes = useMemo(
     () => buildLanes(rows, links, t.events, label),
     [rows, links, t.events, label],
   );
   const matched = useMemo(
-    () => buildLanes(filterRows(rows, f, tagsByDoc), links, t.events, label),
-    [rows, f, tagsByDoc, links, t.events, label],
+    () => buildLanes(filterRows(perioded.rows, f), links, t.events, label),
+    [perioded.rows, f, links, t.events, label],
   );
   // The extent ignores the filters, so narrowing them does not move the view.
   const extent = useMemo(() => extentOf(allLanes), [allLanes]);
@@ -274,7 +309,8 @@ export function TimelineView() {
     () => (f.inView ? cullToView(matched, from, to) : matched),
     [matched, f.inView, from, to],
   );
-  const filtered = activeCount(f) > 0;
+  const filtered =
+    activeCount(f) + pf.tags.length > 0 || pf.period != null;
   const tagChips = useMemo(
     () => [...new Set(docTags.map((d) => d.tag))],
     [docTags],
@@ -311,6 +347,8 @@ export function TimelineView() {
           <TimelineFilters
             filters={f}
             onChange={s.setTimelineFilters}
+            selectedTags={pf.tags}
+            onTags={(tags) => s.setPeriodFilter({ ...pf, tags })}
             tags={tagChips}
             props={propChips}
             typeLabel={(ty) => t.types_plural[ty] ?? ty}
@@ -352,6 +390,7 @@ export function TimelineView() {
           </Button>
         </div>
       </ViewHeader>
+      <PeriodBar undated={perioded.undated} />
       <div
         ref={host}
         data-testid="timeline"
@@ -547,15 +586,15 @@ export function TimelineView() {
                 variant="outline"
                 className="pointer-events-auto"
                 data-testid="tl-empty-clear"
-                onClick={() =>
+                onClick={() => {
                   s.setTimelineFilters({
                     ...f,
                     hiddenTypes: [],
-                    tags: [],
                     props: [],
                     search: "",
-                  })
-                }
+                  });
+                  s.setPeriodFilter({ period: null, tags: [] });
+                }}
               >
                 {t.tl_filter_clear}
               </Button>
