@@ -13,6 +13,12 @@ export interface Mark {
   text: string;
   from: number;
   to: number | null;
+  /**
+   * A span with no end yet: a Place with `start` and no `end`, a city still
+   * standing. `to` stays null so the extent is not stretched to some year;
+   * the bar runs to the plot's right edge instead (`placeMarks`).
+   */
+  runsOn?: boolean;
   approx: boolean;
   type: DocType;
 }
@@ -97,6 +103,24 @@ export function buildLanes(
         used.add(a);
         used.add(b);
       }
+    }
+    // A Place that began and has not ended runs on (CONTEXT.md, Place). Only
+    // a Place: a Character with `born` alone is not known to be alive, and an
+    // Event's lone `start` is its moment.
+    const start = named.get("start");
+    if (doc.type === "place" && start?.date && !used.has("start") && !named.get("end")?.date) {
+      out.push({
+        key: `${doc.id}:start-`,
+        doc,
+        label: label("span"),
+        text: `${start.text} –`,
+        from: yearOf(start.date),
+        to: null,
+        runsOn: true,
+        approx: start.date.approx,
+        type: doc.type,
+      });
+      used.add("start");
     }
     for (const d of dates) {
       if (used.has(d.name) || !d.date) continue;
@@ -215,16 +239,23 @@ export const CLUSTER_PX = 14;
  * Lay one Lane's marks out in plot space. Spans keep their width and never
  * Cluster, since the bar is the thing they show; points within CLUSTER_PX of
  * each other merge into one mark carrying a count.
+ *
+ * `right` is the plot's right edge, where a span that runs on ends.
  */
-export function placeMarks(marks: Mark[], x: (year: number) => number): Placed[] {
-  const spans = marks.filter((m) => m.to != null);
-  const points = marks.filter((m) => m.to == null).sort((a, b) => a.from - b.from);
+export function placeMarks(
+  marks: Mark[],
+  x: (year: number) => number,
+  right = -Infinity,
+): Placed[] {
+  const isSpan = (m: Mark) => m.to != null || m.runsOn === true;
+  const spans = marks.filter(isSpan);
+  const points = marks.filter((m) => !isSpan(m)).sort((a, b) => a.from - b.from);
   const out: Placed[] = spans.map((m) => ({
     key: m.key,
     marks: [m],
     x: x(m.from),
     // A span thinner than a point reads as a mark that lost its width.
-    x2: Math.max(x(m.to as number), x(m.from) + 3),
+    x2: Math.max(m.runsOn ? right : x(m.to as number), x(m.from) + 3),
     label: m.label,
   }));
   let group: Mark[] = [];
@@ -366,7 +397,9 @@ export function filterRows(
  */
 export function cullToView(lanes: Lane[], from: number, to: number): Lane[] {
   return lanes.filter((l) =>
-    l.marks.some((m) => m.from <= to && (m.to ?? m.from) >= from),
+    l.marks.some(
+      (m) => m.from <= to && (m.runsOn ? Infinity : (m.to ?? m.from)) >= from,
+    ),
   );
 }
 

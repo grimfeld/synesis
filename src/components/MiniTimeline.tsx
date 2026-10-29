@@ -121,7 +121,7 @@ export function MiniTimeline({
           />
           {lanes.map((lane, i) => {
             const mid = AXIS + i * H + H / 2;
-            const placed = resolveLabels(placeMarks(lane.marks, x), labelWidth, w - PAD, (p) => p.x + 6);
+            const placed = resolveLabels(placeMarks(lane.marks, x, w - PAD), labelWidth, w - PAD, (p) => p.x + 6);
             return (
               <g key={lane.id} data-testid="mini-lane" data-lane={lane.id}>
                 {placed.map((p) => (
@@ -160,6 +160,7 @@ function MiniMark({
       data-testid={cluster ? "mini-cluster" : "mini-mark"}
       data-doc={cluster ? undefined : m.doc.id}
       data-count={cluster ? p.marks.length : undefined}
+      data-runs-on={m.runsOn && !cluster ? "true" : undefined}
       className="cursor-pointer"
       opacity={m.approx && !cluster ? 0.55 : 1}
       onClick={() => !cluster && onOpen(m.doc.id)}

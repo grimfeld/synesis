@@ -2,7 +2,7 @@
 // live inside an async submit handler beside four engine calls, so the only
 // way to check them was to drive the app.
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER, SPAN, titleFor } from "../docTypes";
+import { FRONTMATTER, SPAN, dateAdds, titleFor } from "../docTypes";
 import type { DocType } from "../api";
 
 const stamp = () => "2026-09-17 14.30";
@@ -131,11 +131,11 @@ describe("SPAN", () => {
     expect(SPAN.character).toEqual(["born", "died"]);
     expect(SPAN.event).toEqual(["start", "end"]);
     expect(SPAN.journey).toEqual(["start", "end"]);
+    // When a city or a kingdom existed (CONTEXT.md, Place).
+    expect(SPAN.place).toEqual(["start", "end"]);
   });
 
   it("suggests none where the vault has no date convention", () => {
-    // A Place carries lat/lon; offering it a Span would invent a convention.
-    expect(SPAN.place).toBeNull();
     expect(SPAN.concept).toBeNull();
   });
 
@@ -150,5 +150,44 @@ describe("SPAN", () => {
     for (const pair of Object.values(SPAN)) {
       if (pair) expect(pair).toHaveLength(2);
     }
+  });
+});
+
+describe("dateAdds", () => {
+  it("offers a Character its lifespan, then a free-named Date", () => {
+    expect(dateAdds("character", [])).toEqual([
+      { kind: "pair", names: ["born", "died"], label: "lifespan" },
+      { kind: "named" },
+    ]);
+  });
+
+  it("offers an Event, a Journey and a Place a Span", () => {
+    for (const t of ["event", "journey", "place"] as DocType[]) {
+      expect(dateAdds(t, [])[0]).toEqual({
+        kind: "pair",
+        names: ["start", "end"],
+        label: "span",
+      });
+    }
+  });
+
+  it("offers only the missing half when one half exists", () => {
+    expect(dateAdds("character", ["born"])[0]).toEqual({
+      kind: "half",
+      name: "died",
+    });
+    expect(dateAdds("place", ["end", "founded"])[0]).toEqual({
+      kind: "half",
+      name: "start",
+    });
+  });
+
+  it("drops the pair once both halves exist", () => {
+    expect(dateAdds("event", ["end", "start"])).toEqual([{ kind: "named" }]);
+  });
+
+  it("offers a Concept only a free-named Date", () => {
+    // Out of scope: Spans on Concepts.
+    expect(dateAdds("concept", [])).toEqual([{ kind: "named" }]);
   });
 });
