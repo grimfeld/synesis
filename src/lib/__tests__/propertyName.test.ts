@@ -1,6 +1,6 @@
 // Naming a new Property (ADR 0006): one name, one type, vault-wide.
 import { describe, expect, it } from "vitest";
-import { checkNewProperty } from "../propertyName";
+import { checkNewProperty, nameTyped } from "../propertyName";
 import type { PropertyType } from "../api";
 
 const types: Record<string, PropertyType> = {
@@ -50,5 +50,17 @@ describe("checkNewProperty", () => {
       name: "kind",
       type: "text",
     });
+  });
+});
+
+describe("nameTyped", () => {
+  const types: Record<string, PropertyType> = { kind: "text" };
+  it("is the cleaned name, whether or not it can be added", () => {
+    expect(nameTyped(checkNewProperty(" anointed! ", types))).toBe("anointed");
+    expect(nameTyped(checkNewProperty("title", types))).toBe("title");
+    expect(nameTyped(checkNewProperty("kind", types, "date"))).toBe("kind");
+  });
+  it("is empty when nothing usable was typed", () => {
+    expect(nameTyped(checkNewProperty(" !! ", types))).toBe("");
   });
 });

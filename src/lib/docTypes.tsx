@@ -83,6 +83,31 @@ export const SPAN: Record<DocType, readonly [string, string] | null> = {
 };
 
 /**
+ * Whether a page of this type whose Span has a start and no end runs on: a
+ * Place that began and has not ended is a city still standing (CONTEXT.md,
+ * Place), drawn to the Timeline's edge and inside every later Period.
+ *
+ * Only a Place. A Character with `born` alone is not known to be alive, and an
+ * Event's lone `start` is its moment. The one place this rule is written:
+ * the Timeline (`buildLanes`) and anything narrowing to a Period read it here.
+ */
+export const RUNS_ON: Record<DocType, boolean> = {
+  place: true,
+  character: false,
+  event: false,
+  journey: false,
+  concept: false,
+  source: false,
+  note: false,
+  clipping: false,
+  composition: false,
+  book: false,
+  chapter: false,
+  verse: false,
+  other: false,
+};
+
+/**
  * One thing the Hub's "Add Date" control offers (Dates section).
  *
  * `pair` is the whole Span the type suggests — "Add lifespan" for

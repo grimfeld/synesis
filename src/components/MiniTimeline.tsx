@@ -9,6 +9,7 @@ import {
   extentOf,
   formatYear,
   placeMarks,
+  runsOnAttr,
   resolveLabels,
   type Lane,
   type Placed,
@@ -160,7 +161,7 @@ function MiniMark({
       data-testid={cluster ? "mini-cluster" : "mini-mark"}
       data-doc={cluster ? undefined : m.doc.id}
       data-count={cluster ? p.marks.length : undefined}
-      data-runs-on={m.runsOn && !cluster ? "true" : undefined}
+      data-runs-on={runsOnAttr(p)}
       className="cursor-pointer"
       opacity={m.approx && !cluster ? 0.55 : 1}
       onClick={() => !cluster && onOpen(m.doc.id)}
