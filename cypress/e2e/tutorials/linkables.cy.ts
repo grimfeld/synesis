@@ -32,7 +32,7 @@ describe("Tutorial: Linkables & Unlinked mentions", () => {
     cy.window().then((win) => {
       expect(String(win.getSelection())).to.equal("Troas");
     });
-    cy.get("button[aria-label='Link: Troas']").should("exist");
+    cy.get("[data-testid=linkable-link][data-target='Troas']").should("exist");
     cy.tutorialNext();
 
     // 3. The Subject's page lists the Note under Unlinked mentions, beside Backlinks.
@@ -57,13 +57,13 @@ describe("Tutorial: Linkables & Unlinked mentions", () => {
       .parent()
       .should("contain", "Moses")
       .and("contain", "Egypt");
-    cy.get("button[aria-label='Link: Moses']").click();
+    cy.get("[data-testid=linkable-link][data-target='Moses']").click();
     cy.get("[data-testid=linkables]", { timeout: 10000 }).parent().should("not.contain", "Moses");
     saved();
     cy.openDoc("Egypt");
     cy.hubTitle("Egypt");
     cy.get("[data-testid=unlinked-mentions]", { timeout: 10000 }).should("contain", "Linkable practice");
-    cy.get("[data-testid=unlinked-mentions] button[aria-label='Link: Linkable practice']").click();
+    cy.get("[data-testid=unlinked-link][data-target='Linkable practice']").click();
     cy.get("[data-testid=unlinked-mentions]", { timeout: 10000 }).should("not.contain", "Linkable practice");
     cy.get("[data-testid=backlinks]").should("contain", "Linkable practice");
     // The words stay as written; only the brackets are new.

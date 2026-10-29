@@ -549,19 +549,55 @@ fn number_field(fm: &serde_json::Map<String, Value>, key: &str) -> Option<f64> {
     }
 }
 
+/// The version of the rules that turn a file into index rows: the Passage
+/// parser, the document parser, what each stores. Bump it whenever a change
+/// there alters what an unchanged file would index to.
+///
+/// The scan skips files whose mtime has not moved, so without this a parser
+/// change would only ever reach files the user edits afterwards. An index
+/// written under another version is re-parsed in full once, on open
+/// (`Vault::open`). Kept in SQLite's `user_version`.
+///
+/// History: 1 — bare verses resolve within the section, not the paragraph.
+pub const PARSER_VERSION: i64 = 1;
+
 impl Index {
     pub fn open(path: &Path) -> Result<Index> {
         let conn = Connection::open(path)?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
-        Ok(Index { conn })
+        let idx = Index { conn };
+        // An empty index holds nothing an older parser wrote, so it is
+        // current from the start and the first scan is not doubled.
+        if idx.document_count()? == 0 {
+            idx.set_parser_version(PARSER_VERSION)?;
+        }
+        Ok(idx)
+    }
+
+    /// Whether the rows were written by a parser other than this build's,
+    /// so every file must be parsed again (see [`PARSER_VERSION`]).
+    pub fn parser_stale(&self) -> Result<bool> {
+        let v: i64 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        Ok(v != PARSER_VERSION)
+    }
+
+    /// Record which parser wrote the rows.
+    pub fn set_parser_version(&self, version: i64) -> Result<()> {
+        self.conn
+            .execute_batch(&format!("PRAGMA user_version = {version}"))?;
+        Ok(())
     }
 
     pub fn in_memory() -> Result<Index> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch(SCHEMA)?;
         migrate(&conn)?;
-        Ok(Index { conn })
+        let idx = Index { conn };
+        idx.set_parser_version(PARSER_VERSION)?;
+        Ok(idx)
     }
 
     pub fn mtime_of(&self, path: &str) -> Result<Option<i64>> {
@@ -2918,6 +2954,40 @@ tags: [judgment]
         ]);
         // A Note is not a linkable target: the mirror rule of ADR 0011.
         assert_eq!(idx.unlinked_mentions("n1", 50).unwrap().total, 0);
+    }
+
+    #[test]
+    fn a_bare_verse_after_a_blank_line_is_a_mention_of_its_verse() {
+        // Story 18: "v. 29" in the next paragraph of the same section reads
+        // as Romans 8:29, so the Note is a backlink on that Verse.
+        let idx = idx_with(&[("n", "Notes/A.md", "Romans 8:28.\n\nv. 29")]);
+        let on_29 = idx.mentions_of(45, Some(8), Some(29), Lang::En, None).unwrap();
+        assert_eq!(on_29.len(), 1);
+        assert_eq!(on_29[0].doc.id, "n");
+        assert!(on_29[0].inferred);
+    }
+
+    #[test]
+    fn a_fresh_index_is_current_and_an_old_one_is_stale() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        // Nothing indexed yet: nothing could have been parsed by older rules.
+        let idx = Index::open(&path).unwrap();
+        assert!(!idx.parser_stale().unwrap());
+        drop(idx);
+
+        let mut idx = Index::open(&path).unwrap();
+        let parsed = document::parse("Notes/A.md", "Romans 8:28.");
+        idx.upsert("n", "Notes/A.md", 1, "Romans 8:28.", &parsed, &[])
+            .unwrap();
+        idx.set_parser_version(PARSER_VERSION - 1).unwrap();
+        drop(idx);
+
+        // Rows written by an older parser: stale until marked current.
+        let idx = Index::open(&path).unwrap();
+        assert!(idx.parser_stale().unwrap());
+        idx.set_parser_version(PARSER_VERSION).unwrap();
+        assert!(!idx.parser_stale().unwrap());
     }
 
     #[test]

@@ -55,11 +55,7 @@ static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
 });
 
 static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(
-        r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}",
-        crate::attachments::PICTURE_SYNTAX
-    ))
-    .expect("skip regex")
+    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
@@ -275,10 +271,9 @@ fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
 /// Byte offsets at which a new section begins: the start of every ATX heading
 /// line outside code. A bare verse only resolves within its section.
 fn section_breaks(text: &str, zones: &[(usize, usize)]) -> Vec<usize> {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^ {0,3}#{1,6}(?:[ \t]|$)").unwrap());
-    RE.find_iter(text)
-        .map(|m| m.start())
-        .filter(|&at| !in_zone(zones, at, at + 1))
+    crate::document::headings(text, zones)
+        .into_iter()
+        .map(|h| h.start)
         .collect()
 }
 
@@ -503,6 +498,18 @@ mod tests {
             refs("Jean 3:16, puis verset 17"),
             vec!["John 3:16", "John 3:17"]
         );
+    }
+
+    #[test]
+    fn a_section_starts_only_at_a_commonmark_heading() {
+        // Four spaces of indent: code, not a heading, so the context holds.
+        assert_eq!(
+            refs("Romans 8:28.\n    # not a heading\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // A tab after the hashes, or a bare "#", is a heading.
+        assert_eq!(refs("Romans 8:28.\n#\tNext\nv. 29"), vec!["Romans 8:28"]);
+        assert_eq!(refs("Romans 8:28.\n#\nv. 29"), vec!["Romans 8:28"]);
     }
 
     #[test]

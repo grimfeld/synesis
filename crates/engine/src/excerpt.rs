@@ -12,6 +12,9 @@
 //! excerpt the day it is added rather than the day someone remembers to add a
 //! branch for it.
 
+// What counts as a heading is the engine's one ATX rule (CommonMark).
+use crate::document::{atx_heading as heading, headings, zones};
+
 /// How much text crosses the bridge per card.
 ///
 /// The card line-clamps to three lines, but the clamp is a CSS effect on
@@ -66,22 +69,19 @@ fn section_for<'a>(body: &'a str, subpath: &str) -> Option<&'a str> {
     }
     let mut start = None;
     let mut depth = 0usize;
-    for (offset, line) in line_offsets(body) {
-        let (level, text) = match heading(line) {
-            Some(h) => h,
-            None => continue,
-        };
+    // A "#" line inside a code block is code, not a heading.
+    for h in headings(body, &zones(body)) {
         match start {
             None => {
-                if text.eq_ignore_ascii_case(want) {
-                    start = Some(offset + line.len());
-                    depth = level;
+                if h.text.eq_ignore_ascii_case(want) {
+                    start = Some(h.end);
+                    depth = h.level;
                 }
             }
             // The section ends at the next heading that is not nested under it.
             Some(from) => {
-                if level <= depth {
-                    return Some(&body[from..offset]);
+                if h.level <= depth {
+                    return Some(&body[from..h.start]);
                 }
             }
         }
@@ -101,18 +101,6 @@ fn block_for<'a>(body: &'a str, id: &str) -> Option<&'a str> {
         }
     }
     None
-}
-
-/// `(level, text)` when the line is an ATX heading.
-fn heading(line: &str) -> Option<(usize, &str)> {
-    let t = line.trim();
-    if !t.starts_with('#') {
-        return None;
-    }
-    let level = t.chars().take_while(|&c| c == '#').count();
-    // `#tag` is a Tag, not a heading: a heading needs a space after its hashes.
-    let rest = t[level..].strip_prefix(' ')?;
-    (1..=6).contains(&level).then(|| (level, rest.trim()))
 }
 
 /// Byte offset and text of every line, newline excluded from the text but
@@ -395,6 +383,21 @@ mod tests {
     fn a_heading_subpath_matches_regardless_of_case() {
         let body = "## Cross-references\n\nThe text.";
         assert_eq!(excerpt(body, "t", Some("#cross-references")).text, "The text.");
+    }
+
+    #[test]
+    fn a_heading_subpath_follows_the_commonmark_rule() {
+        // Four spaces of indent are not a heading, so the subpath finds the real one.
+        let body = "    # Cross\n\nA.\n\n# Cross\n\nB.";
+        assert_eq!(excerpt(body, "t", Some("#Cross")).text, "B.");
+        // A tab after the hashes is a heading.
+        assert_eq!(excerpt("#\tCross\n\nC.", "t", Some("#Cross")).text, "C.");
+        // A "#" line inside code neither starts nor ends a section.
+        let body = "# A\n\nx\n\n```\n# B\n```\n\n# B\n\nreal";
+        assert_eq!(excerpt(body, "t", Some("#B")).text, "real");
+        let body = "# A\n\n```\n# comment\n```\n\nstill A";
+        let a = section_for(body, "#A").unwrap();
+        assert!(a.contains("still A"), "{a:?}");
     }
 
     #[test]

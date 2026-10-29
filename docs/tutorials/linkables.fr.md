@@ -12,6 +12,6 @@ Un nom écrit sans lien passe vite inaperçu. Pendant que vous écrivez, l'appli
 - Les Écritures n'y figurent jamais : un passage est déjà une Mention.
 - Un nom à l'intérieur d'un passage désigne le livre : « Jérémie 48:2 » ne propose jamais le personnage Jérémie, mais « Jérémie » seul, si.
 - Un alias compte : écrire « Saul » propose un lien vers Paul si Saul est un de ses alias.
-- Un nom compte comme un mot entier : « Israëlites » ne propose pas Israël. Une élision devant lui ne le cache pas : dans « d'Israël » ou « l'Égypte », le nom est proposé, et le lien laisse le « d' » en dehors.
+- Un nom compte comme un mot entier : « Pauline » ne propose pas Paul. Une élision devant lui ne le cache pas : dans « d'Israël » ou « l'Égypte », le nom est proposé, et le lien laisse le « d' » en dehors.
 - Lier une occurrence retire le nom de la liste ; les autres restent du texte simple.
 - Sur une page, **Tout lier** lie la première mention de chaque document listé, après vous les avoir montrés. **Annuler** dans la notification remet les mots.
