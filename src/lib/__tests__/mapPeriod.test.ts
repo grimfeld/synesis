@@ -103,6 +103,18 @@ describe("mapInPeriod", () => {
     expect(nt.events).toEqual([{ event: pentecost, place: jerusalem.id }]);
   });
 
+  it("keeps a region with no coordinates only in the Periods its Span overlaps", () => {
+    // Its Border is drawn without a pin, so the Period alone decides.
+    const judah = { ...doc("judah", "place"), lat: null, lon: null };
+    const edom = { ...doc("edom", "place"), lat: null, lon: null }; // no Span
+    const rows = [...input.rows, dated(judah, "start", bce(930)), dated(judah, "end", bce(607))];
+    const kept = (period: { from: number; to: number } | null) =>
+      ids(mapInPeriod({ ...input, rows, regions: [judah, edom], period }).regions);
+    expect(kept(null)).toEqual(["edom", "judah"]);
+    expect(kept({ from: bce(640), to: bce(580) })).toEqual(["edom", "judah"]);
+    expect(kept({ from: 30, to: 60 })).toEqual(["edom"]);
+  });
+
   it("marks no Event at a Place the Period hides", () => {
     const r = mapInPeriod({
       ...input,

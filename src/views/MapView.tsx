@@ -236,17 +236,26 @@ export function MapView() {
   // The Period the Timeline shares: Places and Journeys that overlap it, and
   // the Events in it, marked at their Place (lib/mapPeriod).
   const rows = datedData?.rows;
+  // Regions with a Border and no pin: the Period alone decides their Border.
+  const unpinnedRegions = useMemo(() => {
+    const located = new Set(places.map((p) => p.id));
+    return borders
+      .filter((b) => !located.has(b.doc))
+      .map((b) => s.docsById.get(b.doc))
+      .filter((d): d is DocSummary => !!d);
+  }, [borders, places, s.docsById]);
   const inPeriod = useMemo(
     () =>
       mapInPeriod({
         places,
+        regions: unpinnedRegions,
         journeys,
         events: s.docs.filter((d) => d.type === "event"),
         rows: rows ?? [],
         eventLinks: datedData?.links ?? [],
         period: pf.period,
       }),
-    [places, journeys, s.docs, rows, datedData?.links, pf.period],
+    [places, unpinnedRegions, journeys, s.docs, rows, datedData?.links, pf.period],
   );
   // The slider's track: every year the Vault's Dates name, as the Timeline's.
   const extent = useMemo(
@@ -556,9 +565,12 @@ export function MapView() {
     const placeColor = cssVar("--c-place", "#c04f6b");
     const shownIds = new Set(shown.map((p) => p.id));
     const located = new Set(places.map((p) => p.id));
+    const unpinnedIn = new Set(inPeriod.regions.map((r) => r.id));
     for (const b of borders) {
       if (b.status !== "ok" || b.doc === drawing) continue;
       if (located.has(b.doc) && !shownIds.has(b.doc)) continue;
+      // Outside the Period, a region's Border goes with it (CONTEXT.md: Border).
+      if (!located.has(b.doc) && !unpinnedIn.has(b.doc)) continue;
       const kind = kindById.get(b.doc) ?? null;
       const paint = pinPaint(b.doc, kind, mf.colorBy, mf.colored, facts);
       const color = cssVar(paint.tokens[0] ?? "--c-place", placeColor);
@@ -591,7 +603,7 @@ export function MapView() {
         }).addTo(g);
       }
     }
-  }, [borders, shown, places, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
+  }, [borders, shown, places, inPeriod.regions, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
 
   // The Border being drawn: its outline so far and a handle on each corner.
   useEffect(() => {

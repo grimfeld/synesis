@@ -21,6 +21,8 @@ export interface EventMark {
 
 export interface MapInPeriod {
   places: DocSummary[];
+  /** The `regions` given that the Period keeps. */
+  regions: DocSummary[];
   journeys: Journey[];
   /** Empty when no Period is set: the Map marks Events only in a Period. */
   events: EventMark[];
@@ -36,12 +38,18 @@ export function mapInPeriod(o: {
   /** The Timeline's Date rows; rows of other documents are ignored. */
   rows: DatedProperty[];
   eventLinks: EventLink[];
+  /**
+   * Regions with a Border but no coordinates: no pin decides whether their
+   * Border is drawn, so the Period alone does.
+   */
+  regions?: DocSummary[];
   period: Period | null;
 }): MapInPeriod {
+  const regions = o.regions ?? [];
   const period = ordered(o.period);
   if (!period)
-    return { places: o.places, journeys: o.journeys, events: [], undated: 0 };
-  const docs = [...o.places, ...o.journeys.map((j) => j.doc), ...o.events];
+    return { places: o.places, regions, journeys: o.journeys, events: [], undated: 0 };
+  const docs = [...o.places, ...regions, ...o.journeys.map((j) => j.doc), ...o.events];
   const wanted = new Set(docs.map((d) => d.id));
   const items = itemsOf(
     o.rows.filter((r) => wanted.has(r.doc.id)),
@@ -61,6 +69,7 @@ export function mapInPeriod(o: {
   }
   return {
     places,
+    regions: regions.filter((r) => kept.has(r.id)),
     journeys: o.journeys.filter((j) => kept.has(j.doc.id)),
     events,
     undated,
