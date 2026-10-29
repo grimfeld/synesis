@@ -457,6 +457,8 @@ mod tests {
         assert!(b.error.is_some());
         fs::write(d.path().join("Places/.C.geojson.icloud"), "").unwrap();
         assert_eq!(read(d.path(), "x", "Places/C.geojson").status, BorderStatus::Downloading);
+        // iCloud is asked for it like any other evicted file of the Vault.
+        assert!(crate::cloud::evicted_under(d.path()).contains(&d.path().join("Places/C.geojson")));
         fs::write(d.path().join("Places/D.geojson"), SQUARE).unwrap();
         let ok = read(d.path(), "x", "Places/D.geojson");
         assert_eq!(ok.status, BorderStatus::Ok);
