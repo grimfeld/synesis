@@ -12,6 +12,7 @@
 //! genuinely occurs and what replaces it.
 
 use crate::document::{in_zone, zones};
+use crate::parser;
 use aho_corasick::{AhoCorasick, MatchKind};
 
 /// One occurrence of a name in a document's text.
@@ -66,6 +67,7 @@ impl Matcher {
     pub fn find(&self, body: &str) -> Vec<Occurrence> {
         let mut skip = zones(body);
         skip.extend(heading_spans(body));
+        skip.extend(passage_spans(body));
         let links = link_spans(body);
         let haystack = fold(body);
         let mut out = Vec::new();
@@ -97,6 +99,18 @@ impl Matcher {
         }
         out
     }
+}
+
+/// Byte ranges of every Passage the parser detects, explicit or inferred.
+///
+/// A name inside a Passage belongs to the Book: "Jérémie 48:2" cites the
+/// Book, not the prophet, so it is neither a Linkable nor an Unlinked mention
+/// of the Character "Jérémie" (ADR 0011). The inferred "v. 12" after it is a
+/// Passage too and is skipped for the same reason. The parser accepts every
+/// language's Book names at once, so this is the same set of Passages the
+/// editor decorates, whatever the document's language.
+fn passage_spans(body: &str) -> Vec<(usize, usize)> {
+    parser::detect(body).into_iter().map(|d| (d.start, d.end)).collect()
 }
 
 /// Byte ranges covered by ATX heading lines.
@@ -354,6 +368,28 @@ mod tests {
         );
         // `#tag` is not a heading, and is excluded for its own reason.
         assert!(found(&["Antioch"], "#Antioch\n").is_empty());
+    }
+
+    #[test]
+    fn a_name_inside_a_passage_is_the_book_not_the_subject() {
+        // ADR 0011: "Jérémie 48:2" cites the Book, not the prophet.
+        assert!(found(&["Jérémie"], "Lire Jérémie 48:2 ce soir.").is_empty());
+        assert!(found(&["John"], "As John 3:16 says.").is_empty());
+        // On its own the name is prose like any other.
+        assert_eq!(found(&["Jérémie"], "Jérémie pleure."), ["Jérémie"]);
+        assert_eq!(
+            found(&["Jérémie"], "Jérémie 48:2, puis Jérémie se tait."),
+            ["Jérémie"]
+        );
+    }
+
+    #[test]
+    fn a_name_inside_an_inferred_passage_is_skipped_too() {
+        // "verset 3" is inferred from "Jérémie 48:2"; a Subject named
+        // "Verset" must not fire inside it.
+        assert!(found(&["Verset"], "Jérémie 48:2 et verset 3.").is_empty());
+        // Without a context the words are prose, and the name matches.
+        assert_eq!(found(&["Verset"], "Le verset 3 seul."), ["verset"]);
     }
 
     #[test]
