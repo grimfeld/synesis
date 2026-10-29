@@ -140,6 +140,9 @@ pub enum Query {
     PlaceFacts,
     /// Places without a kind the gazetteer can name (PLAN §27.13).
     KindSuggestions,
+    /// Every region Border the Vault holds, read from its `.geojson` file
+    /// (ADR 0023), with a warning for any that cannot be drawn.
+    Borders,
 }
 
 fn unlinked_limit() -> usize {
@@ -190,6 +193,7 @@ pub enum Answer {
     Journeys(Vec<Journey>),
     PlaceFacts(Vec<PlaceFact>),
     KindSuggestions(Vec<crate::vault::KindSuggestion>),
+    Borders(Vec<crate::border::Border>),
 }
 
 /// How many Mentions one Verse has.
