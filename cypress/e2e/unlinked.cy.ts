@@ -92,6 +92,36 @@ describe("Unlinked mentions", () => {
     cy.get("button[aria-label='Link: John']").should("not.exist");
   });
 
+  it("sees a name after a French elision, in the Hub and the editor alike", () => {
+    // "d'Egypt": the apostrophe follows an elision, so it separates two words
+    // rather than gluing them. Linking leaves the "d'" outside the link.
+    cy.bridge<{ summary: { id: string } }>("create_document", {
+      docType: "note",
+      title: "Les fils sortirent",
+      fields: {},
+      body: "Les fils sortirent d'Egypt.\n",
+    }).then(({ summary: note }) => {
+      cy.openDoc("Les fils sortirent");
+      cy.get("[data-testid=linkables]")
+        .parent()
+        .find("button[aria-label='Link: Egypt']")
+        .should("exist");
+
+      cy.openDoc("Egypt");
+      cy.get("[data-testid=unlinked-mentions]")
+        .should("contain", "Les fils sortirent")
+        .find("button[aria-label='Link: Les fils sortirent']")
+        .click();
+      cy.get("[data-testid=backlinks]", { timeout: 10000 }).should(
+        "contain",
+        "Les fils sortirent",
+      );
+      cy.bridge<{ text: string }>("get_document", { id: note.id }).then((d) => {
+        expect(d.text).to.contain("sortirent d'[[Egypt]].");
+      });
+    });
+  });
+
   it("shows no section on a Scripture page", () => {
     // A Passage is already a Mention, so Scripture has none by construction —
     // and the Book "John" shares its name with a Character.

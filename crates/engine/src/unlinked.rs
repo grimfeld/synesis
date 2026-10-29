@@ -241,8 +241,9 @@ pub fn link_targets(body: &str) -> Vec<String> {
 /// Whether `start..end` stands as a whole word.
 ///
 /// Letters and digits on either side disqualify a match, so "Antioch" never
-/// fires inside "Antiochus". An apostrophe before the match does too: the
-/// "Paul" in "d'Paul" is not a separate word.
+/// fires inside "Antiochus". An apostrophe before the match does too — the
+/// "hui" in "aujourd'hui" is not a separate word — unless what precedes the
+/// apostrophe is a French elision: "Israël" in "les fils d'Israël" is a name.
 fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
     let before = text[..start].chars().next_back();
     let after = text[end..].chars().next();
@@ -250,12 +251,34 @@ fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         None => true,
         Some(c) => !(c.is_alphanumeric() || c == '_' || c == '\'' || c == '\u{2019}'),
     };
+    let before_ok = match before {
+        Some(a @ ('\'' | '\u{2019}')) => follows_elision(&text[..start - a.len_utf8()]),
+        other => ok(other),
+    };
     // A trailing apostrophe is allowed: the possessive is handled by the caller.
-    ok(before)
+    before_ok
         && match after {
             Some('\'') | Some('\u{2019}') => true,
             other => ok(other),
         }
+}
+
+/// The French words that elide before a vowel: `d'`, `l'`, `qu'`, `jusqu'`…
+const ELISIONS: [&str; 12] = [
+    "d", "l", "j", "m", "n", "s", "t", "c", "qu", "jusqu", "lorsqu", "puisqu",
+];
+
+/// Whether `text` ends with an elision standing as a word of its own, so that
+/// an apostrophe right after it separates two words rather than gluing them.
+fn follows_elision(text: &str) -> bool {
+    let word_start = text
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_alphabetic())
+        .last()
+        .map_or(text.len(), |(i, _)| i);
+    let word = &text[word_start..];
+    ELISIONS.iter().any(|e| word.eq_ignore_ascii_case(e))
 }
 
 /// The wikilink that replaces `matched` when linking to `title`.
@@ -339,6 +362,33 @@ mod tests {
     fn a_possessive_is_part_of_the_match() {
         assert_eq!(found(&["Paul"], "Paul's letter"), ["Paul's"]);
         assert_eq!(found(&["Paul"], "Paul\u{2019}s letter"), ["Paul\u{2019}s"]);
+    }
+
+    #[test]
+    fn a_french_elision_is_a_word_boundary() {
+        assert_eq!(found(&["Israël"], "les fils d'Israël"), ["Israël"]);
+        assert_eq!(found(&["Égypte"], "sortis de l\u{2019}Égypte"), ["Égypte"]);
+        assert_eq!(found(&["Abraham"], "avant qu'Abraham fût"), ["Abraham"]);
+        assert_eq!(found(&["Antioche"], "jusqu'Antioche"), ["Antioche"]);
+        assert_eq!(found(&["Élie"], "lorsqu\u{2019}Élie vint"), ["Élie"]);
+        assert_eq!(found(&["Isaïe"], "Puisqu'Isaïe le dit"), ["Isaïe"]);
+        for e in ["d", "l", "j", "m", "n", "s", "t", "c", "D", "L"] {
+            assert_eq!(found(&["Israël"], &format!("{e}'Israël")), ["Israël"], "{e}'");
+        }
+    }
+
+    #[test]
+    fn other_apostrophes_still_reject_a_match() {
+        // Not an elision word: the apostrophe glues the two together.
+        assert!(found(&["hui"], "aujourd'hui il pleut").is_empty());
+        assert!(found(&["hui"], "aujourd\u{2019}hui il pleut").is_empty());
+        assert!(found(&["Paul"], "x'Paul").is_empty());
+        // The elision must stand as a word of its own: "ad'" is not "d'".
+        assert!(found(&["Israël"], "ad'Israël").is_empty());
+        assert!(found(&["Abraham"], "presqu'Abraham").is_empty());
+        // A longer word and accents are unchanged.
+        assert!(found(&["Israël"], "les fils d'Israëlites").is_empty());
+        assert!(found(&["Israël"], "les fils d'Israel").is_empty());
     }
 
     #[test]

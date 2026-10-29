@@ -1490,6 +1490,39 @@ mod tests {
     }
 
     #[test]
+    fn linking_after_a_french_elision_keeps_the_elision_outside_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        fs::write(
+            dir.path().join("Places/israel.md"),
+            "---\ntype: place\ntitle: \"Israël\"\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Notes/fils.md"),
+            "# Les fils\n\nLes fils d'Israël sortirent.\n",
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::Fr).unwrap();
+
+        let place = v.resolve("Israël").unwrap().unwrap();
+        let u = v.unlinked_mentions(&place.id).unwrap();
+        assert_eq!(u.total, 1, "the elided name is an Unlinked mention");
+        let m = &u.items[0];
+        assert_eq!(m.matched, "Israël");
+
+        v.link_mention(&m.doc.id, m.start, m.end, &m.matched, &place.id)
+            .unwrap();
+        let after = fs::read_to_string(dir.path().join("Notes/fils.md")).unwrap();
+        assert!(
+            after.contains("Les fils d'[[Israël]] sortirent."),
+            "only the name is linked: {after:?}"
+        );
+    }
+
+    #[test]
     fn linking_works_on_a_crlf_file() {
         // Windows-authored documents are CRLF throughout. The index measures
         // the file as it is on disk and the splice reads the same bytes back,
