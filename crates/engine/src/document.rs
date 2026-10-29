@@ -370,6 +370,59 @@ pub fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
     zones.iter().any(|&(a, b)| start < b && end > a)
 }
 
+/// `(level, text)` when `line` is an ATX heading, the one rule every part of
+/// the engine uses (CommonMark): up to three spaces of indent, one to six `#`,
+/// then a space, a tab or the end of the line. `#tag` is a Tag, and four
+/// spaces of indent make an indented code block, so neither is a heading.
+/// `text` is what follows the hashes, trimmed.
+pub fn atx_heading(line: &str) -> Option<(usize, &str)> {
+    let indent = line.len() - line.trim_start_matches(' ').len();
+    if indent > 3 {
+        return None;
+    }
+    let t = &line[indent..];
+    let level = t.len() - t.trim_start_matches('#').len();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    let rest = &t[level..];
+    match rest.chars().next() {
+        None | Some(' ' | '\t' | '\n' | '\r') => Some((level, rest.trim())),
+        Some(_) => None,
+    }
+}
+
+/// One ATX heading line of a body: `start..end` covers the whole line,
+/// newline included.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeadingLine<'a> {
+    pub start: usize,
+    pub end: usize,
+    pub level: usize,
+    pub text: &'a str,
+}
+
+/// Every ATX heading line of `body` that does not start inside one of
+/// `zones` (code), in order.
+pub fn headings<'a>(body: &'a str, zones: &[(usize, usize)]) -> Vec<HeadingLine<'a>> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    for line in body.split_inclusive('\n') {
+        if let Some((level, text)) = atx_heading(line) {
+            if !in_zone(zones, at, at + 1) {
+                out.push(HeadingLine {
+                    start: at,
+                    end: at + line.len(),
+                    level,
+                    text,
+                });
+            }
+        }
+        at += line.len();
+    }
+    out
+}
+
 /// Parse one document. `path` is vault-relative with forward slashes.
 pub fn parse(path: &str, text: &str) -> ParsedDoc {
     let (yaml, body_offset) = split_frontmatter(text);
@@ -717,6 +770,44 @@ no frontmatter
         assert_eq!(yaml_str("[[Paul]]"), "\"[[Paul]]\"");
         assert_eq!(yaml_str("John 3:16"), "\"John 3:16\"");
         assert_eq!(yaml_str("2024"), "\"2024\"");
+    }
+}
+
+#[cfg(test)]
+mod heading_tests {
+    use super::{atx_heading, headings, zones};
+
+    #[test]
+    fn an_atx_heading_follows_commonmark() {
+        assert_eq!(atx_heading("# Title"), Some((1, "Title")));
+        assert_eq!(atx_heading("###### Six\n"), Some((6, "Six")));
+        assert_eq!(atx_heading("   ## Indented three\r\n"), Some((2, "Indented three")));
+        // A tab separates the hashes as well as a space does.
+        assert_eq!(atx_heading("#\tx"), Some((1, "x")));
+        // A bare run of hashes is an empty heading.
+        assert_eq!(atx_heading("#"), Some((1, "")));
+        assert_eq!(atx_heading("##\n"), Some((2, "")));
+    }
+
+    #[test]
+    fn what_is_not_a_heading() {
+        // Four spaces of indent make an indented code block.
+        assert_eq!(atx_heading("    # x"), None);
+        // `#tag` is a Tag.
+        assert_eq!(atx_heading("#faith"), None);
+        // Seven hashes are text.
+        assert_eq!(atx_heading("####### x"), None);
+        assert_eq!(atx_heading("text # x"), None);
+    }
+
+    #[test]
+    fn headings_inside_code_are_skipped() {
+        let body = "# One\n\n```\n# comment\n```\n\n## Two\n";
+        let got: Vec<_> = headings(body, &zones(body))
+            .into_iter()
+            .map(|h| (h.level, h.text, &body[h.start..h.end]))
+            .collect();
+        assert_eq!(got, vec![(1, "One", "# One\n"), (2, "Two", "## Two\n")]);
     }
 }
 

@@ -37,7 +37,7 @@ describe("Unlinked mentions", () => {
     cy.docByTitle("The brothers at Antioch").then((note) => {
       cy.openDoc("Antioch");
       cy.get("[data-testid=unlinked-mentions]")
-        .find("button[aria-label^='Link:']")
+        .find("[data-testid=unlinked-link]")
         .first()
         .click();
 
@@ -65,6 +65,59 @@ describe("Unlinked mentions", () => {
       cy.bridge<{ text: string }>("get_document", { id: note.id }).then((d) => {
         expect(d.text).to.contain("Antioch is where the disciples");
         expect(d.text).to.not.contain("[[Antioch]] is where");
+      });
+    });
+  });
+
+  it("never counts the Book name inside a Passage, on the Hub or in the editor", () => {
+    // "Psalm 23 reflections" writes "John 10:11-15": the Book, not the
+    // Character John. Patmos writes "John's exile": the Character. The Hub
+    // and the editor's Linkables must agree on both.
+    cy.openDoc("John");
+    cy.get("[data-testid=unlinked-mentions]", { timeout: 10000 })
+      .should("contain", "Patmos")
+      .and("not.contain", "Psalm 23 reflections");
+
+    // Patmos first, so the panel is known to offer John where he is named.
+    cy.openDoc("Patmos");
+    cy.get("[data-testid=linkable-link][data-target='John']", { timeout: 10000 }).should(
+      "exist",
+    );
+
+    // David and Jesus are linked already, so with John 10:11-15 skipped the
+    // note has nothing left to offer.
+    cy.openDoc("Psalm 23 reflections");
+    cy.get(".cm-content").should("contain", "John 10:11-15");
+    cy.get("[data-testid=linkables]").parent().find("li").should("have.length", 0);
+    cy.get("[data-testid=linkable-link][data-target='John']").should("not.exist");
+  });
+
+  it("sees a name after a French elision, in the Hub and the editor alike", () => {
+    // "d'Egypt": the apostrophe follows an elision, so it separates two words
+    // rather than gluing them. Linking leaves the "d'" outside the link.
+    cy.bridge<{ summary: { id: string } }>("create_document", {
+      docType: "note",
+      title: "Les fils sortirent",
+      fields: {},
+      body: "Les fils sortirent d'Egypt.\n",
+    }).then(({ summary: note }) => {
+      cy.openDoc("Les fils sortirent");
+      cy.get("[data-testid=linkables]")
+        .parent()
+        .find("[data-testid=linkable-link][data-target='Egypt']")
+        .should("exist");
+
+      cy.openDoc("Egypt");
+      cy.get("[data-testid=unlinked-mentions]")
+        .should("contain", "Les fils sortirent")
+        .find("[data-testid=unlinked-link][data-target='Les fils sortirent']")
+        .click();
+      cy.get("[data-testid=backlinks]", { timeout: 10000 }).should(
+        "contain",
+        "Les fils sortirent",
+      );
+      cy.bridge<{ text: string }>("get_document", { id: note.id }).then((d) => {
+        expect(d.text).to.contain("sortirent d'[[Egypt]].");
       });
     });
   });
@@ -106,7 +159,7 @@ describe("Linkables", () => {
     cy.get("[data-testid=linkables]").should("exist");
     cy.get("[data-testid=linkables]")
       .parent()
-      .find("button[aria-label^='Link:']")
+      .find("[data-testid=linkable-link]")
       .should("have.length", 3);
   });
 
@@ -155,7 +208,7 @@ describe("Linkables", () => {
           cy.bridge("save_document", { id: note.id, text: crlf });
           cy.openApp();
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']", { timeout: 10000 }).click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']", { timeout: 10000 }).click();
           cy.get("[data-testid=save-status]", { timeout: 10000 }).should(
             "have.attr",
             "data-status",
@@ -202,7 +255,7 @@ describe("Linkables", () => {
       cy.bridge<{ text: string }>("get_document", { id: note.id }).then(
         (before) => {
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']").click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']").click();
           // Asserted on the open page, with no reload in between. Live Preview
           // hides the brackets, so the proof that the link reached the editor
           // is the rendered link itself, not the literal "[[Troas]]".
@@ -235,7 +288,7 @@ describe("Linkables", () => {
             .parent()
             .should("contain", "Paul")
             .and("contain", "2×");
-          cy.get("button[aria-label='Link: Paul']").click();
+          cy.get("[data-testid=linkable-link][data-target='Paul']").click();
           cy.get("[data-testid=linkables]", { timeout: 10000 })
             .parent()
             .should("not.contain", "Paul");
@@ -262,7 +315,7 @@ describe("Linkables", () => {
       cy.bridge<{ text: string }>("get_document", { id: note.id }).then(
         (before) => {
           cy.openDoc("The brothers at Antioch");
-          cy.get("button[aria-label='Link: Troas']").click();
+          cy.get("[data-testid=linkable-link][data-target='Troas']").click();
           // The words are unchanged; only the brackets are new.
           // The editor saves on a debounce, so the file is checked through a
           // retrying assertion rather than read once and raced.

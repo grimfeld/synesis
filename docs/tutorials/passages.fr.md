@@ -12,7 +12,7 @@ Tapez une référence biblique comme vous l'écrivez d'habitude : l'application 
 ## À savoir
 
 - Un nom de livre seul n'est pas un passage : `Actes` demande un chapitre. Liez un livre entier avec `[[Actes]]`.
-- `v. 17` après un passage, dans le même paragraphe, compte aussi, avec un autre soulignement.
+- `v. 17` après un passage, dans la même section (depuis le dernier titre, même par-delà des lignes vides), compte aussi, avec un autre soulignement. Un nouveau titre y met fin.
 - Une plage couvre chacun de ses versets, même d'un chapitre à l'autre : `Gn 1:1-2:3`.
 - Le soulignement n'est qu'une décoration. Le fichier garde ce que vous avez tapé, et Obsidian l'affiche tel quel.
 - [Aller à Couverture](command:nav.coverage) colore chaque chapitre selon ce que vous avez écrit dessus.

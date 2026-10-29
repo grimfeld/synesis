@@ -52,7 +52,7 @@ Files are named in English. UI is localised (English and French in alpha, built 
 
 - Detect only when a chapter number is present ("Ro 8:38", "Acts 20", "Rev. 15"). Bare book names need `[[Acts]]`.
 - Accept common English, Watchtower-standard, and French abbreviations and punctuation ("Jn 3,16"). Parser = language-neutral core + per-language tables.
-- Contextual "v. 17" only after a Passage in the same paragraph; shown with a distinct underline.
+- Contextual "v. 17" only after an explicit Passage in the same section (since the last heading, across blank lines); a heading ends the context, and an inferred Passage is never the context for another. Shown with a distinct underline.
 - Ranges, including cross-chapter, expand to every Verse. Whole-chapter and whole-book Mentions expand too.
 - Detection runs in Clippings as well as Notes and Compositions.
 - Display collapses a Mention to the coarsest covering unit ("via Romans 8"). Graph defaults to Chapter nodes with a toggle to Verse level.

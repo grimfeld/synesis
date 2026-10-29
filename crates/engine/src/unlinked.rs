@@ -11,7 +11,8 @@
 //! *which* names and *which* documents; this module decides where a name
 //! genuinely occurs and what replaces it.
 
-use crate::document::{in_zone, zones};
+use crate::document::{headings, in_zone, zones};
+use crate::parser;
 use aho_corasick::{AhoCorasick, MatchKind};
 
 /// One occurrence of a name in a document's text.
@@ -65,7 +66,7 @@ impl Matcher {
     /// caller working in whole-file offsets adds its own `body_offset`.
     pub fn find(&self, body: &str) -> Vec<Occurrence> {
         let mut skip = zones(body);
-        skip.extend(heading_spans(body));
+        skip.extend(heading_spans(body, &skip));
         let links = link_spans(body);
         let haystack = fold(body);
         let mut out = Vec::new();
@@ -95,8 +96,26 @@ impl Matcher {
                 matched: body[start..end].to_string(),
             });
         }
+        // Parsing Passages costs more than everything above, so it runs only
+        // when there is a hit left to drop.
+        if !out.is_empty() {
+            let passages = passage_spans(body);
+            out.retain(|o| !in_zone(&passages, o.start, o.end));
+        }
         out
     }
+}
+
+/// Byte ranges of every Passage the parser detects, explicit or inferred.
+///
+/// A name inside a Passage belongs to the Book: "Jérémie 48:2" cites the
+/// Book, not the prophet, so it is neither a Linkable nor an Unlinked mention
+/// of the Character "Jérémie" (ADR 0011). The inferred "v. 12" after it is a
+/// Passage too and is skipped for the same reason. The parser accepts every
+/// language's Book names at once, so this is the same set of Passages the
+/// editor decorates, whatever the document's language.
+fn passage_spans(body: &str) -> Vec<(usize, usize)> {
+    parser::detect(body).into_iter().map(|d| (d.start, d.end)).collect()
 }
 
 /// Byte ranges covered by ATX heading lines.
@@ -105,19 +124,11 @@ impl Matcher {
 /// with a heading that repeats its own title, so without this the first row
 /// offered on a Hub is "# The brothers at Antioch" — a name the writer put
 /// there as a label, not a sentence they forgot to link.
-fn heading_spans(body: &str) -> Vec<(usize, usize)> {
-    let mut out = Vec::new();
-    let mut at = 0;
-    for line in body.split_inclusive('\n') {
-        let t = line.trim_start();
-        let hashes = t.len() - t.trim_start_matches('#').len();
-        // A space after the hashes is what separates a heading from a `#tag`.
-        if (1..=6).contains(&hashes) && t[hashes..].starts_with(' ') {
-            out.push((at, at + line.len()));
-        }
-        at += line.len();
-    }
-    out
+fn heading_spans(body: &str, zones: &[(usize, usize)]) -> Vec<(usize, usize)> {
+    headings(body, zones)
+        .into_iter()
+        .map(|h| (h.start, h.end))
+        .collect()
 }
 
 /// Lowercase `s` without moving a single byte.
@@ -227,8 +238,9 @@ pub fn link_targets(body: &str) -> Vec<String> {
 /// Whether `start..end` stands as a whole word.
 ///
 /// Letters and digits on either side disqualify a match, so "Antioch" never
-/// fires inside "Antiochus". An apostrophe before the match does too: the
-/// "Paul" in "d'Paul" is not a separate word.
+/// fires inside "Antiochus". An apostrophe before the match does too — the
+/// "hui" in "aujourd'hui" is not a separate word — unless what precedes the
+/// apostrophe is a French elision: "Israël" in "les fils d'Israël" is a name.
 fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
     let before = text[..start].chars().next_back();
     let after = text[end..].chars().next();
@@ -236,12 +248,34 @@ fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         None => true,
         Some(c) => !(c.is_alphanumeric() || c == '_' || c == '\'' || c == '\u{2019}'),
     };
+    let before_ok = match before {
+        Some(a @ ('\'' | '\u{2019}')) => follows_elision(&text[..start - a.len_utf8()]),
+        other => ok(other),
+    };
     // A trailing apostrophe is allowed: the possessive is handled by the caller.
-    ok(before)
+    before_ok
         && match after {
             Some('\'') | Some('\u{2019}') => true,
             other => ok(other),
         }
+}
+
+/// The French words that elide before a vowel: `d'`, `l'`, `qu'`, `jusqu'`…
+const ELISIONS: [&str; 12] = [
+    "d", "l", "j", "m", "n", "s", "t", "c", "qu", "jusqu", "lorsqu", "puisqu",
+];
+
+/// Whether `text` ends with an elision standing as a word of its own, so that
+/// an apostrophe right after it separates two words rather than gluing them.
+fn follows_elision(text: &str) -> bool {
+    let word_start = text
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_alphabetic())
+        .last()
+        .map_or(text.len(), |(i, _)| i);
+    let word = &text[word_start..];
+    ELISIONS.iter().any(|e| word.eq_ignore_ascii_case(e))
 }
 
 /// The wikilink that replaces `matched` when linking to `title`.
@@ -328,6 +362,33 @@ mod tests {
     }
 
     #[test]
+    fn a_french_elision_is_a_word_boundary() {
+        assert_eq!(found(&["Israël"], "les fils d'Israël"), ["Israël"]);
+        assert_eq!(found(&["Égypte"], "sortis de l\u{2019}Égypte"), ["Égypte"]);
+        assert_eq!(found(&["Abraham"], "avant qu'Abraham fût"), ["Abraham"]);
+        assert_eq!(found(&["Antioche"], "jusqu'Antioche"), ["Antioche"]);
+        assert_eq!(found(&["Élie"], "lorsqu\u{2019}Élie vint"), ["Élie"]);
+        assert_eq!(found(&["Isaïe"], "Puisqu'Isaïe le dit"), ["Isaïe"]);
+        for e in ["d", "l", "j", "m", "n", "s", "t", "c", "D", "L"] {
+            assert_eq!(found(&["Israël"], &format!("{e}'Israël")), ["Israël"], "{e}'");
+        }
+    }
+
+    #[test]
+    fn other_apostrophes_still_reject_a_match() {
+        // Not an elision word: the apostrophe glues the two together.
+        assert!(found(&["hui"], "aujourd'hui il pleut").is_empty());
+        assert!(found(&["hui"], "aujourd\u{2019}hui il pleut").is_empty());
+        assert!(found(&["Paul"], "x'Paul").is_empty());
+        // The elision must stand as a word of its own: "ad'" is not "d'".
+        assert!(found(&["Israël"], "ad'Israël").is_empty());
+        assert!(found(&["Abraham"], "presqu'Abraham").is_empty());
+        // A longer word and accents are unchanged.
+        assert!(found(&["Élie"], "d'Éliézer").is_empty());
+        assert!(found(&["Israël"], "les fils d'Israel").is_empty());
+    }
+
+    #[test]
     fn existing_links_and_tags_are_not_unlinked() {
         assert!(found(&["Antioch"], "went to [[Antioch]] and").is_empty());
         assert!(found(&["Antioch"], "an ![[Antioch]] embed").is_empty());
@@ -354,6 +415,38 @@ mod tests {
         );
         // `#tag` is not a heading, and is excluded for its own reason.
         assert!(found(&["Antioch"], "#Antioch\n").is_empty());
+    }
+
+    #[test]
+    fn a_name_inside_a_passage_is_the_book_not_the_subject() {
+        // ADR 0011: "Jérémie 48:2" cites the Book, not the prophet.
+        assert!(found(&["Jérémie"], "Lire Jérémie 48:2 ce soir.").is_empty());
+        assert!(found(&["John"], "As John 3:16 says.").is_empty());
+        // On its own the name is prose like any other.
+        assert_eq!(found(&["Jérémie"], "Jérémie pleure."), ["Jérémie"]);
+        assert_eq!(
+            found(&["Jérémie"], "Jérémie 48:2, puis Jérémie se tait."),
+            ["Jérémie"]
+        );
+    }
+
+    #[test]
+    fn a_name_inside_an_inferred_passage_is_skipped_too() {
+        // "verset 3" is inferred from "Jérémie 48:2"; a Subject named
+        // "Verset" must not fire inside it.
+        assert!(found(&["Verset"], "Jérémie 48:2 et verset 3.").is_empty());
+        // Without a context the words are prose, and the name matches.
+        assert_eq!(found(&["Verset"], "Le verset 3 seul."), ["verset"]);
+    }
+
+    #[test]
+    fn headings_follow_the_commonmark_rule() {
+        // A tab after the hashes makes a heading, which is skipped.
+        assert!(found(&["Antioch"], "#\tAntioch\n").is_empty());
+        // Four spaces of indent do not: the line is prose here.
+        assert_eq!(found(&["Antioch"], "    # Antioch\n"), ["Antioch"]);
+        // A bare "#" is an empty heading and takes nothing from the next line.
+        assert_eq!(found(&["Antioch"], "#\nAntioch\n"), ["Antioch"]);
     }
 
     #[test]
