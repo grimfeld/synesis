@@ -11,5 +11,6 @@ A name you wrote without linking is easy to miss. While you write, the app shows
 
 - Scripture is never listed: a Passage is already a Mention.
 - An alias counts: writing "Saul" offers a link to Paul when Saul is one of Paul's aliases.
+- A name counts as a whole word: "Antiochus" does not offer Antioch. A French elision before it does not hide it: in "d'Israël" or "l'Égypte" the name is offered, and linking leaves the "d'" outside the link.
 - Linking one occurrence takes the name off the list; the others stay plain prose.
 - On a page, **Link all** links the first mention in each listed document, after showing you which ones. **Undo** in the notice puts the words back.
