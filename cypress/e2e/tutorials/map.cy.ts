@@ -94,9 +94,31 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-route").should("not.exist");
     cy.tutorialNext();
 
-    // 5. A Place's kind is picked on its Hub, or made there; the gazetteer fills
-    //    in the rest, after naming what it would change.
+    // 5. A Period, typed or dragged, shows the Events of those years beside
+    //    their Places; the Timeline shows the same Period; Clear brings all back.
     cy.tutorialStep(4);
+    cy.get("[data-testid=map] [data-testid=map-event]").should("not.exist");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("Solomon's temple built").then((ev) =>
+      cy.get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`).should("exist"),
+    );
+    // The slider's middle moves the Period whole.
+    cy.get("[data-testid=period-slider-middle]").focus().type("{shift}{rightarrow}");
+    cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=map] [data-testid=map-event]").should("not.exist");
+    cy.tutorialNext();
+
+    // 6. A Place's kind is picked on its Hub, or made there; the gazetteer fills
+    //    in the rest, after naming what it would change.
+    cy.tutorialStep(5);
     cy.openDoc("Patmos");
     cy.hubTitle("Patmos");
     cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "region").click();
@@ -113,8 +135,8 @@ describe("Tutorial: Map & Journeys", () => {
     cy.contains("Every Place the gazetteer knows already has a kind.").should("exist");
     cy.tutorialNext();
 
-    // 6. Troas has no coordinates: Set location from the bundled list puts it on the Map.
-    cy.tutorialStep(5);
+    // 7. Troas has no coordinates: Set location from the bundled list puts it on the Map.
+    cy.tutorialStep(6);
     cy.get("[data-testid=map] .map-name").should("not.contain", "Troas");
     cy.openDoc("Troas");
     cy.hubTitle("Troas");
@@ -129,8 +151,8 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-name").should("contain", "Troas");
     cy.tutorialNext();
 
-    // 7. A region's Border: drawn from its Hub, filled on the Map, edited, deleted.
-    cy.tutorialStep(6);
+    // 8. A region's Border: drawn from its Hub, filled on the Map, edited, deleted.
+    cy.tutorialStep(7);
     cy.openDoc("Egypt");
     cy.hubTitle("Egypt");
     cy.get("[data-testid=hub-border-draw]").should("contain", "Draw Border").click();
@@ -165,8 +187,8 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=border-none]").should("exist");
     cy.tutorialNext();
 
-    // 8. Do it once: a Journey through a Place the gazetteer makes, kind and all.
-    cy.tutorialStep(7);
+    // 9. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    cy.tutorialStep(8);
     cy.tutorialCommand("create.journey");
     cy.get("[data-testid=new-doc-title]").type("Paul's first journey");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();

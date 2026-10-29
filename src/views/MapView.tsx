@@ -4,7 +4,9 @@ import { MapPin, Plus, Search, Trash2, Undo2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
   api,
+  type DatedProperty,
   type DocSummary,
+  type EventLink,
   type Journey,
   type KindSuggestion,
   type LatLon,
@@ -37,6 +39,9 @@ import {
   type RoutePoint,
 } from "@/lib/map";
 import { pinIconSvg } from "@/lib/pinIcons";
+import { mapInPeriod, type EventMark } from "@/lib/mapPeriod";
+import { sliderExtent } from "@/lib/periodSlider";
+import { yearOf } from "@/lib/timeline";
 import { addAtlas, removeMap, type Atlas } from "@/lib/atlas";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
@@ -44,6 +49,8 @@ import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { MapFilters } from "@/components/MapFilters";
 import { MapLegend } from "@/components/MapLegend";
+import { PeriodBar } from "@/components/PeriodBar";
+import { PeriodSlider } from "@/components/PeriodSlider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -179,6 +186,16 @@ export function MapView() {
     deps: { types: ["journey"] },
     fetch: () => api.journeys(),
   });
+  // The Period (CONTEXT.md) needs every Date, and which Place each Event
+  // names, so it can keep what overlaps it and mark Events at their Place.
+  const { data: datedData } = useQuery<{ rows: DatedProperty[]; links: EventLink[] }>({
+    key: [],
+    deps: { any: true },
+    fetch: async () => {
+      const [rows, links] = await Promise.all([api.timeline(), api.eventLinks()]);
+      return { rows, links };
+    },
+  });
   // Places the gazetteer could give a kind (PLAN §27.13), for the legend's offer.
   const { data: fillableData } = useQuery<KindSuggestion[]>({
     key: [],
@@ -215,16 +232,56 @@ export function MapView() {
   }, [rawFacts, catalogue]);
 
   const mf = s.mapFilters;
+  const pf = s.periodFilter;
+  // The Period the Timeline shares: Places and Journeys that overlap it, and
+  // the Events in it, marked at their Place (lib/mapPeriod).
+  const rows = datedData?.rows;
+  // Regions with a Border and no pin: the Period alone decides their Border.
+  const unpinnedRegions = useMemo(() => {
+    const located = new Set(places.map((p) => p.id));
+    return borders
+      .filter((b) => !located.has(b.doc))
+      .map((b) => s.docsById.get(b.doc))
+      .filter((d): d is DocSummary => !!d);
+  }, [borders, places, s.docsById]);
+  const inPeriod = useMemo(
+    () =>
+      mapInPeriod({
+        places,
+        regions: unpinnedRegions,
+        journeys,
+        events: s.docs.filter((d) => d.type === "event"),
+        rows: rows ?? [],
+        eventLinks: datedData?.links ?? [],
+        period: pf.period,
+      }),
+    [places, unpinnedRegions, journeys, s.docs, rows, datedData?.links, pf.period],
+  );
+  // The slider's track: every year the Vault's Dates name, as the Timeline's.
+  const extent = useMemo(
+    () => sliderExtent((rows ?? []).filter((r) => r.date).map((r) => yearOf(r.date!))),
+    [rows],
+  );
   const filteredPlaces = useMemo(
-    () => filterPlaces(places, mf, facts),
+    () => filterPlaces(inPeriod.places, mf, facts),
+    [inPeriod.places, mf, facts],
+  );
+  // What the view fits to: the Places the Map's own filters keep, whatever the
+  // Period. Dragging the slider then never moves the map under the reader.
+  const fitTo = useMemo(
+    () =>
+      filterPlaces(places, mf, facts)
+        .filter((p) => p.lat != null && p.lon != null)
+        .map((p) => [p.lat!, p.lon!] as L.LatLngTuple),
     [places, mf, facts],
   );
 
   // The Journeys being drawn, in the order their chips were offered, so a
-  // Journey keeps its colour as others are switched on and off.
+  // Journey keeps its colour as others are switched on and off. A Journey
+  // outside the Period is not drawn, and not offered.
   const drawn = useMemo(
-    () => journeys.filter((j) => mf.journeys.includes(j.doc.id)),
-    [journeys, mf.journeys],
+    () => inPeriod.journeys.filter((j) => mf.journeys.includes(j.doc.id)),
+    [inPeriod.journeys, mf.journeys],
   );
   const routes = useMemo(
     () =>
@@ -268,10 +325,16 @@ export function MapView() {
   const tagChips = useMemo(() => placeTags(places, facts), [places, facts]);
   const bookChips = useMemo(() => placeBooks(places, facts), [places, facts]);
   const journeyChips = useMemo(
-    () => journeys.map((j) => ({ id: j.doc.id, title: j.doc.title })),
-    [journeys],
+    () => inPeriod.journeys.map((j) => ({ id: j.doc.id, title: j.doc.title })),
+    [inPeriod.journeys],
   );
-  const filtered = activeCount(mf) > 0;
+  const filtered = activeCount(mf) > 0 || pf.period != null;
+
+  // Event marks at the Places on screen, numbered per Place so they stack.
+  const marks = useMemo(() => {
+    const on = new Set(shown.map((p) => p.id));
+    return inPeriod.events.filter((m: EventMark) => on.has(m.place));
+  }, [inPeriod.events, shown]);
 
   // What the legend explains: the kinds on screen, what colour means now, and
   // the routes drawn (PLAN §27.14).
@@ -344,7 +407,6 @@ export function MapView() {
     if (!m || !g) return;
     g.clearLayers();
     const placeColor = cssVar("--c-place", "#c04f6b");
-    const pts: L.LatLngTuple[] = [];
 
     const halo = cssVar("--c-atlas-land", cssVar("--background", "#ffffff"));
 
@@ -423,20 +485,49 @@ export function MapView() {
         weight: facts.mentions.get(p.id) ?? 0,
         pinned: !!stops,
       });
-      pts.push([p.lat, p.lon]);
     }
     drawnPlaces.current = placed;
-    const key = pts.map(([a, b]) => `${a},${b}`).join(";");
-    if (pts.length && fitted.current !== key) {
+
+    // Events in the Period, as diamonds beside their Place's pin.
+    const byId = new Map(shown.map((p) => [p.id, p]));
+    const stacked = new Map<string, number>();
+    for (const mk of marks) {
+      const p = byId.get(mk.place);
+      if (!p || p.lat == null || p.lon == null) continue;
+      const i = stacked.get(p.id) ?? 0;
+      stacked.set(p.id, i + 1);
+      const ev = L.marker([p.lat, p.lon], {
+        icon: L.divIcon({
+          className: "map-event-icon",
+          html: `<span class="map-event" data-testid="map-event" data-id="${esc(mk.event.id)}" data-place="${esc(p.id)}" style="--i:${i}"></span>`,
+          iconSize: [0, 0],
+          iconAnchor: [0, 0],
+        }),
+        title: mk.event.title,
+        alt: mk.event.title,
+        keyboard: true,
+        zIndexOffset: 3000,
+      })
+        .bindTooltip(mk.event.title, { direction: "top", offset: [-12, -14 - i * 11] })
+        .addTo(g);
+      ev.on("click", () => openDoc.current(mk.event.id));
+      ev.on("keypress", (e: L.LeafletKeyboardEvent) => {
+        if (e.originalEvent.key === "Enter") openDoc.current(mk.event.id);
+      });
+    }
+    // Stops of a drawn route count too, as they always have.
+    const fit = [...fitTo, ...routes.flatMap((r) => r.points.map((pt) => pt.at as L.LatLngTuple))];
+    const key = fit.map(([a, b]) => `${a},${b}`).join(";");
+    if (fit.length && fitted.current !== key) {
       fitted.current = key;
-      m.fitBounds(L.latLngBounds(pts).pad(0.3), { maxZoom: 9 });
+      m.fitBounds(L.latLngBounds(fit).pad(0.3), { maxZoom: 9 });
     }
     // After layout: names need their final boxes to be measured. Once more a
     // moment later, in case a fit was still animating the first time.
     requestAnimationFrame(() => relabelIn(drawnPlaces.current));
     const again = window.setTimeout(() => relabelIn(drawnPlaces.current), 400);
     return () => window.clearTimeout(again);
-  }, [shown, routes, routeColorOf, numbersOf, skinTick, kindById, mf.colorBy, mf.colored, facts]);
+  }, [shown, marks, fitTo, routes, routeColorOf, numbersOf, skinTick, kindById, mf.colorBy, mf.colored, facts]);
 
   // ---- Borders (ADR 0023) ---------------------------------------------------
   // Drawn under the pins, in the region's own colour, for every region the
@@ -474,9 +565,12 @@ export function MapView() {
     const placeColor = cssVar("--c-place", "#c04f6b");
     const shownIds = new Set(shown.map((p) => p.id));
     const located = new Set(places.map((p) => p.id));
+    const unpinnedIn = new Set(inPeriod.regions.map((r) => r.id));
     for (const b of borders) {
       if (b.status !== "ok" || b.doc === drawing) continue;
       if (located.has(b.doc) && !shownIds.has(b.doc)) continue;
+      // Outside the Period, a region's Border goes with it (CONTEXT.md: Border).
+      if (!located.has(b.doc) && !unpinnedIn.has(b.doc)) continue;
       const kind = kindById.get(b.doc) ?? null;
       const paint = pinPaint(b.doc, kind, mf.colorBy, mf.colored, facts);
       const color = cssVar(paint.tokens[0] ?? "--c-place", placeColor);
@@ -509,7 +603,7 @@ export function MapView() {
         }).addTo(g);
       }
     }
-  }, [borders, shown, places, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
+  }, [borders, shown, places, inPeriod.regions, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
 
   // The Border being drawn: its outline so far and a handle on each corner.
   useEffect(() => {
@@ -630,6 +724,9 @@ export function MapView() {
           </Button>
         </div>
       </ViewHeader>
+      <PeriodBar undated={inPeriod.undated}>
+        {extent && <PeriodSlider extent={extent} />}
+      </PeriodBar>
       <div className="relative min-h-0 flex-1">
         <div data-testid="map" ref={host} className="size-full" />
         {draw && (
@@ -728,15 +825,16 @@ export function MapView() {
                 variant="outline"
                 className="pointer-events-auto"
                 data-testid="map-empty-clear"
-                onClick={() =>
+                onClick={() => {
                   s.setMapFilters({
                     ...mf,
                     tags: [],
                     books: [],
                     search: "",
                     mentionedOnly: false,
-                  })
-                }
+                  });
+                  s.setPeriodFilter({ ...pf, period: null });
+                }}
               >
                 {t.tl_filter_clear}
               </Button>

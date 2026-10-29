@@ -64,6 +64,19 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Map's Period row adds the time slider, its track between the two
+      // years it spans ("4027 av. n. è." … "96 de n. è.") on a 390px screen.
+      it("keeps the Map's Period row and slider inside the screen", () => {
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period-slider]").should("be.visible");
+        cy.get("[data-testid=period-slider-from]").focus().type("{pageup}");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // The Skin editor packs colour rows, sliders and font pickers with
       // long French labels ("Bordures des champs", "Taille d'écriture").
       it("keeps the Skin editor inside its card on a phone", () => {

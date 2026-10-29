@@ -16,5 +16,5 @@ The Timeline lays everything dated in your Vault along the Bible's chronology, s
 - Write a Date the way you would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". A Date the app cannot read stays off the Timeline, and its Hub says so.
 - An Event is also drawn on the Lane of each Character and Place named in its Characters and Place Properties.
 - Kinds and **Only Lanes in view** are remembered; the search, the Period, and the Tags and Dates filters last until you close the app.
-- A Place with no Dates is never left out by a Period. A Subject with only one end of its Span, such as a Born with no Died, runs on without limit that way; an Event with only a Start is the moment it happened.
+- A Place with no Dates is never left out by a Period. A Place with only one end of its Span, such as a Start with no End, runs on without limit that way. Anything else counts only at the Dates it has: a Character with only a Died is in a Period only if it holds that year, and an Event with only a Start is the moment it happened.
 - Tags combine with the Period: choose "prayer" in **Filter** with 1100–1000 BCE set, and only what is tagged "prayer" in those years stays.

@@ -381,4 +381,94 @@ describe("Map", () => {
       });
     });
   });
+
+  // The Period the Timeline shares (CONTEXT.md: Period, Map).
+  const setPeriod = (from: string, to: string) => {
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").clear().type(from);
+    cy.get("[data-testid=period-to]").clear().type(to);
+    cy.get("body").type("{esc}");
+  };
+
+  it("keeps a Period set on the Timeline when the Map opens, and the other way round", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    setPeriod("1100", "1000");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=map]").should("exist");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.get("[data-testid=period-slider-from]").should("have.attr", "data-year", "-1099");
+    cy.get("[data-testid=period-slider-to]").should("have.attr", "data-year", "-999");
+    // The middle moves the whole Period: ten years later, same width.
+    cy.get("[data-testid=period-slider-middle]").focus().type("{shift}{rightarrow}");
+    cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");
+    // An end widens it, by keyboard or by dragging.
+    cy.get("[data-testid=period-slider-from]").focus().type("{leftarrow}{leftarrow}");
+    cy.get("[data-testid=period-text]").should("contain", "1092–990 BCE");
+    cy.get("[data-testid=period-slider-to]").then(($h) => {
+      const r = $h[0].getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      cy.wrap($h)
+        .trigger("pointerdown", { clientX: x, clientY: y, pointerId: 1, button: 0, force: true })
+        .trigger("pointermove", { clientX: x + 40, clientY: y, pointerId: 1, force: true })
+        .trigger("pointerup", { clientX: x + 40, clientY: y, pointerId: 1, force: true });
+    });
+    cy.get("[data-testid=period-slider-to]")
+      .invoke("attr", "data-year")
+      .then((y) => expect(Number(y)).to.be.greaterThan(-989));
+    // Set on the Map, shown on the Timeline.
+    cy.get("[data-testid=period-slider-middle]").focus().type("{home}");
+    cy.get("[data-testid=period-text]").invoke("text").then((text) => {
+      cy.get("[data-testid=nav-timeline]").click();
+      cy.get("[data-testid=period-text]").should("have.text", text);
+    });
+    // Cleared on the Timeline, cleared on the Map.
+    cy.get("[data-testid=period-clear]").click();
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-text]").should("contain", "Period");
+    cy.get("[data-testid=period-slider]").should("have.attr", "data-active", "false");
+    cy.get("[data-testid=period-clear]").should("not.exist");
+  });
+
+  it("marks the Events in the Period at their Place", () => {
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=map] [data-testid=map-pin]").should("have.length.greaterThan", 0);
+    // No Period, no marks.
+    cy.get("[data-testid=map] [data-testid=map-event]").should("not.exist");
+    setPeriod("1100", "1000");
+    cy.docByTitle("Solomon's temple built").then((ev) => {
+      cy.docByTitle("Jerusalem").then((jerusalem) =>
+        cy
+          .get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`)
+          .should("have.attr", "data-place", jerusalem.id),
+      );
+    });
+    cy.docByTitle("The Exodus").then((ev) =>
+      cy.get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`).should("not.exist"),
+    );
+    // A mark opens its Event.
+    cy.docByTitle("Solomon's temple built").then((ev) =>
+      cy.get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`).click({ force: true }),
+    );
+    cy.hubTitle("Solomon's temple built");
+  });
+
+  it("offers and draws only the Journeys that overlap the Period", () => {
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=map-filter]").click();
+    cy.contains("button", "Paul's second missionary journey").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=map] .map-route").should("have.length.greaterThan", 0);
+    // The Exodus route's years: Paul's journey lies wholly outside them.
+    setPeriod("1520", "1470");
+    cy.get("[data-testid=map] .map-route").should("not.exist");
+    cy.get("[data-testid=map-filter]").click();
+    cy.get("[data-testid=map-filter-journeys]").should("contain", "The Exodus route");
+    cy.get("[data-testid=map-filter-journeys]").should("not.contain", "Paul's second missionary journey");
+    cy.get("body").type("{esc}");
+    // Cleared, Paul's route comes back: its chip was never switched off.
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=map] .map-route").should("have.length.greaterThan", 0);
+  });
 });

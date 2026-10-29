@@ -6,7 +6,8 @@
 // - a Character or Event with no Date is out, and counted, so the view can say
 //   how many it left out;
 // - a Place with no Span is in, whatever the Period;
-// - a Span missing one end runs on without limit that way.
+// - a Place's Span missing one end runs on without limit that way; anything
+//   else with a single Date counts at that Date alone.
 import type { DatedProperty, DocSummary, DocType } from "./api";
 import { fold } from "./names";
 import { SPAN_PAIRS, yearOf } from "./timeline";
@@ -46,9 +47,11 @@ export interface PeriodItem {
 
 /**
  * The Span of one document's Dates. Every Date counts, so a Character's
- * `anointed` stretches it like `born` does. A pair with one end (`start`
- * without `end`, `died` without `born`) runs on without limit the other way,
- * except on an Event: an Event's `start` alone is the moment it happened.
+ * `anointed` stretches it like `born` does. Only a Place's pair with one end
+ * (`start` without `end`) runs on without limit the other way: a city founded
+ * in 1000 BCE still stands in 500 BCE. Anything else counts only at the Dates
+ * it has, so a Character with only `died` is there in that year alone, and an
+ * Event's `start` alone is the moment it happened.
  */
 export function spanOf(type: DocType, dates: DatedProperty[]): Span | null {
   const parsed = dates.filter((d) => d.date);
@@ -56,7 +59,7 @@ export function spanOf(type: DocType, dates: DatedProperty[]): Span | null {
   const ys = parsed.map((d) => yearOf(d.date!));
   let from = Math.min(...ys);
   let to = Math.max(...ys);
-  if (type !== "event") {
+  if (type === "place") {
     const has = new Set(parsed.map((d) => d.name));
     for (const [a, b] of SPAN_PAIRS) {
       if (has.has(a) && !has.has(b)) to = Infinity;

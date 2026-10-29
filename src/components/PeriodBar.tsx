@@ -2,7 +2,7 @@
 // always says which years are shown, as text ("640–580 BCE"), with the from/to
 // fields behind it and a one-click clear. It reads and writes the shared
 // Period filter in the store, so the Timeline and the Map show the same years.
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { CalendarClock, X } from "lucide-react";
 import { useStore } from "@/lib/store";
 import {
@@ -60,7 +60,14 @@ function YearField({
   );
 }
 
-export function PeriodBar({ undated }: { undated: number }) {
+export function PeriodBar({
+  undated,
+  children,
+}: {
+  undated: number;
+  /** A view's own way of setting the Period (the Map's slider), on a row of its own. */
+  children?: ReactNode;
+}) {
   const s = useStore();
   const t = useT();
   const pf = s.periodFilter;
@@ -153,6 +160,7 @@ export function PeriodBar({ undated }: { undated: number }) {
           {t.period_clear}
         </Button>
       )}
+      {children}
     </div>
   );
 }
