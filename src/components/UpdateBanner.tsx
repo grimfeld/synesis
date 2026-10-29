@@ -13,6 +13,7 @@ import {
   shouldCheckOnStart,
   useUpdater,
 } from "@/lib/updater";
+import { isSecondaryWindow } from "@/lib/windows";
 
 export function UpdateBanner() {
   const t = useT();
@@ -24,7 +25,8 @@ export function UpdateBanner() {
     // Wait for the settings, so a Device that turned it off never checks.
     if (started.current || !s.settings) return;
     started.current = true;
-    if (shouldCheckOnStart({ desktop: isDesktopApp(), dev: import.meta.env.DEV, enabled }))
+    // The main Window looks, once; a secondary Window (#51) has no updater.
+    if (shouldCheckOnStart({ desktop: isDesktopApp() && !isSecondaryWindow(), dev: import.meta.env.DEV, enabled }))
       checkForUpdate(true);
   }, [s.settings, enabled]);
   if (!banner) return null;

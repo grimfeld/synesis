@@ -4,12 +4,14 @@
 //
 // The text itself lives in one LiveDocument per id (`liveDocument.ts`), shared
 // by every Pane showing that document, so two Panes on the same Note show the
-// same text and never save over each other (issue #50).
+// same text and never save over each other (issue #50). Edits are relayed to
+// other Windows showing the document through the engine (issue #51).
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { api, namesApi } from "@/lib/api";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { registerFlush } from "@/lib/pending";
+import { engineWindowSync, onEditedElsewhere } from "@/lib/windows";
 import {
   createLiveDocuments,
   type LiveBody,
@@ -18,12 +20,27 @@ import {
 
 export type { SaveStatus } from "@/lib/liveDocument";
 
+/** What this Window tells the other Windows through the engine (#51); null without Windows. */
+const windows = engineWindowSync();
+
 /** This Window's live documents. */
 const live = createLiveDocuments(api, {
-  // A Command that reads this file from disk (Duplicate as new Composition)
-  // flushes it first, so it never copies the text minus the last few words.
-  onOpen: (d) => registerFlush(`doc:${d.id}`, d.flush),
+  onOpen: (d) => {
+    // A Command that reads this file from disk (Duplicate as new Composition)
+    // flushes it first, so it never copies the text minus the last few words.
+    const unflush = registerFlush(`doc:${d.id}`, d.flush);
+    const close = windows?.opened(d.id);
+    return () => {
+      unflush();
+      close?.();
+    };
+  },
+  onEdit: windows ? (id, text) => windows.edited(id, text) : undefined,
 });
+
+// An edit made in another Window to a document this one shows.
+if (windows)
+  onEditedElsewhere((id, text) => live.peek(id)?.receive(text)).catch(console.error);
 
 /**
  * The live document for `id`, held while mounted. Looked up during render, so

@@ -156,4 +156,14 @@ describe("Panes", () => {
     cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
     cy.get("[data-testid=panes]").should("have.attr", "data-count", "1");
   });
+
+  // Windows (#51) are made by Tauri itself; a plain browser on the dev bridge,
+  // like the web build, cannot make one, so it is not offered. Opening a second
+  // Window and editing in both is checked by hand (PLAN §29, decision 9).
+  it("does not offer a new Window where none can be made", () => {
+    cy.openDoc("Endurance in trials");
+    cy.palette(">Open in");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain.text", "Open in other Pane");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.contain.text", "Open in new Window");
+  });
 });

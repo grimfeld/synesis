@@ -59,6 +59,8 @@ export interface LiveDocuments {
   get(id: string): LiveDocument;
   /** The live document for `id`, retained until `release`. */
   open(id: string): LiveDocument;
+  /** The live document for `id` if one is open here, without opening one. */
+  peek(id: string): LiveDocument | undefined;
 }
 
 export interface LiveOptions {
@@ -68,6 +70,12 @@ export interface LiveOptions {
   onOpen?: (doc: LiveDocument) => () => void;
   /** Debounce before typing is saved, in ms. */
   delay?: number;
+  /**
+   * Called with the whole text after every edit made in this Window (typing,
+   * a panel's write, frontmatter, a restored Version), so it can be relayed to
+   * the other Windows (#51). Not called for `receive` or for a read of the file.
+   */
+  onEdit?: (id: string, text: string) => void;
 }
 
 const toLf = (s: string) => s.replace(/\r\n?/g, "\n");
@@ -92,6 +100,7 @@ export class LiveDocument implements LiveBody {
   private lastNotice: unknown = null;
   private refs = 0;
   onSaved: (() => void) | undefined;
+  onEdit: ((id: string, text: string) => void) | undefined;
 
   constructor(
     readonly id: string,
@@ -119,6 +128,11 @@ export class LiveDocument implements LiveBody {
 
   private text() {
     return joinFrontmatter(this.state.fm, this.state.body);
+  }
+
+  /** Hand an edit made here to the other Windows. */
+  private relay() {
+    this.onEdit?.(this.id, this.text());
   }
 
   // ------------------------------------------------------------- loading
@@ -169,6 +183,7 @@ export class LiveDocument implements LiveBody {
     this.dirty = true;
     this.set({ body });
     for (const m of [...this.members]) if (m !== from) m(body);
+    this.relay();
     this.schedule();
   }
 
@@ -193,6 +208,7 @@ export class LiveDocument implements LiveBody {
   setBodyText = (body: string) => {
     this.dirty = true;
     this.set({ body, revision: this.state.revision + 1 });
+    this.relay();
     this.schedule();
   };
 
@@ -200,6 +216,7 @@ export class LiveDocument implements LiveBody {
   editFm = (fm: string) => {
     this.dirty = true;
     this.set({ fm });
+    this.relay();
     clearTimeout(this.timer);
     void this.save();
   };
@@ -209,6 +226,7 @@ export class LiveDocument implements LiveBody {
     const sp = splitFrontmatter(text);
     this.dirty = true;
     this.set({ fm: sp.fm, body: sp.body, revision: this.state.revision + 1 });
+    this.relay();
     clearTimeout(this.timer);
     void this.save();
   };
@@ -327,6 +345,7 @@ export function createLiveDocuments(
     if (!d) {
       d = new LiveDocument(id, engine, opts.delay ?? 700, registry);
       d.onSaved = opts.onSaved;
+      d.onEdit = opts.onEdit;
       registry.revive(d);
     }
     return d;
@@ -338,5 +357,6 @@ export function createLiveDocuments(
       d.retain();
       return d;
     },
+    peek: (id) => docs.get(id),
   };
 }

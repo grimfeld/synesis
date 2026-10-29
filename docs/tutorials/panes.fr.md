@@ -15,3 +15,4 @@ Lire un document en en écrivant un autre ne demande plus d’aller-retour : une
 - Quand deux volets sont ouverts, ils reviennent tels quels la prochaine fois que vous ouvrez ce coffre sur cet appareil. Un seul volet s’ouvre sur l’Accueil, comme toujours.
 - Tant que deux volets s’affichent, chacun a son propre **×** dans son en-tête, qui le ferme.
 - Le même document peut être ouvert dans les deux volets. Ce que vous tapez dans l’un apparaît aussitôt dans l’autre, qui garde sa propre place dans le texte.
+- Sur un ordinateur, [Ouvrir dans une nouvelle fenêtre](command:window.open) place le document dans une fenêtre à lui, à déplacer sur un autre écran. Elle a ses propres volets et son propre historique ; ce que vous y tapez apparaît dans toute autre fenêtre qui montre le même document. La fermer laisse la fenêtre principale ouverte.

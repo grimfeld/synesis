@@ -15,3 +15,4 @@ Reading one document while writing another needs no going back and forth: a wind
 - When two Panes are open, they come back as they were the next time you open this Vault on this Device. One Pane opens on Home, as always.
 - While two Panes show, each has its own **×** in its header, which closes it.
 - The same document can be open in both Panes. What you type in one appears in the other at once, and the other keeps its own place in the text.
+- On a computer, [Open in new Window](command:window.open) puts the document in a window of its own, to move to another screen. It has its own Panes and history; what you type there appears in every other window showing the same document. Closing it leaves the main window open.

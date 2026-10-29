@@ -32,6 +32,7 @@ import {
   LibraryBig,
   Quote,
   SquareSplitHorizontal,
+  AppWindow,
   Waypoints,
   X,
   Zap,
@@ -45,6 +46,7 @@ import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
 import { checkForUpdate, isDesktopApp } from "@/lib/updater";
+import { openInNewWindow, windowsOffered } from "@/lib/windows";
 import { SOURCE_URL, openExternal } from "@/lib/links";
 import { toast } from "sonner";
 import { whenBoard } from "@/lib/activeBoard";
@@ -184,6 +186,19 @@ export function useCommands(): Command[] {
         keywords: "pane split side by side two documents beside open other",
         run: () => s.openInOther(s.view),
       });
+    // Windows (#51): the document in the last-used Pane, in a Window of its
+    // own. Desktop only; not on a phone, not in the web build.
+    if (s.view.kind === "doc" && windowsOffered()) {
+      const id = s.view.id;
+      list.push({
+        id: "window.open",
+        title: t.window_open,
+        group: "navigate",
+        icon: AppWindow,
+        keywords: "window new separate screen monitor detach",
+        run: () => void openInNewWindow(id).catch(console.error),
+      });
+    }
     if (s.panes.panes.length === 2) {
       list.push({
         id: "pane.close",
@@ -460,6 +475,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "pane.open_other",
     "pane.close",
     "pane.swap",
+    "window.open",
     "nav.passage",
     "nav.sync",
     "nav.random",
