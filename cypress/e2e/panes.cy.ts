@@ -123,6 +123,27 @@ describe("Panes", () => {
     cy.get(`${pane(1)} [data-testid=doc-title]`).should("have.value", "Undeserved kindness in Romans");
   });
 
+  it("shows typing in one Pane at once in the other on the same Note, and saves both", () => {
+    cy.openDoc("Endurance in trials");
+    cy.runCommand("Open in other Pane");
+    cy.get("[data-testid=panes]").should("have.attr", "data-count", "2");
+    cy.get(`${pane(1)} [data-testid=doc-title]`).should("have.value", "Endurance in trials");
+    cy.get(`${pane(0)} .cm-content`).click().type("{ctrl}{end}").type("{enter}Typed on the left");
+    cy.get(`${pane(1)} .cm-content`).should("contain.text", "Typed on the left");
+    // Typing on the right reaches the left without taking back the left's words.
+    cy.get(`${pane(1)} .cm-content`).click().type("{ctrl}{end}").type(", then the right");
+    cy.get(`${pane(0)} .cm-content`).should("contain.text", "Typed on the left, then the right");
+    // Neither Pane's save overwrites the other's typing.
+    cy.wait(1000);
+    cy.get(`${pane(1)} [data-testid=save-status]`).should("have.attr", "data-status", "saved");
+    cy.docByTitle("Endurance in trials").then((d) => {
+      cy.bridge<{ text: string }>("get_document", { id: d.id }).its("text").should("contain", "Typed on the left, then the right");
+    });
+    // Closing one Pane keeps the other on the same text.
+    cy.runCommand("Close Pane");
+    cy.get(`${pane(0)} .cm-content`).should("contain.text", "Typed on the left, then the right");
+  });
+
   it("restores two Panes when the app reopens, and one Pane opens on Home", () => {
     openTwo();
     cy.reload();

@@ -227,6 +227,7 @@ export function DocView({ id }: { id: string }) {
           value={d.body}
           revision={d.revision}
           onChange={d.onBodyChange}
+          live={d.live}
           onDetected={setDetected}
           onReady={onEditorReady}
           env={env}

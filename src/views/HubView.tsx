@@ -61,6 +61,7 @@ import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore, otherPane, usePane } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
+import type { LiveBody } from "@/lib/liveDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { attachPictures } from "@/editor/pictures";
@@ -507,6 +508,8 @@ export function HubView({ id }: { id: string }) {
             <About
               doc={doc}
               body={d.body}
+              revision={d.revision}
+              live={d.live}
               onBodyChange={d.setBodyText}
               env={env}
               names={d.names}
@@ -2118,6 +2121,8 @@ function Empty({ text }: { text: string }) {
 function About({
   doc,
   body,
+  revision,
+  live,
   onBodyChange,
   env,
   names,
@@ -2125,6 +2130,9 @@ function About({
 }: {
   doc: DocumentPayload;
   body: string;
+  revision: number;
+  live: LiveBody;
+  /** A write from outside the editor (a dropped Picture). */
   onBodyChange: (t: string) => void;
   env: EditorEnv;
   names: EditorEnv["names"];
@@ -2165,6 +2173,8 @@ function About({
         <div className="rounded-xl border bg-card">
           <Editor
             value={body}
+            revision={revision}
+            live={live}
             onChange={onBodyChange}
             env={env}
             names={names}

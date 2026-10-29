@@ -1,5 +1,10 @@
 import { useEffect, useRef } from "react";
-import { EditorState, Compartment } from "@codemirror/state";
+import {
+  Annotation,
+  EditorState,
+  Compartment,
+  Transaction,
+} from "@codemirror/state";
 import {
   EditorView,
   keymap,
@@ -43,12 +48,25 @@ import { EDITOR_COMMANDS, releaseActiveEditor, setActiveEditor } from "./active"
 import { toCodeMirrorKey } from "@/lib/keys";
 import { api, type DetectedRange, type TagCount } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
+import type { LiveBody, LiveMember } from "@/lib/liveDocument";
+import { textChange } from "./textChange";
+
+/** A change that came from another editor on the same live document. */
+const fromLive = Annotation.define<true>();
 
 interface Props {
   value: string;
   /** Changes whenever `value` was replaced wholesale, even to an equal text. */
   revision?: number;
+  /** The text as typed here. Not called when the editor has joined `live`. */
   onChange: (text: string) => void;
+  /**
+   * The document's live text, shared with every other editor on it (another
+   * Pane, issue #50). Typing goes to it instead of `onChange`, the other
+   * editors' typing arrives from it, and `value` is then only read when
+   * `revision` changes.
+   */
+  live?: LiveBody;
   onDetected?: (ranges: DetectedRange[]) => void;
   env: EditorEnv;
   names: NameIndex;
@@ -99,6 +117,7 @@ export function Editor({
   value,
   revision,
   onChange,
+  live,
   onDetected,
   env,
   names,
@@ -121,6 +140,7 @@ export function Editor({
   tRef.current = t;
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  const member = useRef<LiveMember | null>(null);
   const lastValue = useRef(value);
   /** The texts this editor has handed to `onChange` since it was last synced from outside, newest last. */
   const emitted = useRef<string[]>([]);
@@ -232,10 +252,16 @@ export function Editor({
           if (u.docChanged) {
             const text = u.state.doc.toString();
             lastValue.current = text;
+            runDetect(text);
+            // Another editor's typing is already in the live document.
+            if (u.transactions.some((tr) => tr.annotation(fromLive))) return;
+            if (member.current) {
+              member.current.write(text);
+              return;
+            }
             emitted.current.push(text);
             if (emitted.current.length > 64) emitted.current.shift();
             onChange(text);
-            runDetect(text);
           }
         }),
       ],
@@ -253,6 +279,33 @@ export function Editor({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Join the live document: what the other editors type is applied here as
+  // the smallest change, out of this editor's undo history, so the caret and
+  // Undo here stay where they were. Through the lock: a Pane in Reading mode
+  // still shows what is typed elsewhere.
+  useEffect(() => {
+    if (!live) return;
+    const m = live.join((body) => {
+      const v = viewRef.current;
+      if (!v) return;
+      const change = textChange(v.state.doc.toString(), body);
+      if (!change) return;
+      v.dispatch({
+        changes: change,
+        annotations: [
+          fromLive.of(true),
+          throughLock.of("external"),
+          Transaction.addToHistory.of(false),
+        ],
+      });
+    });
+    member.current = m;
+    return () => {
+      m.leave();
+      member.current = null;
+    };
+  }, [live]);
 
   // With two Panes, Commands act on the editor in the last-used one: the
   // flag moves as the user moves between them (spec #35).
@@ -290,6 +343,10 @@ export function Editor({
     // CRLF never compares equal to it. Writing it back would mark the page as
     // edited and rewrite the file just for being opened.
     if (v.state.doc.toString() === value.replace(/\r\n?/g, "\n")) return;
+    // Joined to the live document, typing (here or elsewhere) arrives
+    // through it, never late through a render; only a wholesale replacement
+    // comes this way.
+    if (live && !replaced) return;
     // Typing fast, the page can render a keystroke behind: `value` is then a
     // text this editor produced itself, and writing it back would undo what
     // was typed since (a "##" left as "#"). Only a wholesale replacement, or a

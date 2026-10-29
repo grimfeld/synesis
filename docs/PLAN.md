@@ -1183,6 +1183,7 @@ Studying means reading one document while writing another: a Note beside the Cli
 5. **Width.** Two Panes show when each gets the split's minimum, `MIN_PANE` (320px). Below it, and always on a phone, only the last-used Pane shows; the other stays in state and returns with the room. Where two do not fit, a Cmd/Ctrl-click opens as a plain click. A divider resizes them, as in §22.4.
 6. **One pure reducer** (`src/lib/panes.ts`) owns every transition; the store renders each Pane through a scope that gives its views that Pane's view, history and split.
 7. **The layout is restored per Device and per Vault** (`localStorage`, keyed by the Vault's root): two Panes come back with their views, the last-used one and the divider, without their histories. A single Pane saves nothing, so the app opens on Home as it always has. A document gone since shows Home in its place.
+8. **One live document per id** (`src/lib/liveDocument.ts`). Every Pane showing a document shares one copy of its text, which alone saves it, so one Pane can never save over the other's typing. Each editor joins it: its typing goes in, and the other editors apply it at once as the smallest change, kept out of their own Undo, so their caret stays put. A load, a restored Version or a panel rewriting the text replaces it wholesale in every editor. The last Pane to close it saves what is pending. A desktop Window (#51) keeps its own and has the engine relay its edits to the others, which take them in as `receive`.
 
 ### Declined
 
@@ -1192,4 +1193,4 @@ Studying means reading one document while writing another: a Note beside the Cli
 
 ### Deferred
 
-- The same document in both Panes sharing one live document, so typing shows in both at once (#50), and separate desktop Windows (#51).
+- Separate desktop Windows (#51).
