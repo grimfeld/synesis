@@ -14,3 +14,4 @@ Lire un document en en écrivant un autre ne demande plus d’aller-retour : une
 - Le discours et le tableau d’une composition peuvent toujours se partager un volet, s’il a la place.
 - Quand deux volets sont ouverts, ils reviennent tels quels la prochaine fois que vous ouvrez ce coffre sur cet appareil. Un seul volet s’ouvre sur l’Accueil, comme toujours.
 - Tant que deux volets s’affichent, chacun a son propre **×** dans son en-tête, qui le ferme.
+- Le même document peut être ouvert dans les deux volets. Ce que vous tapez dans l’un apparaît aussitôt dans l’autre, qui garde sa propre place dans le texte.

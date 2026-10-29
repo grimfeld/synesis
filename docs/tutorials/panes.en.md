@@ -14,3 +14,4 @@ Reading one document while writing another needs no going back and forth: a wind
 - A Composition's talk and Board can still sit side by side inside a Pane, given the room.
 - When two Panes are open, they come back as they were the next time you open this Vault on this Device. One Pane opens on Home, as always.
 - While two Panes show, each has its own **×** in its header, which closes it.
+- The same document can be open in both Panes. What you type in one appears in the other at once, and the other keeps its own place in the text.
