@@ -153,6 +153,53 @@ fn ring(v: &Value) -> std::result::Result<Vec<LatLon>, String> {
     Ok(out)
 }
 
+/// Whether a point lies within a Border: inside any of its pieces and not in
+/// one of that piece's holes. A point on a line counts as inside, so a city
+/// drawn on the frontier belongs to the region (and to its neighbour too).
+/// Planar, in degrees: a Border is a few hundred kilometres across, where the
+/// difference from a great-circle test is far below how well it was drawn.
+pub fn contains(polygons: &[Polygon], lat: f64, lon: f64) -> bool {
+    polygons.iter().any(|rings| {
+        let Some((outer, holes)) = rings.split_first() else { return false };
+        match in_ring(outer, lat, lon) {
+            Where::Outside => false,
+            Where::Edge => true,
+            Where::Inside => holes.iter().all(|h| in_ring(h, lat, lon) != Where::Inside),
+        }
+    })
+}
+
+#[derive(PartialEq)]
+enum Where {
+    Inside,
+    Outside,
+    Edge,
+}
+
+/// Ray casting on a closed ring of `[lat, lon]` positions, with the edge
+/// told apart from both sides.
+fn in_ring(ring: &[LatLon], lat: f64, lon: f64) -> Where {
+    const EPS: f64 = 1e-9;
+    let mut inside = false;
+    for w in ring.windows(2) {
+        let ([y1, x1], [y2, x2]) = (w[0], w[1]);
+        // On this segment: collinear and within its box.
+        let cross = (x2 - x1) * (lat - y1) - (y2 - y1) * (lon - x1);
+        if cross.abs() < EPS
+            && lon >= x1.min(x2) - EPS
+            && lon <= x1.max(x2) + EPS
+            && lat >= y1.min(y2) - EPS
+            && lat <= y1.max(y2) + EPS
+        {
+            return Where::Edge;
+        }
+        if (y1 > lat) != (y2 > lat) && lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1) {
+            inside = !inside;
+        }
+    }
+    if inside { Where::Inside } else { Where::Outside }
+}
+
 /// The GeoJSON for a Border drawn on the Map: one Polygon from its corners,
 /// in the order they were placed. `updated` is the stamp Pairing compares.
 pub fn drawn(corners: &[LatLon], updated: i64) -> Result<String> {
@@ -352,6 +399,32 @@ mod tests {
 
     const SQUARE: &str = r#"{"type":"FeatureCollection","features":[{"type":"Feature","properties":{},
         "geometry":{"type":"Polygon","coordinates":[[[35,31],[36,31],[36,32],[35,32],[35,31]]]}}]}"#;
+
+    #[test]
+    fn a_point_is_inside_outside_or_on_the_edge_of_a_border() {
+        let square = parse(SQUARE).unwrap(); // lon 35–36, lat 31–32
+        assert!(contains(&square, 31.5, 35.5), "the middle");
+        assert!(!contains(&square, 30.9, 35.5), "south of it");
+        assert!(!contains(&square, 31.5, 36.1), "east of it");
+        // On the line is inside: a city drawn on the border belongs to it.
+        assert!(contains(&square, 31.0, 35.5), "on the southern edge");
+        assert!(contains(&square, 31.5, 36.0), "on the eastern edge");
+        assert!(contains(&square, 32.0, 36.0), "on a corner");
+    }
+
+    #[test]
+    fn a_point_in_any_piece_of_a_multipolygon_is_inside_but_not_in_a_hole() {
+        let text = r#"{"type":"MultiPolygon","coordinates":[
+            [[[0,0],[4,0],[4,4],[0,4],[0,0]],[[1,1],[3,1],[3,3],[1,3],[1,1]]],
+            [[[10,10],[11,10],[11,11],[10,11],[10,10]]]]}"#;
+        let p = parse(text).unwrap();
+        assert!(contains(&p, 0.5, 0.5), "the first piece, outside its hole");
+        assert!(!contains(&p, 2.0, 2.0), "inside the hole");
+        assert!(contains(&p, 1.0, 2.0), "on the hole's edge still borders the land");
+        assert!(contains(&p, 10.5, 10.5), "the second piece");
+        assert!(!contains(&p, 7.0, 7.0), "between the pieces");
+        assert!(!contains(&[], 0.5, 0.5), "no Border contains nothing");
+    }
 
     #[test]
     fn a_feature_collection_polygon_is_read_lat_first() {

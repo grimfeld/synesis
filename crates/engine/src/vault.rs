@@ -481,7 +481,72 @@ impl Vault {
             }
         }
         self.index_boards()?;
+        // A Border file can change while the app is closed, with its Place
+        // untouched (another tool, Pairing, iCloud): every one is read again.
+        self.refresh_borders()?;
         Ok(changed)
+    }
+
+    // ---- Containment (ADR 0023) ----------------------------------------------
+
+    /// After a Place is indexed: its own Border, read and recorded (with the
+    /// Places inside it recomputed when it changed), and the regions it lies
+    /// inside, from its coordinates.
+    fn index_containment(&mut self, id: &str, rel: &str, border: Option<&Value>) -> Result<()> {
+        self.record_border(id, rel, border)?;
+        self.index.locate_place(id)
+    }
+
+    /// Read one region's Border file into the index. A file iCloud has not
+    /// downloaded yet keeps what was recorded before; one that is missing or
+    /// malformed contains nothing, as a region without a Border does.
+    fn record_border(&mut self, id: &str, place_path: &str, border: Option<&Value>) -> Result<bool> {
+        let Some(rel) = border.and_then(|b| Self::border_path(place_path, b)) else {
+            return self.index.set_region_border(id, None);
+        };
+        let b = crate::border::read(&self.root, id, &rel);
+        match b.status {
+            crate::border::BorderStatus::Downloading => Ok(false),
+            crate::border::BorderStatus::Ok => self.index.set_region_border(id, Some(&b.polygons)),
+            _ => self.index.set_region_border(id, None),
+        }
+    }
+
+    /// Read every region's Border file again and recompute containment where
+    /// one changed. Returns the regions that changed.
+    fn refresh_borders(&mut self) -> Result<Vec<String>> {
+        let mut changed = Vec::new();
+        let named = self.index.property_on(DocType::Place, crate::border::PROPERTY)?;
+        let mut seen = std::collections::HashSet::new();
+        for (id, path, value) in named {
+            seen.insert(id.clone());
+            if self.record_border(&id, &path, Some(&value))? {
+                changed.push(id);
+            }
+        }
+        // A Border on record whose Place no longer names one.
+        for id in self.index.bordered_regions()? {
+            if !seen.contains(&id) && self.index.set_region_border(&id, None)? {
+                changed.push(id);
+            }
+        }
+        Ok(changed)
+    }
+
+    /// A `.geojson` file changed on disk without its Place changing (an edit
+    /// in another tool, a Border from a paired Device, a Border command): the
+    /// Places inside each region are recomputed. Returns the regions whose
+    /// containment changed, for the views to ask again.
+    pub fn border_file_changed(&mut self, _rel: &str) -> Result<Vec<DocSummary>> {
+        // Every Border is read, not only `rel`: a file can be named by more
+        // than one Place, and there are few regions in any Vault.
+        let mut out = Vec::new();
+        for id in self.refresh_borders()? {
+            if let Some(d) = self.index.get(&id)? {
+                out.push(d);
+            }
+        }
+        Ok(out)
     }
 
     /// Record the Board refs of every Composition that has a Board.
@@ -554,6 +619,9 @@ impl Vault {
         let date_names = self.schema.date_names();
         self.index
             .upsert(&id, rel, mtime, &text, &parsed, &date_names)?;
+        if parsed.doc_type == DocType::Place {
+            self.index_containment(&id, rel, parsed.frontmatter.get(crate::border::PROPERTY))?;
+        }
         let passages: Vec<Passage> = parsed
             .references
             .iter()
@@ -1150,6 +1218,7 @@ impl Vault {
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
             Query::KindSuggestions => Answer::KindSuggestions(self.kind_suggestions()?),
             Query::Borders => Answer::Borders(self.borders()?),
+            Query::Regions => Answer::Regions(self.index.regions()?),
         })
     }
 

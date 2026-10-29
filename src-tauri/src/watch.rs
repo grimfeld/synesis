@@ -69,6 +69,17 @@ impl Watcher {
                         continue;
                     }
                     let ext = p.extension().and_then(|x| x.to_str()).unwrap_or_default();
+                    // A region's Border edited, arrived or removed (ADR 0023):
+                    // the Places inside it are recomputed, and the regions
+                    // whose containment changed are announced.
+                    if ext == engine::border::EXT {
+                        if engine::border::is_synced(&rel) && seen.insert(rel.clone()) {
+                            if let Ok(regions) = vault.border_file_changed(&rel) {
+                                changed.extend(regions);
+                            }
+                        }
+                        continue;
+                    }
                     if ext != "md" && ext != "canvas" {
                         continue;
                     }

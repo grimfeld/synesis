@@ -30,7 +30,7 @@
 use crate::document::DocType;
 use crate::index::{
     AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
-    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, SearchHit,
+    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, RegionMember, SearchHit,
     TrailEntry,
     UnlinkedMentions, UnresolvedLink,
 };
@@ -147,6 +147,8 @@ pub enum Query {
     /// Every region Border the Vault holds, read from its `.geojson` file
     /// (ADR 0023), with a warning for any that cannot be drawn.
     Borders,
+    /// Every Place inside a region's Border, computed at index time (ADR 0023).
+    Regions,
 }
 
 fn unlinked_limit() -> usize {
@@ -199,6 +201,7 @@ pub enum Answer {
     PlaceFacts(Vec<PlaceFact>),
     KindSuggestions(Vec<crate::vault::KindSuggestion>),
     Borders(Vec<crate::border::Border>),
+    Regions(Vec<RegionMember>),
 }
 
 /// How many Mentions one Verse has.
