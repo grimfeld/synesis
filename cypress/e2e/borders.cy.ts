@@ -1,7 +1,7 @@
 // Drawing a region's Border on the Map (ADR 0023): click corners, double-click
 // to close, and the region is drawn filled; the Border is a `.geojson` file
 // beside the Place, named in its `border` Property. Egypt is the demo vault's
-// region with coordinates.
+// region with coordinates and no Border (Judah has one already).
 describe("Borders", () => {
   // Map filters and Colour by are this Device's real settings: start from
   // none, so the region wears its kind's colour, and put them back after.
@@ -67,7 +67,7 @@ describe("Borders", () => {
     cy.openDoc("Egypt");
     cy.get("[data-testid=hub-border-draw]").click();
     drawSquare();
-    cy.get("[data-testid=map-border]").should("exist");
+    cy.docByTitle("Egypt").then((egypt) => cy.get(`[data-testid=map-border][data-id=${egypt.id}]`).should("exist"));
 
     // Back on the Hub the Border is named, and can be edited corner by corner.
     cy.openDoc("Egypt");
@@ -159,7 +159,9 @@ describe("Borders", () => {
     cy.get("[data-testid=border-warning]").should("have.attr", "data-status", "malformed").and("contain", "coordinates");
     // The Map draws nothing for it, and still shows the region by its name.
     cy.runCommand("Go to Map");
-    cy.get("[data-testid=map-border]").should("not.exist");
+    cy.docByTitle("Egypt").then((egypt) =>
+      cy.get(`[data-testid=map-border][data-id=${egypt.id}]`).should("not.exist"),
+    );
     cy.contains("[data-testid=map-pin]", "Egypt").should("have.class", "no-pin");
   });
 });
