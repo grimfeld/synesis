@@ -126,6 +126,36 @@ describe("Hub pages", () => {
       .should("have.length", 2);
   });
 
+  it("Place and Character hubs: ties from `places` and from Events, with when", () => {
+    // David names Bethlehem in his `places`, and "David anointed king" names
+    // both: one row, holding for his whole life and for the Event's time.
+    cy.openDoc("Bethlehem");
+    // The row's own link, not an Event under another row naming them.
+    cy.contains("[data-testid=hub-ties] [data-testid=hub-tie] > button", /^David$/)
+      .parent()
+      .should("have.attr", "data-lifelong", "true")
+      .find("[data-testid=hub-tie-event]")
+      .should("contain", "David anointed king")
+      .and("contain", "c. 1077 BCE");
+    // Paul is in Ephesus only through "Paul in Ephesus", for its time.
+    cy.openDoc("Ephesus");
+    cy.contains("[data-testid=hub-ties] [data-testid=hub-tie] > button", /^Paul$/)
+      .parent()
+      .should("have.attr", "data-lifelong", "false")
+      .find("[data-testid=hub-tie-event]")
+      .should("contain", "Paul in Ephesus")
+      .and("contain", "c. 52 CE");
+    // The other way round: David's Places, from both sources.
+    cy.openDoc("David");
+    cy.get("[data-testid=hub-ties] [data-testid=hub-tie]")
+      .should("contain", "Bethlehem")
+      .and("contain", "Jerusalem");
+    cy.contains("[data-testid=hub-ties] [data-testid=hub-tie] > button", /^Jerusalem$/)
+      .parent()
+      .find("[data-testid=hub-tie-lifelong]")
+      .should("exist");
+  });
+
   it("Concept hub: tag and link backlinks", () => {
     cy.openDoc("Endurance");
     cy.hubTitle("Endurance");
