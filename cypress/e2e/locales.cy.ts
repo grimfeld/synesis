@@ -45,6 +45,30 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Date preview's range hint is the longest line under a field, and
+      // it sits beside a label on a 390px screen.
+      it("keeps the Date preview inside its row on a phone", () => {
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Jael",
+          fields: {},
+        });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=group-character]").click();
+        cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
+        cy.get("[data-testid=date-input-born]").type("1250–1200 BCE");
+        cy.get("[data-testid=date-preview-born]").should(
+          "have.attr",
+          "data-error",
+          "looks_like_range",
+        );
+        expectNoOverflow();
+        cy.get("[data-testid=date-input-born]").clear().type("c. 1250 BCE");
+        cy.get("[data-testid=date-preview-born]").should("have.attr", "data-ok", "true");
+        expectNoOverflow();
+      });
+
       // The Skin editor packs colour rows, sliders and font pickers with
       // long French labels ("Bordures des champs", "Taille d'écriture").
       it("keeps the Skin editor inside its card on a phone", () => {

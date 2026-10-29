@@ -42,7 +42,12 @@ describe("Tutorial: Properties & Dates", () => {
     cy.tutorialStep(2);
     cy.openDoc("Ephesus");
     cy.hubTitle("Ephesus");
-    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("c. 1050 BCE");
+    // A range in one value is not a Date: the preview says to split it.
+    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("1050–1000 BCE");
+    cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-error", "looks_like_range");
+    cy.get("[data-testid=property-founded] input").clear().type("c. 1050 BCE");
+    // Read as typed, before it is saved.
+    cy.get("[data-testid=date-preview-founded]").should("contain", "≈ 1050 BCE · year");
     // Requeried: the Hub can re-render the field while it is typed into.
     cy.get("[data-testid=property-founded] input").blur();
     cy.get("[data-testid=hub-dates] [data-testid=date-founded]", { timeout: 10000 })
