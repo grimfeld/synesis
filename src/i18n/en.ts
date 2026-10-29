@@ -427,8 +427,8 @@ export const en = {
   border_saved: "Border saved.",
   border_deleted: "Border deleted.",
   border_delete_title: "Delete this Border?",
-  border_delete_body: (path: string) =>
-    `${path} is removed from the Vault and the region is shown by its name alone.`,
+  border_delete_body:
+    "This file is removed from the Vault, and the region is shown on the Map by its name alone.",
   border_missing: (path: string) => `The Border file ${path} is not in the Vault.`,
   border_malformed: (error: string) => `The Border file cannot be drawn: ${error}`,
   border_downloading: "The Border file is still downloading from iCloud.",

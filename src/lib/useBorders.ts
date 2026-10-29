@@ -39,8 +39,8 @@ export function useDeleteBorder(): (id: string, path: string) => void {
       setDialog({
         kind: "confirm",
         title: t.border_delete_title,
-        body: t.border_delete_body(path),
-        items: [],
+        body: t.border_delete_body,
+        items: [path],
         confirmLabel: t.border_delete,
         onConfirm: () => {
           api

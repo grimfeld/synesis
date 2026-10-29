@@ -423,8 +423,8 @@ export const fr: Dict = {
   border_saved: "Frontière enregistrée.",
   border_deleted: "Frontière supprimée.",
   border_delete_title: "Supprimer cette frontière ?",
-  border_delete_body: (path: string) =>
-    `${path} est retiré du coffre et la région n’est plus montrée que par son nom.`,
+  border_delete_body:
+    "Ce fichier est retiré du coffre, et la région n’est plus montrée sur la Carte que par son nom.",
   border_missing: (path: string) => `Le fichier de frontière ${path} n’est pas dans le coffre.`,
   border_malformed: (error: string) => `Le fichier de frontière ne peut pas être tracé : ${error}`,
   border_downloading: "Le fichier de frontière est encore en cours de téléchargement depuis iCloud.",
