@@ -9,8 +9,17 @@
 // - a Place's Span missing one end runs on without limit that way; anything
 //   else with a single Date counts at that Date alone;
 // - chosen Places, any of them, keep themselves and the Characters and Events
-//   tied to them (`Tie`) for as long as the tie holds within the Period.
-import type { DatedProperty, DocSummary, DocType, EventLink, PlaceTie } from "./api";
+//   tied to them (`Tie`) for as long as the tie holds within the Period;
+// - a chosen region takes in every Place inside its Border (`RegionMember`,
+//   computed by the engine); a region with no Border contains nothing.
+import type {
+  DatedProperty,
+  DocSummary,
+  DocType,
+  EventLink,
+  PlaceTie,
+  RegionMember,
+} from "./api";
 import { fold } from "./names";
 import { SPAN_PAIRS, yearOf } from "./timeline";
 
@@ -189,14 +198,26 @@ function inPeriod(it: PeriodItem, p: Period | null): boolean | "undated" {
  * - Tags: an item carrying one is in; so is a Place where something carrying
  *   one, and in the Period, is tied in the Period ("prophet" keeps Jerusalem
  *   while Jeremiah is there);
- * - Places, any of them: a chosen Place is in, and so is a Character or Event
- *   tied to one in the Period; nothing else is;
+ * - Places, any of them: a chosen Place is in, and so is every Place inside a
+ *   chosen region's Border, and a Character or Event tied to any of those in
+ *   the Period; nothing else is;
  * - the Period, as `inPeriod` says.
+ *
+ * A region counts as where whatever is tied to a Place inside it is, so
+ * "prophet" keeps Judah while Jeremiah is in Jerusalem.
  */
-function decide<T extends PeriodItem>(items: T[], f: PeriodFilter, ties: Tie[]) {
+function decide<T extends PeriodItem>(
+  items: T[],
+  f: PeriodFilter,
+  ties: Tie[],
+  regions: RegionMember[],
+) {
   const p = ordered(f.period);
   const tags = new Set(f.tags.map(fold));
+  const inside = new Map<string, string[]>();
+  for (const m of regions) inside.set(m.region, [...(inside.get(m.region) ?? []), m.place]);
   const chosen = new Set(f.places);
+  for (const id of f.places) for (const place of inside.get(id) ?? []) chosen.add(place);
   const ownTag = (it: PeriodItem) =>
     tags.size === 0 || it.tags.some((tg) => tags.has(fold(tg)));
   const byId = new Map(items.map((it) => [it.doc.id, it]));
@@ -220,7 +241,9 @@ function decide<T extends PeriodItem>(items: T[], f: PeriodFilter, ties: Tie[]) 
   const tagged = (it: PeriodItem) =>
     ownTag(it) ||
     (it.doc.type === "place" &&
-      (tiesByPlace.get(it.doc.id) ?? []).some((t) => present(t.doc)));
+      [it.doc.id, ...(inside.get(it.doc.id) ?? [])].some((place) =>
+        (tiesByPlace.get(place) ?? []).some((t) => present(t.doc)),
+      ));
   const placed = (it: PeriodItem) => {
     if (chosen.size === 0) return true;
     if (it.doc.type === "place") return chosen.has(it.doc.id);
@@ -234,8 +257,9 @@ export function filterByPeriod<T extends PeriodItem>(
   items: T[],
   f: PeriodFilter,
   ties: Tie[] = [],
+  regions: RegionMember[] = [],
 ): { visible: T[]; undated: number; undatedItems: T[] } {
-  const { p, tagged, placed } = decide(items, f, ties);
+  const { p, tagged, placed } = decide(items, f, ties, regions);
   const undatedItems: T[] = [];
   const visible = items.filter((it) => {
     // Tags and Places first, so the count only names what the Period alone
@@ -258,7 +282,7 @@ export function charactersAt(
   f: PeriodFilter,
   ties: Tie[],
 ): Map<string, DocSummary[]> {
-  const { tiesByPlace, present } = decide(items, f, ties);
+  const { tiesByPlace, present } = decide(items, f, ties, []);
   const byId = new Map(items.map((it) => [it.doc.id, it.doc]));
   const out = new Map<string, DocSummary[]>();
   for (const [place, ts] of tiesByPlace) {

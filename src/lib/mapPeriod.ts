@@ -4,7 +4,7 @@
 // - Places, through the Period module: a Place with no Span always stays in a
 //   Period; the shared Tags keep a Place that carries one, or where a
 //   Character or Event carrying one is tied in the Period; the shared Places
-//   keep only themselves;
+//   keep only themselves, a chosen region every Place inside its Border too;
 // - Journeys whose Span overlaps the Period (an undated one stays, like a
 //   Place: only Characters and Events are hidden for having no Date). They
 //   are routes, not Places, so the shared Tags and Places leave them be;
@@ -13,7 +13,14 @@
 // - the Characters at each Place in the Period, for its pin card.
 //
 // The Map's own Tag chips (MapFilters) narrow its Places further, after this.
-import type { DatedProperty, DocSummary, EventLink, Journey, PlaceTie } from "./api";
+import type {
+  DatedProperty,
+  DocSummary,
+  EventLink,
+  Journey,
+  PlaceTie,
+  RegionMember,
+} from "./api";
 import {
   charactersAt,
   filterByPeriod,
@@ -64,6 +71,8 @@ export function mapInPeriod(o: {
   /** Every Character, dated or not: who is where, and who carries a Tag. */
   characters?: DocSummary[];
   placeTies?: PlaceTie[];
+  /** The Places inside each region's Border (engine-computed, ADR 0023). */
+  regionMembers?: RegionMember[];
   /** The Tags each document carries, as far as the chosen Tags go. */
   tagsByDoc?: Map<string, string[]>;
 }): MapInPeriod {
@@ -92,6 +101,7 @@ export function mapInPeriod(o: {
     items.filter((it) => it.doc.type !== "journey"),
     filter,
     ties,
+    o.regionMembers ?? [],
   );
   const kept = new Set(visible.map((it) => it.doc.id));
   // Journeys answer to the Period alone.

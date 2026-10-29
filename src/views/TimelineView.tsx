@@ -133,13 +133,15 @@ export function TimelineView() {
     key: [],
     deps: { any: true },
     fetch: async () => {
-      const [rows, links, docTags, placeTies] = await Promise.all([
+      const [rows, links, docTags, placeTies, members] = await Promise.all([
         api.timeline(),
         api.eventLinks(),
         api.timelineTags(),
         api.placeTies(),
+        // The Places inside each region's Border (ADR 0023).
+        api.regions(),
       ]);
-      return { rows, links, docTags, placeTies };
+      return { rows, links, docTags, placeTies, members };
     },
   });
   const rows = useMemo(() => data?.rows ?? [], [data]);
@@ -198,10 +200,10 @@ export function TimelineView() {
     const items = itemsOf(rows, undatedDocs, tagsByDoc).filter(
       (it) => !hidden.has(it.doc.type),
     );
-    const { visible, undated } = filterByPeriod(items, pf, ties);
+    const { visible, undated } = filterByPeriod(items, pf, ties, data?.members ?? []);
     const keep = new Set(visible.map((it) => it.doc.id));
     return { rows: rows.filter((r) => keep.has(r.doc.id)), undated };
-  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf, ties]);
+  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf, ties, data]);
   const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const allLanes = useMemo(
     () => buildLanes(rows, links, t.events, label),

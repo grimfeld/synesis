@@ -331,6 +331,15 @@ export interface PlaceFact {
 /** A position as Leaflet takes it: latitude first. */
 export type LatLon = [number, number];
 
+/**
+ * A Place inside a region's Border (ADR 0023), computed by the engine at index
+ * time. A region with no Border has none.
+ */
+export interface RegionMember {
+  place: string;
+  region: string;
+}
+
 /** What became of reading a region's Border file (ADR 0023). */
 export type BorderStatus = "ok" | "missing" | "malformed" | "downloading";
 
@@ -721,7 +730,8 @@ export type Query =
   | { kind: "journeys" }
   | { kind: "placeFacts" }
   | { kind: "kindSuggestions" }
-  | { kind: "borders" };
+  | { kind: "borders" }
+  | { kind: "regions" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -935,6 +945,8 @@ export const api = {
   journeys: () => query<Journey[]>({ kind: "journeys" }),
   /** Every region Border, with a status for any that cannot be drawn (ADR 0023). */
   borders: () => query<Border[]>({ kind: "borders" }),
+  /** Every Place inside a region's Border, for expanding a chosen region. */
+  regions: () => query<RegionMember[]>({ kind: "regions" }),
   /** Write a Border drawn on the Map: a `.geojson` beside the Place, and `border`. */
   saveBorder: (id: string, corners: LatLon[]) =>
     invoke<DocumentPayload>("save_border", { id, corners }),
