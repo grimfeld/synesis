@@ -27,6 +27,7 @@ pub mod templates;
 pub mod unlinked;
 pub mod vault;
 pub mod versification;
+pub mod windows;
 
 pub use scripture::{Lang, Passage, Unit, VerseId};
 pub use vault::Vault;

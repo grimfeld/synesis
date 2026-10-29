@@ -28,6 +28,7 @@ mod pairing;
 mod storage;
 mod system_bars;
 mod watch;
+mod windows;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -1236,16 +1237,25 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
     builder
         .on_window_event(|window, event| {
+            if let tauri::WindowEvent::Destroyed = event {
+                windows::closed(window.app_handle(), window.label());
+                // The main Window closed for real (not hidden to the tray):
+                // the app quits, taking any secondary Window with it.
+                #[cfg(desktop)]
+                if window.label() == engine::windows::MAIN {
+                    window.app_handle().exit(0);
+                }
+            }
+            // Only the main Window stays behind in the tray; a secondary
+            // Window (issue #51) closes for real.
             #[cfg(desktop)]
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 let state = window.state::<AppState>();
-                if pairing::keep_in_background(&state) {
+                if window.label() == engine::windows::MAIN && pairing::keep_in_background(&state) {
                     api.prevent_close();
                     let _ = window.hide();
                 }
             }
-            #[cfg(not(desktop))]
-            let _ = (window, event);
         })
         .setup(|app| {
             let sp = settings_path(app.handle());
@@ -1258,6 +1268,7 @@ pub fn run() {
                 p2p: Mutex::new(None),
                 quitting: std::sync::atomic::AtomicBool::new(false),
             });
+            app.manage(windows::WindowState::default());
             #[cfg(desktop)]
             pairing::setup_tray(app.handle())?;
             pairing::autostart(app.handle().clone());
@@ -1350,7 +1361,11 @@ pub fn run() {
             skin_gallery,
             gallery_skin,
             hidden_dir,
-            ui_log
+            ui_log,
+            windows::open_window,
+            windows::window_start,
+            windows::show_documents,
+            windows::relay_edit
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
