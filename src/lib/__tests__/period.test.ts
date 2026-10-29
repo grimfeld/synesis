@@ -56,6 +56,8 @@ const jerusalem = doc("jerusalem", "place"); // no Span
 const babylon = doc("neo-babylonian-empire", "place");
 const nineveh = doc("nineveh", "place"); // founded only
 const rome = doc("rome", "place"); // ended only... in the far future, here
+const timothy = doc("timothy", "character"); // died only
+const lydia = doc("lydia", "character"); // born only
 
 const rows: DatedProperty[] = [
   dated(jeremiah, "born", bce(650)),
@@ -70,6 +72,8 @@ const rows: DatedProperty[] = [
   dated(babylon, "end", bce(539)),
   dated(nineveh, "start", bce(1800)),
   dated(rome, "end", 476),
+  dated(timothy, "died", 97),
+  dated(lydia, "born", 20),
 ];
 const undatedDocs = [habakkuk, josiahReform, jerusalem];
 const tags = new Map<string, string[]>([
@@ -115,13 +119,22 @@ describe("filterByPeriod", () => {
     expect(run({ period: period(30, 60) }).ids).toContain("jerusalem");
   });
 
-  it("runs a Span missing one end on without limit that way", () => {
+  it("runs a Place's Span missing one end on without limit that way", () => {
     // Nineveh has a `start` only: founded 1800 BCE, it still counts in 500 CE.
     expect(run({ period: period(500, 600) }).ids).toContain("nineveh");
     // Rome has an `end` only: it counts in any Period before 476 CE…
     expect(run({ period: period(bce(640), bce(580)) }).ids).toContain("rome");
     // …and in none after it.
     expect(run({ period: period(500, 600) }).ids).not.toContain("rome");
+  });
+
+  it("keeps a Character with a single Date at that Date alone", () => {
+    // Timothy has only `died: 97 CE`: in a Period only if it contains 97 CE.
+    expect(run({ period: period(bce(640), bce(580)) }).ids).not.toContain("timothy");
+    expect(run({ period: period(90, 100) }).ids).toContain("timothy");
+    // Lydia has only `born: 20 CE`: not still counted in 500 CE.
+    expect(run({ period: period(500, 600) }).ids).not.toContain("lydia");
+    expect(run({ period: period(20, 20) }).ids).toContain("lydia");
   });
 
   it("keeps an Event with only a `start` a single point, not an open Span", () => {

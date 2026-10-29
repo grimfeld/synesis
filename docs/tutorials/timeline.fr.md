@@ -16,5 +16,5 @@ La chronologie place tout ce qui est daté dans votre coffre le long de la chron
 - Écrivez une date comme vous la diriez : « v. 1513 av. n. è. », « 14 nisan 33 de n. è. », « 52 de n. è. ». Une date que l'application ne sait pas lire reste hors de la chronologie, et sa page le signale.
 - Un événement apparaît aussi sur la Piste de chaque Personnage et Lieu nommés dans ses propriétés Personnages et Lieu.
 - Les Types et **Seulement les Pistes visibles** sont mémorisés ; la recherche, la Période et les filtres Étiquettes et Dates durent jusqu'à la fermeture de l'application.
-- Un Lieu sans date n'est jamais écarté par une Période. Un Sujet dont l'Étendue n'a qu'un bout, comme une naissance sans mort, se prolonge sans limite de l'autre côté ; un événement qui n'a qu'un début est le moment où il a eu lieu.
+- Un Lieu sans date n'est jamais écarté par une Période. Un Lieu dont l'Étendue n'a qu'un bout, comme un début sans fin, se prolonge sans limite de l'autre côté. Tout le reste ne compte qu'à ses dates : un Personnage qui n'a qu'une mort n'est dans une Période que si elle contient cette année, et un événement qui n'a qu'un début est le moment où il a eu lieu.
 - Les Étiquettes se combinent avec la Période : choisissez « prayer » dans **Filtrer** avec 1100–1000 av. n. è., et seul ce qui porte « prayer » dans ces années reste.
