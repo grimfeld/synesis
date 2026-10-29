@@ -44,6 +44,7 @@ import {
   type View,
 } from "./panes";
 import { flushPending } from "./pending";
+import { isSecondaryWindow, windowStart } from "./windows";
 import {
   clampSize,
   DEFAULT_SIZE,
@@ -102,6 +103,11 @@ const READING_MODE_KEY = "synesis.readingMode";
 const DELIVERY_SIZE_KEY = "synesis.deliverySize";
 /** The Pane layout, per Device (localStorage) and per Vault (its root). */
 const PANES_KEY = (root: string) => `synesis.panes:${root}`;
+/**
+ * A secondary Window (issue #51) shares the Vault the main Window opened and
+ * keeps its Panes to itself: it neither restores nor saves the Vault's layout.
+ */
+const SECONDARY_WINDOW = isSecondaryWindow();
 
 /** Whether a click asks for the other Pane: Cmd-click on macOS, Ctrl-click elsewhere. */
 export function otherPane(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
@@ -407,6 +413,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (async () => {
       const s = await api.getSettings();
       setSettings(s);
+      if (SECONDARY_WINDOW) {
+        // The engine already holds the Vault: show it, on the document this
+        // Window was opened for.
+        try {
+          await attachVault();
+          const start = await windowStart();
+          if (start) dispatchPanes({ type: "open", view: { kind: "doc", id: start } });
+        } catch (e) {
+          console.error("attach failed", e);
+        }
+        return;
+      }
       if (s.vault_path) {
         try {
           await openVault(s.vault_path);
@@ -415,7 +433,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
     })();
-  }, [openVault]);
+  }, [openVault, attachVault]);
 
   // External changes.
   useEffect(() => {
@@ -659,7 +677,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // Keep the layout for the next time this Vault opens on this Device.
   const vaultRoot = info?.root;
   useEffect(() => {
-    if (!vaultRoot || layoutFor.current !== vaultRoot) return;
+    if (SECONDARY_WINDOW || !vaultRoot || layoutFor.current !== vaultRoot) return;
     const saved = savedLayout(panes);
     try {
       if (saved) localStorage.setItem(PANES_KEY(vaultRoot), JSON.stringify(saved));

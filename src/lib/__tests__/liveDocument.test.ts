@@ -148,6 +148,47 @@ describe("an edit from another Window", () => {
   });
 });
 
+describe("an edit made in this Window (#51)", () => {
+  async function relayed(text: string) {
+    const f = fakeEngine({ a: text });
+    const sent: { id: string; text: string }[] = [];
+    const docs = createLiveDocuments(f.engine, { onEdit: (id, t) => sent.push({ id, text: t }) });
+    const d = docs.open("a");
+    await d.load();
+    return { ...f, docs, d, sent };
+  }
+
+  it("is handed on with the whole text, frontmatter included", async () => {
+    const { d, sent } = await relayed("---\ntype: note\n---\nhello");
+    d.join(() => {}).write("hello world");
+    expect(sent).toEqual([{ id: "a", text: "---\ntype: note\n---\nhello world" }]);
+    d.editFm("---\ntype: clipping\n---\n");
+    expect(sent.at(-1)).toEqual({ id: "a", text: "---\ntype: clipping\n---\nhello world" });
+  });
+
+  it("is handed on for a panel's write and a restored Version too", async () => {
+    const { d, sent } = await relayed("hello");
+    d.setBodyText("linked");
+    d.replaceText("restored");
+    expect(sent.map((s) => s.text)).toEqual(["linked", "restored"]);
+  });
+
+  it("is not handed on when it came from another Window, or when the file is read", async () => {
+    const { d, sent } = await relayed("hello");
+    d.receive("from elsewhere");
+    await d.load();
+    expect(sent).toEqual([]);
+  });
+
+  it("finds an open document without opening one", async () => {
+    const { docs, d } = await relayed("hello");
+    expect(docs.peek("a")).toBe(d);
+    expect(docs.peek("b")).toBeUndefined();
+    d.release();
+    expect(docs.peek("a")).toBeUndefined();
+  });
+});
+
 describe("a change on disk", () => {
   it("reloads when nothing is pending, and warns instead when there is typing", async () => {
     const { left, files } = await opened("hello");
