@@ -1144,6 +1144,7 @@ impl Vault {
             Query::Timeline => Answer::Dates(self.index.timeline()?),
             Query::EventsNaming { id } => Answer::Docs(self.index.events_naming(&id)?),
             Query::EventLinks => Answer::EventLinks(self.index.event_links()?),
+            Query::PlaceTies { id } => Answer::PlaceTies(self.index.place_ties(id.as_deref())?),
             Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
