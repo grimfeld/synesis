@@ -57,9 +57,9 @@ export interface DocTypeUi {
  * gets its Span drawn whatever its type (`SPAN_PAIRS` in lib/timeline.ts), so a
  * Character who also has `start`/`end` for a reign keeps that Span; this only
  * decides which pair the New dialog and the Hub put in front of the user.
- * Place and Concept are null on purpose: a Place carries `lat`/`lon` and, in
- * one file of the demo vault, `destroyed` — offering it a Span would invent a
- * convention the vault does not have.
+ * A Place's `start`/`end` is when it existed — a city, a kingdom, a province
+ * (CONTEXT.md, Place). Concept is null on purpose: an idea has no lifetime
+ * the vault records.
  *
  * Lives here rather than in the engine because Span recognition lives in the
  * UI; splitting the concept across layers would be worse than either home. If
@@ -70,7 +70,7 @@ export const SPAN: Record<DocType, readonly [string, string] | null> = {
   character: ["born", "died"],
   event: ["start", "end"],
   journey: ["start", "end"],
-  place: null,
+  place: ["start", "end"],
   concept: null,
   source: null,
   note: null,
@@ -81,6 +81,70 @@ export const SPAN: Record<DocType, readonly [string, string] | null> = {
   verse: null,
   other: null,
 };
+
+/**
+ * Whether a page of this type whose Span has a start and no end runs on: a
+ * Place that began and has not ended is a city still standing (CONTEXT.md,
+ * Place), drawn to the Timeline's edge and inside every later Period.
+ *
+ * Only a Place. A Character with `born` alone is not known to be alive, and an
+ * Event's lone `start` is its moment. The one place this rule is written:
+ * the Timeline (`buildLanes`) and anything narrowing to a Period read it here.
+ */
+export const RUNS_ON: Record<DocType, boolean> = {
+  place: true,
+  character: false,
+  event: false,
+  journey: false,
+  concept: false,
+  source: false,
+  note: false,
+  clipping: false,
+  composition: false,
+  book: false,
+  chapter: false,
+  verse: false,
+  other: false,
+};
+
+/**
+ * One thing the Hub's "Add Date" control offers (Dates section).
+ *
+ * `pair` is the whole Span the type suggests — "Add lifespan" for
+ * `born`/`died`, "Add Span" for `start`/`end`; `half` is the one half missing
+ * when the other is there; `named` is a Date the user names themselves.
+ */
+export type DateAdd =
+  | { kind: "pair"; names: readonly [string, string]; label: "lifespan" | "span" }
+  | { kind: "half"; name: string }
+  | { kind: "named" };
+
+/**
+ * What "Add Date" offers a page of this type, given the Date Properties it
+ * already has (or that were just added and not yet filled in).
+ *
+ * Only ever what is possible: the half that is missing, nothing of the pair
+ * once both halves exist, so the control never makes a duplicate. A named
+ * Date is always on offer.
+ */
+export function dateAdds(type: DocType, present: readonly string[]): DateAdd[] {
+  const out: DateAdd[] = [];
+  const span = SPAN[type];
+  if (span) {
+    const missing = span.filter((n) => !present.includes(n));
+    if (missing.length === 2) {
+      out.push({
+        kind: "pair",
+        names: span,
+        label: span[0] === "born" ? "lifespan" : "span",
+      });
+    } else if (missing.length === 1) {
+      out.push({ kind: "half", name: missing[0] });
+    }
+  }
+  out.push({ kind: "named" });
+  return out;
+}
 
 /** Whichever halves of a type's Span the user filled in. */
 function spanOf(type: DocType, f: Record<string, string>): Frontmatter {
@@ -123,6 +187,7 @@ export const FRONTMATTER: Record<
     if (f.lat) out.lat = Number(f.lat);
     if (f.lon) out.lon = Number(f.lon);
     if (f.modern_name) out.modern_name = f.modern_name;
+    Object.assign(out, spanOf("place", f));
     return out;
   },
   event: (f) => {

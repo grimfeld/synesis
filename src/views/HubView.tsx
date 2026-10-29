@@ -41,7 +41,8 @@ import {
   type VerseCount,
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
-import { SPAN, type SectionProps } from "@/lib/docTypes";
+import { SPAN, dateAdds, type SectionProps } from "@/lib/docTypes";
+import { checkNewProperty } from "@/lib/propertyName";
 import { useQuery } from "@/lib/useQuery";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import {
@@ -82,6 +83,7 @@ import { Cover } from "@/components/Cover";
 import { DocLink } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { MiniTimeline } from "@/components/MiniTimeline";
+import { DatePreview } from "@/components/DatePreview";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -90,6 +92,12 @@ import { TutorialButton } from "@/components/TutorialPanel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverAnchor,
@@ -1421,14 +1429,16 @@ function SpanDate({
   name,
   value,
   invalid,
-  fm,
-  onFmChange,
+  onWrite,
+  autoFocus,
 }: {
   name: string;
   value: string;
   invalid: boolean;
-  fm: string;
-  onFmChange: (fm: string) => void;
+  /** Write the value typed, or `null` to remove the Property. */
+  onWrite: (value: string | null) => void;
+  /** Just added through "Add Date": the user means to type it now. */
+  autoFocus?: boolean;
 }) {
   const t = useT();
   const [text, setText] = useState(value);
@@ -1436,10 +1446,12 @@ function SpanDate({
   const commit = () => {
     const next = text.trim();
     if (next === value.trim()) return;
-    onFmChange(setField(fm, name, next === "" ? null : next));
+    onWrite(next === "" ? null : next);
   };
+  // The preview under the field reads the text as typed, so it also says why a
+  // saved value is not a Date; the red border marks what is saved.
   return (
-    <>
+    <div className="min-w-0 flex-1 space-y-0.5">
       <Input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -1451,21 +1463,14 @@ function SpanDate({
         placeholder={t.date_placeholder}
         aria-label={propertyLabel(name, t)}
         data-testid={`date-input-${name}`}
+        autoFocus={autoFocus}
         className={cn(
           "h-7 max-w-52 text-sm tabular-nums",
           invalid && "border-destructive text-destructive",
         )}
       />
-      {invalid && (
-        <span
-          className="flex shrink-0 items-center gap-1 text-xs text-destructive"
-          title={t.date_invalid}
-        >
-          <CircleAlert className="size-3.5" />
-          {t.date_invalid}
-        </span>
-      )}
-    </>
+      <DatePreview text={text} testId={`date-preview-${name}`} />
+    </div>
   );
 }
 
@@ -1473,15 +1478,19 @@ function SpanDate({
  * Dates on a Subject (ADR 0005) and, for anything but an Event, the Events
  * naming it.
  *
- * The Span its type suggests is always offered, filled or not (`SPAN` in
- * lib/docTypes.tsx). It used to render only what was already there, and a
- * Character with no Dates showed nothing at all — so the way to record a
- * lifespan was to know that a Property called `born` existed and to add it by
- * hand in the Properties panel. An empty labelled field says where a birth
- * goes; a button to reveal one does not.
+ * An "Add Date" control offers what the page can still take (`dateAdds` in
+ * lib/docTypes.tsx): the Span its type suggests in one click — "Add lifespan"
+ * on a Character, "Add Span" on an Event, a Journey or a Place — or the half
+ * of it that is missing, and a Date the user names. A Character with no Dates
+ * used to show nothing at all, so recording a lifespan meant knowing that a
+ * Property called `born` existed; the button names the convention instead.
+ *
+ * What is added is local until typed: a blank Date is not a Date, and
+ * writing `born:` with nothing after it would be read back as an invalid one.
+ * The row appears, focused, and the first value typed writes the Property.
  *
  * These Properties are edited here, so the Properties panel is told to leave
- * them out rather than offer the same value twice.
+ * the Span out rather than offer the same value twice.
  */
 function DatesSection({
   doc,
@@ -1516,17 +1525,40 @@ function DatesSection({
   const dates = useMemo(() => data?.dates ?? [], [data]);
   const events = useMemo(() => data?.events ?? [], [data]);
   const eventDates = useMemo(() => data?.eventDates ?? [], [data]);
-  if (!span && dates.length === 0 && (isEvent || events.length === 0)) {
-    return null;
-  }
-  // The suggested pair first and always, then any other Date the document
-  // carries — a Character's `reign_start` keeps its place below the lifespan.
+  const s = useStore();
+  // Names added through "Add Date" and not yet typed into, and the one to
+  // focus. Forgotten when another page opens.
+  const [added, setAdded] = useState<string[]>([]);
+  const [focus, setFocus] = useState<string | null>(null);
+  useEffect(() => {
+    setAdded([]);
+    setFocus(null);
+  }, [id]);
+  const add = (names: readonly string[]) => {
+    setAdded((a) => [...a, ...names.filter((n) => !a.includes(n))]);
+    setFocus(names[0] ?? null);
+  };
+  const present = [...new Set([...dates.map((d) => d.name), ...added])];
+  // The suggested pair first, then a Date just named, then any other Date the
+  // document carries — a Character's `reign_start` keeps its place below the
+  // lifespan.
+  //
+  // A named Date is edited here only until it is written. From then on it is
+  // a Property like any other, edited in the Properties section and shown
+  // here read-only, so no value has two fields to disagree.
   const byName = new Map(dates.map((d) => [d.name, d]));
-  const spanRows = (span ?? []).map((name) => ({
-    name,
-    row: byName.get(name) ?? null,
-  }));
+  const editable = [
+    ...(span ?? []).filter((n) => present.includes(n)),
+    ...added.filter((n) => !span?.includes(n) && !byName.has(n)),
+  ].map((name) => ({ name, row: byName.get(name) ?? null }));
   const others = dates.filter((d) => !span?.includes(d.name));
+  // A name is typed Date for the whole Vault (ADR 0006) when its first value
+  // is written, not when it is named: a Date named and left empty leaves no
+  // trace.
+  const write = async (name: string, value: string | null) => {
+    if (value != null && !s.schema.types[name]) await s.setPropertyType(name, "date");
+    onFmChange(setField(fm, name, value));
+  };
   const anyParsed =
     dates.some((d) => d.date) ||
     eventDates.some((e) => e.dates.some((d) => d.date));
@@ -1535,19 +1567,22 @@ function DatesSection({
       {anyParsed && (
         <MiniTimeline doc={doc.summary} dates={dates} events={eventDates} />
       )}
-      {(spanRows.length > 0 || others.length > 0) && (
-        <div>
-          <PanelTitle className="mb-3">{t.dates}</PanelTitle>
+      <div>
+        <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
+          <PanelTitle className="min-w-0">{t.dates}</PanelTitle>
+          <AddDate type={doc.summary.type} present={present} onAdd={add} />
+        </div>
+        {(editable.length > 0 || others.length > 0) && (
           <ul className="space-y-1">
-            {spanRows.map(({ name, row }) => (
+            {editable.map(({ name, row }) => (
               <li
                 key={name}
-                className="flex min-w-0 items-center gap-3 text-sm"
+                className="flex min-w-0 items-start gap-3 text-sm"
                 data-testid={`date-${name}`}
                 data-valid={row?.date ? "true" : "false"}
               >
                 <span
-                  className="w-24 shrink-0 truncate text-xs text-muted-foreground"
+                  className="w-24 shrink-0 truncate pt-1.5 text-xs text-muted-foreground"
                   title={name}
                 >
                   {propertyLabel(name, t)}
@@ -1556,15 +1591,15 @@ function DatesSection({
                   name={name}
                   value={row?.text ?? ""}
                   invalid={row != null && !row.date}
-                  fm={fm}
-                  onFmChange={onFmChange}
+                  onWrite={(v) => write(name, v).catch(console.error)}
+                  autoFocus={focus === name}
                 />
               </li>
             ))}
             {others.map((d) => (
               <li
                 key={d.name}
-                className="flex items-center gap-3 text-sm"
+                className="flex min-w-0 items-baseline gap-3 text-sm"
                 data-testid={`date-${d.name}`}
                 data-valid={d.date ? "true" : "false"}
               >
@@ -1574,25 +1609,25 @@ function DatesSection({
                 >
                   {propertyLabel(d.name, t)}
                 </span>
-                <span
-                  className={cn("tabular-nums", !d.date && "text-destructive")}
-                >
-                  {d.text}
-                </span>
-                {!d.date && (
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <span
-                    className="flex items-center gap-1 text-xs text-destructive"
-                    title={t.date_invalid}
+                    className={cn(
+                      "break-words tabular-nums",
+                      !d.date && "text-destructive",
+                    )}
                   >
-                    <CircleAlert className="size-3.5" />
-                    {t.date_invalid}
+                    {d.text}
                   </span>
-                )}
+                  {/* Why it is not a Date, as the field's own preview says it. */}
+                  {!d.date && (
+                    <DatePreview text={d.text} testId={`date-preview-${d.name}`} />
+                  )}
+                </div>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
       {!isEvent && events.length > 0 && (
         <div data-testid="hub-events">
           <PanelTitle className="mb-3">{t.events}</PanelTitle>
@@ -1606,6 +1641,136 @@ function DatesSection({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The Dates section's "Add Date" menu, and the name field its "Date…" opens.
+ *
+ * Naming follows the Properties panel's rule (`checkNewProperty`) with the
+ * type fixed to Date: a name the Vault already types otherwise is refused,
+ * since a name has one type everywhere (ADR 0006). A new name is typed Date
+ * once its first value is written (`DatesSection`), not here.
+ */
+function AddDate({
+  type,
+  present,
+  onAdd,
+}: {
+  type: DocType;
+  present: readonly string[];
+  onAdd: (names: readonly string[]) => void;
+}) {
+  const s = useStore();
+  const t = useT();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const offers = dateAdds(type, present);
+  const close = () => {
+    setNaming(false);
+    setName("");
+    setError(null);
+  };
+  const submit = () => {
+    const check = checkNewProperty(name, s.schema.types, "date");
+    if (!check.ok) {
+      if (check.reason === "taken")
+        setError(t.date_name_taken(check.name, t.property_types[check.type]));
+      else if (check.reason === "reserved") setError(t.date_name_reserved(check.name));
+      return;
+    }
+    close();
+    onAdd([check.name]);
+  };
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="xs"
+            variant="ghost"
+            data-testid="add-date"
+            className="h-auto text-muted-foreground"
+          >
+            <Plus />
+            {t.add_date}
+          </Button>
+        </DropdownMenuTrigger>
+        {/* Focus goes to the field just added, not back to this button. */}
+        <DropdownMenuContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+          {offers.map((o) =>
+            o.kind === "pair" ? (
+              <DropdownMenuItem
+                key="pair"
+                data-testid="add-date-pair"
+                onSelect={() => onAdd(o.names)}
+              >
+                {o.label === "lifespan" ? t.add_lifespan : t.add_span}
+              </DropdownMenuItem>
+            ) : o.kind === "half" ? (
+              <DropdownMenuItem
+                key="half"
+                data-testid="add-date-half"
+                data-name={o.name}
+                onSelect={() => onAdd([o.name])}
+              >
+                {t.add_date_half(propertyLabel(o.name, t))}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                key="named"
+                data-testid="add-date-named"
+                onSelect={() => setNaming(true)}
+              >
+                {t.add_date_named}
+              </DropdownMenuItem>
+            ),
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {naming && (
+        <form
+          className="flex w-full min-w-0 flex-wrap items-center gap-2"
+          data-testid="date-name-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") close();
+            }}
+            placeholder={t.date_name_placeholder}
+            aria-label={t.add_date_named}
+            data-testid="date-name-input"
+            className="h-7 min-w-0 max-w-52 flex-1 text-sm"
+          />
+          <Button type="submit" size="sm" variant="outline" data-testid="date-name-submit">
+            {t.date_name_add}
+          </Button>
+          <IconButton label={t.cancel} onClick={close}>
+            <X />
+          </IconButton>
+          {error && (
+            <p
+              className="flex w-full min-w-0 items-start gap-1 text-xs text-destructive"
+              data-testid="date-name-error"
+            >
+              <CircleAlert className="mt-px size-3.5 shrink-0" />
+              <span className="min-w-0">{error}</span>
+            </p>
+          )}
+        </form>
+      )}
+    </>
   );
 }
 

@@ -164,6 +164,11 @@ describe("Events listed elsewhere carry their Date", () => {
     cy.get("[data-testid=new-doc-form] input").first().type("Jael");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
     cy.get("[data-testid=hub-header]").should("contain", "Character");
+    // Nothing is written until asked for: Add lifespan adds the pair.
+    cy.get("[data-testid=date-input-born]").should("not.exist");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").click();
+    cy.focused().should("have.attr", "data-testid", "date-input-born");
     cy.get("[data-testid=date-input-born]").should("have.value", "");
     cy.get("[data-testid=date-input-died]").should("have.value", "");
     // Labelled by what the Property means, not by its key.
@@ -195,11 +200,14 @@ describe("Events listed elsewhere carry their Date", () => {
   });
 
   it("does not offer a Span to a type with no date convention", () => {
-    // A Place carries lat/lon; offering it born/died would invent a convention
-    // the vault does not have.
-    cy.openDoc("Ephesus");
-    cy.get("[data-testid=date-input-born]").should("not.exist");
-    cy.get("[data-testid=date-input-start]").should("not.exist");
+    // A Concept has no lifetime the vault records: only a named Date.
+    cy.bridge("create_document", { docType: "concept", title: "Grace", fields: {} });
+    cy.openApp();
+    cy.openDoc("Grace");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("not.exist");
+    cy.get("[data-testid=add-date-half]").should("not.exist");
+    cy.get("[data-testid=add-date-named]").should("exist");
   });
 
   it("writes a Character's Span from the New dialog", () => {

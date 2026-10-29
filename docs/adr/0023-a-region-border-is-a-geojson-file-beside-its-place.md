@@ -1,0 +1,18 @@
+---
+status: accepted
+---
+
+# A region's Border is a GeoJSON file beside its Place, and never changes over time
+
+Historical borders need area shapes, while a Place has only been a point (`lat`, `lon`). We decided that a region Place's Border is a `.geojson` file kept in the Vault next to the Place and named in its `border` link property. The file is drawn on the Map or imported. A Border has no dates of its own: when the land changes hands, that is another Place with its own Span and Border (the Kingdom of Judah and the Roman province of Judea are two Places). "Inside a region" means inside its Border and nothing else, so a region with no Border contains no Place.
+
+## Considered options
+
+- **Coordinates in frontmatter.** Keeps everything in one file, and rejected: hundreds of numbers in YAML are unreadable, and Obsidian's Properties panel renders them as noise.
+- **Several dated Borders on one Place.** Rejected, because it adds a second timeline inside a Place that the Span already expresses. A change of rule is a change of Place.
+- **A `region` link on each Place as a second way of saying "inside".** Rejected, because two answers to "is Bethlehem in Judah?" would eventually disagree. A rough Border is quick to draw.
+
+## Consequences
+
+- The Vault gains a non-markdown file type that Obsidian ignores, like Boards' `.canvas` files (ADR 0009). Pairing carries it whole, like attachments (ADR 0020).
+- Containment is computed geometrically (point in polygon) at index time, and only for Places that have coordinates.

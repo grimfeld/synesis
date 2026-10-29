@@ -2,6 +2,7 @@
 // Hub mini-timeline. Lanes, year projection, label collision and Clusters live
 // here so both shells stay dumb SVG and the logic is tested once (`test:unit`).
 import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink } from "./api";
+import { RUNS_ON, SPAN } from "./docTypes";
 import { fold } from "./names";
 
 /** One thing drawn on a Lane: a point Date, or a span when it has a `to`. */
@@ -13,6 +14,12 @@ export interface Mark {
   text: string;
   from: number;
   to: number | null;
+  /**
+   * A span with no end yet: a Place with `start` and no `end`, a city still
+   * standing. `to` stays null so the extent is not stretched to some year;
+   * the bar runs to the plot's right edge instead (`placeMarks`).
+   */
+  runsOn?: boolean;
   approx: boolean;
   type: DocType;
 }
@@ -66,8 +73,9 @@ export function buildLanes(
   propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
   const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
+  // Unread Dates too: they draw nothing, but an end that is written and
+  // unreadable still means the Span has an end (`RUNS_ON` below).
   for (const r of rows) {
-    if (!r.date) continue;
     const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
     g.dates.push(r);
     byDoc.set(r.doc.id, g);
@@ -97,6 +105,25 @@ export function buildLanes(
         used.add(a);
         used.add(b);
       }
+    }
+    // A Span that began and has no end runs on where its type says so
+    // (`RUNS_ON`): a city still standing. An end that is written but
+    // unreadable is a mistake to fix, not an open end.
+    const pair = SPAN[doc.type];
+    const start = pair ? named.get(pair[0]) : undefined;
+    if (RUNS_ON[doc.type] && pair && start?.date && !used.has(pair[0]) && !named.has(pair[1])) {
+      out.push({
+        key: `${doc.id}:${pair[0]}-`,
+        doc,
+        label: label("span"),
+        text: `${start.text} –`,
+        from: yearOf(start.date),
+        to: null,
+        runsOn: true,
+        approx: start.date.approx,
+        type: doc.type,
+      });
+      used.add(pair[0]);
     }
     for (const d of dates) {
       if (used.has(d.name) || !d.date) continue;
@@ -208,6 +235,14 @@ export interface Placed {
   overSpan?: boolean;
 }
 
+/**
+ * `data-runs-on` for a placed mark: "true" on a bar that runs on, nothing
+ * otherwise. A Cluster never runs on, whatever its first member is.
+ */
+export function runsOnAttr(p: Placed): "true" | undefined {
+  return p.marks.length === 1 && p.marks[0].runsOn ? "true" : undefined;
+}
+
 /** Points closer than this merge into one Cluster: a mark's diameter plus a gap. */
 export const CLUSTER_PX = 14;
 
@@ -215,16 +250,23 @@ export const CLUSTER_PX = 14;
  * Lay one Lane's marks out in plot space. Spans keep their width and never
  * Cluster, since the bar is the thing they show; points within CLUSTER_PX of
  * each other merge into one mark carrying a count.
+ *
+ * `right` is the plot's right edge, where a span that runs on ends.
  */
-export function placeMarks(marks: Mark[], x: (year: number) => number): Placed[] {
-  const spans = marks.filter((m) => m.to != null);
-  const points = marks.filter((m) => m.to == null).sort((a, b) => a.from - b.from);
+export function placeMarks(
+  marks: Mark[],
+  x: (year: number) => number,
+  right: number,
+): Placed[] {
+  const isSpan = (m: Mark) => m.to != null || m.runsOn === true;
+  const spans = marks.filter(isSpan);
+  const points = marks.filter((m) => !isSpan(m)).sort((a, b) => a.from - b.from);
   const out: Placed[] = spans.map((m) => ({
     key: m.key,
     marks: [m],
     x: x(m.from),
     // A span thinner than a point reads as a mark that lost its width.
-    x2: Math.max(x(m.to as number), x(m.from) + 3),
+    x2: Math.max(m.runsOn ? right : x(m.to as number), x(m.from) + 3),
     label: m.label,
   }));
   let group: Mark[] = [];
@@ -366,7 +408,9 @@ export function filterRows(
  */
 export function cullToView(lanes: Lane[], from: number, to: number): Lane[] {
   return lanes.filter((l) =>
-    l.marks.some((m) => m.from <= to && (m.to ?? m.from) >= from),
+    l.marks.some(
+      (m) => m.from <= to && (m.runsOn ? Infinity : (m.to ?? m.from)) >= from,
+    ),
   );
 }
 
