@@ -745,6 +745,43 @@ fn link_mentions(
     r
 }
 
+/// Write a region's Border drawn on the Map (ADR 0023): a `.geojson` file
+/// beside the Place, named in its `border` Property.
+#[tauri::command]
+fn save_border(state: State<AppState>, id: String, corners: Vec<[f64; 2]>) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| api::save_border(v, &id, &corners));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Import a `.geojson` file picked from disk as a region's Border (ADR 0023):
+/// copied whole beside the Place, named in its `border` Property.
+#[tauri::command]
+fn import_border(
+    state: State<AppState>,
+    id: String,
+    file_name: String,
+    text: String,
+) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| api::import_border(v, &id, &file_name, &text));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Remove a region's Border: its file and its `border` Property.
+#[tauri::command]
+fn delete_border(state: State<AppState>, id: String) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| api::delete_border(v, &id));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
 /// Write the Place kinds the user confirmed from the gazetteer (PLAN §27.13).
 #[tauri::command]
 fn fill_kinds(state: State<AppState>, fills: Vec<KindSuggestion>) -> CmdResult<FillResult> {
@@ -1336,6 +1373,9 @@ pub fn run() {
             history,
             get_board,
             save_board,
+            save_border,
+            import_border,
+            delete_border,
             board_at,
             export_board,
             attach_image,

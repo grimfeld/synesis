@@ -49,8 +49,73 @@ describe("Tutorial: Timeline", () => {
     cy.get("body").type("{esc}");
     cy.tutorialNext();
 
-    // 4. A mark opens its Hub, which shows its Lane in miniature.
+    // 4. A Period narrows to what overlaps it, and clears in one click.
     cy.tutorialStep(3);
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("not.exist"),
+    );
+    // Places narrow further: David names Bethlehem in his `places`.
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Bethlehem");
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Solomon").then((solomon) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${solomon.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-place-remove]").click();
+    cy.get("[data-testid=period-clear]").click();
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("exist"),
+    );
+    cy.tutorialNext();
+
+    // 5. A region takes in every Place inside its Border: prophets in Judah,
+    //    640–580 BCE, is Jeremiah alone.
+    cy.tutorialStep(4);
+    const lane = (title: string) =>
+      cy.docByTitle(title).then((d) => cy.get(`[data-testid=tl-lane][data-lane=${d.id}]`));
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Judah");
+    cy.docByTitle("Judah").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    lane("David").should("exist");
+    lane("Jeremiah").should("exist");
+    lane("Moses").should("not.exist");
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prophet").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("640");
+    cy.get("[data-testid=period-to]").type("580");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "640–580 BCE");
+    cy.get("[data-testid=tl-lane][data-type=character]")
+      .should("have.length", 1)
+      .and("contain", "Jeremiah");
+    lane("Isaiah").should("not.exist");
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-place-remove]").click();
+    cy.get("[data-testid=period-tag-remove]").click();
+    lane("Moses").should("exist");
+    cy.tutorialNext();
+
+    // 6. A mark opens its Hub, which shows its Lane in miniature.
+    cy.tutorialStep(5);
     cy.get("[data-testid=tl-search]").type("Death of Jesus");
     cy.docByTitle("Death of Jesus").then((ev) => {
       cy.get(`[data-testid=tl-lane][data-lane=events] [data-testid=tl-mark][data-doc=${ev.id}]`).click({ force: true });
@@ -62,8 +127,8 @@ describe("Tutorial: Timeline", () => {
     cy.get("[data-testid=tl-search]").should("have.value", "Death of Jesus").clear();
     cy.tutorialNext();
 
-    // 5. Do it once: a new Event with a Start Date lands on the Events Lane.
-    cy.tutorialStep(4);
+    // 7. Do it once: a new Event with a Start Date lands on the Events Lane.
+    cy.tutorialStep(6);
     cy.tutorialCommand("create.event");
     cy.get("[data-testid=new-doc-form]").should("contain", "Event");
     cy.get("[data-testid=new-doc-form] input").first().type("Paul shipwrecked on Malta");

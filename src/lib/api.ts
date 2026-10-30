@@ -294,6 +294,20 @@ export interface EventLink {
   subject: string;
 }
 
+/**
+ * A Character in a Place (CONTEXT.md, Character). From the Character's own
+ * `places`: `event`, `start` and `end` are null, and the Character's Span
+ * applies. From an Event naming both: the Event, and its `start`/`end` when
+ * they are Dates.
+ */
+export interface PlaceTie {
+  character: DocSummary;
+  place: DocSummary;
+  event: DocSummary | null;
+  start: BibleDate | null;
+  end: BibleDate | null;
+}
+
 /** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17). */
 export interface DocTag {
   doc: string;
@@ -311,6 +325,34 @@ export interface PlaceFact {
   tags: string[];
   books: number[];
   mentions: number;
+}
+
+/** A position as Leaflet takes it: latitude first. */
+export type LatLon = [number, number];
+
+/**
+ * A Place inside a region's Border (ADR 0023), computed by the engine at index
+ * time. A region with no Border has none.
+ */
+export interface RegionMember {
+  place: string;
+  region: string;
+}
+
+/** What became of reading a region's Border file (ADR 0023). */
+export type BorderStatus = "ok" | "missing" | "malformed" | "downloading";
+
+/** A region Place's Border, read from the `.geojson` file its `border` names. */
+export interface Border {
+  /** The Place's id. */
+  doc: string;
+  /** The file, vault-relative. */
+  path: string;
+  status: BorderStatus;
+  /** Why the file could not be read. */
+  error: string | null;
+  /** Each piece of the area, as rings of [lat, lon]: outer ring, then holes. */
+  polygons: LatLon[][][];
 }
 
 /** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
@@ -539,7 +581,9 @@ export type PairingEvent =
   /** Config files a peer delivered (ADR 0016), relative to `.bible-study/`. */
   | { kind: "config"; names: string[] }
   /** Pictures a peer delivered (ADR 0020), vault-relative paths. */
-  | { kind: "attachments"; names: string[] };
+  | { kind: "attachments"; names: string[] }
+  /** Region Borders a peer delivered (ADR 0023), vault-relative paths. */
+  | { kind: "borders"; names: string[] };
 
 export type SyncMethod =
   "pairing" | "icloud" | "syncthing" | "provider" | "none";
@@ -682,9 +726,12 @@ export type Query =
   | { kind: "eventsNaming"; id: string }
   | { kind: "eventLinks" }
   | { kind: "timelineTags" }
+  | { kind: "placeTies"; id: string | null }
   | { kind: "journeys" }
   | { kind: "placeFacts" }
-  | { kind: "kindSuggestions" };
+  | { kind: "kindSuggestions" }
+  | { kind: "borders" }
+  | { kind: "regions" };
 
 /** What the index answered: a tag and the value under it. */
 interface Answer {
@@ -887,12 +934,30 @@ export const api = {
     query<DocSummary[]>({ kind: "eventsNaming", id }),
   eventLinks: () => query<EventLink[]>({ kind: "eventLinks" }),
   timelineTags: () => query<DocTag[]>({ kind: "timelineTags" }),
+  /** Every Character↔Place tie, or only those touching one Character or Place. */
+  placeTies: (id: string | null = null) =>
+    query<PlaceTie[]>({ kind: "placeTies", id }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
   /** Places without a kind the gazetteer can name (PLAN §27.13). */
   kindSuggestions: () => query<KindSuggestion[]>({ kind: "kindSuggestions" }),
   /** Write the kinds the user confirmed; only ever adds a missing one. */
   fillKinds: (fills: KindSuggestion[]) => invoke<FillResult>("fill_kinds", { fills }),
   journeys: () => query<Journey[]>({ kind: "journeys" }),
+  /** Every region Border, with a status for any that cannot be drawn (ADR 0023). */
+  borders: () => query<Border[]>({ kind: "borders" }),
+  /** Every Place inside a region's Border, for expanding a chosen region. */
+  regions: () => query<RegionMember[]>({ kind: "regions" }),
+  /** Write a Border drawn on the Map: a `.geojson` beside the Place, and `border`. */
+  saveBorder: (id: string, corners: LatLon[]) =>
+    invoke<DocumentPayload>("save_border", { id, corners }),
+  /**
+   * Import a `.geojson` file picked from disk as a Place's Border: copied whole
+   * beside the Place, and `border`. Refused, saying why, when it holds no area.
+   */
+  importBorder: (id: string, fileName: string, text: string) =>
+    invoke<DocumentPayload>("import_border", { id, fileName, text }),
+  /** Remove a Place's `border` Property, and its file unless another region names it. */
+  deleteBorder: (id: string) => invoke<DocumentPayload>("delete_border", { id }),
   setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
     invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),
   /** The Vault's custom Place kinds (PLAN §27.4). */

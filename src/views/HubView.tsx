@@ -22,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Upload,
   X,
   Waypoints,
 } from "lucide-react";
@@ -43,6 +44,7 @@ import {
 } from "@/lib/api";
 import { SPAN, type SectionProps } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
+import { hubTies } from "@/lib/ties";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import {
   ancestorsOf,
@@ -60,6 +62,8 @@ import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } fro
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
+import { editableCorners, isRegion } from "@/lib/border";
+import { useBorders, useDeleteBorder, useDrawBorder, useImportBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
@@ -736,7 +740,7 @@ function ownedProperties(type: DocType): string[] {
     ...(HAS_ALIASES.includes(type) ? ["aliases"] : []),
     // A Place's kind has its own picker (PLAN §27.12), and so has a
     // Source's (§28.1), with its Cover and its "Part of" (§28.3).
-    ...(type === "place" ? ["kind"] : []),
+    ...(type === "place" ? ["kind", "border"] : []),
     ...(type === "source" ? ["kind", "cover", "parent"] : []),
   ];
 }
@@ -1092,10 +1096,17 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
     <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
   ),
   character: ({ doc, fm, onFmChange }) => (
-    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+    <>
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
+    </>
   ),
   place: ({ doc, fm, onFmChange }) => (
-    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+    <>
+      <BorderSection doc={doc} />
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
+    </>
   ),
   concept: ({ doc, fm, onFmChange }) => (
     <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
@@ -1470,6 +1481,103 @@ function SpanDate({
 }
 
 /**
+ * A region's Border (ADR 0023): where its file is, whether it can be drawn,
+ * and the way to the Map to draw, edit or delete it. Shown on every region,
+ * and on any other Place that names a Border, so a warning is never hidden
+ * because the kind changed.
+ */
+function BorderSection({ doc }: { doc: DocumentPayload }) {
+  const t = useT();
+  const borders = useBorders();
+  const confirmDelete = useDeleteBorder();
+  const importBorder = useImportBorder();
+  const drawBorder = useDrawBorder();
+  const id = doc.summary.id;
+  const border = borders.find((b) => b.doc === id);
+  const region = isRegion({ type: doc.summary.type, kind: doc.frontmatter.kind });
+  if (!region && !border && doc.frontmatter.border == null) return null;
+  const warning = !border
+    ? null
+    : border.status === "missing"
+      ? t.border_missing(border.path)
+      : border.status === "malformed"
+        ? t.border_malformed(border.error ?? "")
+        : border.status === "downloading"
+          ? t.border_downloading
+          : null;
+  const draw = () => drawBorder(id);
+  return (
+    <section data-testid="hub-border" className="space-y-2">
+      <PanelTitle>{t.border}</PanelTitle>
+      {warning ? (
+        <p
+          data-testid="border-warning"
+          data-status={border?.status}
+          className="flex min-w-0 items-start gap-1.5 text-sm text-destructive"
+        >
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{warning}</span>
+        </p>
+      ) : border ? (
+        <p data-testid="border-file" className="min-w-0 break-words text-sm text-muted-foreground">
+          {t.border_file(border.path)}
+        </p>
+      ) : !region ? (
+        <p data-testid="border-not-region" className="text-sm text-muted-foreground">
+          {t.border_not_region}
+        </p>
+      ) : (
+        <p data-testid="border-none" className="text-sm text-muted-foreground">
+          {t.border_none}
+        </p>
+      )}
+      {border?.status === "ok" && !editableCorners(border) && (
+        <p className="text-xs text-muted-foreground">{t.border_pieces}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {/* Only a region takes a Border (ADR 0023); any Place may lose one. */}
+        {region && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-draw"
+              onClick={draw}
+            >
+              <MapPin />
+              {border && editableCorners(border) ? t.border_edit : t.border_draw}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-import"
+              onClick={() => importBorder(id)}
+            >
+              <Upload />
+              {t.border_import}
+            </Button>
+          </>
+        )}
+        {border && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto min-h-8"
+            data-testid="hub-border-delete"
+            onClick={() => confirmDelete(id, border.path)}
+          >
+            <Trash2 />
+            {t.border_delete}
+          </Button>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/**
  * Dates on a Subject (ADR 0005) and, for anything but an Event, the Events
  * naming it.
  *
@@ -1605,6 +1713,57 @@ function DatesSection({
           </ul>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * Who was in this Place, or where this Character was (CONTEXT.md, Character):
+ * one row per Character or Place, merged from the Character's own `places`,
+ * which holds for their whole life, and from Events naming both, each holding
+ * for the Event's time. Read-only: `places` is edited in Properties, Events
+ * on their own pages.
+ */
+function TiesSection({ doc }: { doc: DocumentPayload }) {
+  const t = useT();
+  const id = doc.summary.id;
+  const isPlace = doc.summary.type === "place";
+  const { data } = useQuery({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["character", "place", "event"] },
+    fetch: () => api.placeTies(id),
+  });
+  const rows = useMemo(() => hubTies(data ?? [], id), [data, id]);
+  if (rows.length === 0) return null;
+  return (
+    <section data-testid="hub-ties">
+      <PanelTitle className="mb-3">
+        {isPlace ? t.ties_characters : t.ties_places}
+      </PanelTitle>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li
+            key={r.other.id}
+            data-testid="hub-tie"
+            data-lifelong={r.lifelong ? "true" : "false"}
+            className="min-w-0"
+          >
+            <DocLink doc={r.other} />
+            <ul className="ml-6 min-w-0 space-y-0.5 text-xs text-muted-foreground">
+              {r.lifelong && (
+                <li data-testid="hub-tie-lifelong" className="px-2">
+                  {t.tie_lifelong}
+                </li>
+              )}
+              {r.events.map((e) => (
+                <li key={e.id} data-testid="hub-tie-event" className="min-w-0">
+                  <DocLink doc={e} className="py-0.5 text-xs" />
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

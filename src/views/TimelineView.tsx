@@ -29,8 +29,11 @@ import {
   type Lane,
   type Placed,
 } from "@/lib/timeline";
+import { filterByPeriod, isFiltered, itemsOf, NO_PERIOD_FILTER, tiesOf } from "@/lib/period";
+import { useTagsByDoc } from "@/lib/useTagsByDoc";
 import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
+import { PeriodBar } from "@/components/PeriodBar";
 import { Input } from "@/components/ui/input";
 import { useStore } from "@/lib/store";
 import { propertyLabel, useT } from "@/i18n";
@@ -131,17 +134,26 @@ export function TimelineView() {
     key: [],
     deps: { any: true },
     fetch: async () => {
-      const [rows, links, docTags] = await Promise.all([
+      const [rows, links, docTags, placeTies, members] = await Promise.all([
         api.timeline(),
         api.eventLinks(),
         api.timelineTags(),
+        api.placeTies(),
+        // The Places inside each region's Border (ADR 0023).
+        api.regions(),
       ]);
-      return { rows, links, docTags };
+      return { rows, links, docTags, placeTies, members };
     },
   });
   const rows = useMemo(() => data?.rows ?? [], [data]);
   const links = useMemo(() => data?.links ?? [], [data]);
   const docTags = useMemo(() => data?.docTags ?? [], [data]);
+  // Who is where, and which Place each Event names: the shared Places keep
+  // what is tied to them (CONTEXT.md: Character, Period).
+  const ties = useMemo(
+    () => tiesOf(data?.placeTies ?? [], data?.links ?? []),
+    [data],
+  );
 
   useEffect(() => {
     const el = host.current;
@@ -153,19 +165,37 @@ export function TimelineView() {
   }, []);
 
   const f = s.timelineFilters;
-  const tagsByDoc = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const dt of docTags) m.set(dt.doc, [...(m.get(dt.doc) ?? []), dt.tag]);
-    return m;
-  }, [docTags]);
+  const pf = s.periodFilter;
+  // The Tags the Lanes carry come with the Dates; an undated Character or
+  // Event only matters to the "undated not shown" count, and only when it
+  // carries a chosen Tag, so those are asked for by Tag.
+  const tagsByDoc = useTagsByDoc(pf.tags, docTags);
+  // The Period filter decides per document, before the Timeline's own filters
+  // narrow the rows: every Character and Event is an item, dated or not, so
+  // the ones the Period hides for having no Date can be counted.
+  const perioded = useMemo(() => {
+    // Undated Places too: a chosen one, or one a Tag keeps, is no Lane, but
+    // it is what Characters and Events are tied to.
+    const undatedDocs = s.docs.filter(
+      (d) => d.type === "character" || d.type === "event" || d.type === "place",
+    );
+    // The Timeline's Kinds chips still apply: a hidden kind is not "left out".
+    const hidden = new Set(f.hiddenTypes);
+    const items = itemsOf(rows, undatedDocs, tagsByDoc).filter(
+      (it) => !hidden.has(it.doc.type),
+    );
+    const { visible, undated } = filterByPeriod(items, pf, ties, data?.members ?? []);
+    const keep = new Set(visible.map((it) => it.doc.id));
+    return { rows: rows.filter((r) => keep.has(r.doc.id)), undated };
+  }, [rows, s.docs, tagsByDoc, f.hiddenTypes, pf, ties, data]);
   const label = useCallback((name: string) => propertyLabel(name, t), [t]);
   const allLanes = useMemo(
     () => buildLanes(rows, links, t.events, label),
     [rows, links, t.events, label],
   );
   const matched = useMemo(
-    () => buildLanes(filterRows(rows, f, tagsByDoc), links, t.events, label),
-    [rows, f, tagsByDoc, links, t.events, label],
+    () => buildLanes(filterRows(perioded.rows, f), links, t.events, label),
+    [perioded.rows, f, links, t.events, label],
   );
   // The extent ignores the filters, so narrowing them does not move the view.
   const extent = useMemo(() => extentOf(allLanes), [allLanes]);
@@ -274,7 +304,7 @@ export function TimelineView() {
     () => (f.inView ? cullToView(matched, from, to) : matched),
     [matched, f.inView, from, to],
   );
-  const filtered = activeCount(f) > 0;
+  const filtered = isFiltered(pf, activeCount(f));
   const tagChips = useMemo(
     () => [...new Set(docTags.map((d) => d.tag))],
     [docTags],
@@ -311,7 +341,9 @@ export function TimelineView() {
           <TimelineFilters
             filters={f}
             onChange={s.setTimelineFilters}
-            tags={tagChips}
+            selectedTags={pf.tags}
+            onTags={(tags) => s.setPeriodFilter({ ...pf, tags })}
+            tagChoices={tagChips}
             props={propChips}
             typeLabel={(ty) => t.types_plural[ty] ?? ty}
           />
@@ -352,6 +384,7 @@ export function TimelineView() {
           </Button>
         </div>
       </ViewHeader>
+      <PeriodBar undated={perioded.undated} />
       <div
         ref={host}
         data-testid="timeline"
@@ -547,15 +580,15 @@ export function TimelineView() {
                 variant="outline"
                 className="pointer-events-auto"
                 data-testid="tl-empty-clear"
-                onClick={() =>
+                onClick={() => {
                   s.setTimelineFilters({
                     ...f,
                     hiddenTypes: [],
-                    tags: [],
                     props: [],
                     search: "",
-                  })
-                }
+                  });
+                  s.setPeriodFilter(NO_PERIOD_FILTER);
+                }}
               >
                 {t.tl_filter_clear}
               </Button>

@@ -6,6 +6,7 @@ import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
+  Upload,
   ArrowRight,
   BookOpenText,
   CalendarRange,
@@ -41,6 +42,7 @@ import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
+import { useDrawBorder, useImportBorder, useRegionIds } from "@/lib/useBorders";
 import { checkForUpdate, isDesktopApp } from "@/lib/updater";
 import { SOURCE_URL, openExternal } from "@/lib/links";
 import { toast } from "sonner";
@@ -81,6 +83,9 @@ export function useCommands(): Command[] {
   const tutorials = useTutorials();
   const appearance = useAppearance();
   const fillKinds = useFillKinds();
+  const importBorder = useImportBorder();
+  const drawBorder = useDrawBorder();
+  const regionIds = useRegionIds();
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -208,6 +213,30 @@ export function useCommands(): Command[] {
         fillKinds().catch(console.error);
       },
     });
+    // Draw a region's Border on the Map (ADR 0023). From a region's page it
+    // draws that region; anywhere else the Map asks which one.
+    {
+      const here = s.view.kind === "doc" ? s.docsById.get(s.view.id) : undefined;
+      const region = here && regionIds.has(here.id) ? here : undefined;
+      list.push({
+        id: "map.draw_border",
+        title: t.border_draw,
+        group: "create",
+        icon: MapPin,
+        keywords: "border frontier outline region area polygon map draw geojson",
+        run: () => drawBorder(region?.id ?? null),
+      });
+      // Import one from a `.geojson` file: from a region's page, for that region.
+      if (region)
+        list.push({
+          id: "map.import_border",
+          title: t.border_import,
+          group: "create",
+          icon: Upload,
+          keywords: "border frontier outline region area polygon map import geojson file",
+          run: () => importBorder(region.id),
+        });
+    }
     list.push({
       id: "nav.random",
       title: t.random_note,
@@ -407,7 +436,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds]);
 }
 
 /**
@@ -430,6 +459,8 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "nav.random",
     "skins.gallery",
     "map.fill_kinds",
+    "map.draw_border",
+    "map.import_border",
     "doc.board",
     "doc.split",
     "doc.deliver",

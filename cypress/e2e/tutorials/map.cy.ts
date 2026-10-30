@@ -19,6 +19,9 @@ describe("Tutorial: Map & Journeys", () => {
 
   const markers = () => cy.get("[data-testid=map] [data-testid=map-pin]");
   const pin = (title: string) => cy.contains("[data-testid=map-pin]", title);
+  // The demo vault's Judah has a Border of its own; the walk draws Egypt's.
+  const egyptBorder = () =>
+    cy.docByTitle("Egypt").then((egypt) => cy.get(`[data-testid=map-border][data-id=${egypt.id}]`));
 
   it("can be followed to the end", () => {
     // Opened from a Place's Hub, which lists it, the way a user who is
@@ -94,9 +97,46 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-route").should("not.exist");
     cy.tutorialNext();
 
-    // 5. A Place's kind is picked on its Hub, or made there; the gazetteer fills
-    //    in the rest, after naming what it would change.
+    // 5. A Period, typed or dragged, shows the Events of those years beside
+    //    their Places; the Timeline shows the same Period; Clear brings all back.
     cy.tutorialStep(4);
+    cy.get("[data-testid=map] [data-testid=map-event]").should("not.exist");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("Solomon's temple built").then((ev) =>
+      cy.get(`[data-testid=map] [data-testid=map-event][data-id="${ev.id}"]`).should("exist"),
+    );
+    // A pin's card lists the Characters there in the Period.
+    cy.contains("[data-testid=map-pin]", "Jerusalem").find(".map-pin").click({ force: true });
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=map-pin-card-character][data-id="${david.id}"]`).should("exist"),
+    );
+    cy.get("[data-testid=map-pin-card-close]").click();
+    // Places draws only the Places picked.
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Jerusalem");
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    markers().should("have.length", 1);
+    cy.get("[data-testid=period-place-remove]").click();
+    // The slider's middle moves the Period whole.
+    cy.get("[data-testid=period-slider-middle]").focus().type("{shift}{rightarrow}");
+    cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "1090–990 BCE");
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=map] [data-testid=map-event]").should("not.exist");
+    cy.tutorialNext();
+
+    // 6. A Place's kind is picked on its Hub, or made there; the gazetteer fills
+    //    in the rest, after naming what it would change.
+    cy.tutorialStep(5);
     cy.openDoc("Patmos");
     cy.hubTitle("Patmos");
     cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "region").click();
@@ -113,8 +153,8 @@ describe("Tutorial: Map & Journeys", () => {
     cy.contains("Every Place the gazetteer knows already has a kind.").should("exist");
     cy.tutorialNext();
 
-    // 6. Troas has no coordinates: Set location from the bundled list puts it on the Map.
-    cy.tutorialStep(5);
+    // 7. Troas has no coordinates: Set location from the bundled list puts it on the Map.
+    cy.tutorialStep(6);
     cy.get("[data-testid=map] .map-name").should("not.contain", "Troas");
     cy.openDoc("Troas");
     cy.hubTitle("Troas");
@@ -129,8 +169,91 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-name").should("contain", "Troas");
     cy.tutorialNext();
 
-    // 7. Do it once: a Journey through a Place the gazetteer makes, kind and all.
-    cy.tutorialStep(6);
+    // 8. A region's Border: drawn from its Hub, filled on the Map, edited, deleted.
+    cy.tutorialStep(7);
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.get("[data-testid=hub-border-draw]").should("contain", "Draw Border").click();
+    cy.get("[data-testid=border-toolbar]").should("be.visible");
+    cy.get("[data-testid=map]").click(200, 150);
+    cy.get("[data-testid=map]").click(320, 150);
+    cy.get("[data-testid=map]").click(320, 260);
+    cy.get("[data-testid=map]").dblclick(200, 260);
+    cy.get("[data-testid=border-toolbar]").should("not.exist");
+    egyptBorder().should("have.length", 1);
+    cy.openDoc("Egypt");
+    cy.get("[data-testid=hub-border-draw]").should("contain", "Edit Border").click();
+    cy.get("[data-testid=border-corner]").should("have.length", 4);
+    cy.get("[data-testid=border-save]").click();
+    cy.tutorialCommand("map.draw_border");
+    cy.docByTitle("Egypt").then((egypt) => cy.get("[data-testid=border-region]").select(egypt.id));
+    cy.get("[data-testid=border-delete]").click();
+    cy.get("[data-testid=confirm-batch]").click();
+    egyptBorder().should("not.exist");
+    pin("Egypt").should("have.class", "no-pin");
+    // Import one instead, from the region's page: both pieces are drawn.
+    cy.openDoc("Egypt");
+    cy.hubTitle("Egypt");
+    cy.tutorialCommand("map.import_border");
+    cy.get("[data-testid=border-input]").selectFile("cypress/fixtures/egypt.geojson", { force: true });
+    cy.get("[data-testid=border-file]").should("contain", "Egypt.geojson");
+    cy.runCommand("Go to Map");
+    egyptBorder().should("have.length", 1);
+    cy.openDoc("Egypt");
+    cy.get("[data-testid=hub-border-delete]").click();
+    cy.get("[data-testid=confirm-batch]").click();
+    cy.get("[data-testid=border-none]").should("exist");
+    cy.tutorialNext();
+
+    // 9. A chosen region draws its Border and the Places inside it, and its
+    //    Border only in the years of its own Dates.
+    cy.tutorialStep(8);
+    cy.runCommand("Go to Map");
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").type("Judah");
+    cy.docByTitle("Judah").then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("640");
+    cy.get("[data-testid=period-to]").type("580");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "640–580 BCE");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id=${judah.id}]`).should("exist"),
+    );
+    for (const inside of ["Jerusalem", "Bethlehem", "Anathoth"])
+      cy.docByTitle(inside).then((p) =>
+        cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+      );
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    // Paul's day: the kingdom had ended; its Border is hidden, and the
+    // Places inside it go with it.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").clear().type("30");
+    cy.get("[data-testid=period-from-era]").click();
+    cy.get("[data-testid=period-to]").clear().type("60");
+    cy.get("[data-testid=period-to-era]").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "30–60 CE");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id=${judah.id}]`).should("not.exist"),
+    );
+    cy.docByTitle("Anathoth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-place-remove]").click();
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+    );
+    cy.tutorialNext();
+
+    // 10. Do it once: a Journey through a Place the gazetteer makes, kind and all.
+    cy.tutorialStep(9);
     cy.tutorialCommand("create.journey");
     cy.get("[data-testid=new-doc-title]").type("Paul's first journey");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();

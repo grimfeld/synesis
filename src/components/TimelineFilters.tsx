@@ -30,18 +30,28 @@ export const TIMELINE_TYPES: DocType[] = [
 export function TimelineFilters({
   filters,
   onChange,
-  tags,
+  selectedTags,
+  onTags,
+  tagChoices,
   props,
   typeLabel,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
-  tags: string[];
+  /**
+   * The Tags chosen, which belong to the Period filter the Map shares rather
+   * than to the Timeline's own filters; shown here because this is where a
+   * reader of the Timeline looks for them.
+   */
+  selectedTags: string[];
+  onTags: (tags: string[]) => void;
+  /** The Tags offered as chips. */
+  tagChoices: string[];
   props: string[];
   typeLabel: (ty: DocType) => string;
 }) {
   const t = useT();
-  const n = activeCount(filters);
+  const n = activeCount(filters) + selectedTags.length;
   const shownTypes = TIMELINE_TYPES.filter(
     (ty) => !filters.hiddenTypes.includes(ty),
   );
@@ -92,9 +102,9 @@ export function TimelineFilters({
         />
         <Chips
           label={t.tl_filter_tags}
-          values={tags}
-          selected={filters.tags}
-          onChange={(v) => onChange({ ...filters, tags: v })}
+          values={tagChoices}
+          selected={selectedTags}
+          onChange={onTags}
         />
         <label className="flex items-center gap-2 text-xs">
           <input
@@ -114,15 +124,15 @@ export function TimelineFilters({
             variant="ghost"
             data-testid="tl-filter-clear"
             className="h-7 justify-start text-xs"
-            onClick={() =>
+            onClick={() => {
               onChange({
                 ...filters,
                 hiddenTypes: [],
-                tags: [],
                 props: [],
                 search: "",
-              })
-            }
+              });
+              onTags([]);
+            }}
           >
             <X />
             {t.tl_filter_clear}

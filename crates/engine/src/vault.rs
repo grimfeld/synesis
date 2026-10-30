@@ -399,6 +399,11 @@ impl Vault {
         &self.root
     }
 
+    /// The Vault's per-Device folder, outside the synced one.
+    pub fn local_dir(&self) -> &Path {
+        &self.local_dir
+    }
+
     pub fn lang(&self) -> Lang {
         self.lang
     }
@@ -469,7 +474,8 @@ impl Vault {
             if self.index.mtime_of(&rel)? == Some(mtime) {
                 continue;
             }
-            if let Some(d) = self.index_file(&rel)? {
+            // The Border names are noted once, after the walk.
+            if let Some(d) = self.index_file_as(&rel, false)? {
                 changed.push(d);
             }
         }
@@ -481,7 +487,124 @@ impl Vault {
             }
         }
         self.index_boards()?;
+        // A Border file can change while the app is closed, with its Place
+        // untouched (another tool, Pairing, iCloud): every one is read again.
+        self.refresh_borders()?;
         Ok(changed)
+    }
+
+    // ---- Containment (ADR 0023) ----------------------------------------------
+
+    /// After a Place is indexed: its own Border, read and recorded (with the
+    /// Places inside it recomputed when it changed), and the regions it lies
+    /// inside, from its coordinates. Only a region has a Border.
+    fn index_containment(&mut self, id: &str, rel: &str, fm: &Map<String, Value>) -> Result<()> {
+        let border = fm.get(crate::border::PROPERTY).filter(|_| crate::border::is_region(fm.get("kind")));
+        self.record_border(id, rel, border)?;
+        self.index.locate_place(id)
+    }
+
+    /// `(id, path, border value)` for every region Place that sets `border`.
+    /// A Place of another kind may carry the Property, written by hand; it is
+    /// not a Border (ADR 0023).
+    fn bordered_places(&self) -> Result<Vec<(String, String, Value)>> {
+        let regions: std::collections::HashSet<String> = self
+            .index
+            .property_on(DocType::Place, "kind")?
+            .into_iter()
+            .filter(|(_, _, k)| crate::border::is_region(Some(k)))
+            .map(|(id, _, _)| id)
+            .collect();
+        Ok(self
+            .index
+            .property_on(DocType::Place, crate::border::PROPERTY)?
+            .into_iter()
+            .filter(|(id, _, _)| regions.contains(id))
+            .collect())
+    }
+
+    /// The region Places whose `border` names the file `rel`.
+    pub fn places_naming_border(&self, rel: &str) -> Result<Vec<String>> {
+        Ok(self
+            .bordered_places()?
+            .into_iter()
+            .filter(|(_, path, value)| Self::border_path(path, value).as_deref() == Some(rel))
+            .map(|(id, _, _)| id)
+            .collect())
+    }
+
+    /// Tell Pairing which Border files the Vault's regions name: only those
+    /// travel (ADR 0023).
+    fn note_border_names(&self) -> Result<()> {
+        let names = self
+            .bordered_places()?
+            .into_iter()
+            .filter_map(|(_, path, value)| Self::border_path(&path, &value));
+        crate::border::set_named(&self.local_dir, names)
+    }
+
+    /// Delete a Border file the Vault no longer wants, unless another region
+    /// still names it, leaving a tombstone so a paired Device drops its copy
+    /// rather than pushing it back. `except` is the Place letting it go.
+    pub fn drop_border_file(&mut self, rel: &str, except: &str) -> Result<bool> {
+        if self.places_naming_border(rel)?.iter().any(|id| id != except) {
+            return Ok(false);
+        }
+        crate::border::remove(&self.root, &self.local_dir, rel)?;
+        Ok(true)
+    }
+
+    /// Read one region's Border file into the index. A file iCloud has not
+    /// downloaded yet keeps what was recorded before; one that is missing or
+    /// malformed contains nothing, as a region without a Border does.
+    fn record_border(&mut self, id: &str, place_path: &str, border: Option<&Value>) -> Result<bool> {
+        let Some(rel) = border.and_then(|b| Self::border_path(place_path, b)) else {
+            return self.index.set_region_border(id, None);
+        };
+        let b = crate::border::read(&self.root, id, &rel);
+        match b.status {
+            crate::border::BorderStatus::Downloading => Ok(false),
+            crate::border::BorderStatus::Ok => self.index.set_region_border(id, Some(&b.polygons)),
+            _ => self.index.set_region_border(id, None),
+        }
+    }
+
+    /// Read every region's Border file again and recompute containment where
+    /// one changed. Returns the regions that changed.
+    fn refresh_borders(&mut self) -> Result<Vec<String>> {
+        let mut changed = Vec::new();
+        let named = self.bordered_places()?;
+        let mut seen = std::collections::HashSet::new();
+        for (id, path, value) in named {
+            seen.insert(id.clone());
+            if self.record_border(&id, &path, Some(&value))? {
+                changed.push(id);
+            }
+        }
+        // A Border on record whose Place no longer names one.
+        for id in self.index.bordered_regions()? {
+            if !seen.contains(&id) && self.index.set_region_border(&id, None)? {
+                changed.push(id);
+            }
+        }
+        self.note_border_names()?;
+        Ok(changed)
+    }
+
+    /// A `.geojson` file changed on disk without its Place changing (an edit
+    /// in another tool, a Border from a paired Device, a Border command): the
+    /// Places inside each region are recomputed. Returns the regions whose
+    /// containment changed, for the views to ask again.
+    pub fn border_file_changed(&mut self) -> Result<Vec<DocSummary>> {
+        // Every Border is read, not only the one that changed: a file can be
+        // named by more than one Place, and there are few regions in any Vault.
+        let mut out = Vec::new();
+        for id in self.refresh_borders()? {
+            if let Some(d) = self.index.get(&id)? {
+                out.push(d);
+            }
+        }
+        Ok(out)
     }
 
     /// Record the Board refs of every Composition that has a Board.
@@ -513,7 +636,11 @@ impl Vault {
     /// Parse one file into the index, assigning an id if it has none and
     /// materialising any Scripture pages it mentions.
     pub fn index_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
-        self.index_file_as(rel, false)
+        let d = self.index_file_as(rel, false)?;
+        if d.as_ref().is_some_and(|d| d.doc_type == DocType::Place) {
+            self.note_border_names()?;
+        }
+        Ok(d)
     }
 
     /// `index_file`, told whether the file was just written by this app from
@@ -554,6 +681,9 @@ impl Vault {
         let date_names = self.schema.date_names();
         self.index
             .upsert(&id, rel, mtime, &text, &parsed, &date_names)?;
+        if parsed.doc_type == DocType::Place {
+            self.index_containment(&id, rel, &parsed.frontmatter)?;
+        }
         let passages: Vec<Passage> = parsed
             .references
             .iter()
@@ -597,7 +727,8 @@ impl Vault {
     }
 
     pub fn forget(&mut self, rel: &str) -> Result<()> {
-        self.index.remove_path(rel)
+        self.index.remove_path(rel)?;
+        self.note_border_names()
     }
 
     /// A file the watcher saw disappear. Forgotten if it is really gone;
@@ -653,6 +784,9 @@ impl Vault {
         let text = document::with_frontmatter_fields(text, &[("id", id)]);
         write_atomic(&self.abs(&summary.path), &text)?;
         self.index_file_as(&summary.path, true)?;
+        if summary.doc_type == DocType::Place {
+            self.note_border_names()?;
+        }
         self.read(id)
     }
 
@@ -1062,10 +1196,22 @@ impl Vault {
         if board.exists() {
             fs::remove_file(board)?;
         }
+        // Likewise a region's Border, unless another region names the file
+        // too (ADR 0023).
+        let border = self
+            .bordered_places()?
+            .into_iter()
+            .find(|(place, _, _)| place == id)
+            .and_then(|(_, path, value)| Self::border_path(&path, &value));
+        if let Some(rel) = border {
+            self.drop_border_file(&rel, id)?;
+        }
         if let Some(sync) = self.sync.as_mut() {
             sync.record_delete(id)?;
         }
-        self.index.remove_id(id)
+        self.index.remove_id(id)?;
+        self.refresh_borders()?;
+        Ok(())
     }
 
     // ---- read-only queries -------------------------------------------------
@@ -1144,15 +1290,51 @@ impl Vault {
             Query::Timeline => Answer::Dates(self.index.timeline()?),
             Query::EventsNaming { id } => Answer::Docs(self.index.events_naming(&id)?),
             Query::EventLinks => Answer::EventLinks(self.index.event_links()?),
+            Query::PlaceTies { id } => Answer::PlaceTies(self.index.place_ties(id.as_deref())?),
             Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
             Query::KindSuggestions => Answer::KindSuggestions(self.kind_suggestions()?),
+            Query::Borders => Answer::Borders(self.borders()?),
+            Query::Regions => Answer::Regions(self.index.regions()?),
         })
     }
 
     pub fn list(&self, doc_type: Option<DocType>) -> Result<Vec<DocSummary>> {
         self.index.list(doc_type)
+    }
+
+    /// Every region that names a Border, with the Border read from its file
+    /// (ADR 0023). Read on every ask rather than indexed: the file can change
+    /// under the Place (Pairing, iCloud, another tool) without the Place
+    /// itself changing. A `border` that names anything but a `.geojson` file
+    /// in the Vault is reported, never read.
+    pub fn borders(&self) -> Result<Vec<crate::border::Border>> {
+        let mut out = Vec::new();
+        for (id, path, value) in self.bordered_places()? {
+            match Self::border_path(&path, &value) {
+                Some(rel) => out.push(crate::border::read(&self.root, &id, &rel)),
+                None => {
+                    let Some(target) = crate::border::link_target(&value) else { continue };
+                    out.push(crate::border::Border {
+                        doc: id,
+                        error: Some(crate::border::not_a_border(&target)),
+                        path: target,
+                        status: crate::border::BorderStatus::Malformed,
+                        polygons: vec![],
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The vault-relative Border file a Place's `border` value names: a
+    /// `.geojson` file inside the Vault, or nothing. A `border` naming a note
+    /// or a path out of the Vault is never read, written or deleted.
+    pub fn border_path(place_path: &str, value: &Value) -> Option<String> {
+        let target = crate::border::link_target(value)?;
+        crate::border::path_for(place_path, &target).filter(|rel| crate::border::is_synced(rel))
     }
     pub fn get(&self, id: &str) -> Result<Option<DocSummary>> {
         self.index.get(id)

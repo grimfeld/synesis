@@ -45,6 +45,65 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Period row carries the Period as text ("1100–1000 av. n. è."),
+      // "1 non daté non affiché" and "Effacer la Période" side by side on a
+      // 390px screen; its popover sets a year field beside an era button.
+      it("keeps the Timeline's Period row inside the screen", () => {
+        cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-timeline]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-testid=period-undated]").should("be.visible");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Map's Period row adds the time slider, its track between the two
+      // years it spans ("4027 av. n. è." … "96 de n. è.") on a 390px screen.
+      it("keeps the Map's Period row and slider inside the screen", () => {
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period-slider]").should("be.visible");
+        cy.get("[data-testid=period-slider-from]").focus().type("{pageup}");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Places chosen with the Period sit on its row as chips beside
+      // "Lieux", and a pin card lists "Personnages ici" over the map.
+      it("keeps the Period's Place chips and a pin card inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        for (const title of ["Jerusalem", "Bethlehem", "Mount Sinai"]) {
+          cy.get("[data-testid=period-places]").click();
+          cy.get("[data-testid=period-places-search]").clear().type(title);
+          cy.docByTitle(title).then((p) =>
+            cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+          );
+          expectNoOverflow();
+          cy.get("body").type("{esc}");
+        }
+        cy.get("[data-testid=period-place]").should("have.length", 3);
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        cy.get("body").type("{esc}");
+        cy.docByTitle("Jerusalem").then((p) =>
+          cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"] .map-pin`).click({ force: true }),
+        );
+        cy.get("[data-testid=map-pin-card]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // The Skin editor packs colour rows, sliders and font pickers with
       // long French labels ("Bordures des champs", "Taille d'écriture").
       it("keeps the Skin editor inside its card on a phone", () => {
@@ -263,6 +322,20 @@ describe("Locale layout", () => {
         cy.get("[data-testid=journey-stop-input]").type("kadesh");
         cy.get("[data-testid=journey-stop-option][data-kind=gazetteer]").should("exist");
         expectNoOverflow();
+      });
+
+      // A region's Border section on its Hub (« Pas encore de frontière… »,
+      // « Tracer la frontière ») and the Map's drawing bar with its region
+      // picker, hint and « Enregistrer la frontière ».
+      it("keeps a region's Border section and the Border drawing bar inside the screen", () => {
+        cy.openDoc("Egypt");
+        cy.get("[data-testid=hub-border]").scrollIntoView().should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=hub-border-draw]").click();
+        cy.get("[data-testid=border-toolbar]").should("be.visible");
+        cy.get("[data-testid=border-hint]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=border-cancel]").click();
       });
 
       // The Map's legend and filter popover (« Couleur selon », « Choisissez-en

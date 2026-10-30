@@ -30,7 +30,8 @@
 use crate::document::DocType;
 use crate::index::{
     AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
-    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, SearchHit, TrailEntry,
+    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, RegionMember, SearchHit,
+    TrailEntry,
     UnlinkedMentions, UnresolvedLink,
 };
 use serde::{Deserialize, Serialize};
@@ -134,12 +135,20 @@ pub enum Query {
     EventLinks,
     /// Every (document, Tag) pair over dated documents, for the Timeline filter.
     TimelineTags,
+    /// Every Character↔Place tie, from Characters' `places` and from Events,
+    /// or only those touching `id` (a Character or a Place) for its Hub.
+    PlaceTies { id: Option<String> },
     /// Every Journey with its Stops in travel order (ADR 0010).
     Journeys,
     /// Tags, Books and mention counts per Place, for the Map's filters.
     PlaceFacts,
     /// Places without a kind the gazetteer can name (PLAN §27.13).
     KindSuggestions,
+    /// Every region Border the Vault holds, read from its `.geojson` file
+    /// (ADR 0023), with a warning for any that cannot be drawn.
+    Borders,
+    /// Every Place inside a region's Border, computed at index time (ADR 0023).
+    Regions,
 }
 
 fn unlinked_limit() -> usize {
@@ -186,10 +195,13 @@ pub enum Answer {
     Doc(Option<DocSummary>),
     Dates(Vec<DatedProperty>),
     EventLinks(Vec<EventLink>),
+    PlaceTies(Vec<PlaceTie>),
     DocTags(Vec<DocTag>),
     Journeys(Vec<Journey>),
     PlaceFacts(Vec<PlaceFact>),
     KindSuggestions(Vec<crate::vault::KindSuggestion>),
+    Borders(Vec<crate::border::Border>),
+    Regions(Vec<RegionMember>),
 }
 
 /// How many Mentions one Verse has.
@@ -273,6 +285,7 @@ mod wire_tests {
             Query::AmbiguousTitles,
             Query::DatesOf { id: "x".into() },
             Query::EventsNaming { id: "x".into() },
+            Query::PlaceTies { id: Some("x".into()) },
             Query::VerseCoverage { book: 1, chapter: 1 },
         ];
         for q in every {

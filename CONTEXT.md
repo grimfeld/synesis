@@ -100,15 +100,15 @@ A Mention that isn't: text in another document that matches this Hub's name or o
 _Avoid_: Unlinked reference, ghost link, potential backlink
 
 **Linkable**:
-A name in the document being written that matches a Topical Subject or a Source and is not yet a Mention. Shown while writing, so the user can turn it into a Mention in place. The mirror of an Unlinked mention, seen from the other end: the same documents that gather Unlinked mentions are the ones that can appear as a Linkable. Scripture is never Linkable, because a Passage is already a Mention.
+A name in the document being written that matches a Topical Subject or a Source and is not yet a Mention. Shown while writing, so the user can turn it into a Mention in place. A name counts only as a whole word, though a French elision before it does not hide it ("d'Israël", "l'Égypte"); a longer word containing it ("Israëlites") is not that name, and needs an Alias. A name inside a Passage is never Linkable, and never an Unlinked mention: the "Jérémie" of "Jérémie 48:2" is the Book, not the Character. The mirror of an Unlinked mention, seen from the other end: the same documents that gather Unlinked mentions are the ones that can appear as a Linkable. Scripture is never Linkable, because a Passage is already a Mention.
 _Avoid_: Link suggestion, autolink, loose name
 
 **Place**:
-A geographical location in the Bible's world, with a position on the map. Has a kind — what sort of place it is — which the Map draws as the shape of its pin. Five kinds come with the app: settlement, mountain, water, region and site; the user may add their own. A kind nobody has defined is still a Place, drawn with the plain pin. Created manually by the user.
+A geographical location in the Bible's world, with a position on the map. May carry a Span as `start` and `end` — when it existed — so a city, a kingdom or a province sits on the Timeline and on the Map only within the Periods it existed in. A region may also have a Border. Has a kind — what sort of place it is — which the Map draws as the shape of its pin. Five kinds come with the app: settlement, mountain, water, region and site; the user may add their own. A kind nobody has defined is still a Place, drawn with the plain pin. Created manually by the user.
 _Avoid_: Location
 
 **Character**:
-A person in the Bible's world. May carry a Span — their lifespan, as `born` and `died` — and so sit on the Timeline. Created manually by the user.
+A person in the Bible's world. May carry a Span — their lifespan, as `born` and `died` — and so sit on the Timeline. Is tied to a Place by naming it among their Places, or by an Event that names both; either way that Character is "in" that Place — for their whole life when they name it, for the Event's time when an Event does. Created manually by the user.
 _Avoid_: Person, figure
 
 **Concept**:
@@ -132,7 +132,7 @@ A moment in the Bible's chronology, written the way a reader would say it: "c. 1
 _Avoid_: Timestamp, year (a year is one precision of Date)
 
 **Span**:
-The stretch between a pair of Dates: a Character's lifespan, an Event's or a Journey's duration. One concept whichever it is, carried by two Date Properties whose names differ by what the Span is of — a Character is `born` and `died`, an Event and a Journey `start` and `end`. A Span is recognised, never declared: the user writes two Dates and the app sees the Span in them, so there is nothing named "span" to fill in. Recognised on any page that carries such a pair, so a Character with a reign has that Span too; each kind of page only *suggests* the pair conventional for it.
+The stretch between a pair of Dates: a Character's lifespan, an Event's or a Journey's duration. One concept whichever it is, carried by two Date Properties whose names differ by what the Span is of — a Character is `born` and `died`, an Event, a Journey and a Place `start` and `end`. A Span is recognised, never declared: the user writes two Dates and the app sees the Span in them, so there is nothing named "span" to fill in. Recognised on any page that carries such a pair, so a Character with a reign has that Span too; each kind of page only *suggests* the pair conventional for it.
 _Avoid_: Lifespan or duration (both are what a particular Span is of, not a second term), period, range, interval
 
 **Property**:
@@ -185,6 +185,10 @@ _Avoid_: Dashboard, start page, landing
 The view that lays every dated thing along the Bible's chronology: Events, and each Subject that carries a Date, on its own Lane. Zooms from millennia to a single year, and narrows to the Lanes worth seeing by type, Tag, Property name, title, or what the current zoom covers.
 _Avoid_: Chronology (that is the subject matter), history view, Gantt
 
+**Period**:
+A stretch of the Bible's chronology the reader narrows to, shared by the Timeline and the Map: set it on one and the other shows the same years. Whatever overlaps the Period is shown; whatever lies wholly outside it is not. Narrowing to Places as well ("prophets in Judah, 640–580 BCE") keeps only what is in those Places, a region taking in every Place inside it. A Character or Event with no Date lies outside every Period; a Place with no Span lies inside every one, and a Place's Span missing one end runs on without limit that way. Anything else with a single Date counts at that Date alone: a Character with only a death year is in a Period only if it holds that year.
+_Avoid_: Era, epoch, range, time filter
+
 **Lane**:
 One row of a Timeline: the Events Lane on top, then one per dated Subject. A Subject's Lane carries its own Dates and every Event naming it. A Subject's Hub shows the same Lane in miniature.
 _Avoid_: Row, track, swimlane
@@ -210,8 +214,20 @@ The full-screen view a Composition is given from: its text, its Board, or both s
 _Avoid_: Presentation mode, presenter view, slideshow, teleprompter
 
 **Map**:
-The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all. Each pin's shape shows its Place's kind, except a region, which is an area rather than a point and is shown by its name alone. A pin's colour answers a question the reader picks — kind (the default), Tag or Book — except that a Stop on a Journey being drawn wears the route's colour.
+The view that plots every Place with coordinates, and draws Journeys as routes through their Stops. Narrows to the Places worth seeing by Tag, title, the Book they are mentioned in, and whether anything mentions them at all. Each pin's shape shows its Place's kind, except a region, which is an area rather than a point and is shown by its Border, or by its name alone when it has none. Narrows to a Period as well, which the Timeline shares. A pin's colour answers a question the reader picks — kind (the default), Tag or Book — except that a Stop on a Journey being drawn wears the route's colour.
 _Avoid_: Atlas, Globe, Geography view
+
+**Border**:
+The drawn outline of a region Place: the land it covered. A region's Border does not change over time; when the land changes hands it becomes another Place with its own Span and Border, as the Kingdom of Judah and the Roman province of Judea are two Places. A Place lies inside a region when it lies within that region's Border.
+_Avoid_: Shape, polygon, outline, territory
+
+**Pane**:
+One of the side-by-side places a document is open in within a window, so two documents can be read or written together. Each Pane goes back and forward on its own; the side panel, the Command Palette and Back follow the Pane last used.
+_Avoid_: Split, tab, column
+
+**Window**:
+A separate window of the app on a desktop Device, with its own Panes. The same document may be open in several Windows and Panes at once, and they always show the same text.
+_Avoid_: Instance, view
 
 **Command**:
 A named action the user can run from the Command Palette ("New Clipping", "Toggle Source mode", "Go to Graph"). Commands may also have a keyboard shortcut; the shortcut is a way to run the command, not a separate thing.

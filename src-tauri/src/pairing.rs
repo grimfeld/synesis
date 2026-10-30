@@ -40,6 +40,16 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                     }
                 }
             }
+            // Border files that just arrived (ADR 0023): which Places lie
+            // inside each region is recomputed now, not at the next scan.
+            if let Event::Borders { .. } = &ev {
+                let state = forward.state::<AppState>();
+                if let Ok(changed) = state.with_vault_mut(|v| v.border_file_changed()) {
+                    if !changed.is_empty() {
+                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
+                    }
+                }
+            }
             // Config files that just arrived (ADR 0016): the schema is held in
             // memory, the rest is read by the UI on demand.
             if let Event::Config { names } = &ev {

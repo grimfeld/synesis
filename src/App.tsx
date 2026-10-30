@@ -21,6 +21,7 @@ import { SettingsView } from "./views/SettingsView";
 import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
 import { onPicturesArrived } from "./editor/pictures";
+import { BORDERS_CHANGED } from "./lib/border";
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "sonner";
@@ -79,6 +80,7 @@ function Shell() {
       .onPairingEvent((e) => {
         if (e.kind === "join_request") s.setDialog({ kind: "pairing-request", node: e.node, name: e.member.name, platform: e.member.platform });
         if (e.kind === "attachments") onPicturesArrived(e.names);
+        if (e.kind === "borders") window.dispatchEvent(new Event(BORDERS_CHANGED));
       })
       .then((u) => (unPair = u));
     return () => {

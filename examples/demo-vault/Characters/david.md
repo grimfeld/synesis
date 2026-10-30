@@ -7,5 +7,6 @@ aliases: ["King David"]
 born: "c. 1107 BCE"
 anointed: "c. 1077 BCE"
 died: "1037 BCE"
+places: ["[[Bethlehem]]", "[[Jerusalem]]"]
 ---
 Shepherd, psalmist, king (2Sa 5:4).
