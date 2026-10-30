@@ -35,8 +35,10 @@ import {
   activePane,
   initialPanes,
   panesReducer,
+  otherPane,
   restoreLayout,
   savedLayout,
+  type ModifierClick,
   type PaneIndex,
   type DocTab,
   type PaneAction,
@@ -44,7 +46,8 @@ import {
   type View,
 } from "./panes";
 import { flushPending } from "./pending";
-import { isSecondaryWindow, windowStart } from "./windows";
+import { closeOtherWindows, isSecondaryWindow, windowStart } from "./windows";
+import { live } from "./live";
 import {
   clampSize,
   DEFAULT_SIZE,
@@ -53,6 +56,7 @@ import {
 } from "./delivery";
 
 export type { DocTab, View } from "./panes";
+export { otherPane } from "./panes";
 
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
@@ -109,10 +113,6 @@ const PANES_KEY = (root: string) => `synesis.panes:${root}`;
  */
 const SECONDARY_WINDOW = isSecondaryWindow();
 
-/** Whether a click asks for the other Pane: Cmd-click on macOS, Ctrl-click elsewhere. */
-export function otherPane(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
-  return e.metaKey || e.ctrlKey;
-}
 
 interface Store {
   settings: Settings | null;
@@ -178,6 +178,15 @@ interface Store {
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
   closeVault: () => Promise<void>;
+  /**
+   * Before the engine changes the Vault (open, close, leave, move): every
+   * other Window saves and closes, then every document here saves and lets
+   * go, so no save lands in the next Vault. Not in a secondary Window, which
+   * cannot change the Vault (spec #35).
+   */
+  releaseVault: () => Promise<void>;
+  /** A secondary Window (spec #35): it shows the main Window's Vault and cannot change it. */
+  secondaryWindow: boolean;
   refresh: () => Promise<unknown>;
   navigate: (v: View) => void;
   back: () => void;
@@ -185,6 +194,10 @@ interface Store {
   /** `other`: in the other Pane (Cmd/Ctrl-click, spec #35). */
   openDoc: (id: string, other?: boolean) => void;
   openLink: (target: string, other?: boolean) => Promise<void>;
+  /** A click handler opening `id`: in the other Pane on Cmd/Ctrl-click (spec #35). */
+  openDocOnClick: (id: string) => (e: ModifierClick) => void;
+  /** A click handler following a link: in the other Pane on Cmd/Ctrl-click. */
+  openLinkOnClick: (target: string) => (e: ModifierClick) => void;
   openPassage: (p: PassageInfo) => Promise<void>;
   openScripture: (
     book: number,
@@ -366,8 +379,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSchema(await api.setPropertyType(name, t));
   }, []);
 
+  const releaseVault = useCallback(async () => {
+    if (SECONDARY_WINDOW) throw new Error("the Vault is changed in the main Window");
+    await closeOtherWindows();
+    await flushPending();
+    await live.suspend();
+  }, []);
+
   const openVault = useCallback(
     async (path?: string) => {
+      await releaseVault();
       await api.openVault(path);
       const [settings, books] = await Promise.all([
         api.getSettings(),
@@ -385,7 +406,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (restored) dispatchPanes({ type: "load", state: restored });
       layoutFor.current = info.root;
     },
-    [refresh],
+    [refresh, releaseVault],
   );
 
   const attachVault = useCallback(async () => {
@@ -400,11 +421,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const closeVault = useCallback(async () => {
+    await releaseVault();
     await api.closeVault();
     setInfo(null);
     setDocs([]);
     setSettings(await api.getSettings());
-  }, []);
+  }, [releaseVault]);
+
+  // A save refreshes the lists (titles, tags, counts).
+  useEffect(() => live.onSaved(() => void refresh().catch(console.error)), [refresh]);
 
   // Boot: load settings, reopen the last vault.
   useEffect(() => {
@@ -687,6 +712,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [panes, vaultRoot]);
 
+  const openDocOnClick = useCallback(
+    (id: string) => (e: ModifierClick) => openDoc(id, otherPane(e)),
+    [openDoc],
+  );
+  const openLinkOnClick = useCallback(
+    (target: string) => (e: ModifierClick) => void openLink(target, otherPane(e)).catch(console.error),
+    [openLink],
+  );
+
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const value: Store = {
@@ -726,12 +760,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     openVault,
     attachVault,
     closeVault,
+    releaseVault,
+    secondaryWindow: SECONDARY_WINDOW,
     refresh,
     navigate,
     back,
     forward,
     openDoc,
     openLink,
+    openDocOnClick,
+    openLinkOnClick,
     openPassage,
     openScripture,
     createDoc,

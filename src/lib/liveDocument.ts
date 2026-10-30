@@ -12,12 +12,16 @@
 // replacements (a load, a restored Version, a panel rewriting the body) bump
 // `revision` instead, which every editor follows from its props.
 //
-// Across Windows (#51), each Window keeps its own LiveDocument and the engine
-// relays edits between them: a Window's edit is sent to the engine, and an
-// edit from another Window arrives here as `receive`, applied like a member's
-// write from outside this Window.
+// Across Windows (#51), each Window keeps its own LiveDocument, and a
+// `DocSync` keeps its text the same as the other Windows': each change made
+// here goes to the engine as an operation, and the other Windows' changes
+// come back rebased over typing not yet sent, so none is lost
+// (`src/lib/docSync.ts`). A Window saves whatever changed its text, its own
+// typing or another Window's: whichever Window saves last, the file ends up
+// with the text they all show.
 import { joinFrontmatter, splitFrontmatter } from "@/lib/frontmatter";
 import type { DocumentPayload } from "@/lib/api";
+import { DocSync, type SyncTransport } from "@/lib/docSync";
 
 export type SaveStatus = "idle" | "saving" | "saved" | "error";
 
@@ -55,30 +59,47 @@ export interface LiveBody {
 }
 
 export interface LiveDocuments {
-  /** The live document for `id`, without retaining it (for a render). */
+  /**
+   * The live document for `id`, without retaining it: for a render, so the
+   * first paint already shows the text another Pane has. Nothing is
+   * registered until it is retained.
+   */
   get(id: string): LiveDocument;
   /** The live document for `id`, retained until `release`. */
   open(id: string): LiveDocument;
-  /** The live document for `id` if one is open here, without opening one. */
+  /** The live document for `id` if one is held here, without opening one. */
   peek(id: string): LiveDocument | undefined;
+  /** Call `fn` with the id after every successful save; returns the unsubscribe. */
+  onSaved(fn: (id: string) => void): () => void;
+  /**
+   * Save everything pending, then let every document go for good: the Vault
+   * is about to change, so nothing held now may be written afterwards.
+   */
+  suspend(): Promise<void>;
 }
 
 export interface LiveOptions {
-  /** Called after each successful save. */
-  onSaved?: () => void;
-  /** Called with a document when it is first opened and when it is let go. */
+  /** Called with a document when it is first held and when it is let go. */
   onOpen?: (doc: LiveDocument) => () => void;
   /** Debounce before typing is saved, in ms. */
   delay?: number;
-  /**
-   * Called with the whole text after every edit made in this Window (typing,
-   * a panel's write, frontmatter, a restored Version), so it can be relayed to
-   * the other Windows (#51). Not called for `receive` or for a read of the file.
-   */
-  onEdit?: (id: string, text: string) => void;
+  /** The engine's Window sessions (#51), where there are Windows. */
+  sync?: SyncTransport;
 }
 
 const toLf = (s: string) => s.replace(/\r\n?/g, "\n");
+
+/** A file's text as the editors hold it: "\n" line breaks in the body. */
+function normalise(text: string) {
+  const sp = splitFrontmatter(text);
+  return joinFrontmatter(sp.fm, toLf(sp.body));
+}
+
+/** How long a closing Window waits for the engine before saving what it has. */
+const DRAIN_MS = 2000;
+
+const within = (p: Promise<void>, ms: number) =>
+  Promise.race([p, new Promise<void>((r) => setTimeout(r, ms))]);
 
 export class LiveDocument implements LiveBody {
   private state: LiveSnapshot = {
@@ -92,15 +113,18 @@ export class LiveDocument implements LiveBody {
   private listeners = new Set<() => void>();
   private members = new Set<(body: string) => void>();
   private dirty = false;
-  private saving = false;
+  private saving: Promise<void> | null = null;
   private timer: ReturnType<typeof setTimeout> | undefined;
   /** The text as this Window last read or wrote it, to tell an echo of its own save from an edit made elsewhere. */
   private known: string | null = null;
   private loaded: Promise<void> | null = null;
   private lastNotice: unknown = null;
   private refs = 0;
-  onSaved: (() => void) | undefined;
-  onEdit: ((id: string, text: string) => void) | undefined;
+  private sync: DocSync | null = null;
+  /** The last opener let go: what was pending is being saved. */
+  private finishing: Promise<void> | null = null;
+  /** Let go for good (the Vault changed): writes nothing more. */
+  private dead = false;
 
   constructor(
     readonly id: string,
@@ -109,6 +133,8 @@ export class LiveDocument implements LiveBody {
     private registry: {
       dispose(d: LiveDocument): void;
       revive(d: LiveDocument): void;
+      saved(id: string): void;
+      transport?: SyncTransport;
     },
   ) {}
 
@@ -128,11 +154,6 @@ export class LiveDocument implements LiveBody {
 
   private text() {
     return joinFrontmatter(this.state.fm, this.state.body);
-  }
-
-  /** Hand an edit made here to the other Windows. */
-  private relay() {
-    this.onEdit?.(this.id, this.text());
   }
 
   // ------------------------------------------------------------- loading
@@ -157,10 +178,29 @@ export class LiveDocument implements LiveBody {
   /**
    * Read the file. With `once`, only if no opener has read it yet: a second
    * Pane opening the document must not reload over the first one's typing.
+   *
+   * Shared with other Windows, a read after the first is a Reload: the file
+   * replaces the text they all show, as a change.
    */
   load = (opts: { once?: boolean } = {}): Promise<void> => {
     if (opts.once && this.loaded) return this.loaded;
-    const p = this.engine.getDocument(this.id).then((d) => this.apply(d));
+    const p = (async () => {
+      // A document let go and held again reads the file once its last save landed.
+      await this.finishing;
+      const d = await this.engine.getDocument(this.id);
+      if (this.dead) return;
+      const sync = this.sync;
+      if (sync?.active) {
+        const text = normalise(d.text);
+        await sync.disk(text, true);
+        this.known = d.text;
+        if (this.text() === text) this.dirty = false;
+        this.set({ doc: d, external: false });
+        return;
+      }
+      this.apply(d);
+      await sync?.join(this.text());
+    })();
     this.loaded = p;
     return p;
   };
@@ -178,57 +218,70 @@ export class LiveDocument implements LiveBody {
     };
   };
 
+  /**
+   * Every change made in this Window goes through here: show it, hand it to
+   * the other editors (unless `wholesale`: they follow `revision`) and the
+   * other Windows, and save it, `now` or after the debounce.
+   */
+  private change(
+    patch: { fm?: string; body?: string },
+    o: { from?: ((body: string) => void) | null; now?: boolean; wholesale?: boolean } = {},
+  ) {
+    if (this.dead) return;
+    const before = this.text();
+    if (patch.body !== undefined) patch.body = toLf(patch.body);
+    this.dirty = true;
+    this.set(o.wholesale ? { ...patch, revision: this.state.revision + 1 } : patch);
+    if (!o.wholesale && patch.body !== undefined)
+      for (const m of [...this.members]) if (m !== o.from) m(this.state.body);
+    this.sync?.local(before, this.text());
+    if (o.now) {
+      clearTimeout(this.timer);
+      void this.save();
+    } else this.schedule();
+  }
+
   private edit(body: string, from: ((body: string) => void) | null) {
     if (body === this.state.body) return;
-    this.dirty = true;
-    this.set({ body });
-    for (const m of [...this.members]) if (m !== from) m(body);
-    this.relay();
-    this.schedule();
+    this.change({ body }, { from });
   }
 
   /** Typing from outside any member editor; every editor hears it. */
   write = (body: string) => this.edit(body, null);
 
   /**
-   * An edit made in another Window (#51), relayed by the engine. Applied
-   * like typing: every editor here hears it, and it is not saved again here.
+   * Another Window's change (#51), already merged with this Window's text:
+   * every editor here hears it. It is saved here too, unless it is the file
+   * itself, so the file never misses it whichever Window saves last.
    */
-  receive = (text: string) => {
+  private remote(text: string, disk: boolean) {
     const sp = splitFrontmatter(text);
-    this.known = text;
-    if (sp.fm !== this.state.fm) this.set({ fm: sp.fm });
-    const body = toLf(sp.body);
-    if (body === this.state.body) return;
-    this.set({ body });
-    for (const m of [...this.members]) m(body);
-  };
+    const patch: Partial<LiveSnapshot> = {};
+    if (sp.fm !== this.state.fm) patch.fm = sp.fm;
+    if (sp.body !== this.state.body) patch.body = sp.body;
+    this.set(patch);
+    if (patch.body !== undefined) for (const m of [...this.members]) m(sp.body);
+    if (disk) {
+      this.known = text;
+      return;
+    }
+    this.dirty = true;
+    this.schedule();
+  }
+
+  /** Another Window changed the text (#51): fetch the change. */
+  poke = () => this.sync?.poke();
 
   /** A write from a panel (linking a Linkable): every editor resyncs. */
-  setBodyText = (body: string) => {
-    this.dirty = true;
-    this.set({ body, revision: this.state.revision + 1 });
-    this.relay();
-    this.schedule();
-  };
+  setBodyText = (body: string) => this.change({ body }, { wholesale: true });
 
   /** Frontmatter edits (type, tags, properties) are visible at once, so they save now. */
-  editFm = (fm: string) => {
-    this.dirty = true;
-    this.set({ fm });
-    this.relay();
-    clearTimeout(this.timer);
-    void this.save();
-  };
+  editFm = (fm: string) => this.change({ fm }, { now: true });
 
   /** Replace the whole text (a restored Version) and save at once. */
   replaceText = (text: string) => {
     const sp = splitFrontmatter(text);
-    this.dirty = true;
-    this.set({ fm: sp.fm, body: sp.body, revision: this.state.revision + 1 });
-    this.relay();
-    clearTimeout(this.timer);
-    void this.save();
+    this.change({ fm: sp.fm, body: sp.body }, { now: true, wholesale: true });
   };
 
   // ------------------------------------------------------------- saving
@@ -238,9 +291,17 @@ export class LiveDocument implements LiveBody {
     this.timer = setTimeout(() => void this.save(), this.delay);
   }
 
-  private async save() {
-    if (!this.dirty || this.saving) return;
-    this.saving = true;
+  private save(): Promise<void> {
+    if (!this.dirty || this.dead) return Promise.resolve();
+    if (this.saving) return this.saving;
+    this.saving = this.write_().finally(() => {
+      this.saving = null;
+      if (this.dirty && !this.dead) this.schedule();
+    });
+    return this.saving;
+  }
+
+  private async write_() {
     this.set({ status: "saving" });
     const text = this.text();
     try {
@@ -251,21 +312,25 @@ export class LiveDocument implements LiveBody {
       const sp = splitFrontmatter(d.text);
       if (sp.fm !== this.state.fm && !this.dirty) patch.fm = sp.fm;
       this.set(patch);
-      this.onSaved?.();
+      this.registry.saved(this.id);
     } catch (e) {
       console.error(e);
       this.set({ status: "error" });
-    } finally {
-      this.saving = false;
-      if (this.dirty) this.schedule();
     }
   }
 
-  /** Save now if anything is pending (before naming a Version, before a rename). */
+  /**
+   * Save now whatever is pending (before naming a Version, a rename, a
+   * Window closing): the changes on their way to the other Windows first,
+   * then a save already in flight, then the rest.
+   */
   flush = async (): Promise<void> => {
-    if (!this.dirty) return;
-    clearTimeout(this.timer);
-    await this.save();
+    if (this.sync) await within(this.sync.drain(), DRAIN_MS);
+    for (let i = 0; i < 3 && (this.dirty || this.saving) && !this.dead; i++) {
+      clearTimeout(this.timer);
+      if (this.saving) await this.saving;
+      else await this.save();
+    }
   };
 
   // ------------------------------------------------------------- the disk
@@ -284,10 +349,19 @@ export class LiveDocument implements LiveBody {
     if (!doc || !mine || mine.mtime === doc.summary.mtime) return;
     this.engine
       .getDocument(this.id)
-      .then((d) => {
+      .then(async (d) => {
+        if (this.dead) return;
         if (d.text === this.known || d.text === this.text()) {
           // Our own save, or already what the editors show.
           if (!this.saving) this.set({ doc: d });
+          return;
+        }
+        if (this.sync?.active) {
+          // Another Window's save, a step ahead of or behind this one, or an
+          // edit made outside the app: the engine knows which.
+          const { external } = await this.sync.disk(normalise(d.text), false);
+          if (external) this.set({ external: true });
+          else if (!this.saving) this.set({ doc: d });
           return;
         }
         // Checked now rather than before the read, so a keystroke made while
@@ -305,21 +379,64 @@ export class LiveDocument implements LiveBody {
    * registered again (a Strict Mode remount lets go and retains at once).
    */
   retain = () => {
-    if (this.refs++ === 0) this.registry.revive(this);
+    if (this.refs++ > 0 || this.dead) return;
+    this.registry.revive(this);
+    if (!this.sync && this.registry.transport)
+      this.sync = new DocSync(this.id, this.registry.transport, {
+        text: () => this.text(),
+        remote: (text, disk) => this.remote(text, disk),
+      });
   };
 
-  /** Let go of what `open` or `retain` held. The last opener out saves what is pending. */
+  /**
+   * Let go of what `open` or `retain` held. When the last opener lets go, and
+   * is not back within the same turn (a Strict Mode remount), the changes on
+   * their way to the other Windows land, what is pending is saved, and the
+   * document leaves its Window session.
+   */
   release = () => {
-    if (--this.refs > 0) return;
+    if (--this.refs > 0 || this.dead) return;
+    setTimeout(() => {
+      if (this.refs === 0 && !this.dead) this.finish();
+    }, 0);
+  };
+
+  private finish() {
     clearTimeout(this.timer);
-    if (this.dirty) {
-      this.dirty = false;
-      this.engine.saveDocument(this.id, this.text()).catch(console.error);
-    }
+    const sync = this.sync;
+    this.sync = null;
     // Held again later, it reads the file afresh: no watcher reached it meanwhile.
     this.loaded = null;
     this.registry.dispose(this);
-  };
+    this.finishing = (async () => {
+      if (sync) await within(sync.drain(), DRAIN_MS);
+      if (this.saving) await this.saving;
+      if (this.dirty && !this.dead) {
+        this.dirty = false;
+        await this.engine.saveDocument(this.id, this.text()).then(
+          () => this.registry.saved(this.id),
+          console.error,
+        );
+      }
+      sync?.leave();
+    })();
+  }
+
+  /** Save what is pending, then write nothing more (`LiveDocuments.suspend`). */
+  async end(): Promise<void> {
+    await this.flush();
+    await this.finishing;
+    this.dead = true;
+    clearTimeout(this.timer);
+    this.sync?.leave();
+    this.sync = null;
+    this.registry.dispose(this);
+  }
+
+  /** Whether this Window has changes not yet sent to the other Windows (for tests). */
+  get unsent(): boolean {
+    return this.sync?.pending() ?? false;
+  }
 }
 
 export function createLiveDocuments(
@@ -328,25 +445,27 @@ export function createLiveDocuments(
 ): LiveDocuments {
   const docs = new Map<string, LiveDocument>();
   const closers = new Map<LiveDocument, () => void>();
+  const savedFns = new Set<(id: string) => void>();
   const registry = {
+    transport: opts.sync,
     dispose(d: LiveDocument) {
       if (docs.get(d.id) === d) docs.delete(d.id);
       closers.get(d)?.();
       closers.delete(d);
     },
     revive(d: LiveDocument) {
-      if (docs.has(d.id)) return;
-      docs.set(d.id, d);
-      if (opts.onOpen) closers.set(d, opts.onOpen(d));
+      if (!docs.has(d.id)) docs.set(d.id, d);
+      if (docs.get(d.id) === d && opts.onOpen && !closers.has(d)) closers.set(d, opts.onOpen(d));
+    },
+    saved(id: string) {
+      for (const fn of [...savedFns]) fn(id);
     },
   };
   const get = (id: string) => {
     let d = docs.get(id);
     if (!d) {
       d = new LiveDocument(id, engine, opts.delay ?? 700, registry);
-      d.onSaved = opts.onSaved;
-      d.onEdit = opts.onEdit;
-      registry.revive(d);
+      docs.set(id, d);
     }
     return d;
   };
@@ -358,5 +477,14 @@ export function createLiveDocuments(
       return d;
     },
     peek: (id) => docs.get(id),
+    onSaved(fn) {
+      savedFns.add(fn);
+      return () => savedFns.delete(fn);
+    },
+    async suspend() {
+      const all = [...docs.values()];
+      docs.clear();
+      await Promise.all(all.map((d) => d.end()));
+    },
   };
 }

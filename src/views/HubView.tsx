@@ -59,7 +59,7 @@ import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
-import { useStore, otherPane, usePane } from "@/lib/store";
+import { useStore, usePane } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import type { LiveBody } from "@/lib/liveDocument";
 import { propertyLabel, useT } from "@/i18n";
@@ -884,7 +884,7 @@ function SourceBreadcrumb({
             type="button"
             data-testid="breadcrumb-step"
             className="min-w-0 truncate underline-offset-4 hover:text-foreground hover:underline"
-            onClick={(e) => s.openDoc(a.id, otherPane(e))}
+            onClick={s.openDocOnClick(a.id)}
           >
             {a.title}
           </button>
@@ -1233,7 +1233,7 @@ function JourneySection({
                 <button
                   type="button"
                   className="block max-w-full truncate text-left text-sm hover:underline underline-offset-2"
-                  onClick={(e) => s.openLink(linkTarget(stop.target), otherPane(e))}
+                  onClick={s.openLinkOnClick(linkTarget(stop.target))}
                 >
                   {stop.doc?.title ?? linkTarget(stop.target)}
                 </button>
@@ -1919,7 +1919,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                   type="button"
                   data-testid="hub-clipping"
                   className="flex w-full min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
-                  onClick={(ev) => s.openDoc(e.doc.id, otherPane(ev))}
+                  onClick={s.openDocOnClick(e.doc.id)}
                 >
                   <span className="w-16 shrink-0 truncate pt-0.5 text-xs text-muted-foreground tabular-nums">
                     {e.locator ?? "—"}
@@ -1944,7 +1944,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                 <button
                   type="button"
                   className="mb-1 flex items-center gap-2 text-sm font-medium hover:underline underline-offset-4"
-                  onClick={(e) => s.openDoc(g.source.id, otherPane(e))}
+                  onClick={s.openDocOnClick(g.source.id)}
                 >
                   <TypeDot type="source" />
                   {g.source.title}
@@ -1956,7 +1956,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                     <button
                       type="button"
                       className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                      onClick={(ev) => s.openDoc(e.doc.id, otherPane(ev))}
+                      onClick={s.openDocOnClick(e.doc.id)}
                     >
                       <span className="w-16 shrink-0 truncate text-xs text-muted-foreground tabular-nums">
                         {e.locator ?? "—"}
@@ -2085,7 +2085,7 @@ function MentionList({ items }: { items: Backlink[] }) {
           <button
             type="button"
             className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-            onClick={(e) => s.openDoc(b.doc.id, otherPane(e))}
+            onClick={s.openDocOnClick(b.doc.id)}
           >
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={b.doc.type} />

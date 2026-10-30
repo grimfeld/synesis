@@ -879,6 +879,7 @@ export const fr: Dict = {
   vault_occupied: (folder: string, name: string) =>
     `${folder} contient déjà le coffre « ${name} ». Rejoindre ici fusionnerait les deux définitivement.`,
   join_into: (name: string) => `Rejoindre « ${name} » dans`,
+  vault_in_main_window: "Les coffres s’ouvrent et se ferment dans la fenêtre principale.",
   close_vault_hint: "Retourne à l'écran de départ, où vous pouvez ouvrir un autre coffre ou appairer un autre appareil.",
   waiting_for_documents: "En attente des documents de vos appareils appairés. Ouvrez Synesis sur l'un d'eux pour qu'ils se parlent.",
 };

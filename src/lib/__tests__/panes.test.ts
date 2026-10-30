@@ -131,7 +131,32 @@ describe("talk and Board, per Pane", () => {
 describe("reset", () => {
   it("returns to a single Pane on Home with no history", () => {
     const s = run({ type: "open", view: doc("a") }, { type: "openInOther", view: doc("b") }, { type: "reset" });
-    expect(s).toEqual(initialPanes());
+    const { panes, ...rest } = initialPanes();
+    expect({ ...s, panes: s.panes.map(({ key: _, ...p }) => p) }).toEqual({
+      ...rest,
+      panes: panes.map(({ key: _, ...p }) => p),
+    });
+  });
+});
+
+describe("Pane identity", () => {
+  it("follows each Pane through a Swap, so its editor is moved and not remounted", () => {
+    const s = run({ type: "open", view: doc("a") }, { type: "openInOther", view: doc("b") });
+    const [k0, k1] = s.panes.map((p) => p.key);
+    expect(k0).not.toBe(k1);
+    const swapped = panesReducer(s, { type: "swap" });
+    expect(swapped.panes.map((p) => p.key)).toEqual([k1, k0]);
+  });
+
+  it("stays with the Pane left when the first one closes", () => {
+    const s = run({ type: "open", view: doc("a") }, { type: "openInOther", view: doc("b") });
+    const closed = panesReducer(s, { type: "close", pane: 0 });
+    expect(closed.panes.map((p) => p.key)).toEqual([s.panes[1]!.key]);
+  });
+
+  it("stays with a Pane as it navigates", () => {
+    const s = run({ type: "open", view: doc("a") });
+    expect(panesReducer(s, { type: "open", view: doc("b") }).panes[0].key).toBe(s.panes[0].key);
   });
 });
 

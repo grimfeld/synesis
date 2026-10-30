@@ -886,6 +886,7 @@ export const en = {
   vault_occupied: (folder: string, name: string) =>
     `${folder} already holds the vault “${name}”. Joining here would merge the two permanently.`,
   join_into: (name: string) => `Join “${name}” into`,
+  vault_in_main_window: "Vaults are opened and closed in the main window.",
   close_vault_hint: "Returns to the start screen, where you can open another vault or pair with a different device.",
   waiting_for_documents: "Waiting for documents from your paired devices. Open Synesis on one of them so the two can talk.",
 };

@@ -2,18 +2,22 @@
 //
 // "Open in new Window" asks the engine for a separate app Window on one
 // document; each Window has its own Panes and history. Every Window talks to
-// the same engine process, so the engine is also the go-between for the text:
-// each Window tells it which documents it shows (`show_documents`) and sends
-// its edits (`relay_edit`); the engine passes an edit to the other Windows
-// showing that document as `doc:edited`, which lands in their LiveDocument's
-// `receive`.
+// the same engine process, so the engine also keeps their text the same: a
+// Window showing a document joins its session (`doc_join`), sends its changes
+// (`doc_sync`) and hears that another Window changed it (`doc:poke`). The
+// rebasing is `src/lib/docSync.ts`, the ordering `engine::windows`.
+//
+// No typing may be lost to a Window closing: a secondary Window saves before
+// it closes; the main Window, before the app quits or the Vault changes, has
+// every Window save first (`windows:flush`, `close_other_windows`).
 //
 // Not on phones and not in the web build. Not through the dev bridge either:
 // a plain browser has no Tauri to make a Window with.
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { isDesktopApp } from "@/lib/updater";
+import type { SyncReply, SyncTransport } from "@/lib/docSync";
 
 /** Whether this app can open Windows: the desktop app, in Tauri itself. */
 export function windowsOffered(
@@ -26,13 +30,17 @@ export function windowsOffered(
   return o.tauri && isDesktopApp(o.mode, o.userAgent);
 }
 
-/** The label of the Window the app starts with (`engine::windows::MAIN`). */
+/**
+ * The label of the Window the app starts with. Also `engine::windows::MAIN`;
+ * secondary Windows are `doc-<n>`, granted as `doc-*` in
+ * `src-tauri/capabilities/default.json`.
+ */
 export const MAIN_WINDOW = "main";
 
 /**
  * Whether this is a secondary Window: one opened with "Open in new Window".
- * It shares the main Window's open Vault rather than opening it again, and
- * does not save its Panes as the Vault's layout.
+ * It shares the main Window's open Vault rather than opening it again, cannot
+ * open, close or switch Vaults, and does not save its Panes as the Vault's layout.
  */
 export function isSecondaryWindow(): boolean {
   if (!windowsOffered()) return false;
@@ -61,72 +69,74 @@ export async function windowStart(): Promise<string | null> {
   }
 }
 
-export interface WindowSync {
-  /** A document opened here; the returned function closes it. */
-  opened(id: string): () => void;
-  /** An edit made here: the whole text. */
-  edited(id: string, text: string): void;
+/** The engine's Window sessions, or null where there are no Windows. */
+export function engineSyncTransport(): SyncTransport | null {
+  if (!windowsOffered()) return null;
+  return {
+    join: (id, client, text) => invoke("doc_join", { id, client, text }),
+    sync: (req) => invoke<SyncReply>("doc_sync", { req }),
+    leave: (id, client) => invoke("doc_leave", { id, client }),
+  };
+}
+
+/** Another Window changed `id`. */
+export function onChangedElsewhere(cb: (id: string) => void): void {
+  listen<{ id: string }>("doc:poke", (e) => cb(e.payload.id)).catch(console.error);
+}
+
+/** How long a Window waits for its saves before it closes anyway. */
+export const FLUSH_MS = 3000;
+
+/**
+ * Run `flush`, then `then`, even when the flush fails or takes longer than
+ * `ms`: a Window must still close if the engine is gone.
+ */
+export async function flushThen(
+  flush: () => Promise<void>,
+  then: () => Promise<void> | void,
+  ms = FLUSH_MS,
+): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      flush(),
+      new Promise<void>((r) => {
+        timer = setTimeout(r, ms);
+      }),
+    ]);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    clearTimeout(timer);
+  }
+  await then();
 }
 
 /**
- * What this Window tells the engine. Edits are sent after a short pause with
- * the latest text, so a burst of typing is one message rather than one per
- * key, and at once when the document closes here.
+ * Save before this Window goes: when its close button is pressed (a
+ * secondary Window), when the main Window has the Vault change or the app
+ * quit (`windows:close`, `windows:flush`). `flush` saves everything pending.
  */
-export function createWindowSync(o: {
-  send: (id: string, text: string) => void;
-  show: (ids: string[]) => void;
-  delay?: number;
-}): WindowSync {
-  const delay = o.delay ?? 30;
-  const counts = new Map<string, number>();
-  const pending = new Map<string, string>();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const flush = (only?: string) => {
-    for (const [id, text] of [...pending]) {
-      if (only !== undefined && id !== only) continue;
-      pending.delete(id);
-      o.send(id, text);
-    }
-  };
-  const tellShown = () => o.show([...counts.keys()].sort());
-
-  return {
-    opened(id) {
-      const n = counts.get(id) ?? 0;
-      counts.set(id, n + 1);
-      if (n === 0) tellShown();
-      let closed = false;
-      return () => {
-        if (closed) return;
-        closed = true;
-        flush(id);
-        const left = (counts.get(id) ?? 1) - 1;
-        if (left > 0) return void counts.set(id, left);
-        counts.delete(id);
-        tellShown();
-      };
-    },
-    edited(id, text) {
-      pending.set(id, text);
-      clearTimeout(timer);
-      timer = setTimeout(() => flush(), delay);
-    },
-  };
+export function guardWindowClose(flush: () => Promise<void>): void {
+  if (!windowsOffered()) return;
+  const win = getCurrentWindow();
+  const destroy = () => win.destroy();
+  // The main Window's close is the app's, handled in the shell (it may only
+  // hide to the tray, or quit after every Window saved).
+  if (win.label !== MAIN_WINDOW) {
+    win.onCloseRequested(() => flushThen(flush, () => {})).catch(console.error);
+    listen("windows:close", () => void flushThen(flush, destroy)).catch(console.error);
+  }
+  listen("windows:flush", () => void flushThen(flush, () => invoke("window_flushed"))).catch(
+    console.error,
+  );
 }
 
-/** This Window's sync through the engine, or null where there are no Windows. */
-export function engineWindowSync(): WindowSync | null {
-  if (!windowsOffered()) return null;
-  const quiet = (p: Promise<unknown>) => void p.catch(console.error);
-  return createWindowSync({
-    send: (id, text) => quiet(invoke("relay_edit", { id, text })),
-    show: (ids) => quiet(invoke("show_documents", { ids })),
-  });
-}
-
-/** Edits from other Windows, for the documents this one shows. */
-export function onEditedElsewhere(cb: (id: string, text: string) => void): Promise<UnlistenFn> {
-  return listen<{ id: string; text: string }>("doc:edited", (e) => cb(e.payload.id, e.payload.text));
+/**
+ * Before the main Window changes the Vault: every other Window saves and
+ * closes, so none writes into the next Vault.
+ */
+export async function closeOtherWindows(): Promise<void> {
+  if (!windowsOffered()) return;
+  await invoke("close_other_windows");
 }
