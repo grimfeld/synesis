@@ -215,7 +215,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         "quit" => {
             let state = app.state::<AppState>();
             state.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
-            app.exit(0);
+            // Every Window saves its typing first (spec #35).
+            crate::windows::flush_all_then(app, |app| app.exit(0));
         }
         _ => {}
     });

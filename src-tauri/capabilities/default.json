@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "Default capability for the main window and the secondary Windows (doc-*)",
   "windows": ["main", "doc-*"],
-  "permissions": ["core:default", "dialog:default", "opener:default"]
+  "permissions": ["core:default", "core:window:allow-destroy", "dialog:default", "opener:default"]
 }

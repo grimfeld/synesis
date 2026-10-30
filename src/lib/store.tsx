@@ -44,7 +44,8 @@ import {
   type View,
 } from "./panes";
 import { flushPending } from "./pending";
-import { isSecondaryWindow, windowStart } from "./windows";
+import { closeOtherWindows, isSecondaryWindow, windowStart } from "./windows";
+import { live } from "./live";
 import {
   clampSize,
   DEFAULT_SIZE,
@@ -178,6 +179,15 @@ interface Store {
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
   closeVault: () => Promise<void>;
+  /**
+   * Before the engine changes the Vault (open, close, leave, move): every
+   * other Window saves and closes, then every document here saves and lets
+   * go, so no save lands in the next Vault. Not in a secondary Window, which
+   * cannot change the Vault (spec #35).
+   */
+  releaseVault: () => Promise<void>;
+  /** A secondary Window (spec #35): it shows the main Window's Vault and cannot change it. */
+  secondaryWindow: boolean;
   refresh: () => Promise<unknown>;
   navigate: (v: View) => void;
   back: () => void;
@@ -366,8 +376,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSchema(await api.setPropertyType(name, t));
   }, []);
 
+  const releaseVault = useCallback(async () => {
+    if (SECONDARY_WINDOW) throw new Error("the Vault is changed in the main Window");
+    await closeOtherWindows();
+    await flushPending();
+    await live.suspend();
+  }, []);
+
   const openVault = useCallback(
     async (path?: string) => {
+      await releaseVault();
       await api.openVault(path);
       const [settings, books] = await Promise.all([
         api.getSettings(),
@@ -385,7 +403,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       if (restored) dispatchPanes({ type: "load", state: restored });
       layoutFor.current = info.root;
     },
-    [refresh],
+    [refresh, releaseVault],
   );
 
   const attachVault = useCallback(async () => {
@@ -400,11 +418,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const closeVault = useCallback(async () => {
+    await releaseVault();
     await api.closeVault();
     setInfo(null);
     setDocs([]);
     setSettings(await api.getSettings());
-  }, []);
+  }, [releaseVault]);
+
+  // A save refreshes the lists (titles, tags, counts).
+  useEffect(() => live.onSaved(() => void refresh().catch(console.error)), [refresh]);
 
   // Boot: load settings, reopen the last vault.
   useEffect(() => {
@@ -726,6 +748,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     openVault,
     attachVault,
     closeVault,
+    releaseVault,
+    secondaryWindow: SECONDARY_WINDOW,
     refresh,
     navigate,
     back,

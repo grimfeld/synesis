@@ -3,6 +3,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createLiveDocuments, type LiveEngine } from "../liveDocument";
 import type { DocumentPayload } from "../api";
+import { FakeEngine, run } from "./fakeWindows";
+import { rng } from "./randomText";
 
 function fakeEngine(files: Record<string, string>) {
   const saves: { id: string; text: string }[] = [];
@@ -117,13 +119,49 @@ describe("one live document per id", () => {
     const { left, right, saves, docs } = await opened("hello");
     left.join(() => {}).write("hello world");
     left.release();
-    await settle();
+    await vi.advanceTimersByTimeAsync(0);
     expect(saves).toEqual([]);
     right.release();
-    await settle();
+    await vi.advanceTimersByTimeAsync(0);
     expect(saves).toEqual([{ id: "a", text: "hello world" }]);
     // Opened again, it is a fresh document read from the file.
     expect(docs.open("a")).not.toBe(left);
+  });
+
+  it("is not let go by a release and retain in the same turn (a Strict Mode remount)", async () => {
+    const { left, right, saves, docs } = await opened("hello");
+    right.release();
+    left.write("hello world");
+    left.release();
+    left.retain();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(docs.peek("a")).toBe(left);
+    expect(saves).toEqual([]);
+  });
+
+  it("finds an open document without opening one", async () => {
+    const { docs, left, right } = await opened("hello");
+    expect(docs.peek("a")).toBe(left);
+    expect(docs.peek("b")).toBeUndefined();
+    left.release();
+    right.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(docs.peek("a")).toBeUndefined();
+  });
+
+  it("registers nothing for a document only looked up for a render", () => {
+    const f = fakeEngine({ a: "x" });
+    const held: string[] = [];
+    const docs = createLiveDocuments(f.engine, {
+      onOpen: (d) => {
+        held.push(d.id);
+        return () => {};
+      },
+    });
+    docs.get("a");
+    expect(held).toEqual([]);
+    docs.get("a").retain();
+    expect(held).toEqual(["a"]);
   });
 
   it("notifies subscribers on every change", async () => {
@@ -135,56 +173,155 @@ describe("one live document per id", () => {
   });
 });
 
-describe("an edit from another Window", () => {
-  it("reaches every editor here and is not saved again", async () => {
-    const { left, saves } = await opened("hello");
+describe("a document held by two Windows (#51)", () => {
+  /** Two Windows on one vault: each its own live documents, one engine between them. */
+  async function twoWindows(text: string) {
+    const f = fakeEngine({ a: text });
+    const windows = new FakeEngine();
+    const engine: LiveEngine = {
+      getDocument: f.engine.getDocument,
+      // The Tauri command tells the sessions what it wrote (`save_document`).
+      saveDocument: async (id, t) => {
+        const d = await f.engine.saveDocument(id, t);
+        windows.saved(id, t);
+        return d;
+      },
+    };
+    const main = createLiveDocuments(engine, { sync: windows.transport("main") });
+    const other = createLiveDocuments(engine, { sync: windows.transport("doc-1") });
+    windows.pokes.set("main", (id) => main.peek(id)?.poke());
+    windows.pokes.set("doc-1", (id) => other.peek(id)?.poke());
+    const a = main.open("a");
+    const b = other.open("a");
+    const loaded = Promise.all([a.load({ once: true }), b.load({ once: true })]);
+    await run(windows);
+    await loaded;
+    return { ...f, windows, main, other, a, b };
+  }
+
+  it("keeps every keystroke typed in both at the same instant", async () => {
+    const r = rng(7);
+    const { windows, a, b } = await twoWindows("---\ntype: note\n---\n");
+    const ea = a.join(() => {});
+    const eb = b.join(() => {});
+    const typed: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const [d, e] = r() < 0.5 ? [a, ea] : [b, eb];
+      const ch = String.fromCharCode(0x4e00 + i);
+      typed.push(ch);
+      const body = d.snapshot().body;
+      const at = Math.floor(r() * (body.length + 1));
+      e.write(body.slice(0, at) + ch + body.slice(at));
+      if (r() < 0.5) {
+        await settle();
+        windows.step(r);
+      }
+    }
+    await run(windows, r);
+    expect(a.snapshot().body).toBe(b.snapshot().body);
+    expect([...a.snapshot().body].sort()).toEqual(typed.sort());
+    expect(a.snapshot().fm).toBe("---\ntype: note\n---\n");
+  });
+
+  it("hands each editor the other Window's typing as it comes", async () => {
+    const { windows, a, b } = await twoWindows("hello");
     const heard: string[] = [];
-    left.join((t) => heard.push(t));
-    heard.length = 0;
-    left.receive("hello from the other Window");
-    expect(heard).toEqual(["hello from the other Window"]);
+    b.join((t) => heard.push(t));
+    a.join(() => {}).write("hello world");
+    await run(windows);
+    expect(heard.at(-1)).toBe("hello world");
+  });
+
+  it("saves the merged text whichever Window saves last", async () => {
+    const { windows, a, b, files } = await twoWindows("one");
+    a.join(() => {}).write("one two");
+    b.join(() => {}).write("zero one");
+    await run(windows);
     await vi.advanceTimersByTimeAsync(1000);
-    expect(saves).toEqual([]);
+    await run(windows);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(a.snapshot().body).toBe("zero one two");
+    expect(files.a).toBe("zero one two");
+  });
+
+  it("sends and saves a closing Window's last typing first", async () => {
+    const { windows, a, b, files } = await twoWindows("one");
+    a.join(() => {}).write("one two");
+    // The Window closes before the debounce or the engine answered.
+    const flushed = a.flush();
+    await run(windows);
+    await flushed;
+    expect(files.a).toBe("one two");
+    expect(b.snapshot().body).toBe("one two");
+  });
+
+  it("takes the other Window's save as nothing new", async () => {
+    const { windows, a, b, files } = await twoWindows("one");
+    a.join(() => {}).write("one two");
+    await run(windows);
+    const flushed = a.flush();
+    await run(windows);
+    await flushed;
+    b.noticeChange([{ id: "a", mtime: 99 }]);
+    await run(windows);
+    expect(files.a).toBe("one two");
+    expect(b.snapshot().external).toBe(false);
+    expect(b.snapshot().body).toBe("one two");
+  });
+
+  it("takes an edit made outside the app in both", async () => {
+    const { windows, a, b, files } = await twoWindows("one");
+    files.a = "from Obsidian";
+    a.noticeChange([{ id: "a", mtime: 99 }]);
+    b.noticeChange([{ id: "a", mtime: 99 }]);
+    await run(windows);
+    expect(a.snapshot().body).toBe("from Obsidian");
+    expect(b.snapshot().body).toBe("from Obsidian");
+    expect(a.snapshot().external || b.snapshot().external).toBe(false);
   });
 });
 
-describe("an edit made in this Window (#51)", () => {
-  async function relayed(text: string) {
-    const f = fakeEngine({ a: text });
-    const sent: { id: string; text: string }[] = [];
-    const docs = createLiveDocuments(f.engine, { onEdit: (id, t) => sent.push({ id, text: t }) });
+describe("saving", () => {
+  it("is announced to every listener, with the id", async () => {
+    const f = fakeEngine({ a: "x" });
+    const docs = createLiveDocuments(f.engine);
+    const heard: string[] = [];
+    docs.onSaved((id) => heard.push(id));
     const d = docs.open("a");
     await d.load();
-    return { ...f, docs, d, sent };
-  }
-
-  it("is handed on with the whole text, frontmatter included", async () => {
-    const { d, sent } = await relayed("---\ntype: note\n---\nhello");
-    d.join(() => {}).write("hello world");
-    expect(sent).toEqual([{ id: "a", text: "---\ntype: note\n---\nhello world" }]);
-    d.editFm("---\ntype: clipping\n---\n");
-    expect(sent.at(-1)).toEqual({ id: "a", text: "---\ntype: clipping\n---\nhello world" });
+    d.write("xy");
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(heard).toEqual(["a"]);
   });
 
-  it("is handed on for a panel's write and a restored Version too", async () => {
-    const { d, sent } = await relayed("hello");
-    d.setBodyText("linked");
-    d.replaceText("restored");
-    expect(sent.map((s) => s.text)).toEqual(["linked", "restored"]);
+  it("waits for a save already on its way before saving what came after", async () => {
+    const { left, saves } = await opened("one");
+    left.write("one two");
+    await vi.advanceTimersByTimeAsync(700); // a save is in flight
+    left.write("one two three");
+    await left.flush();
+    expect(saves.at(-1)?.text).toBe("one two three");
   });
 
-  it("is not handed on when it came from another Window, or when the file is read", async () => {
-    const { d, sent } = await relayed("hello");
-    d.receive("from elsewhere");
-    await d.load();
-    expect(sent).toEqual([]);
+  it("normalises line breaks in a restored Version like a read does", async () => {
+    const { left } = await opened("hello");
+    left.replaceText("---\r\ntype: note\r\n---\r\nline one\r\nline two");
+    expect(left.snapshot().body).toBe("line one\nline two");
   });
+});
 
-  it("finds an open document without opening one", async () => {
-    const { docs, d } = await relayed("hello");
-    expect(docs.peek("a")).toBe(d);
-    expect(docs.peek("b")).toBeUndefined();
-    d.release();
+describe("a Vault change", () => {
+  it("saves what is pending, then writes nothing more", async () => {
+    const { left, saves, docs } = await opened("hello");
+    left.write("hello world");
+    await docs.suspend();
+    expect(saves.map((s) => s.text)).toEqual(["hello world"]);
+    // A late keystroke or the unmount's release lands nowhere.
+    left.write("into the new vault");
+    left.release();
+    left.release();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saves.length).toBe(1);
     expect(docs.peek("a")).toBeUndefined();
   });
 });
