@@ -1383,10 +1383,18 @@ pub fn run() {
             windows::doc_sync,
             windows::doc_leave,
             windows::close_other_windows,
-            windows::window_flushed
+            windows::window_flushed,
+            windows::flush_all_windows
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Cmd+Q and the app menu's Quit come here without a Window
+            // closing: every Window saves its typing first (spec #35).
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                windows::exit_requested(app, code, || api.prevent_exit());
+            }
+        });
 }
 
 /// The pure parts of this layer: reading a page's own description of itself.

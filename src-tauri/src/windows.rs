@@ -9,7 +9,7 @@
 //! saves (`flush_all_then`).
 
 use crate::err;
-use engine::windows::{Joined, SyncReply, SyncRequest, Windows, MAIN};
+use engine::windows::{Exit, ExitGate, Joined, SyncReply, SyncRequest, Windows, MAIN};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::sync::Mutex;
@@ -21,6 +21,8 @@ pub struct WindowState {
     windows: Mutex<Windows>,
     /// The Windows asked to save before the app quits that have not answered yet.
     flushing: Mutex<BTreeSet<String>>,
+    /// The app quits once, after the Windows saved.
+    exit: Mutex<ExitGate>,
 }
 
 /// How long the app waits for its Windows to save before it goes on anyway.
@@ -159,9 +161,8 @@ pub fn window_flushed(window: tauri::Window, state: State<WindowState>) -> Resul
     Ok(())
 }
 
-/// Have every Window save what is pending (`windows:flush`), wait for them
-/// (a few seconds at most), then run `then`: before the app quits.
-pub fn flush_all_then(app: &AppHandle, then: impl FnOnce(&AppHandle) + Send + 'static) {
+/// Ask every Window to save what is pending (`windows:flush`).
+fn ask_to_flush(app: &AppHandle) {
     let labels: BTreeSet<String> = app.webview_windows().into_keys().collect();
     if let Some(s) = app.try_state::<WindowState>() {
         if let Ok(mut f) = s.flushing.lock() {
@@ -171,17 +172,60 @@ pub fn flush_all_then(app: &AppHandle, then: impl FnOnce(&AppHandle) + Send + 's
     for label in &labels {
         let _ = app.emit_to(label.as_str(), "windows:flush", ());
     }
+}
+
+/// Whether a Window asked by `ask_to_flush` has not answered yet.
+fn still_flushing(app: &AppHandle) -> bool {
+    app.try_state::<WindowState>()
+        .and_then(|s| s.flushing.lock().ok().map(|f| !f.is_empty()))
+        .unwrap_or(false)
+}
+
+/// Have every Window save what is pending, wait for them (a few seconds at
+/// most), then run `then`: before the app quits. The exit `then` makes is let
+/// through (`exit_requested`).
+pub fn flush_all_then(app: &AppHandle, then: impl FnOnce(&AppHandle) + Send + 'static) {
+    ask_to_flush(app);
     let app = app.clone();
     std::thread::spawn(move || {
         let start = Instant::now();
-        let waiting = |app: &AppHandle| {
-            app.try_state::<WindowState>()
-                .and_then(|s| s.flushing.lock().ok().map(|f| !f.is_empty()))
-                .unwrap_or(false)
-        };
-        while waiting(&app) && start.elapsed() < FLUSH_WAIT {
+        while still_flushing(&app) && start.elapsed() < FLUSH_WAIT {
             std::thread::sleep(Duration::from_millis(30));
+        }
+        if let Some(s) = app.try_state::<WindowState>() {
+            if let Ok(mut g) = s.exit.lock() {
+                g.saved();
+            }
         }
         then(&app);
     });
+}
+
+/// The app was asked to quit (Cmd+Q, the app menu, `app.exit`): the first
+/// request is held while every Window saves, then the app quits with `code`.
+pub fn exit_requested(app: &AppHandle, code: Option<i32>, prevent: impl FnOnce()) {
+    let decision = app
+        .try_state::<WindowState>()
+        .and_then(|s| s.exit.lock().ok().map(|mut g| g.request()))
+        .unwrap_or(Exit::Allow);
+    match decision {
+        Exit::Allow => {}
+        Exit::Wait => prevent(),
+        Exit::Flush => {
+            prevent();
+            flush_all_then(app, move |app| app.exit(code.unwrap_or(0)));
+        }
+    }
+}
+
+/// Every Window saves what is pending (a few seconds at most): before an
+/// update is installed, since the installer may close the app itself.
+#[tauri::command]
+pub async fn flush_all_windows(app: AppHandle) -> Result<(), String> {
+    ask_to_flush(&app);
+    let start = Instant::now();
+    while still_flushing(&app) && start.elapsed() < FLUSH_WAIT {
+        tokio::time::sleep(Duration::from_millis(30)).await;
+    }
+    Ok(())
 }

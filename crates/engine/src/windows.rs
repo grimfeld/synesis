@@ -387,9 +387,61 @@ impl Windows {
     }
 }
 
+/// What to do with a request to quit the app (Cmd+Q, the app menu, the tray).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Exit {
+    /// Hold the exit and have every Window save first; quit after.
+    Flush,
+    /// Hold it: the Windows are saving already, and the quit follows.
+    Wait,
+    /// Let it through: the Windows have saved.
+    Allow,
+}
+
+/// The app quits once, after its Windows saved: the first request is held
+/// while they save, and the exit that follows is let through rather than
+/// held again.
+#[derive(Debug, Default)]
+pub struct ExitGate {
+    flushing: bool,
+    saved: bool,
+}
+
+impl ExitGate {
+    /// A request to quit arrived.
+    pub fn request(&mut self) -> Exit {
+        if self.saved {
+            Exit::Allow
+        } else if self.flushing {
+            Exit::Wait
+        } else {
+            self.flushing = true;
+            Exit::Flush
+        }
+    }
+
+    /// Every Window has saved (or the wait ran out): the next request quits.
+    pub fn saved(&mut self) {
+        self.flushing = false;
+        self.saved = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_quit_waits_once_for_the_windows_to_save() {
+        let mut g = ExitGate::default();
+        assert_eq!(g.request(), Exit::Flush);
+        // Cmd+Q again while they save: still held, no second round.
+        assert_eq!(g.request(), Exit::Wait);
+        g.saved();
+        // The exit the flush ends with goes through.
+        assert_eq!(g.request(), Exit::Allow);
+        assert_eq!(g.request(), Exit::Allow);
+    }
 
     fn u(s: &str) -> Vec<u16> {
         s.encode_utf16().collect()

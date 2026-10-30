@@ -10,6 +10,7 @@
 import { useSyncExternalStore } from "react";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
+import { invoke } from "@tauri-apps/api/core";
 
 /** True in the desktop app: not the web build, not a phone. */
 export function isDesktopApp(
@@ -70,6 +71,25 @@ export async function checkForUpdate(quiet = false): Promise<void> {
   }
 }
 
+/**
+ * Every Window saves its typing (`flush_all_windows`, a few seconds at most),
+ * then the update is installed and the app restarts. Saving comes first: on
+ * Windows the installer closes the app itself. A save that fails is logged
+ * and the update goes ahead, as quitting would.
+ */
+export async function applyUpdate(
+  u: { downloadAndInstall(): Promise<void> },
+  o: { flush: () => Promise<void>; relaunch: () => Promise<void> },
+): Promise<void> {
+  try {
+    await o.flush();
+  } catch (e) {
+    console.error(e);
+  }
+  await u.downloadAndInstall();
+  await o.relaunch();
+}
+
 /** Download and install the update found, then start the new version. */
 export async function installUpdate(): Promise<void> {
   // From the banner or Settings, and again after a failed attempt.
@@ -77,9 +97,10 @@ export async function installUpdate(): Promise<void> {
   const version = update.version;
   set({ kind: "installing", version });
   try {
-    // On Windows the installer closes the app itself and starts it again.
-    await update.downloadAndInstall();
-    await relaunch();
+    await applyUpdate(update, {
+      flush: () => invoke("flush_all_windows"),
+      relaunch,
+    });
   } catch (e) {
     set({ kind: "error", message: String(e), version });
   }
