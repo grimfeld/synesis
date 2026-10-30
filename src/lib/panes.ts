@@ -22,6 +22,12 @@ export type View =
   | { kind: "settings" };
 
 export interface Pane {
+  /**
+   * Which Pane this is, for as long as it is open: React keys it by this, so
+   * swapping the Panes or closing the first one moves an editor rather than
+   * remounting it (caret, scroll and Undo kept). Never saved.
+   */
+  key: number;
   view: View;
   back: View[];
   forward: View[];
@@ -68,8 +74,10 @@ export const HISTORY_LIMIT = 50;
 
 const HOME: View = { kind: "home" };
 
+let nextKey = 0;
+
 function newPane(view: View): Pane {
-  return { view, back: [], forward: [], docTab: "talk", splitRatio: DEFAULT_RATIO };
+  return { key: ++nextKey, view, back: [], forward: [], docTab: "talk", splitRatio: DEFAULT_RATIO };
 }
 
 export function initialPanes(): PanesState {
@@ -89,7 +97,8 @@ function target(s: PanesState, a: { pane?: PaneIndex }): PaneIndex {
   return a.pane !== undefined && a.pane < s.panes.length ? a.pane : s.lastUsed;
 }
 
-function other_(i: PaneIndex): PaneIndex {
+/** The index of the Pane that is not `i`. */
+export function otherIndex(i: PaneIndex): PaneIndex {
   return i === 0 ? 1 : 0;
 }
 
@@ -119,7 +128,7 @@ export function panesReducer(s: PanesState, a: PaneAction): PanesState {
       });
     case "openInOther": {
       if (s.panes.length === 1) return { ...s, panes: [s.panes[0], newPane(a.view)], lastUsed: 1 };
-      const other = other_(s.lastUsed);
+      const other = otherIndex(s.lastUsed);
       return { ...update(s, other, (p) => navigate(p, a.view)), lastUsed: other };
     }
     case "focus":
@@ -128,11 +137,11 @@ export function panesReducer(s: PanesState, a: PaneAction): PanesState {
     case "close": {
       if (s.panes.length === 1) return s;
       const closing = a.pane ?? s.lastUsed;
-      return { ...s, panes: [s.panes[other_(closing)]], lastUsed: 0 };
+      return { ...s, panes: [s.panes[otherIndex(closing)]], lastUsed: 0 };
     }
     case "swap":
       if (s.panes.length === 1) return s;
-      return { panes: [s.panes[1], s.panes[0]], lastUsed: other_(s.lastUsed), ratio: 1 - s.ratio };
+      return { panes: [s.panes[1], s.panes[0]], lastUsed: otherIndex(s.lastUsed), ratio: 1 - s.ratio };
     case "setDocTab":
       return update(s, target(s, a), (p) => (p.docTab === a.tab ? p : { ...p, docTab: a.tab }));
     case "setSplitRatio":
@@ -177,14 +186,27 @@ export function savedLayout(s: PanesState): SavedLayout | null {
   return { views: [s.panes[0].view, s.panes[1].view], lastUsed: s.lastUsed, ratio: s.ratio };
 }
 
-const SIMPLE_KINDS = ["home", "library", "clippings", "map", "coverage", "timeline", "settings"];
+/**
+ * The views that are a kind alone. A Record over every other kind, so a new
+ * kind of view does not compile until it is listed here or restored below.
+ */
+const SIMPLE_KINDS: Record<Exclude<View["kind"], "doc" | "graph">, true> = {
+  home: true,
+  library: true,
+  clippings: true,
+  map: true,
+  coverage: true,
+  timeline: true,
+  settings: true,
+};
+const isSimpleKind = (k: string): k is keyof typeof SIMPLE_KINDS => Object.hasOwn(SIMPLE_KINDS, k);
 
 /** A saved view, or Home when it names a document that is gone; null if it is not a view. */
 function restoreView(raw: unknown, exists: (id: string) => boolean): View | null {
   if (!raw || typeof raw !== "object") return null;
   const v = raw as { kind?: unknown; id?: unknown; focus?: unknown };
   if (typeof v.kind !== "string") return null;
-  if (SIMPLE_KINDS.includes(v.kind)) return { kind: v.kind } as View;
+  if (isSimpleKind(v.kind)) return { kind: v.kind };
   if (v.kind === "doc" && typeof v.id === "string") return exists(v.id) ? { kind: "doc", id: v.id } : HOME;
   if (v.kind === "graph") {
     if (v.focus === undefined) return { kind: "graph" };

@@ -74,7 +74,9 @@ export function Panes({ view }: { view: ReactNode }) {
         data-count={shown.length}
       >
         {shown.map((i, n) => (
-          <Fragment key={i}>
+          // Keyed by the Pane, not its place: a Swap or closing the first
+          // Pane moves the editor rather than remounting it.
+          <Fragment key={s.panes.panes[i]?.key ?? i}>
             {n === 1 && (
               <Divider
                 rootRef={rootRef}
