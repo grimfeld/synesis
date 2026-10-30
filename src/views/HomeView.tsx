@@ -3,7 +3,7 @@ import { House, PenLine, Zap } from "lucide-react";
 import { api, WRITING_TYPES, type DocSummary } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
-import { useStore, otherPane } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { stamp } from "@/components/Dialogs";
 import { DocLink } from "@/components/DocLink";
@@ -167,7 +167,7 @@ function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
       <button
         type="button"
         className="flex w-full flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent"
-        onClick={(e) => s.openDoc(doc.id, otherPane(e))}
+        onClick={s.openDocOnClick(doc.id)}
       >
         <span className="flex w-full items-center gap-2 text-sm font-medium">
           <PenLine className="size-4 shrink-0 text-type-composition" />

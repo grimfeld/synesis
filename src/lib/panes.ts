@@ -69,6 +69,17 @@ export type PaneAction =
   /** A layout restored from `restoreLayout`. */
   | { type: "load"; state: PanesState };
 
+/** A click's modifier keys, as React and the DOM both give them. */
+export interface ModifierClick {
+  metaKey: boolean;
+  ctrlKey: boolean;
+}
+
+/** Whether a click asks for the other Pane: Cmd-click on macOS, Ctrl-click elsewhere (spec #35). */
+export function otherPane(e: ModifierClick): boolean {
+  return e.metaKey || e.ctrlKey;
+}
+
 /** How many views Back can return through, per Pane. */
 export const HISTORY_LIMIT = 50;
 

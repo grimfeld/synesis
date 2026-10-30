@@ -35,8 +35,10 @@ import {
   activePane,
   initialPanes,
   panesReducer,
+  otherPane,
   restoreLayout,
   savedLayout,
+  type ModifierClick,
   type PaneIndex,
   type DocTab,
   type PaneAction,
@@ -54,6 +56,7 @@ import {
 } from "./delivery";
 
 export type { DocTab, View } from "./panes";
+export { otherPane } from "./panes";
 
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
@@ -110,10 +113,6 @@ const PANES_KEY = (root: string) => `synesis.panes:${root}`;
  */
 const SECONDARY_WINDOW = isSecondaryWindow();
 
-/** Whether a click asks for the other Pane: Cmd-click on macOS, Ctrl-click elsewhere. */
-export function otherPane(e: { metaKey: boolean; ctrlKey: boolean }): boolean {
-  return e.metaKey || e.ctrlKey;
-}
 
 interface Store {
   settings: Settings | null;
@@ -195,6 +194,10 @@ interface Store {
   /** `other`: in the other Pane (Cmd/Ctrl-click, spec #35). */
   openDoc: (id: string, other?: boolean) => void;
   openLink: (target: string, other?: boolean) => Promise<void>;
+  /** A click handler opening `id`: in the other Pane on Cmd/Ctrl-click (spec #35). */
+  openDocOnClick: (id: string) => (e: ModifierClick) => void;
+  /** A click handler following a link: in the other Pane on Cmd/Ctrl-click. */
+  openLinkOnClick: (target: string) => (e: ModifierClick) => void;
   openPassage: (p: PassageInfo) => Promise<void>;
   openScripture: (
     book: number,
@@ -709,6 +712,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [panes, vaultRoot]);
 
+  const openDocOnClick = useCallback(
+    (id: string) => (e: ModifierClick) => openDoc(id, otherPane(e)),
+    [openDoc],
+  );
+  const openLinkOnClick = useCallback(
+    (target: string) => (e: ModifierClick) => void openLink(target, otherPane(e)).catch(console.error),
+    [openLink],
+  );
+
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const value: Store = {
@@ -756,6 +768,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     forward,
     openDoc,
     openLink,
+    openDocOnClick,
+    openLinkOnClick,
     openPassage,
     openScripture,
     createDoc,

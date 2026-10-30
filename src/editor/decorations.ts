@@ -1,5 +1,6 @@
 // Live-preview decorations: wikilinks, tags (local, immediate) and Scripture
 // Passages (from the engine, async). Nothing here ever changes the text.
+import { otherPane } from "@/lib/panes";
 import { Decoration, EditorView, ViewPlugin, ViewUpdate, WidgetType, type DecorationSet } from "@codemirror/view";
 import { RangeSetBuilder, StateEffect, StateField, Facet } from "@codemirror/state";
 import type { DetectedRange, PassageInfo } from "@/lib/api";
@@ -217,7 +218,7 @@ export const interactions = EditorView.domEventHandlers({
       return true;
     }
     if (el.dataset.link !== undefined) {
-      env.onOpenLink(el.dataset.link, e.metaKey || e.ctrlKey);
+      env.onOpenLink(el.dataset.link, otherPane(e));
       e.preventDefault();
       return true;
     }

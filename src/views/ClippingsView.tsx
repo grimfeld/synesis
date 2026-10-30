@@ -9,7 +9,7 @@ import { useMemo, useState } from "react";
 import { Quote, X } from "lucide-react";
 import { api, type TrailEntry } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
-import { useStore, otherPane } from "@/lib/store";
+import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ function ClippingCard({ entry }: { entry: TrailEntry }) {
       type="button"
       data-testid="clipping-card"
       className="w-full min-w-0 rounded-lg border bg-card p-3 text-left transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      onClick={(e) => s.openDoc(entry.doc.id, otherPane(e))}
+      onClick={s.openDocOnClick(entry.doc.id)}
     >
       {/* The quote is the card. `label` is the Clipping's own text, already
           stripped of its `>` and capped by the engine. */}

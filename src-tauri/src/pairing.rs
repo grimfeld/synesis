@@ -229,7 +229,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(desktop)]
 pub fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(engine::windows::MAIN) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
