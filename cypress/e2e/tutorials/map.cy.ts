@@ -230,7 +230,8 @@ describe("Tutorial: Map & Journeys", () => {
     cy.docByTitle("Corinth").then((p) =>
       cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
     );
-    // Paul's day: the kingdom had ended, and its Border is hidden.
+    // Paul's day: the kingdom had ended; its Border is hidden, and the
+    // Places inside it go with it.
     cy.get("[data-testid=period]").click();
     cy.get("[data-testid=period-from]").clear().type("30");
     cy.get("[data-testid=period-from-era]").click();
@@ -240,6 +241,9 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=period-text]").should("contain", "30–60 CE");
     cy.docByTitle("Judah").then((judah) =>
       cy.get(`[data-testid=map-border][data-id=${judah.id}]`).should("not.exist"),
+    );
+    cy.docByTitle("Anathoth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
     );
     cy.get("[data-testid=period-clear]").click();
     cy.get("[data-testid=period-place-remove]").click();

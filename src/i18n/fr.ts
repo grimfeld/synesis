@@ -438,6 +438,8 @@ export const fr: Dict = {
   border_no_regions: "Aucune région pour l’instant. Donnez d’abord le genre région à un Lieu.",
   border_none:
     "Pas encore de frontière. Sans elle, la région est montrée sur la Carte par son nom, et aucun Lieu ne s’y trouve.",
+  border_not_region:
+    "Seule une région a une frontière. Donnez à ce Lieu le genre région pour en tracer ou en importer une.",
   border_file: (path: string) => `Conservée dans ${path}`,
   border_saved: "Frontière enregistrée.",
   border_deleted: "Frontière supprimée.",

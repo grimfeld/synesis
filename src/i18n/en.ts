@@ -441,6 +441,8 @@ export const en = {
   border_no_regions: "No region yet. Give a Place the kind region first.",
   border_none:
     "No Border yet. Without one the region is shown on the Map by its name, and no Place lies inside it.",
+  border_not_region:
+    "Only a region has a Border. Give this Place the kind region to draw or import one.",
   border_file: (path: string) => `Kept in ${path}`,
   border_saved: "Border saved.",
   border_deleted: "Border deleted.",

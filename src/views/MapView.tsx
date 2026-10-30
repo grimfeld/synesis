@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
-import { MapPin, Plus, Search, Trash2, Undo2, X } from "lucide-react";
-import { toast } from "sonner";
+import { MapPin, Plus, Search, X } from "lucide-react";
 import {
   api,
   type DatedProperty,
@@ -9,13 +8,12 @@ import {
   type EventLink,
   type Journey,
   type KindSuggestion,
-  type LatLon,
   type PlaceFact,
   type PlaceTie,
   type RegionMember,
 } from "@/lib/api";
-import { addCorner, canClose, editableCorners, isRegion } from "@/lib/border";
-import { useBorders, useDeleteBorder } from "@/lib/useBorders";
+import { useBorders, useRegionIds } from "@/lib/useBorders";
+import { BorderDrawing } from "@/components/BorderDrawing";
 import { useFillKinds } from "@/lib/fillKinds";
 import {
   activeCount,
@@ -42,7 +40,8 @@ import {
 } from "@/lib/map";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { mapInPeriod, type EventMark } from "@/lib/mapPeriod";
-import { NO_PERIOD_FILTER, ordered } from "@/lib/period";
+import { isFiltered, NO_PERIOD_FILTER, ordered } from "@/lib/period";
+import { useTagsByDoc } from "@/lib/useTagsByDoc";
 import { sliderExtent } from "@/lib/periodSlider";
 import { yearOf } from "@/lib/timeline";
 import { addAtlas, removeMap, type Atlas } from "@/lib/atlas";
@@ -154,9 +153,11 @@ export function MapView() {
   const map = useRef<L.Map | null>(null);
   const relabel = () => relabelIn(drawnPlaces.current);
   const layer = useRef<L.LayerGroup | null>(null);
-  // Region Borders, under the routes and pins (ADR 0023), and the one being drawn.
+  // Region Borders, under the routes and pins (ADR 0023). The one being drawn
+  // is BorderDrawing's.
   const bordersLayer = useRef<L.LayerGroup | null>(null);
-  const draftLayer = useRef<L.LayerGroup | null>(null);
+  // Set once the Leaflet map exists, for children that draw on it.
+  const [ready, setReady] = useState(false);
   const atlas = useRef<Atlas | null>(null);
   // The drawn Places, so labels can be re-laid-out on zoom without a redraw.
   const drawnPlaces = useRef<{ id: string; title: string; el: () => HTMLElement | undefined; weight: number; pinned: boolean }[]>([]);
@@ -285,21 +286,7 @@ export function MapView() {
   const pf = s.periodFilter;
   // The shared Tags, asked for by Tag: a Place carries one, or someone tied
   // to it does (lib/period).
-  const { data: taggedData } = useQuery({
-    key: [pf.tags.join(" ")],
-    deps: { any: true },
-    enabled: pf.tags.length > 0,
-    fetch: async () => {
-      const lists = await Promise.all(pf.tags.map((tg) => api.taggedDocuments(tg)));
-      return pf.tags.map((tag, i) => ({ tag, docs: lists[i] }));
-    },
-  });
-  const tagsByDoc = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const { tag, docs } of pf.tags.length > 0 ? (taggedData ?? []) : [])
-      for (const d of docs) m.set(d.id, [...(m.get(d.id) ?? []), tag]);
-    return m;
-  }, [taggedData, pf.tags]);
+  const tagsByDoc = useTagsByDoc(pf.tags);
   // The Period the Timeline shares: Places and Journeys that overlap it, and
   // the Events in it, marked at their Place (lib/mapPeriod).
   const rows = datedData?.rows;
@@ -401,8 +388,7 @@ export function MapView() {
     () => inPeriod.journeys.map((j) => ({ id: j.doc.id, title: j.doc.title })),
     [inPeriod.journeys],
   );
-  const filtered =
-    activeCount(mf) + pf.tags.length + pf.places.length > 0 || pf.period != null;
+  const filtered = isFiltered(pf, activeCount(mf));
 
   // Event marks at the Places on screen, numbered per Place so they stack.
   const marks = useMemo(() => {
@@ -451,7 +437,7 @@ export function MapView() {
     atlas.current = addAtlas(map.current);
     bordersLayer.current = L.layerGroup().addTo(map.current);
     layer.current = L.layerGroup().addTo(map.current);
-    draftLayer.current = L.layerGroup().addTo(map.current);
+    setReady(true);
     // Leaflet only measures its box on a window resize; the Tutorial panel
     // docking beside the Map, or the sidebar closing, changes it without one.
     const ro = new ResizeObserver(() => {
@@ -463,6 +449,7 @@ export function MapView() {
       ro.disconnect();
       if (map.current) removeMap(map.current);
       map.current = null;
+      setReady(false);
     };
   }, []);
 
@@ -607,30 +594,15 @@ export function MapView() {
   // Drawn under the pins, in the region's own colour, for every region the
   // filters show. A region with no coordinates has no pin to be filtered by,
   // so its Border is always drawn, with its name at the middle.
-  const draw = s.borderDraw;
+  const regionIds = useRegionIds();
   const regions = useMemo(
     () =>
-      rawFacts
-        .filter((r) => isRegion({ type: "place", kind: r.kind }))
-        .map((r) => ({ id: r.doc, title: s.docsById.get(r.doc)?.title ?? r.doc }))
+      [...regionIds]
+        .map((id) => ({ id, title: s.docsById.get(id)?.title ?? id }))
         .sort((a, b) => a.title.localeCompare(b.title)),
-    [rawFacts, s.docsById],
+    [regionIds, s.docsById],
   );
-  const borderOf = useMemo(() => new Map(borders.map((b) => [b.doc, b])), [borders]);
-  const drawing = draw?.placeId ?? null;
-  const [corners, setCorners] = useState<LatLon[]>([]);
-  const [closed, setClosed] = useState(false);
-  const [saving, setSaving] = useState(false);
-  // Start from the region's own Border when it can be edited corner by corner.
-  // Only when the region changes: a refetch mid-drawing must not undo it.
-  const borderOfRef = useRef(borderOf);
-  borderOfRef.current = borderOf;
-  useEffect(() => {
-    const b = drawing ? borderOfRef.current.get(drawing) : undefined;
-    const c = b ? editableCorners(b) : null;
-    setCorners(c ?? []);
-    setClosed(!!c);
-  }, [drawing]);
+  const drawing = s.borderDraw?.placeId ?? null;
 
   useEffect(() => {
     const g = bordersLayer.current;
@@ -679,93 +651,6 @@ export function MapView() {
     }
   }, [borders, shown, places, inPeriod.regions, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
 
-  // The Border being drawn: its outline so far and a handle on each corner.
-  useEffect(() => {
-    const g = draftLayer.current;
-    if (!g) return;
-    g.clearLayers();
-    if (!drawing) return;
-    const color = cssVar("--c-kind-region", cssVar("--c-place", "#c04f6b"));
-    if (corners.length > 1) {
-      const shape = closed
-        ? L.polygon(corners, { color, weight: 2, fillColor: color, fillOpacity: 0.18, className: "map-border-draft", interactive: false })
-        : L.polyline(corners, { color, weight: 2, dashArray: "4 4", className: "map-border-draft", interactive: false });
-      shape.addTo(g);
-      shape.getElement()?.setAttribute("data-testid", "map-border-draft");
-    }
-    corners.forEach((c, i) => {
-      const mk = L.marker(c, {
-        draggable: true,
-        keyboard: false,
-        zIndexOffset: 3000,
-        icon: L.divIcon({
-          className: `map-border-corner${i === 0 ? " is-first" : ""}`,
-          html: `<span data-testid="border-corner" style="--c:${esc(color)}"></span>`,
-          iconSize: [0, 0],
-          iconAnchor: [0, 0],
-        }),
-      }).addTo(g);
-      mk.on("dragend", () => {
-        const p = mk.getLatLng();
-        setCorners((cs) => cs.map((x, j) => (j === i ? [p.lat, p.lng] : x)));
-      });
-    });
-  }, [drawing, corners, closed, skinTick]);
-
-  const saveBorder = (id: string, cs: LatLon[]) => {
-    if (saving) return;
-    setSaving(true);
-    api
-      .saveBorder(id, cs)
-      .then(() => {
-        toast(t.border_saved, { id: "border" });
-        s.setBorderDraw(null);
-        return s.announceChanged([id]);
-      })
-      .catch((e) => toast.error(String(e)))
-      .finally(() => setSaving(false));
-  };
-  const save = useRef(saveBorder);
-  save.current = saveBorder;
-
-  // Click to place a corner, double-click to close (and save) the Border.
-  useEffect(() => {
-    const m = map.current;
-    const el = host.current;
-    if (!m || !el || !drawing) return;
-    m.doubleClickZoom.disable();
-    el.classList.add("map-drawing");
-    const onClick = (e: L.LeafletMouseEvent) => {
-      if (closed) return;
-      setCorners((cs) => addCorner(cs, [e.latlng.lat, e.latlng.lng]));
-    };
-    const onDouble = (e: L.LeafletMouseEvent) => {
-      if (closed) return;
-      const at: LatLon = [e.latlng.lat, e.latlng.lng];
-      setCorners((cs) => addCorner(cs, at));
-      // Outside the updater, which React may run twice: one save per close.
-      const done = addCorner(cornersRef.current, at);
-      if (canClose(done)) {
-        setClosed(true);
-        save.current(drawing, done);
-      }
-    };
-    m.on("click", onClick);
-    m.on("dblclick", onDouble);
-    return () => {
-      m.off("click", onClick);
-      m.off("dblclick", onDouble);
-      m.doubleClickZoom.enable();
-      el.classList.remove("map-drawing");
-    };
-  }, [drawing, closed]);
-  const cornersRef = useRef(corners);
-  cornersRef.current = corners;
-
-  const confirmDelete = useDeleteBorder();
-  const deleteBorder = (id: string) => confirmDelete(id, borderOf.get(id)?.path ?? "");
-  const drawnBorder = drawing ? borderOf.get(drawing) : undefined;
-  const inPieces = !!drawnBorder && !editableCorners(drawnBorder) && corners.length === 0;
 
   return (
     <div className="flex h-full flex-col">
@@ -803,73 +688,14 @@ export function MapView() {
       </PeriodBar>
       <div className="relative min-h-0 flex-1">
         <div data-testid="map" ref={host} className="size-full" />
-        {draw && (
-          <div
-            data-testid="border-toolbar"
-            className="absolute inset-x-2 top-2 z-[1000] mx-auto flex min-w-0 max-w-xl flex-wrap items-center gap-2 rounded-md border bg-popover p-2 text-popover-foreground shadow-md"
-          >
-            {regions.length === 0 && !drawing ? (
-              <p className="min-w-0 flex-1 text-xs text-muted-foreground">{t.border_no_regions}</p>
-            ) : (
-              <>
-                <label className="flex min-w-0 items-center gap-2 text-xs">
-                  <span className="shrink-0 text-muted-foreground">{t.border_pick}</span>
-                  <select
-                    data-testid="border-region"
-                    className="min-w-0 max-w-[12rem] truncate rounded border bg-background px-1 py-0.5 text-xs"
-                    value={drawing ?? ""}
-                    onChange={(e) => s.setBorderDraw({ placeId: e.currentTarget.value || null })}
-                  >
-                    <option value="">{t.border_pick_none}</option>
-                    {/* A Place picked from its own page stays offered, region or not. */}
-                    {drawing && !regions.some((r) => r.id === drawing) && (
-                      <option value={drawing}>{s.docsById.get(drawing)?.title ?? drawing}</option>
-                    )}
-                    {regions.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.title}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {drawing && (
-                  <p data-testid="border-hint" className="min-w-0 flex-1 basis-48 text-xs text-muted-foreground">
-                    {inPieces ? t.border_pieces : t.border_hint}
-                  </p>
-                )}
-              </>
-            )}
-            <div className="ml-auto flex min-w-0 flex-wrap items-center gap-1">
-              {drawing && corners.length > 0 && !closed && (
-                <Button size="sm" variant="ghost" className="h-auto min-h-8" data-testid="border-undo" onClick={() => setCorners((cs) => cs.slice(0, -1))}>
-                  <Undo2 />
-                  {t.border_undo}
-                </Button>
-              )}
-              {drawing && drawnBorder && (
-                <Button size="sm" variant="ghost" className="h-auto min-h-8" data-testid="border-delete" onClick={() => deleteBorder(drawing)}>
-                  <Trash2 />
-                  {t.border_delete}
-                </Button>
-              )}
-              {drawing && (
-                <Button
-                  size="sm"
-                  className="h-auto min-h-8"
-                  data-testid="border-save"
-                  disabled={!canClose(corners) || saving}
-                  onClick={() => saveBorder(drawing, corners)}
-                >
-                  {t.border_save}
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" className="h-auto min-h-8" data-testid="border-cancel" onClick={() => s.setBorderDraw(null)}>
-                <X />
-                {t.cancel}
-              </Button>
-            </div>
-          </div>
-        )}
+        <BorderDrawing
+          map={map}
+          host={host}
+          ready={ready}
+          borders={borders}
+          regions={regions}
+          skinTick={skinTick}
+        />
         {pinCard &&
           periodOn.current &&
           shown.some((p) => p.id === pinCard.id) &&

@@ -502,6 +502,38 @@ describe("Map", () => {
     cy.get("[data-testid=map] [data-testid=map-pin]").should("have.length.greaterThan", 2);
   });
 
+  it("draws only the Places inside a chosen region, and only in its own years", () => {
+    cy.runCommand("Go to Map");
+    pickPlace("Judah");
+    // Judah's Border takes in Jerusalem, Bethlehem and Anathoth; Corinth and
+    // Babylon lie outside it.
+    for (const inside of ["Jerusalem", "Bethlehem", "Anathoth"])
+      cy.docByTitle(inside).then((p) =>
+        cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+      );
+    for (const outside of ["Corinth", "Babylon"])
+      cy.docByTitle(outside).then((p) =>
+        cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+      );
+    // In its own years, its card lists who is in the Places inside it.
+    setPeriod("640", "580");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${judah.id}"]`).click({ force: true }),
+    );
+    cy.docByTitle("Jeremiah").then((jeremiah) =>
+      cy.get(`[data-testid=map-pin-card-character][data-id="${jeremiah.id}"]`).should("exist"),
+    );
+    cy.get("[data-testid=map-pin-card-close]").click();
+    // After the kingdom fell (607 BCE) it contains nothing: a changed rule
+    // is another Place.
+    setPeriod("500", "400");
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-place-remove]").click();
+  });
+
   it("keeps a Place for a shared Tag carried by what is there in the Period", () => {
     // "prayer" is on no Place, but on Solomon's temple, built in Jerusalem
     // in 1034 BCE, and on the Exodus, which set out from Egypt.

@@ -343,6 +343,33 @@ describe("filterByPeriod with regions", () => {
     expect(undated).toBe(1);
   });
 
+  it("lets a region contain only while it is in the Period", () => {
+    // Judah (930–587 BCE) is gone by Paul's day: choosing it takes in nothing.
+    expect(runR({ places: [judah.id], period: period(30, 60) }).ids).toEqual([]);
+    // In its own years it takes in Jerusalem and Anathoth.
+    expect(runR({ places: [judah.id], period: period(bce(700), bce(600)) }).ids).toContain(
+      "anathoth",
+    );
+    // A region with no Span contains in every Period.
+    const timeless = filterByPeriod(
+      itemsOf(rows, [...undatedDocs, anathoth, samaria], tags),
+      { ...NO_PERIOD_FILTER, places: [samaria.id], period: period(30, 60) },
+      ties,
+      [{ place: anathoth.id, region: samaria.id }],
+    );
+    expect(timeless.visible.map((i) => i.doc.id).sort()).toEqual(["anathoth", "samaria"]);
+  });
+
+  it("lists on a region the Characters at the Places inside it", () => {
+    const at = (f: Partial<PeriodFilter>) =>
+      (charactersAt(all, { ...NO_PERIOD_FILTER, ...f }, ties, regions).get(judah.id) ?? [])
+        .map((d) => d.id)
+        .sort();
+    expect(at({ period: period(bce(640), bce(580)) })).toEqual(["jeremiah"]);
+    // Outside Judah's own years it lists no one.
+    expect(at({ period: period(30, 60) })).toEqual([]);
+  });
+
   it("reads a region with no Border as containing nothing", () => {
     expect(runR({ places: [samaria.id] }).ids).toEqual(["samaria"]);
     // Nor does a region whose Border holds no Place.

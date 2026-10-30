@@ -11,7 +11,8 @@
 //! §6.1), which Pairing compares to decide which copy is newer: a Border is
 //! edited in place, so unlike a picture (ADR 0020) the same name can hold
 //! different bytes over time, and the newest write wins, as config files do
-//! (ADR 0016).
+//! (ADR 0016). The file's modification time counts too (`stamp_of_file`), so
+//! an edit made in another tool, which keeps the old member, is newer.
 
 use crate::Result;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,21 @@ pub const EXT: &str = "geojson";
 
 /// The Property naming a region's Border file.
 pub const PROPERTY: &str = "border";
+
+/// The Place kind that has a Border (ADR 0023).
+pub const REGION: &str = "region";
+
+/// Whether a Place's `kind` value names a region, ignoring case and accents
+/// as the Map does (a hand-typed `Region` or `Région` is still one).
+pub fn is_region(kind: Option<&Value>) -> bool {
+    kind.and_then(Value::as_str).is_some_and(|k| crate::names::normalize(k) == REGION)
+}
+
+/// Why a `border` value is not read as a Border: it names something other
+/// than a `.geojson` file inside the Vault.
+pub fn not_a_border(target: &str) -> String {
+    format!("`border` names {target}, which is not a .{EXT} file in the Vault")
+}
 
 /// One position as Leaflet takes it: latitude first.
 pub type LatLon = [f64; 2];
@@ -293,6 +309,13 @@ pub fn read(root: &Path, doc: &str, rel: &str) -> Border {
 }
 
 // ---- Pairing (ADR 0023: carried whole, newest write wins) -------------------
+//
+// Only the files some region's `border` names travel, never every `.geojson`
+// in the Vault: a GIS file the user keeps for another purpose stays on its
+// Device. The engine keeps, per Device, a small register beside the index
+// (`borders.json` in the Vault's local folder): the files named, which the
+// Vault writes as it indexes, and a tombstone for each Border deleted here or
+// on a peer, so a Device still holding the old file cannot push it back.
 
 /// Whether a vault-relative name is a Border file Pairing may read or write:
 /// a `.geojson` file outside every hidden folder, with no step outside the
@@ -315,26 +338,129 @@ fn join(root: &Path, name: &str) -> PathBuf {
     name.split('/').fold(root.to_path_buf(), |p, part| p.join(part))
 }
 
-/// Every Border file in the Vault, as Pairing advertises it.
-pub fn manifest(root: &Path) -> Vec<crate::config::ConfigEntry> {
-    walkdir::WalkDir::new(root)
-        .follow_links(false)
+/// One Border as Pairing advertises it: a file, or the tombstone of one
+/// deleted at `stamp`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BorderEntry {
+    pub name: String,
+    pub stamp: i64,
+    pub size: u64,
+    pub deleted: bool,
+}
+
+/// Whether a peer's entry should replace what is here. The later stamp wins;
+/// at the same stamp a file beats a tombstone (never lose a drawing on a
+/// tie), then the larger file wins, as for config files.
+pub fn is_newer(theirs: &BorderEntry, mine: Option<&BorderEntry>) -> bool {
+    let Some(m) = mine else { return true };
+    if theirs.stamp != m.stamp {
+        return theirs.stamp > m.stamp;
+    }
+    match (theirs.deleted, m.deleted) {
+        (false, true) => true,
+        (true, _) => false,
+        (false, false) => theirs.size > m.size,
+    }
+}
+
+/// When a Border file was last changed: the later of its `updated` member and
+/// its modification time. The member outranks a peer's clock running fast;
+/// the time catches an edit made in another tool, which keeps the old member.
+pub fn stamp_of_file(p: &Path, bytes: &[u8]) -> i64 {
+    crate::config::stamp_of(bytes).unwrap_or(0).max(crate::config::mtime_ms(p))
+}
+
+const REGISTER: &str = "borders.json";
+
+/// The per-Device register: what is named, and what was deleted when.
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
+struct Register {
+    #[serde(default)]
+    named: std::collections::BTreeSet<String>,
+    #[serde(default)]
+    deleted: std::collections::BTreeMap<String, i64>,
+}
+
+/// The Vault and the Pairing node both write the register, from different
+/// threads of one process.
+static REGISTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn load(local: &Path) -> Register {
+    fs::read(local.join(REGISTER))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
+}
+
+fn save(local: &Path, r: &Register) -> Result<()> {
+    fs::create_dir_all(local)?;
+    let tmp = local.join(format!("{REGISTER}.part"));
+    fs::write(&tmp, serde_json::to_vec(r)?)?;
+    fs::rename(&tmp, local.join(REGISTER))?;
+    Ok(())
+}
+
+fn update(local: &Path, f: impl FnOnce(&mut Register)) -> Result<()> {
+    let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut r = load(local);
+    let before = serde_json::to_vec(&r)?;
+    f(&mut r);
+    if serde_json::to_vec(&r)? != before {
+        save(local, &r)?;
+    }
+    Ok(())
+}
+
+/// Record which Border files the Vault's regions name. Only these travel.
+pub fn set_named(local: &Path, names: impl IntoIterator<Item = String>) -> Result<()> {
+    let names: std::collections::BTreeSet<String> = names.into_iter().filter(|n| is_synced(n)).collect();
+    update(local, |r| r.named = names)
+}
+
+/// What this Device holds for `name`: the file, or its tombstone, whichever
+/// is newer. Named or not: it answers "is the peer's copy newer than mine?".
+fn local_entry(root: &Path, local: &Path, name: &str) -> Option<BorderEntry> {
+    let r = {
+        let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        load(local)
+    };
+    local_entry_in(root, &r, name)
+}
+
+fn local_entry_in(root: &Path, r: &Register, name: &str) -> Option<BorderEntry> {
+    let p = join(root, name);
+    let file = fs::read(&p).ok().map(|bytes| BorderEntry {
+        name: name.into(),
+        stamp: stamp_of_file(&p, &bytes),
+        size: bytes.len() as u64,
+        deleted: false,
+    });
+    let tomb = r
+        .deleted
+        .get(name)
+        .map(|&stamp| BorderEntry { name: name.into(), stamp, size: 0, deleted: true });
+    match (file, tomb) {
+        (Some(f), Some(t)) => Some(if is_newer(&t, Some(&f)) { t } else { f }),
+        (f, t) => f.or(t),
+    }
+}
+
+/// Every Border this Device advertises: each named file it holds, and each
+/// tombstone that no later file has replaced.
+pub fn manifest(root: &Path, local: &Path) -> Vec<BorderEntry> {
+    let r = {
+        let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        load(local)
+    };
+    let mut names: std::collections::BTreeSet<&String> = r.named.iter().collect();
+    names.extend(r.deleted.keys());
+    names
         .into_iter()
-        // Hidden folders hold the engine's own state, never a Border.
-        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.'))
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter_map(|e| {
-            let rel = e.path().strip_prefix(root).ok()?.to_string_lossy().replace('\\', "/");
-            if !is_synced(&rel) {
-                return None;
-            }
-            let bytes = fs::read(e.path()).ok()?;
-            Some(crate::config::ConfigEntry {
-                stamp: crate::config::stamp_at(e.path(), &bytes),
-                size: bytes.len() as u64,
-                name: rel,
-            })
+        .filter(|n| is_synced(n) && !crate::cloud::is_evicted(&join(root, n)))
+        .filter_map(|n| {
+            let e = local_entry_in(root, &r, n)?;
+            // A file that is here but no longer named is not offered.
+            (e.deleted || r.named.contains(n)).then_some(e)
         })
         .collect()
 }
@@ -346,15 +472,86 @@ pub fn read_file(root: &Path, name: &str) -> Option<Vec<u8>> {
     fs::read(join(root, name)).ok()
 }
 
-/// Take a Border file from a peer when it is newer than what is here. Bytes
-/// that are not JSON are refused; a malformed Border that is JSON travels, so
-/// every Device shows the same warning. Returns whether it was written.
-pub fn accept(root: &Path, name: &str, bytes: &[u8]) -> bool {
+/// Take a Border file from a peer, which stamped it `stamp`, when that is
+/// newer than the file or tombstone here. Bytes that are not JSON are
+/// refused; a malformed Border that is JSON travels, so every Device shows
+/// the same warning. Returns whether it was written.
+pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -> bool {
     if !is_synced(name) || serde_json::from_slice::<Value>(bytes).is_err() {
         return false;
     }
     let p = join(root, name);
-    crate::config::accept_at(&p, bytes)
+    // Never written over while iCloud holds it (see `cloud`).
+    if crate::cloud::is_evicted(&p) {
+        return false;
+    }
+    let incoming = BorderEntry { name: name.into(), stamp, size: bytes.len() as u64, deleted: false };
+    if !is_newer(&incoming, local_entry(root, local, name).as_ref()) {
+        return false;
+    }
+    if let Some(parent) = p.parent() {
+        let _ = fs::create_dir_all(parent);
+    }
+    let tmp = p.with_extension(format!("{EXT}.part"));
+    if fs::write(&tmp, bytes).is_err() || fs::rename(&tmp, &p).is_err() {
+        return false;
+    }
+    // The file's stamp here is the peer's, so the two agree and neither
+    // pushes it back.
+    let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(stamp.max(0) as u64);
+    let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+    let _ = revive(local, name);
+    true
+}
+
+/// A peer deleted `name` at `stamp`: remove the file here unless it was
+/// edited later, and keep the tombstone. Returns whether anything changed.
+pub fn forget(root: &Path, local: &Path, name: &str, stamp: i64) -> bool {
+    if !is_synced(name) {
+        return false;
+    }
+    let p = join(root, name);
+    if crate::cloud::is_evicted(&p) {
+        return false;
+    }
+    let tomb = BorderEntry { name: name.into(), stamp, size: 0, deleted: true };
+    if !is_newer(&tomb, local_entry(root, local, name).as_ref()) {
+        return false;
+    }
+    if p.is_file() && fs::remove_file(&p).is_err() {
+        return false;
+    }
+    update(local, |r| {
+        r.deleted.insert(name.into(), stamp);
+    })
+    .is_ok()
+}
+
+/// Delete a Border file here and leave its tombstone, stamped later than the
+/// file it removes so every peer holding that copy drops it.
+pub fn remove(root: &Path, local: &Path, rel: &str) -> Result<()> {
+    let p = join(root, rel);
+    if crate::cloud::is_evicted(&p) {
+        return Err(crate::cloud::downloading(&p));
+    }
+    let previous = fs::read(&p).ok().map(|b| stamp_of_file(&p, &b)).unwrap_or(0);
+    if p.is_file() {
+        fs::remove_file(&p)?;
+    }
+    if is_synced(rel) {
+        let stamp = crate::config::now_ms().max(previous + 1);
+        update(local, |r| {
+            r.deleted.insert(rel.into(), stamp);
+        })?;
+    }
+    Ok(())
+}
+
+/// A Border written here again after it was deleted: its tombstone goes.
+pub fn revive(local: &Path, rel: &str) -> Result<()> {
+    update(local, |r| {
+        r.deleted.remove(rel);
+    })
 }
 
 /// Write a Border file, stamped newer than whatever is on disk so a local edit
@@ -382,7 +579,7 @@ fn put(root: &Path, rel: &str, text: impl FnOnce(i64) -> Result<String>) -> Resu
     if crate::cloud::is_evicted(&p) {
         return Err(crate::cloud::downloading(&p));
     }
-    let previous = fs::read(&p).ok().map(|b| crate::config::stamp_at(&p, &b)).unwrap_or(0);
+    let previous = fs::read(&p).ok().map(|b| stamp_of_file(&p, &b)).unwrap_or(0);
     let text = text(crate::config::now_ms().max(previous + 1))?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -504,37 +701,148 @@ mod tests {
         assert!(!is_synced(".geojson"));
     }
 
-    #[test]
-    fn pairing_carries_the_newest_border_whole() {
-        let a = tempfile::tempdir().unwrap();
-        let b = tempfile::tempdir().unwrap();
-        let rel = "Places/Judah.geojson";
-        write(a.path(), rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
-        let m = manifest(a.path());
-        assert_eq!(m.len(), 1);
-        assert_eq!(m[0].name, rel);
-        let first = read_file(a.path(), rel).unwrap();
-        assert!(accept(b.path(), rel, &first), "a missing Border was not taken");
-        assert_eq!(fs::read(b.path().join(rel)).unwrap(), first);
-        // An edit on B is newer and wins on A; A's older copy loses on B.
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        write(b.path(), rel, &[[30.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
-        let edited = read_file(b.path(), rel).unwrap();
-        assert!(accept(a.path(), rel, &edited));
-        assert!(!accept(b.path(), rel, &first), "an older Border replaced a newer one");
-        assert_eq!(fs::read(a.path().join(rel)).unwrap(), edited);
-        // Junk and unsafe names are refused.
-        assert!(!accept(a.path(), rel, b"{nope"));
-        assert!(!accept(a.path(), "../x.geojson", &edited));
+    /// A Device: its Vault folder and its per-Device local folder.
+    fn device() -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().join("vault");
+        let local = d.path().join("local");
+        fs::create_dir_all(&root).unwrap();
+        (d, root, local)
+    }
+
+    fn entry(root: &Path, local: &Path, name: &str) -> BorderEntry {
+        manifest(root, local).into_iter().find(|e| e.name == name).unwrap()
+    }
+
+    fn set_mtime(p: &Path, ms: i64) {
+        let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms as u64);
+        fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
     }
 
     #[test]
-    fn hidden_folders_are_not_advertised() {
-        let a = tempfile::tempdir().unwrap();
-        fs::create_dir_all(a.path().join(".bible-study")).unwrap();
-        fs::write(a.path().join(".bible-study/x.geojson"), SQUARE).unwrap();
-        fs::write(a.path().join("Note.md"), "x").unwrap();
-        assert!(manifest(a.path()).is_empty());
+    fn pairing_carries_the_newest_border_whole() {
+        let (_a, ra, la) = device();
+        let (_b, rb, lb) = device();
+        let rel = "Places/Judah.geojson";
+        write(&ra, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        set_named(&la, [rel.to_string()]).unwrap();
+        let m = manifest(&ra, &la);
+        assert_eq!(m.len(), 1);
+        assert_eq!(m[0].name, rel);
+        let first = read_file(&ra, rel).unwrap();
+        assert!(accept(&rb, &lb, rel, &first, m[0].stamp), "a missing Border was not taken");
+        assert_eq!(fs::read(rb.join(rel)).unwrap(), first);
+        // B now holds the same copy, at the same stamp: neither is newer.
+        set_named(&lb, [rel.to_string()]).unwrap();
+        assert_eq!(entry(&rb, &lb, rel).stamp, m[0].stamp);
+        assert!(!accept(&rb, &lb, rel, &first, m[0].stamp));
+        // An edit on B is newer and wins on A; A's older copy loses on B.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        write(&rb, rel, &[[30.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        let edited = read_file(&rb, rel).unwrap();
+        let eb = entry(&rb, &lb, rel);
+        assert!(accept(&ra, &la, rel, &edited, eb.stamp));
+        assert!(!accept(&rb, &lb, rel, &first, m[0].stamp), "an older Border replaced a newer one");
+        assert_eq!(fs::read(ra.join(rel)).unwrap(), edited);
+        // Junk and unsafe names are refused.
+        assert!(!accept(&ra, &la, rel, b"{nope", i64::MAX));
+        assert!(!accept(&ra, &la, "../x.geojson", &edited, i64::MAX));
+        assert!(!accept(&ra, &la, "Notes/grace.md", b"{}", i64::MAX));
+    }
+
+    #[test]
+    fn only_the_files_a_region_names_are_advertised() {
+        let (_a, root, local) = device();
+        fs::create_dir_all(root.join(".bible-study")).unwrap();
+        fs::create_dir_all(root.join("Maps")).unwrap();
+        fs::write(root.join(".bible-study/x.geojson"), SQUARE).unwrap();
+        fs::write(root.join("Maps/roads.geojson"), SQUARE).unwrap();
+        fs::write(root.join("Maps/judah.geojson"), SQUARE).unwrap();
+        fs::write(root.join("Note.md"), "x").unwrap();
+        assert!(manifest(&root, &local).is_empty(), "nothing is named yet");
+        set_named(
+            &local,
+            ["Maps/judah.geojson".to_string(), ".bible-study/x.geojson".into(), "Note.md".into()],
+        )
+        .unwrap();
+        let names: Vec<String> = manifest(&root, &local).into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["Maps/judah.geojson"]);
+    }
+
+    #[test]
+    fn a_deleted_border_is_not_brought_back_by_an_older_copy() {
+        let (_a, ra, la) = device();
+        let (_b, rb, lb) = device();
+        let rel = "Places/Judah.geojson";
+        write(&ra, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        set_named(&la, [rel.to_string()]).unwrap();
+        let old = entry(&ra, &la, rel);
+        let bytes = read_file(&ra, rel).unwrap();
+        assert!(accept(&rb, &lb, rel, &bytes, old.stamp));
+        // Deleted on A: the manifest carries a tombstone, later than the file.
+        remove(&ra, &la, rel).unwrap();
+        set_named(&la, Vec::<String>::new()).unwrap();
+        assert!(!ra.join(rel).exists());
+        let tomb = entry(&ra, &la, rel);
+        assert!(tomb.deleted && tomb.stamp > old.stamp, "{tomb:?}");
+        // B's older copy does not come back to A…
+        assert!(is_newer(&tomb, Some(&old)));
+        assert!(!is_newer(&old, Some(&tomb)));
+        assert!(!accept(&ra, &la, rel, &bytes, old.stamp), "a deleted Border came back");
+        assert!(!ra.join(rel).exists());
+        // …and B drops it when told.
+        assert!(forget(&rb, &lb, rel, tomb.stamp));
+        assert!(!rb.join(rel).exists());
+        // A Border drawn again after the deletion is newer than the tombstone.
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        write(&rb, rel, &[[30.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        revive(&lb, rel).unwrap();
+        set_named(&lb, [rel.to_string()]).unwrap();
+        let again = entry(&rb, &lb, rel);
+        assert!(!again.deleted && again.stamp > tomb.stamp);
+        assert!(accept(&ra, &la, rel, &read_file(&rb, rel).unwrap(), again.stamp));
+        assert!(ra.join(rel).exists());
+    }
+
+    #[test]
+    fn a_tombstone_older_than_an_edit_leaves_the_edit() {
+        let (_b, rb, lb) = device();
+        let rel = "Places/Judah.geojson";
+        write(&rb, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        set_named(&lb, [rel.to_string()]).unwrap();
+        let mine = entry(&rb, &lb, rel);
+        assert!(!forget(&rb, &lb, rel, mine.stamp - 1));
+        assert!(rb.join(rel).exists(), "a newer edit was deleted");
+        assert!(!entry(&rb, &lb, rel).deleted);
+    }
+
+    #[test]
+    fn an_outside_edit_counts_by_its_modification_time() {
+        let (_a, ra, la) = device();
+        let (_b, rb, lb) = device();
+        let rel = "Places/Judah.geojson";
+        write(&ra, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [32.0, 35.0]]).unwrap();
+        set_named(&la, [rel.to_string()]).unwrap();
+        let shared = entry(&ra, &la, rel);
+        let bytes = read_file(&ra, rel).unwrap();
+        assert!(accept(&rb, &lb, rel, &bytes, shared.stamp));
+        // Another tool shrinks A's copy and keeps the old `updated` member.
+        let v: Value = serde_json::from_slice(&bytes).unwrap();
+        let shrunk = format!(
+            r#"{{"type":"Polygon","updated":{},"coordinates":[[[35,31],[36,31],[36,32],[35,31]]]}}"#,
+            v["updated"]
+        );
+        assert!(shrunk.len() < bytes.len());
+        fs::write(ra.join(rel), &shrunk).unwrap();
+        set_mtime(&ra.join(rel), shared.stamp + 60_000);
+        let edited = entry(&ra, &la, rel);
+        assert!(edited.stamp > shared.stamp, "{edited:?}");
+        // B's older copy does not overwrite it…
+        assert!(!accept(&ra, &la, rel, &bytes, shared.stamp));
+        assert_eq!(fs::read_to_string(ra.join(rel)).unwrap(), shrunk);
+        // …and B takes the edit.
+        assert!(accept(&rb, &lb, rel, shrunk.as_bytes(), edited.stamp));
+        assert_eq!(fs::read_to_string(rb.join(rel)).unwrap(), shrunk);
     }
 
     #[test]

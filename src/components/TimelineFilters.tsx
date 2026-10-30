@@ -32,7 +32,7 @@ export function TimelineFilters({
   onChange,
   selectedTags,
   onTags,
-  tags,
+  tagChoices,
   props,
   typeLabel,
 }: {
@@ -45,7 +45,8 @@ export function TimelineFilters({
    */
   selectedTags: string[];
   onTags: (tags: string[]) => void;
-  tags: string[];
+  /** The Tags offered as chips. */
+  tagChoices: string[];
   props: string[];
   typeLabel: (ty: DocType) => string;
 }) {
@@ -101,7 +102,7 @@ export function TimelineFilters({
         />
         <Chips
           label={t.tl_filter_tags}
-          values={tags}
+          values={tagChoices}
           selected={selectedTags}
           onChange={onTags}
         />

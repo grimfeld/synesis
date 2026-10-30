@@ -47,6 +47,7 @@ describe("isRegion", () => {
   it("is a Place whose kind is region", () => {
     expect(isRegion({ type: "place", kind: "region" })).toBe(true);
     expect(isRegion({ type: "place", kind: " Region " })).toBe(true);
+    expect(isRegion({ type: "place", kind: "Région" })).toBe(true);
     expect(isRegion({ type: "place", kind: "settlement" })).toBe(false);
     expect(isRegion({ type: "character", kind: "region" })).toBe(false);
   });

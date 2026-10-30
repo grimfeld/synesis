@@ -63,7 +63,7 @@ import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore } from "@/lib/store";
 import { editableCorners, isRegion } from "@/lib/border";
-import { useBorders, useDeleteBorder, useImportBorder } from "@/lib/useBorders";
+import { useBorders, useDeleteBorder, useDrawBorder, useImportBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
@@ -1487,11 +1487,11 @@ function SpanDate({
  * because the kind changed.
  */
 function BorderSection({ doc }: { doc: DocumentPayload }) {
-  const s = useStore();
   const t = useT();
   const borders = useBorders();
   const confirmDelete = useDeleteBorder();
   const importBorder = useImportBorder();
+  const drawBorder = useDrawBorder();
   const id = doc.summary.id;
   const border = borders.find((b) => b.doc === id);
   const region = isRegion({ type: doc.summary.type, kind: doc.frontmatter.kind });
@@ -1505,10 +1505,7 @@ function BorderSection({ doc }: { doc: DocumentPayload }) {
         : border.status === "downloading"
           ? t.border_downloading
           : null;
-  const draw = () => {
-    s.setBorderDraw({ placeId: id });
-    s.navigate({ kind: "map" });
-  };
+  const draw = () => drawBorder(id);
   return (
     <section data-testid="hub-border" className="space-y-2">
       <PanelTitle>{t.border}</PanelTitle>
@@ -1525,6 +1522,10 @@ function BorderSection({ doc }: { doc: DocumentPayload }) {
         <p data-testid="border-file" className="min-w-0 break-words text-sm text-muted-foreground">
           {t.border_file(border.path)}
         </p>
+      ) : !region ? (
+        <p data-testid="border-not-region" className="text-sm text-muted-foreground">
+          {t.border_not_region}
+        </p>
       ) : (
         <p data-testid="border-none" className="text-sm text-muted-foreground">
           {t.border_none}
@@ -1534,26 +1535,31 @@ function BorderSection({ doc }: { doc: DocumentPayload }) {
         <p className="text-xs text-muted-foreground">{t.border_pieces}</p>
       )}
       <div className="flex flex-wrap gap-2">
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-auto min-h-8"
-          data-testid="hub-border-draw"
-          onClick={draw}
-        >
-          <MapPin />
-          {border && editableCorners(border) ? t.border_edit : t.border_draw}
-        </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          className="h-auto min-h-8"
-          data-testid="hub-border-import"
-          onClick={() => importBorder(id)}
-        >
-          <Upload />
-          {t.border_import}
-        </Button>
+        {/* Only a region takes a Border (ADR 0023); any Place may lose one. */}
+        {region && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-draw"
+              onClick={draw}
+            >
+              <MapPin />
+              {border && editableCorners(border) ? t.border_edit : t.border_draw}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-import"
+              onClick={() => importBorder(id)}
+            >
+              <Upload />
+              {t.border_import}
+            </Button>
+          </>
+        )}
         {border && (
           <Button
             size="sm"

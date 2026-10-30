@@ -1524,8 +1524,16 @@ impl Index {
         let resolve_as = |target: &str, t: DocType| -> Result<Option<DocSummary>> {
             Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
         };
-        // (Character title, 0 for `places` | 1 for an Event, order within, tie)
-        let mut keyed: Vec<(String, u8, f64, String, PlaceTie)> = Vec::new();
+        /// Where a tie sorts: by Character, then `places` before Events, then
+        /// in order within each.
+        struct Keyed {
+            character: String,
+            from_event: bool,
+            order: f64,
+            event: String,
+            tie: PlaceTie,
+        }
+        let mut keyed: Vec<Keyed> = Vec::new();
 
         let mut st = self.conn.prepare(&format!(
             "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
@@ -1537,23 +1545,23 @@ impl Index {
         for (n, (character, target)) in rows.into_iter().enumerate() {
             if let Some(place) = resolve_as(&target, DocType::Place)? {
                 if keyed.iter().any(|k| {
-                    k.1 == 0 && k.4.character.id == character.id && k.4.place.id == place.id
+                    !k.from_event && k.tie.character.id == character.id && k.tie.place.id == place.id
                 }) {
                     continue;
                 }
-                keyed.push((
-                    character.title.to_lowercase(),
-                    0,
-                    n as f64,
-                    String::new(),
-                    PlaceTie {
+                keyed.push(Keyed {
+                    character: character.title.to_lowercase(),
+                    from_event: false,
+                    order: n as f64,
+                    event: String::new(),
+                    tie: PlaceTie {
                         character,
                         place,
                         event: None,
                         start: None,
                         end: None,
                     },
-                ));
+                });
             }
         }
 
@@ -1588,32 +1596,33 @@ impl Index {
                 if !seen.insert(character.id.clone()) {
                     continue;
                 }
-                keyed.push((
-                    character.title.to_lowercase(),
-                    1,
-                    start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
-                    event.title.to_lowercase(),
-                    PlaceTie {
+                keyed.push(Keyed {
+                    character: character.title.to_lowercase(),
+                    from_event: true,
+                    order: start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
+                    event: event.title.to_lowercase(),
+                    tie: PlaceTie {
                         character,
                         place: place.clone(),
                         event: Some(event.clone()),
                         start,
                         end,
                     },
-                ));
+                });
             }
         }
 
         keyed.sort_by(|a, b| {
-            a.0.cmp(&b.0)
-                .then(a.4.character.id.cmp(&b.4.character.id))
-                .then(a.1.cmp(&b.1))
-                .then(a.2.total_cmp(&b.2))
-                .then(a.3.cmp(&b.3))
+            a.character
+                .cmp(&b.character)
+                .then(a.tie.character.id.cmp(&b.tie.character.id))
+                .then(a.from_event.cmp(&b.from_event))
+                .then(a.order.total_cmp(&b.order))
+                .then(a.event.cmp(&b.event))
         });
         Ok(keyed
             .into_iter()
-            .map(|k| k.4)
+            .map(|k| k.tie)
             .filter(|t| id.is_none_or(|id| t.character.id == id || t.place.id == id))
             .collect())
     }

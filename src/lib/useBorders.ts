@@ -3,11 +3,11 @@
 // A Border is asked again when a Place changes (writing one rewrites the
 // Place's `border`), and when a Border file arrives on its own from a paired
 // Device (`BORDERS_CHANGED`), which changes no document at all.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useT } from "@/i18n";
-import { api, type Border } from "./api";
-import { BORDERS_CHANGED } from "./border";
+import { api, type Border, type PlaceFact } from "./api";
+import { BORDERS_CHANGED, isRegion } from "./border";
 import { useQuery } from "./useQuery";
 import { useStore } from "./store";
 
@@ -24,6 +24,38 @@ export function useBorders(): Border[] {
     fetch: () => api.borders(),
   });
   return data ?? [];
+}
+
+/**
+ * The ids of every region Place: the only Places a Border is offered for
+ * (ADR 0023). A Place's kind lives in its frontmatter, which a document
+ * summary does not carry, so it is read from the Map's facts.
+ */
+export function useRegionIds(): Set<string> {
+  const { data } = useQuery<PlaceFact[]>({
+    key: [],
+    deps: { types: ["place"] },
+    fetch: () => api.placeFacts(),
+  });
+  return useMemo(
+    () => new Set((data ?? []).filter((f) => isRegion({ type: "place", kind: f.kind })).map((f) => f.doc)),
+    [data],
+  );
+}
+
+/**
+ * Start drawing a Border: go to the Map in its drawing mode, with that region
+ * picked, or with none so the Map asks which.
+ */
+export function useDrawBorder(): (regionId: string | null) => void {
+  const { setBorderDraw, navigate } = useStore();
+  return useCallback(
+    (regionId: string | null) => {
+      setBorderDraw({ placeId: regionId });
+      navigate({ kind: "map" });
+    },
+    [setBorderDraw, navigate],
+  );
 }
 
 /**
