@@ -303,6 +303,10 @@ pub fn read_picture(root: &std::path::Path, target: &str) -> crate::Result<Optio
 }
 
 /// The Place a Border command acts on, with its text and current Border file.
+///
+/// Refused when `border` already names something that is not a `.geojson`
+/// file inside the Vault: a hand-written `border: [[Notes/grace.md]]` must
+/// never be overwritten or deleted by a Border command.
 fn border_place(v: &Vault, id: &str) -> crate::Result<(DocumentView, Option<String>)> {
     let view = v.read(id)?;
     if view.summary.doc_type != DocType::Place {
@@ -311,10 +315,29 @@ fn border_place(v: &Vault, id: &str) -> crate::Result<(DocumentView, Option<Stri
             view.summary.title
         )));
     }
-    let current = view
-        .frontmatter
-        .get(crate::border::PROPERTY)
-        .and_then(|b| Vault::border_path(&view.summary.path, b));
+    let current = match view.frontmatter.get(crate::border::PROPERTY) {
+        None => None,
+        Some(value) => match crate::border::link_target(value) {
+            None => None,
+            Some(target) => Some(
+                Vault::border_path(&view.summary.path, value)
+                    .ok_or_else(|| crate::Error::Invalid(crate::border::not_a_border(&target)))?,
+            ),
+        },
+    };
+    Ok((view, current))
+}
+
+/// `border_place`, for a command that gives a Place a Border: only a region
+/// has one (ADR 0023).
+fn region_place(v: &Vault, id: &str) -> crate::Result<(DocumentView, Option<String>)> {
+    let (view, current) = border_place(v, id)?;
+    if !crate::border::is_region(view.frontmatter.get("kind")) {
+        return Err(crate::Error::Invalid(format!(
+            "only a region has a Border; {} is not a region",
+            view.summary.title
+        )));
+    }
     Ok((view, current))
 }
 
@@ -355,7 +378,7 @@ fn put_border(
     id: &str,
     write: impl FnOnce(&std::path::Path, &str) -> crate::Result<()>,
 ) -> crate::Result<DocumentPayload> {
-    let (view, current) = border_place(v, id)?;
+    let (view, current) = region_place(v, id)?;
     let root = v.root().to_path_buf();
     let rel = match current {
         Some(rel) => rel,
@@ -366,6 +389,8 @@ fn put_border(
         }
     };
     write(&root, &rel)?;
+    // Written again after a deletion: Pairing carries it, not the tombstone.
+    crate::border::revive(v.local_dir(), &rel)?;
     let name = rel.rsplit('/').next().unwrap_or(&rel);
     // A link to a file elsewhere is spelled from the root, as Obsidian does.
     let beside = crate::border::path_for(&view.summary.path, name).as_deref() == Some(rel.as_str());
@@ -379,24 +404,20 @@ fn put_border(
     };
     // The Place may be unchanged (a Border rewritten in place): the Places
     // inside it are recomputed from the new file either way.
-    v.border_file_changed(&rel)?;
+    v.border_file_changed()?;
     Ok(payload(v, view))
 }
 
-/// Remove a Place's Border: its file and its `border` Property.
+/// Remove a Place's Border: its `border` Property, and its file unless
+/// another region names that file too. Any Place may lose a Border, so one
+/// whose kind changed can still be cleared.
 pub fn delete_border(v: &mut Vault, id: &str) -> crate::Result<DocumentPayload> {
     let (view, current) = border_place(v, id)?;
     if let Some(rel) = current {
-        let abs = v.root().join(&rel);
-        if crate::cloud::is_evicted(&abs) {
-            return Err(crate::cloud::downloading(&abs));
-        }
-        if abs.is_file() {
-            std::fs::remove_file(abs)?;
-        }
+        v.drop_border_file(&rel, id)?;
     }
     if !view.frontmatter.contains_key(crate::border::PROPERTY) {
-        v.border_file_changed("")?;
+        v.border_file_changed()?;
         return Ok(payload(v, view));
     }
     let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, None);
@@ -659,7 +680,7 @@ mod border_tests {
             r#"{"type":"Polygon","coordinates":[[[35,31],[36,31],[36,31.6],[35,31.6],[35,31]]]}"#,
         )
         .unwrap();
-        v.border_file_changed("Places/Judah.geojson").unwrap();
+        v.border_file_changed().unwrap();
         assert_eq!(members(&v, "judah"), ["frontier", "jerusalem"]);
         // And removed with its Property: nothing is inside any more.
         delete_border(&mut v, "judah").unwrap();
@@ -688,6 +709,145 @@ mod border_tests {
         assert_eq!(members(&v, "judah"), ["frontier"]);
         v.delete("judah").unwrap();
         assert!(members(&v, "judah").is_empty());
+    }
+
+    // ---- What a Border command may touch (review of #34).
+
+    fn judah_with_border(dir: &std::path::Path, v: &mut Vault, border: &str) {
+        fs::write(
+            dir.join("Places/Judah.md"),
+            format!("---\nid: judah\ntype: place\nkind: region\nborder: \"{border}\"\n---\nThe southern kingdom.\n"),
+        )
+        .unwrap();
+        v.scan().unwrap();
+    }
+
+    #[test]
+    fn a_border_naming_a_note_is_never_written_over_or_deleted() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::write(dir.path().join("Notes/grace.md"), "Grace.\n").unwrap();
+        judah_with_border(dir.path(), &mut v, "[[Notes/grace.md]]");
+        let grace = fs::read_to_string(dir.path().join("Notes/grace.md")).unwrap();
+        let e = save_border(&mut v, "judah", &CORNERS).unwrap_err().to_string();
+        assert!(e.contains("Notes/grace.md") && e.contains(".geojson"), "{e}");
+        assert!(import_border(&mut v, "judah", "islands.geojson", ISLANDS).is_err());
+        assert!(delete_border(&mut v, "judah").is_err());
+        assert_eq!(fs::read_to_string(dir.path().join("Notes/grace.md")).unwrap(), grace);
+        assert_eq!(v.read("judah").unwrap().frontmatter["border"], "[[Notes/grace.md]]");
+        // The Map says why it draws nothing, and nothing is read as a Border.
+        let b = borders(&v);
+        assert_eq!(b[0].status, BorderStatus::Malformed);
+        assert!(b[0].error.as_deref().unwrap().contains("Notes/grace.md"));
+        // Deleting the Place leaves the note alone too.
+        v.delete("judah").unwrap();
+        assert!(dir.path().join("Notes/grace.md").exists());
+    }
+
+    #[test]
+    fn a_border_out_of_the_vault_is_refused() {
+        let (dir, mut v) = vault();
+        let outside = dir.path().parent().unwrap().join("outside.geojson");
+        judah_with_border(dir.path(), &mut v, "[[../outside.geojson]]");
+        assert!(save_border(&mut v, "judah", &CORNERS).is_err());
+        assert!(delete_border(&mut v, "judah").is_err());
+        assert!(!outside.exists());
+        judah_with_border(dir.path(), &mut v, "[[.bible-study/x.geojson]]");
+        assert!(save_border(&mut v, "judah", &CORNERS).is_err());
+        assert!(!dir.path().join(".bible-study/x.geojson").exists());
+    }
+
+    fn second_region(dir: &std::path::Path, v: &mut Vault) {
+        fs::write(
+            dir.join("Places/Kingdom.md"),
+            "---\nid: kingdom\ntype: place\nkind: region\nborder: \"[[Judah.geojson]]\"\n---\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+    }
+
+    #[test]
+    fn deleting_a_border_another_region_names_keeps_the_file() {
+        let (dir, mut v) = vault();
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        second_region(dir.path(), &mut v);
+        let doc = delete_border(&mut v, "judah").unwrap();
+        assert!(doc.frontmatter.get("border").is_none());
+        assert!(dir.path().join("Places/Judah.geojson").exists(), "the other region's Border went");
+        assert_eq!(borders(&v).len(), 1);
+        // The last region to let go of it takes the file with it.
+        delete_border(&mut v, "kingdom").unwrap();
+        assert!(!dir.path().join("Places/Judah.geojson").exists());
+    }
+
+    #[test]
+    fn deleting_a_region_deletes_its_border_unless_another_names_it() {
+        let (dir, mut v) = vault();
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        second_region(dir.path(), &mut v);
+        v.delete("judah").unwrap();
+        assert!(dir.path().join("Places/Judah.geojson").exists(), "a Border still named went");
+        v.delete("kingdom").unwrap();
+        assert!(!dir.path().join("Places/Judah.geojson").exists(), "the Border outlived its region");
+    }
+
+    #[test]
+    fn a_deleted_border_leaves_a_tombstone_for_pairing() {
+        let (dir, mut v) = vault();
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        let named = crate::border::manifest(v.root(), v.local_dir());
+        assert_eq!(named.len(), 1);
+        assert!(!named[0].deleted);
+        delete_border(&mut v, "judah").unwrap();
+        let m = crate::border::manifest(v.root(), v.local_dir());
+        assert_eq!(m.len(), 1);
+        assert!(m[0].deleted && m[0].stamp > named[0].stamp, "{m:?}");
+        // Drawn again: the file travels, not the tombstone.
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        let m = crate::border::manifest(v.root(), v.local_dir());
+        assert!(!m[0].deleted);
+        assert!(dir.path().join("Places/Judah.geojson").exists());
+    }
+
+    #[test]
+    fn only_the_border_files_regions_name_are_offered_to_pairing() {
+        let (dir, mut v) = vault();
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        fs::write(dir.path().join("Places/roads.geojson"), ISLANDS).unwrap();
+        // A settlement that sets `border` by hand does not make it a Border.
+        fs::write(
+            dir.path().join("Places/Town.md"),
+            "---\nid: town\ntype: place\nkind: settlement\nborder: \"[[roads.geojson]]\"\n---\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let names: Vec<String> =
+            crate::border::manifest(v.root(), v.local_dir()).into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["Places/Judah.geojson"]);
+        assert_eq!(borders(&v).len(), 1, "a settlement's `border` was drawn");
+    }
+
+    #[test]
+    fn only_a_region_takes_a_border() {
+        let (dir, mut v) = vault();
+        fs::write(
+            dir.path().join("Places/Town.md"),
+            "---\nid: town\ntype: place\nkind: settlement\nlat: 31.5\nlon: 35.2\n---\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let e = save_border(&mut v, "town", &CORNERS).unwrap_err().to_string();
+        assert!(e.contains("region"), "{e}");
+        assert!(import_border(&mut v, "town", "islands.geojson", ISLANDS).is_err());
+        assert!(!dir.path().join("Places/Town.geojson").exists());
+        // A kind typed by hand still names a region.
+        fs::write(
+            dir.path().join("Places/Town.md"),
+            "---\nid: town\ntype: place\nkind: Région\n---\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        assert!(save_border(&mut v, "town", &CORNERS).is_ok());
     }
 
     #[test]

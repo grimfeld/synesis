@@ -74,7 +74,7 @@ impl Watcher {
                     // whose containment changed are announced.
                     if ext == engine::border::EXT {
                         if engine::border::is_synced(&rel) && seen.insert(rel.clone()) {
-                            if let Ok(regions) = vault.border_file_changed(&rel) {
+                            if let Ok(regions) = vault.border_file_changed() {
                                 changed.extend(regions);
                             }
                         }
