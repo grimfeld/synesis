@@ -217,6 +217,11 @@ export const fr: Dict = {
   board_tab_split: "Côte à côte",
   split_divider: "Redimensionner le discours et le tableau",
   split_command: "Discours et tableau côte à côte",
+  pane_open_other: "Ouvrir dans l’autre volet",
+  pane_close: "Fermer le volet",
+  pane_swap: "Échanger les volets",
+  pane_divider: "Redimensionner les volets",
+  window_open: "Ouvrir dans une nouvelle fenêtre",
   reading_mode: "Mode lecture",
   reading_mode_on: "Le mode lecture est activé : rien ici ne peut être modifié. Déverrouillez pour écrire.",
   reading_unlock: "Déverrouiller pour modifier",
@@ -877,6 +882,7 @@ export const fr: Dict = {
   vault_occupied: (folder: string, name: string) =>
     `${folder} contient déjà le coffre « ${name} ». Rejoindre ici fusionnerait les deux définitivement.`,
   join_into: (name: string) => `Rejoindre « ${name} » dans`,
+  vault_in_main_window: "Les coffres s’ouvrent et se ferment dans la fenêtre principale.",
   close_vault_hint: "Retourne à l'écran de départ, où vous pouvez ouvrir un autre coffre ou appairer un autre appareil.",
   waiting_for_documents: "En attente des documents de vos appareils appairés. Ouvrez Synesis sur l'un d'eux pour qu'ils se parlent.",
 };

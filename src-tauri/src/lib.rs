@@ -28,6 +28,7 @@ mod pairing;
 mod storage;
 mod system_bars;
 mod watch;
+mod windows;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Settings {
@@ -236,6 +237,7 @@ pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<Strin
     let vault = Vault::open(&root, &data_dir, lang).map_err(err)?;
     let info = vault.info().map_err(err)?;
     *state.vault.lock().map_err(err)? = Some(vault);
+    windows::vault_changed(&app);
     {
         let mut s = state.settings.lock().map_err(err)?;
         s.vault_path = Some(path.clone());
@@ -430,7 +432,7 @@ fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>
 /// Only the open Vault can be left: leaving runs the engine, and the engine
 /// only holds the Vault that is open. The UI opens it first.
 #[tauri::command]
-fn leave_vault(state: State<AppState>, id: String, delete_documents: bool) -> CmdResult<Vec<KnownVault>> {
+fn leave_vault(app: AppHandle, state: State<AppState>, id: String, delete_documents: bool) -> CmdResult<Vec<KnownVault>> {
     let known = {
         let s = state.settings.lock().map_err(err)?;
         s.vaults.iter().find(|v| v.id == id).cloned().ok_or("no such vault")?
@@ -444,6 +446,7 @@ fn leave_vault(state: State<AppState>, id: String, delete_documents: bool) -> Cm
     tauri::async_runtime::block_on(pairing::stop(&state));
     *state.watcher.lock().map_err(err)? = None;
     let vault = state.vault.lock().map_err(err)?.take().ok_or("no vault open")?;
+    windows::vault_changed(&app);
     vault.leave(delete_documents).map_err(err)?;
     {
         let mut s = state.settings.lock().map_err(err)?;
@@ -510,7 +513,7 @@ fn move_vault(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<V
     let to = storage::vault_path(&app, &known.name)?;
     let was_open = state.settings.lock().map_err(err)?.vault_path.as_deref() == Some(known.path.as_str());
     if was_open {
-        close_vault(state.clone())?;
+        close_vault(app.clone(), state.clone())?;
     }
     storage::copy_tree(&from, &to).map_err(err)?;
     std::fs::remove_dir_all(&from).map_err(err)?;
@@ -582,10 +585,11 @@ pub struct InviteInfo {
 }
 
 #[tauri::command]
-fn close_vault(state: State<AppState>) -> CmdResult<()> {
+fn close_vault(app: AppHandle, state: State<AppState>) -> CmdResult<()> {
     tauri::async_runtime::block_on(pairing::stop(&state));
     *state.watcher.lock().map_err(err)? = None;
     *state.vault.lock().map_err(err)? = None;
+    windows::vault_changed(&app);
     state.settings.lock().map_err(err)?.vault_path = None;
     state.save_settings()
 }
@@ -617,14 +621,21 @@ fn get_document(state: State<AppState>, id: String) -> CmdResult<DocumentPayload
 }
 
 #[tauri::command]
-fn save_document(state: State<AppState>, id: String, text: String) -> CmdResult<DocumentPayload> {
+fn save_document(
+    state: State<AppState>,
+    windows: State<windows::WindowState>,
+    id: String,
+    text: String,
+) -> CmdResult<DocumentPayload> {
     let r = (|| {
     state.with_vault_mut(|v| {
         let view = v.write(&id, &text)?;
         Ok(api::payload(v, view))
     })
     })();
-    if r.is_ok() {
+    if let Ok(p) = &r {
+        // The other Windows showing it will see this save on disk: it is theirs too.
+        windows::saved(&windows, &id, &p.text);
         pairing::after_write(&state);
     }
     r
@@ -1236,16 +1247,30 @@ pub fn run() {
         .plugin(tauri_plugin_process::init());
     builder
         .on_window_event(|window, event| {
-            #[cfg(desktop)]
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let state = window.state::<AppState>();
-                if pairing::keep_in_background(&state) {
-                    api.prevent_close();
-                    let _ = window.hide();
+            if let tauri::WindowEvent::Destroyed = event {
+                windows::closed(window.app_handle(), window.label());
+                // The main Window closed for real (not hidden to the tray):
+                // the app quits, taking any secondary Window with it.
+                #[cfg(desktop)]
+                if window.label() == engine::windows::MAIN {
+                    window.app_handle().exit(0);
                 }
             }
-            #[cfg(not(desktop))]
-            let _ = (window, event);
+            // Only the main Window stays behind in the tray. Closing it
+            // otherwise quits, once every Window has saved its typing. A
+            // secondary Window (issue #51) saves and closes in the UI.
+            #[cfg(desktop)]
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == engine::windows::MAIN {
+                    api.prevent_close();
+                    let state = window.state::<AppState>();
+                    if pairing::keep_in_background(&state) {
+                        let _ = window.hide();
+                    } else {
+                        windows::flush_all_then(window.app_handle(), |app| app.exit(0));
+                    }
+                }
+            }
         })
         .setup(|app| {
             let sp = settings_path(app.handle());
@@ -1258,6 +1283,7 @@ pub fn run() {
                 p2p: Mutex::new(None),
                 quitting: std::sync::atomic::AtomicBool::new(false),
             });
+            app.manage(windows::WindowState::default());
             #[cfg(desktop)]
             pairing::setup_tray(app.handle())?;
             pairing::autostart(app.handle().clone());
@@ -1350,10 +1376,25 @@ pub fn run() {
             skin_gallery,
             gallery_skin,
             hidden_dir,
-            ui_log
+            ui_log,
+            windows::open_window,
+            windows::window_start,
+            windows::doc_join,
+            windows::doc_sync,
+            windows::doc_leave,
+            windows::close_other_windows,
+            windows::window_flushed,
+            windows::flush_all_windows
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|app, event| {
+            // Cmd+Q and the app menu's Quit come here without a Window
+            // closing: every Window saves its typing first (spec #35).
+            if let tauri::RunEvent::ExitRequested { code, api, .. } = event {
+                windows::exit_requested(app, code, || api.prevent_exit());
+            }
+        });
 }
 
 /// The pure parts of this layer: reading a page's own description of itself.

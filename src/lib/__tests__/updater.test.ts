@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("@tauri-apps/plugin-updater", () => ({ check: vi.fn() }));
 vi.mock("@tauri-apps/plugin-process", () => ({ relaunch: vi.fn() }));
 
-import { isDesktopApp, shouldCheckOnStart } from "../updater";
+import { applyUpdate, isDesktopApp, shouldCheckOnStart } from "../updater";
 
 const MAC = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15";
 const ANDROID = "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36";
@@ -36,5 +36,27 @@ describe("shouldCheckOnStart", () => {
   it("never checks from a dev build or off desktop", () => {
     expect(shouldCheckOnStart({ desktop: true, dev: true, enabled: true })).toBe(false);
     expect(shouldCheckOnStart({ desktop: false, dev: false, enabled: true })).toBe(false);
+  });
+});
+
+describe("installing an update", () => {
+  it("has every Window save first, then installs and restarts", async () => {
+    const order: string[] = [];
+    await applyUpdate(
+      { downloadAndInstall: async () => void order.push("install") },
+      { flush: async () => void order.push("flush"), relaunch: async () => void order.push("relaunch") },
+    );
+    expect(order).toEqual(["flush", "install", "relaunch"]);
+  });
+
+  it("still installs when saving could not be asked for", async () => {
+    const order: string[] = [];
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    await applyUpdate(
+      { downloadAndInstall: async () => void order.push("install") },
+      { flush: () => Promise.reject(new Error("no engine")), relaunch: async () => void order.push("relaunch") },
+    );
+    quiet.mockRestore();
+    expect(order).toEqual(["install", "relaunch"]);
   });
 });

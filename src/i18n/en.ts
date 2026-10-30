@@ -222,6 +222,11 @@ export const en = {
   board_tab_split: "Split",
   split_divider: "Resize talk and Board",
   split_command: "Split talk and Board",
+  pane_open_other: "Open in other Pane",
+  pane_close: "Close Pane",
+  pane_swap: "Swap Panes",
+  pane_divider: "Resize the Panes",
+  window_open: "Open in new Window",
   reading_mode: "Reading mode",
   reading_mode_on: "Reading mode is on: nothing here can be edited. Unlock to write.",
   reading_unlock: "Unlock to edit",
@@ -884,6 +889,7 @@ export const en = {
   vault_occupied: (folder: string, name: string) =>
     `${folder} already holds the vault “${name}”. Joining here would merge the two permanently.`,
   join_into: (name: string) => `Join “${name}” into`,
+  vault_in_main_window: "Vaults are opened and closed in the main window.",
   close_vault_hint: "Returns to the start screen, where you can open another vault or pair with a different device.",
   waiting_for_documents: "Waiting for documents from your paired devices. Open Synesis on one of them so the two can talk.",
 };

@@ -179,6 +179,8 @@ export function RightPanel({
   return (
     <aside
       data-testid="right-panel"
+      // Which document it describes: with two Panes, the last-used one's.
+      data-doc={doc.summary.id}
       className={cn(
         "thin-scroll flex flex-col overflow-y-auto bg-sidebar text-sidebar-foreground",
         inSheet ? "h-full w-full" : "w-80 shrink-0 border-l",
@@ -563,7 +565,7 @@ function PropertyRow({
           variant="ghost"
           size="icon-xs"
           className="shrink-0 text-link"
-          onClick={() => s.openLink(link)}
+          onClick={s.openLinkOnClick(link)}
           title={link}
           aria-label={t.open}
         >
@@ -592,7 +594,7 @@ function BacklinkItem({ b }: { b: Backlink }) {
       <button
         type="button"
         className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-        onClick={() => s.openDoc(b.doc.id)}
+        onClick={s.openDocOnClick(b.doc.id)}
       >
         <div className="flex items-center gap-2 text-sm">
           <TypeDot type={b.doc.type} />
@@ -641,7 +643,7 @@ function BacklinkGroupItem({ g }: { g: BacklinkGroup }) {
         <button
           type="button"
           className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-          onClick={() => s.openDoc(g.first.doc.id)}
+          onClick={s.openDocOnClick(g.first.doc.id)}
         >
           <div className="flex items-center gap-2 text-sm">
             <TypeDot type={g.first.doc.type} />
@@ -928,7 +930,7 @@ export function UnlinkedMentions({
               <button
                 type="button"
                 className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-                onClick={() => s.openDoc(m.doc.id)}
+                onClick={s.openDocOnClick(m.doc.id)}
               >
                 <div className="flex items-center gap-2 text-sm">
                   <TypeDot type={m.doc.type} />
@@ -1162,7 +1164,7 @@ function CandidateList({
           <button
             type="button"
             className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-            onClick={() => s.openDoc(c.doc.id)}
+            onClick={s.openDocOnClick(c.doc.id)}
           >
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={c.doc.type} />
@@ -1402,7 +1404,7 @@ export function SourceTrail({
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm transition-colors hover:bg-accent"
-                  onClick={() => s.openDoc(e.doc.id)}
+                  onClick={s.openDocOnClick(e.doc.id)}
                 >
                   <span className="w-14 shrink-0 truncate text-xs text-muted-foreground tabular-nums">
                     {e.locator ?? "—"}

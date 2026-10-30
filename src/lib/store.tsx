@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
@@ -30,8 +31,23 @@ import {
 import { NO_FILTERS, type Filters } from "./timeline";
 import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
-import { DEFAULT_RATIO } from "./split";
+import {
+  activePane,
+  initialPanes,
+  panesReducer,
+  otherPane,
+  restoreLayout,
+  savedLayout,
+  type ModifierClick,
+  type PaneIndex,
+  type DocTab,
+  type PaneAction,
+  type PanesState,
+  type View,
+} from "./panes";
 import { flushPending } from "./pending";
+import { closeOtherWindows, isSecondaryWindow, windowStart } from "./windows";
+import { live } from "./live";
 import {
   clampSize,
   DEFAULT_SIZE,
@@ -39,25 +55,13 @@ import {
   type TimerState,
 } from "./delivery";
 
-/** Which face of a Composition is showing (PLAN §22.2). */
-export type DocTab = "talk" | "split" | "board";
+export type { DocTab, View } from "./panes";
+export { otherPane } from "./panes";
 
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
   id: string;
 }
-
-export type View =
-  | { kind: "home" }
-  | { kind: "doc"; id: string }
-  /** `focus`: the local graph of that document (PLAN §10). */
-  | { kind: "graph"; focus?: string }
-  | { kind: "library" }
-  | { kind: "clippings" }
-  | { kind: "map" }
-  | { kind: "coverage" }
-  | { kind: "timeline" }
-  | { kind: "settings" };
 
 export type Dialog =
   | {
@@ -101,6 +105,14 @@ export type Dialog =
 const SOURCE_MODE_KEY = "synesis.sourceMode";
 const READING_MODE_KEY = "synesis.readingMode";
 const DELIVERY_SIZE_KEY = "synesis.deliverySize";
+/** The Pane layout, per Device (localStorage) and per Vault (its root). */
+const PANES_KEY = (root: string) => `synesis.panes:${root}`;
+/**
+ * A secondary Window (issue #51) shares the Vault the main Window opened and
+ * keeps its Panes to itself: it neither restores nor saves the Vault's layout.
+ */
+const SECONDARY_WINDOW = isSecondaryWindow();
+
 
 interface Store {
   settings: Settings | null;
@@ -116,6 +128,18 @@ interface Store {
   /** The Vault's custom Place kinds (PLAN §27.4); the built-ins ship in `map.ts`. */
   placeKinds: CustomKind[];
   setPlaceKinds: (kinds: CustomKind[]) => Promise<void>;
+  /** The Window's Panes (spec #35). `view`, Back and the split follow `lastUsed`. */
+  panes: PanesState;
+  dispatchPanes: (a: PaneAction) => void;
+  /**
+   * Whether two Panes fit side by side right now (spec #35). Never on a
+   * phone; set by the Pane layout, which measures the room it has.
+   */
+  twoPanesFit: boolean;
+  setTwoPanesFit: (b: boolean) => void;
+  /** Open a view in the other Pane, or in this one where two do not fit. */
+  openInOther: (v: View) => void;
+  /** The view in the last-used Pane. */
   view: View;
   canBack: boolean;
   canForward: boolean;
@@ -154,12 +178,26 @@ interface Store {
   /** The engine already opened a vault (pairing join): mirror it into the store without reopening. */
   attachVault: () => Promise<void>;
   closeVault: () => Promise<void>;
-  refresh: () => Promise<void>;
+  /**
+   * Before the engine changes the Vault (open, close, leave, move): every
+   * other Window saves and closes, then every document here saves and lets
+   * go, so no save lands in the next Vault. Not in a secondary Window, which
+   * cannot change the Vault (spec #35).
+   */
+  releaseVault: () => Promise<void>;
+  /** A secondary Window (spec #35): it shows the main Window's Vault and cannot change it. */
+  secondaryWindow: boolean;
+  refresh: () => Promise<unknown>;
   navigate: (v: View) => void;
   back: () => void;
   forward: () => void;
-  openDoc: (id: string) => void;
-  openLink: (target: string) => Promise<void>;
+  /** `other`: in the other Pane (Cmd/Ctrl-click, spec #35). */
+  openDoc: (id: string, other?: boolean) => void;
+  openLink: (target: string, other?: boolean) => Promise<void>;
+  /** A click handler opening `id`: in the other Pane on Cmd/Ctrl-click (spec #35). */
+  openDocOnClick: (id: string) => (e: ModifierClick) => void;
+  /** A click handler following a link: in the other Pane on Cmd/Ctrl-click. */
+  openLinkOnClick: (target: string) => (e: ModifierClick) => void;
   openPassage: (p: PassageInfo) => Promise<void>;
   openScripture: (
     book: number,
@@ -250,6 +288,15 @@ function writeFlag(key: string, b: boolean) {
   }
 }
 
+function readJson(key: string): unknown {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 function readDeliverySize(): number {
   try {
     const n = Number(localStorage.getItem(DELIVERY_SIZE_KEY));
@@ -273,11 +320,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [docs, setDocs] = useState<DocSummary[]>([]);
   const [books, setBooks] = useState<BookMeta[]>([]);
   const [tags, setTags] = useState<TagCount[]>([]);
-  const [view, setView] = useState<View>({ kind: "home" });
-  const [history, setHistory] = useState<{ back: View[]; forward: View[] }>({
-    back: [],
-    forward: [],
-  });
+  const [panes, dispatchPanes] = useReducer(panesReducer, undefined, initialPanes);
+  const pane = activePane(panes);
+  const [twoPanesFit, setTwoPanesFit] = useState(false);
+  // The Vault whose layout the Panes show: nothing is saved between a reset
+  // and the restore, or switching Vaults would wipe the one being left.
+  const layoutFor = useRef<string | null>(null);
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [changeTick, setChangeTick] = useState(0);
   const [lastChange, setLastChange] = useState<ChangedPayload | null>(null);
@@ -296,12 +344,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [deliveryTimer, setDeliveryTimerState] = useState<TimerState>(
     () => newTimer(null),
   );
-  // A Board belongs to the Composition being read, so opening another
-  // document starts on its text rather than on the Board of the last one.
-  const [docTab, setDocTab] = useState<DocTab>("talk");
-  const [splitRatio, setSplitRatio] = useState(DEFAULT_RATIO);
-  const viewRef = useRef(view);
-  viewRef.current = view;
+  // The talk/Board split belongs to each Pane (spec #35).
+  const setDocTab = useCallback((tab: DocTab) => dispatchPanes({ type: "setDocTab", tab }), []);
+  const setSplitRatio = useCallback((ratio: number) => dispatchPanes({ type: "setSplitRatio", ratio }), []);
   const booted = useRef(false);
 
   const lang: Lang = settings?.lang ?? "en";
@@ -322,6 +367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setInfo(i);
     setSchema(sc);
     setPlaceKindsState(pk);
+    return { docs: d, info: i };
   }, []);
 
   const setPlaceKinds = useCallback(async (kinds: CustomKind[]) => {
@@ -333,39 +379,57 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSchema(await api.setPropertyType(name, t));
   }, []);
 
+  const releaseVault = useCallback(async () => {
+    if (SECONDARY_WINDOW) throw new Error("the Vault is changed in the main Window");
+    await closeOtherWindows();
+    await flushPending();
+    await live.suspend();
+  }, []);
+
   const openVault = useCallback(
     async (path?: string) => {
+      await releaseVault();
       await api.openVault(path);
       const [settings, books] = await Promise.all([
         api.getSettings(),
         api.books(),
       ]);
       // Navigation resets first: once `info` is set the shell renders and the user may click.
-      setView({ kind: "home" });
-      setHistory({ back: [], forward: [] });
+      layoutFor.current = null;
+      dispatchPanes({ type: "reset" });
       setSettings(settings);
       setBooks(books);
-      await refresh();
+      const { docs, info } = await refresh();
+      // Two Panes left open come back as they were (spec #35); one Pane opens on Home.
+      const ids = new Set(docs.map((d) => d.id));
+      const restored = restoreLayout(readJson(PANES_KEY(info.root)), (id) => ids.has(id));
+      if (restored) dispatchPanes({ type: "load", state: restored });
+      layoutFor.current = info.root;
     },
-    [refresh],
+    [refresh, releaseVault],
   );
 
   const attachVault = useCallback(async () => {
     const [i, settings, books] = await Promise.all([api.vaultInfo(), api.getSettings(), api.books()]);
-    setView({ kind: "home" });
-    setHistory({ back: [], forward: [] });
+    layoutFor.current = null;
+    dispatchPanes({ type: "reset" });
     setSettings(settings);
     setBooks(books);
     await refresh();
     setInfo(i);
+    layoutFor.current = i.root;
   }, [refresh]);
 
   const closeVault = useCallback(async () => {
+    await releaseVault();
     await api.closeVault();
     setInfo(null);
     setDocs([]);
     setSettings(await api.getSettings());
-  }, []);
+  }, [releaseVault]);
+
+  // A save refreshes the lists (titles, tags, counts).
+  useEffect(() => live.onSaved(() => void refresh().catch(console.error)), [refresh]);
 
   // Boot: load settings, reopen the last vault.
   useEffect(() => {
@@ -374,6 +438,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     (async () => {
       const s = await api.getSettings();
       setSettings(s);
+      if (SECONDARY_WINDOW) {
+        // The engine already holds the Vault: show it, on the document this
+        // Window was opened for.
+        try {
+          await attachVault();
+          const start = await windowStart();
+          if (start) dispatchPanes({ type: "open", view: { kind: "doc", id: start } });
+        } catch (e) {
+          console.error("attach failed", e);
+        }
+        return;
+      }
       if (s.vault_path) {
         try {
           await openVault(s.vault_path);
@@ -382,7 +458,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
     })();
-  }, [openVault]);
+  }, [openVault, attachVault]);
 
   // External changes.
   useEffect(() => {
@@ -411,47 +487,32 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const navigate = useCallback((v: View) => {
-    setHistory((h) => ({
-      back: [...h.back.slice(-49), viewRef.current],
-      forward: [],
-    }));
-    setView(v);
+    dispatchPanes({ type: "open", view: v });
     if (window.innerWidth < 900) setSidebarOpen(false);
   }, []);
 
-  const back = useCallback(() => {
-    setHistory((h) => {
-      if (h.back.length === 0) return h;
-      const target = h.back[h.back.length - 1];
-      setView(target);
-      return {
-        back: h.back.slice(0, -1),
-        forward: [...h.forward, viewRef.current],
-      };
-    });
-  }, []);
+  const back = useCallback(() => dispatchPanes({ type: "back" }), []);
+  const forward = useCallback(() => dispatchPanes({ type: "forward" }), []);
 
-  const forward = useCallback(() => {
-    setHistory((h) => {
-      if (h.forward.length === 0) return h;
-      const target = h.forward[h.forward.length - 1];
-      setView(target);
-      return {
-        back: [...h.back, viewRef.current],
-        forward: h.forward.slice(0, -1),
-      };
-    });
-  }, []);
+  // On a phone, or wherever two Panes do not fit, "the other Pane" is this one:
+  // a Cmd/Ctrl-click opens as a plain click would (spec #35).
+  const openInOther = useCallback(
+    (v: View) => {
+      if (!twoPanesFit) return navigate(v);
+      dispatchPanes({ type: "openInOther", view: v });
+    },
+    [navigate, twoPanesFit],
+  );
 
   const openDoc = useCallback(
-    (id: string) => navigate({ kind: "doc", id }),
-    [navigate],
+    (id: string, other = false) => (other ? openInOther : navigate)({ kind: "doc", id }),
+    [navigate, openInOther],
   );
 
   const openLink = useCallback(
-    async (target: string) => {
+    async (target: string, other = false) => {
       const d = await api.resolveLink(target);
-      if (d) openDoc(d.id);
+      if (d) openDoc(d.id, other);
       else setDialog({ kind: "create-link", target });
     },
     [openDoc],
@@ -638,6 +699,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Keep the layout for the next time this Vault opens on this Device.
+  const vaultRoot = info?.root;
+  useEffect(() => {
+    if (SECONDARY_WINDOW || !vaultRoot || layoutFor.current !== vaultRoot) return;
+    const saved = savedLayout(panes);
+    try {
+      if (saved) localStorage.setItem(PANES_KEY(vaultRoot), JSON.stringify(saved));
+      else localStorage.removeItem(PANES_KEY(vaultRoot));
+    } catch {
+      /* preference only */
+    }
+  }, [panes, vaultRoot]);
+
+  const openDocOnClick = useCallback(
+    (id: string) => (e: ModifierClick) => openDoc(id, otherPane(e)),
+    [openDoc],
+  );
+  const openLinkOnClick = useCallback(
+    (target: string) => (e: ModifierClick) => void openLink(target, otherPane(e)).catch(console.error),
+    [openLink],
+  );
+
   const docsById = useMemo(() => new Map(docs.map((d) => [d.id, d])), [docs]);
 
   const value: Store = {
@@ -652,9 +735,14 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     placeKinds,
     setPlaceKinds,
     announceChanged,
-    view,
-    canBack: history.back.length > 0,
-    canForward: history.forward.length > 0,
+    panes,
+    dispatchPanes,
+    twoPanesFit,
+    setTwoPanesFit,
+    openInOther,
+    view: pane.view,
+    canBack: pane.back.length > 0,
+    canForward: pane.forward.length > 0,
     dialog,
     changeTick,
     lastChange,
@@ -667,17 +755,21 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     delivery,
     deliverySize,
     deliveryTimer,
-    docTab,
-    splitRatio,
+    docTab: pane.docTab,
+    splitRatio: pane.splitRatio,
     openVault,
     attachVault,
     closeVault,
+    releaseVault,
+    secondaryWindow: SECONDARY_WINDOW,
     refresh,
     navigate,
     back,
     forward,
     openDoc,
     openLink,
+    openDocOnClick,
+    openLinkOnClick,
     openPassage,
     openScripture,
     createDoc,
@@ -702,5 +794,50 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   };
   return (
     <StoreContext.Provider value={value}>{children}</StoreContext.Provider>
+  );
+}
+
+/** Which Pane a subtree is drawn in, and how it stands (spec #35). */
+export interface PaneInfo {
+  index: PaneIndex;
+  /** The last-used Pane: the side panel, the palette and Back follow it. */
+  active: boolean;
+  /** Two Panes are on screen. */
+  two: boolean;
+}
+
+const PaneContext = createContext<PaneInfo>({ index: 0, active: true, two: false });
+
+export function usePane(): PaneInfo {
+  return useContext(PaneContext);
+}
+
+/**
+ * Draw `children` as Pane `index`: within it the store's view, history and
+ * talk/Board split are that Pane's, and its Back, Forward and split act on it.
+ * Everything else, navigation included, follows the last-used Pane, which a
+ * press or a key inside the Pane makes this one.
+ */
+export function PaneScope({ index, two, children }: { index: PaneIndex; two: boolean; children: ReactNode }) {
+  const s = useStore();
+  const p = s.panes.panes[index] ?? activePane(s.panes);
+  const { dispatchPanes } = s;
+  const scoped: Store = {
+    ...s,
+    view: p.view,
+    canBack: p.back.length > 0,
+    canForward: p.forward.length > 0,
+    docTab: p.docTab,
+    splitRatio: p.splitRatio,
+    back: () => dispatchPanes({ type: "back", pane: index }),
+    forward: () => dispatchPanes({ type: "forward", pane: index }),
+    setDocTab: (tab) => dispatchPanes({ type: "setDocTab", tab, pane: index }),
+    setSplitRatio: (ratio) => dispatchPanes({ type: "setSplitRatio", ratio, pane: index }),
+  };
+  const info = useMemo(() => ({ index, active: s.panes.lastUsed === index, two }), [index, s.panes.lastUsed, two]);
+  return (
+    <StoreContext.Provider value={scoped}>
+      <PaneContext.Provider value={info}>{children}</PaneContext.Provider>
+    </StoreContext.Provider>
   );
 }

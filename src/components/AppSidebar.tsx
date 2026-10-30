@@ -273,7 +273,7 @@ function DocumentsTab() {
                     size="sm"
                     className="pl-8"
                     isActive={active === d.id}
-                    onClick={() => s.openDoc(d.id)}
+                    onClick={s.openDocOnClick(d.id)}
                     title={d.path}
                   >
                     <TypeDot type={d.type} className="ml-0.5" />
@@ -416,7 +416,7 @@ function SourceRow({
           size="sm"
           className="min-w-0 flex-1"
           isActive={activeId === node.entry.id}
-          onClick={() => s.openDoc(node.entry.id)}
+          onClick={s.openDocOnClick(node.entry.id)}
           title={node.entry.title}
         >
           <TypeDot type="source" className="ml-0.5" />
@@ -485,7 +485,7 @@ function TagsTab() {
                           data-testid="tag-doc"
                           size="sm"
                           isActive={active === d.id}
-                          onClick={() => s.openDoc(d.id)}
+                          onClick={s.openDocOnClick(d.id)}
                           title={d.path}
                         >
                           <TypeDot type={d.type} />
@@ -681,7 +681,7 @@ function ScriptureGroup({
                                   }
                                   size="xs"
                                   className="h-5 min-w-6 px-1 tabular-nums"
-                                  onClick={() => s.openDoc(v.id)}
+                                  onClick={s.openDocOnClick(v.id)}
                                 >
                                   {v.verse}
                                 </Button>
@@ -738,7 +738,7 @@ function AmbiguousTitles() {
                 data-testid="ambiguous-item"
                 size="sm"
                 className="pl-10"
-                onClick={() => s.openDoc(dd.id)}
+                onClick={s.openDocOnClick(dd.id)}
                 title={dd.path}
               >
                 <span className="truncate text-muted-foreground">

@@ -14,6 +14,10 @@ export function setActiveEditor(view: EditorView | null) {
   active = view;
   for (const l of listeners) l();
 }
+/** Stop `view` being the active editor, unless another has taken over since. */
+export function releaseActiveEditor(view: EditorView | null) {
+  if (view && active === view) setActiveEditor(null);
+}
 export function getActiveEditor(): EditorView | null {
   return active;
 }

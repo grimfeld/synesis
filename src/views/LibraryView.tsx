@@ -37,7 +37,7 @@ function Card({ entry }: { entry: LibraryEntry }) {
       // Fixed width so a Shelf reads as a row of spines; `shrink-0` keeps the
       // flex row from squeezing them as it fills.
       className="group w-32 shrink-0 text-left focus-visible:outline-none sm:w-36"
-      onClick={() => s.openDoc(entry.id)}
+      onClick={s.openDocOnClick(entry.id)}
       title={entry.title}
     >
       <Cover

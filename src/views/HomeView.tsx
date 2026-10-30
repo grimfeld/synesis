@@ -167,7 +167,7 @@ function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
       <button
         type="button"
         className="flex w-full flex-col gap-1 rounded-xl border bg-card p-3 text-left transition-colors hover:bg-accent"
-        onClick={() => s.openDoc(doc.id)}
+        onClick={s.openDocOnClick(doc.id)}
       >
         <span className="flex w-full items-center gap-2 text-sm font-medium">
           <PenLine className="size-4 shrink-0 text-type-composition" />

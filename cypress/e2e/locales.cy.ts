@@ -165,6 +165,28 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Two Panes on a landscape tablet (spec #35): each header carries the
+      // Pane's own buttons beside its tools, and "Ouvrir dans l’autre volet"
+      // is the longest label among them.
+      it("keeps two Panes and their headers inside a tablet", () => {
+        cy.viewport(1024, 768);
+        cy.openApp();
+        cy.openDoc("Endurance in trials");
+        cy.get("[data-testid=pane][data-pane=0] .cm-content [data-link='Undeserved kindness in Romans']")
+          .first()
+          .click({ ctrlKey: true });
+        cy.get("[data-testid=panes]").should("have.attr", "data-count", "2");
+        cy.get("[data-testid=pane-close]").should("have.length", 2);
+        expectNoOverflow();
+        // A Hub's header is the fullest; open one in the left Pane.
+        cy.get("[data-testid=pane][data-pane=1] .cm-content [data-link=Paul]").first().click({ ctrlKey: true });
+        cy.get("[data-testid=pane][data-pane=0] [data-testid=hub-header]").should("exist");
+        expectNoOverflow();
+        // The layout is kept per Device: leave one Pane for the next test.
+        cy.get("[data-testid=pane-close]").first().click();
+        cy.get("[data-testid=panes]").should("have.attr", "data-count", "1");
+      });
+
       it("keeps the Delivery view's bar inside a phone", () => {
         // "Réinitialiser", "Quitter" and the timer share one wrapping row.
         cy.openDoc("Talk on endurance");
