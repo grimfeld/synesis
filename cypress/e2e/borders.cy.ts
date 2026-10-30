@@ -164,4 +164,38 @@ describe("Borders", () => {
     );
     cy.contains("[data-testid=map-pin]", "Egypt").should("have.class", "no-pin");
   });
+
+  it("offers a Border only on a region", () => {
+    // Jerusalem is a settlement: its Hub offers no Border, and Draw Border
+    // run from it asks for a region rather than picking Jerusalem.
+    cy.openDoc("Jerusalem");
+    cy.get("[data-testid=hub-border-draw]").should("not.exist");
+    cy.get("[data-testid=hub-border-import]").should("not.exist");
+    cy.runCommand("Draw Border");
+    cy.get("[data-testid=border-region]").should("have.value", "");
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=border-region] option[value="${p.id}"]`).should("not.exist"),
+    );
+    cy.get("[data-testid=border-cancel]").click();
+  });
+
+  it("refuses to touch a `border` that names a note", () => {
+    cy.docByTitle("Egypt").then((egypt) => {
+      cy.task<string>("file:read", vaultFile(egypt.path)).then((text) => {
+        cy.task("file:write", {
+          path: vaultFile(egypt.path),
+          text: text.replace(/^kind: region$/m, 'kind: region\nborder: "[[Places/jerusalem.md]]"'),
+        });
+      });
+    });
+    cy.openDoc("Egypt");
+    cy.get("[data-testid=border-warning]").should("have.attr", "data-status", "malformed").and("contain", ".geojson");
+    cy.get("[data-testid=hub-border-draw]").click();
+    cy.get("[data-testid=border-toolbar]").should("exist");
+    cy.get("[data-testid=map]").click(300, 200).click(400, 200).dblclick(350, 300);
+    // The engine refuses; the note is untouched.
+    cy.docByTitle("Jerusalem").then((j) =>
+      cy.task<string>("file:read", vaultFile(j.path)).should("not.contain", "FeatureCollection"),
+    );
+  });
 });

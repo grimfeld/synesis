@@ -3,13 +3,20 @@
 // kept pure so it is tested once (`test:unit`) and the view stays a Leaflet
 // shell — the `map.ts` precedent.
 import type { Border, LatLon } from "./api";
+import { kindCatalogue, kindOf } from "./map";
 
-/** Whether a document is a region Place: the kind that can have a Border. */
+/** The built-in kinds alone: a custom kind can never shadow `region`. */
+const BUILTIN = kindCatalogue([]);
+
+/**
+ * Whether a document is a region Place: the kind that can have a Border. Its
+ * `kind` is read as the Map reads it (`kindOf`), ignoring case and accents.
+ */
 export function isRegion(doc: { type: string; kind?: unknown }): boolean {
   return (
     doc.type === "place" &&
     typeof doc.kind === "string" &&
-    doc.kind.trim().toLowerCase() === "region"
+    kindOf(doc.kind, BUILTIN)?.name === "region"
   );
 }
 

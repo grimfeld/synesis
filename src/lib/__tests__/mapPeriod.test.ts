@@ -184,8 +184,8 @@ describe("mapInPeriod with the shared Tags and Places", () => {
     expect(ids(r.places)).toEqual(["jerusalem"]);
     expect(ids(r.regions)).toEqual(["judah"]);
     expect(r.events).toEqual([{ event: fall, place: jerusalem.id }]);
-    // In Paul's day Judah's Border is hidden; Jerusalem, with no Span, still
-    // lies where the Border was drawn, so choosing Judah still takes it in.
+    // In Paul's day the Kingdom of Judah is gone: its Border is hidden, and
+    // choosing it takes nothing in (a changed rule is another Place).
     const later = mapInPeriod({
       ...shared,
       rows,
@@ -195,7 +195,18 @@ describe("mapInPeriod with the shared Tags and Places", () => {
       period: { from: 30, to: 60 },
     });
     expect(ids(later.regions)).toEqual([]);
-    expect(ids(later.places)).toEqual(["jerusalem"]);
+    expect(ids(later.places)).toEqual([]);
+  });
+
+  it("lists on a region's card the Characters at the Places inside it", () => {
+    const judah = doc("judah", "place");
+    const r = mapInPeriod({
+      ...shared,
+      places: [...shared.places, judah],
+      regionMembers: [{ place: jerusalem.id, region: judah.id }],
+      period: { from: bce(1050), to: bce(1040) },
+    });
+    expect(ids(r.charactersAt.get(judah.id) ?? [])).toEqual(["david"]);
   });
 
   it("lists the Characters at each Place in the Period", () => {

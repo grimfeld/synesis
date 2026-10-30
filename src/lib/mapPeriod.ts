@@ -4,13 +4,15 @@
 // - Places, through the Period module: a Place with no Span always stays in a
 //   Period; the shared Tags keep a Place that carries one, or where a
 //   Character or Event carrying one is tied in the Period; the shared Places
-//   keep only themselves, a chosen region every Place inside its Border too;
+//   keep only themselves, a chosen region every Place inside its Border too
+//   while the region itself is in the Period;
 // - Journeys whose Span overlaps the Period (an undated one stays, like a
 //   Place: only Characters and Events are hidden for having no Date). They
 //   are routes, not Places, so the shared Tags and Places leave them be;
 // - Events in the Period, as marks at their Place, and how many undated
 //   Events the Period left out;
-// - the Characters at each Place in the Period, for its pin card.
+// - the Characters at each Place in the Period, for its pin card; a
+//   region's card lists those at the Places inside it as well.
 //
 // The Map's own Tag chips (MapFilters) narrow its Places further, after this.
 import type {
@@ -46,7 +48,7 @@ export interface MapInPeriod {
   events: EventMark[];
   /** Undated Events the Period left out. */
   undated: number;
-  /** The Characters at each Place in the Period, by Place id. */
+  /** The Characters at each Place in the Period, by Place id; a region's include those inside it. */
   charactersAt: Map<string, DocSummary[]>;
 }
 
@@ -127,6 +129,6 @@ export function mapInPeriod(o: {
     journeys: o.journeys.filter((j) => journeysKept.has(j.doc.id)),
     events,
     undated: undatedItems.filter((it) => it.doc.type === "event").length,
-    charactersAt: charactersAt(items, filter, ties),
+    charactersAt: charactersAt(items, filter, ties, o.regionMembers ?? []),
   };
 }

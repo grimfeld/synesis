@@ -11,7 +11,10 @@
 // - chosen Places, any of them, keep themselves and the Characters and Events
 //   tied to them (`Tie`) for as long as the tie holds within the Period;
 // - a chosen region takes in every Place inside its Border (`RegionMember`,
-//   computed by the engine); a region with no Border contains nothing.
+//   computed by the engine) only while the region itself is in the Period: a
+//   changed rule is another Place with its own Span (CONTEXT.md: Border), and
+//   a region with no Span counts always; a region with no Border contains
+//   nothing.
 import type {
   DatedProperty,
   DocSummary,
@@ -30,6 +33,15 @@ import { SPAN_PAIRS, yearOf } from "./timeline";
 export interface Period {
   from: number | null;
   to: number | null;
+}
+
+/**
+ * Whether the shared filter narrows anything, with `own` the count of a
+ * view's own active filters (its Kinds or Map chips): the views then offer to
+ * clear it all when nothing is left.
+ */
+export function isFiltered(f: PeriodFilter, own = 0): boolean {
+  return own + f.tags.length + f.places.length > 0 || f.period != null;
 }
 
 /** The selection the Timeline and the Map share (PLAN §16.11: client-side). */
@@ -204,7 +216,10 @@ function inPeriod(it: PeriodItem, p: Period | null): boolean | "undated" {
  * - the Period, as `inPeriod` says.
  *
  * A region counts as where whatever is tied to a Place inside it is, so
- * "prophet" keeps Judah while Jeremiah is in Jerusalem.
+ * "prophet" keeps Judah while Jeremiah is in Jerusalem. Containment follows
+ * the region's time: a region whose Span lies outside the Period contains
+ * nothing in it (a region with no Span, or one the items do not hold, always
+ * does).
  */
 function decide<T extends PeriodItem>(
   items: T[],
@@ -214,13 +229,17 @@ function decide<T extends PeriodItem>(
 ) {
   const p = ordered(f.period);
   const tags = new Set(f.tags.map(fold));
+  const byId = new Map(items.map((it) => [it.doc.id, it]));
   const inside = new Map<string, string[]>();
-  for (const m of regions) inside.set(m.region, [...(inside.get(m.region) ?? []), m.place]);
+  for (const m of regions) {
+    const region = byId.get(m.region);
+    if (region && inPeriod(region, p) !== true) continue;
+    inside.set(m.region, [...(inside.get(m.region) ?? []), m.place]);
+  }
   const chosen = new Set(f.places);
   for (const id of f.places) for (const place of inside.get(id) ?? []) chosen.add(place);
   const ownTag = (it: PeriodItem) =>
     tags.size === 0 || it.tags.some((tg) => tags.has(fold(tg)));
-  const byId = new Map(items.map((it) => [it.doc.id, it]));
   // What counts as being somewhere with a Tag: in the Period, carrying one.
   const present = (id: string) => {
     const it = byId.get(id);
@@ -249,7 +268,7 @@ function decide<T extends PeriodItem>(
     if (it.doc.type === "place") return chosen.has(it.doc.id);
     return (tiesByDoc.get(it.doc.id) ?? []).some((t) => chosen.has(t.place));
   };
-  return { p, tiesByPlace, present, tagged, placed };
+  return { p, inside, tiesByPlace, present, tagged, placed };
 }
 
 /** The items the filter keeps, and how many undated ones the Period hid. */
@@ -275,20 +294,25 @@ export function filterByPeriod<T extends PeriodItem>(
 /**
  * The Characters in each Place during the Period (a Place's pin card on the
  * Map): tied to it in the Period, themselves in it, and carrying a chosen Tag
- * when there are any. In the items' order, each once.
+ * when there are any. A region lists those tied to any Place inside its
+ * Border as well, while it is in the Period. In the items' order, each once.
  */
 export function charactersAt(
   items: PeriodItem[],
   f: PeriodFilter,
   ties: Tie[],
+  regions: RegionMember[] = [],
 ): Map<string, DocSummary[]> {
-  const { tiesByPlace, present } = decide(items, f, ties, []);
+  const { inside, tiesByPlace, present } = decide(items, f, ties, regions);
   const byId = new Map(items.map((it) => [it.doc.id, it.doc]));
+  const here = (place: string) =>
+    (tiesByPlace.get(place) ?? [])
+      .map((t) => t.doc)
+      .filter((id) => byId.get(id)?.type === "character" && present(id));
   const out = new Map<string, DocSummary[]>();
-  for (const [place, ts] of tiesByPlace) {
-    const ids = new Set(
-      ts.map((t) => t.doc).filter((id) => byId.get(id)?.type === "character" && present(id)),
-    );
+  const places = new Set([...tiesByPlace.keys(), ...inside.keys()]);
+  for (const place of places) {
+    const ids = new Set([place, ...(inside.get(place) ?? [])].flatMap(here));
     const docs = items.filter((it) => ids.has(it.doc.id)).map((it) => it.doc);
     if (docs.length > 0) out.set(place, docs);
   }

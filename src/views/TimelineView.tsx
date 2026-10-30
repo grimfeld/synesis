@@ -29,7 +29,8 @@ import {
   type Lane,
   type Placed,
 } from "@/lib/timeline";
-import { filterByPeriod, itemsOf, NO_PERIOD_FILTER, tiesOf } from "@/lib/period";
+import { filterByPeriod, isFiltered, itemsOf, NO_PERIOD_FILTER, tiesOf } from "@/lib/period";
+import { useTagsByDoc } from "@/lib/useTagsByDoc";
 import { useQuery } from "@/lib/useQuery";
 import { TimelineFilters } from "@/components/TimelineFilters";
 import { PeriodBar } from "@/components/PeriodBar";
@@ -168,24 +169,7 @@ export function TimelineView() {
   // The Tags the Lanes carry come with the Dates; an undated Character or
   // Event only matters to the "undated not shown" count, and only when it
   // carries a chosen Tag, so those are asked for by Tag.
-  const { data: undatedTagged } = useQuery({
-    key: [pf.tags.join("\u0000")],
-    deps: { any: true },
-    enabled: pf.tags.length > 0,
-    fetch: async () => {
-      const lists = await Promise.all(pf.tags.map((tg) => api.taggedDocuments(tg)));
-      return pf.tags.map((tag, i) => ({ tag, docs: lists[i] }));
-    },
-  });
-  const tagsByDoc = useMemo(() => {
-    const m = new Map<string, string[]>();
-    for (const dt of docTags) m.set(dt.doc, [...(m.get(dt.doc) ?? []), dt.tag]);
-    for (const { tag, docs } of pf.tags.length > 0 ? (undatedTagged ?? []) : [])
-      for (const d of docs)
-        if (!m.has(d.id) || !m.get(d.id)!.includes(tag))
-          m.set(d.id, [...(m.get(d.id) ?? []), tag]);
-    return m;
-  }, [docTags, undatedTagged, pf.tags]);
+  const tagsByDoc = useTagsByDoc(pf.tags, docTags);
   // The Period filter decides per document, before the Timeline's own filters
   // narrow the rows: every Character and Event is an item, dated or not, so
   // the ones the Period hides for having no Date can be counted.
@@ -320,8 +304,7 @@ export function TimelineView() {
     () => (f.inView ? cullToView(matched, from, to) : matched),
     [matched, f.inView, from, to],
   );
-  const filtered =
-    activeCount(f) + pf.tags.length + pf.places.length > 0 || pf.period != null;
+  const filtered = isFiltered(pf, activeCount(f));
   const tagChips = useMemo(
     () => [...new Set(docTags.map((d) => d.tag))],
     [docTags],
@@ -360,7 +343,7 @@ export function TimelineView() {
             onChange={s.setTimelineFilters}
             selectedTags={pf.tags}
             onTags={(tags) => s.setPeriodFilter({ ...pf, tags })}
-            tags={tagChips}
+            tagChoices={tagChips}
             props={propChips}
             typeLabel={(ty) => t.types_plural[ty] ?? ty}
           />

@@ -327,7 +327,6 @@ export interface PlaceFact {
   mentions: number;
 }
 
-/** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
 /** A position as Leaflet takes it: latitude first. */
 export type LatLon = [number, number];
 
@@ -356,6 +355,7 @@ export interface Border {
   polygons: LatLon[][][];
 }
 
+/** A Place without a kind, and the kind the gazetteer gives it (PLAN §27.13). */
 export interface KindSuggestion {
   id: string;
   title: string;
@@ -956,7 +956,7 @@ export const api = {
    */
   importBorder: (id: string, fileName: string, text: string) =>
     invoke<DocumentPayload>("import_border", { id, fileName, text }),
-  /** Remove a Place's Border file and its `border` Property. */
+  /** Remove a Place's `border` Property, and its file unless another region names it. */
   deleteBorder: (id: string) => invoke<DocumentPayload>("delete_border", { id }),
   setMapFilters: (books: number[], mentionedOnly: boolean, colorBy: string) =>
     invoke<void>("set_map_filters", { books, mentionedOnly, colorBy }),
