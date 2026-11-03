@@ -272,8 +272,16 @@ fn section_of(breaks: &[usize], pos: usize) -> usize {
 /// Detect every Scripture reference in `text`.
 pub fn detect(text: &str) -> Vec<Detected> {
     let zones = zones(text);
-    let mut out: Vec<Detected> = Vec::new();
+    let mut out = explicit_references(text, &zones);
+    let inferred = bare_verses(text, &zones, &out);
+    out.extend(inferred);
+    out.sort_by_key(|d| d.start);
+    out
+}
 
+/// Every reference that names its Book, in order, none overlapping.
+fn explicit_references(text: &str, zones: &[(usize, usize)]) -> Vec<Detected> {
+    let mut out: Vec<Detected> = Vec::new();
     for caps in BOOK_RE.captures_iter(text) {
         let book_m = caps.name("book").unwrap();
         let num_m = caps.name("num").unwrap();
@@ -282,23 +290,19 @@ pub fn detect(text: &str) -> Vec<Detected> {
         if !(first.is_uppercase() || first.is_ascii_digit()) {
             continue;
         }
-        let book = match names::lookup(book_m.as_str()) {
-            Some(b) => b,
-            None => continue,
+        let Some(book) = names::lookup(book_m.as_str()) else {
+            continue;
         };
         let mut cur = Cursor {
             s: text,
             pos: num_m.start(),
         };
         let passages = parse_tail(&mut cur, book);
-        if passages.is_empty() {
-            continue;
-        }
         let (start, end) = (book_m.start(), cur.pos);
-        if in_zone(&zones, start, end) {
-            continue;
-        }
-        if out.last().map_or(false, |d| d.end > start) {
+        if passages.is_empty()
+            || in_zone(zones, start, end)
+            || out.last().is_some_and(|d| d.end > start)
+        {
             continue;
         }
         out.push(Detected {
@@ -308,33 +312,23 @@ pub fn detect(text: &str) -> Vec<Detected> {
             inferred: false,
         });
     }
+    out
+}
 
-    let breaks = section_breaks(text, &zones);
-    let explicit = out.clone();
+/// Every contextual "v. 17" / "verses 3, 4", resolved against the last
+/// explicit reference before it in the same section and flagged `inferred`.
+fn bare_verses(text: &str, zones: &[(usize, usize)], explicit: &[Detected]) -> Vec<Detected> {
+    let breaks = section_breaks(text, zones);
     let mut inferred = Vec::new();
     for caps in CONTEXT_RE.captures_iter(text) {
         let kw = caps.name("kw").unwrap();
         let num = caps.name("num").unwrap();
         let start = kw.start();
-        if in_zone(&zones, start, num.end())
-            || explicit
-                .iter()
-                .any(|d| d.start < num.end() && d.end > start)
-        {
+        if in_zone(zones, start, num.end()) || in_zone(&spans(explicit), start, num.end()) {
             continue;
         }
-        let section = section_of(&breaks, start);
-        let ctx = explicit
-            .iter()
-            .filter(|d| d.end <= start && section_of(&breaks, d.start) == section)
-            .last();
-        let ctx = match ctx {
-            Some(c) => c,
-            None => continue,
-        };
-        let last = match ctx.passages.last() {
-            Some(p) => p,
-            None => continue,
+        let Some(last) = context_at(explicit, &breaks, start) else {
+            continue;
         };
         let mut cur = Cursor {
             s: text,
@@ -351,9 +345,23 @@ pub fn detect(text: &str) -> Vec<Detected> {
             inferred: true,
         });
     }
-    out.extend(inferred);
-    out.sort_by_key(|d| d.start);
-    out
+    inferred
+}
+
+fn spans(detected: &[Detected]) -> Vec<(usize, usize)> {
+    detected.iter().map(|d| (d.start, d.end)).collect()
+}
+
+/// The Passage a bare verse at `pos` continues: the last one of the last
+/// explicit reference that ends before `pos` in the same section.
+fn context_at<'a>(explicit: &'a [Detected], breaks: &[usize], pos: usize) -> Option<&'a Passage> {
+    let section = section_of(breaks, pos);
+    explicit
+        .iter()
+        .filter(|d| d.end <= pos && section_of(breaks, d.start) == section)
+        .last()?
+        .passages
+        .last()
 }
 
 /// Convert byte offsets to UTF-16 code unit offsets (what the editor uses).
