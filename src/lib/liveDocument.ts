@@ -439,11 +439,6 @@ export class LiveDocument implements LiveBody {
     this.sync = null;
     this.registry.dispose(this);
   }
-
-  /** Whether this Window has changes not yet sent to the other Windows (for tests). */
-  get unsent(): boolean {
-    return this.sync?.pending() ?? false;
-  }
 }
 
 /** The bookkeeping the LiveDocuments of one Window share: who is held, who hears of opens and saves. */

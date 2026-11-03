@@ -223,6 +223,14 @@ describe("a document held by two Windows (#51)", () => {
     expect(a.snapshot().fm).toBe("---\ntype: note\n---\n");
   });
 
+  it("hands the other Window a frontmatter edit", async () => {
+    const { windows, a, b } = await twoWindows("---\ntype: note\n---\nbody");
+    a.editFm("---\ntype: study\n---\n");
+    await run(windows);
+    expect(b.snapshot().fm).toBe("---\ntype: study\n---\n");
+    expect(b.snapshot().body).toBe("body");
+  });
+
   it("hands each editor the other Window's typing as it comes", async () => {
     const { windows, a, b } = await twoWindows("hello");
     const heard: string[] = [];
@@ -278,6 +286,61 @@ describe("a document held by two Windows (#51)", () => {
     expect(a.snapshot().body).toBe("from Obsidian");
     expect(b.snapshot().body).toBe("from Obsidian");
     expect(a.snapshot().external || b.snapshot().external).toBe(false);
+  });
+});
+
+describe("what a Pane sees of one document", () => {
+  it("resyncs every editor when the file is read again", async () => {
+    const { left, files } = await opened("one");
+    const before = left.snapshot().revision;
+    files.a = "two";
+    await left.load();
+    expect(left.snapshot().revision).toBe(before + 1);
+    expect(left.snapshot().body).toBe("two");
+  });
+
+  it("does not hand the editors their body again for a frontmatter edit", async () => {
+    const { left } = await opened("---\ntype: note\n---\nbody");
+    const heard: string[] = [];
+    left.join((b) => heard.push(b));
+    left.editFm("---\ntype: study\n---\n");
+    expect(heard).toEqual(["body"]);
+  });
+
+  it("throws away typing a reload replaced, rather than saving it", async () => {
+    const { left, saves } = await opened("one");
+    left.write("one two");
+    await left.load();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saves).toEqual([]);
+    expect(left.snapshot().body).toBe("one");
+  });
+
+  it("saves nothing when the last Pane closes without typing", async () => {
+    const { left, right, saves } = await opened("one");
+    left.release();
+    right.release();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saves).toEqual([]);
+  });
+
+  it("is held again, and found, after its last Pane let go of it", async () => {
+    const { left, right, docs } = await opened("one");
+    left.release();
+    right.release();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(docs.peek("a")).toBeUndefined();
+    left.retain();
+    expect(docs.peek("a")).toBe(left);
+  });
+
+  it("saves at once with no debounce", async () => {
+    const f = fakeEngine({ a: "one" });
+    const d = createLiveDocuments(f.engine, { delay: 0 }).open("a");
+    await d.load();
+    d.write("one two");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(f.saves.map((s) => s.text)).toEqual(["one two"]);
   });
 });
 
