@@ -54,4 +54,36 @@ describe("a text operation", () => {
     expect(apply(i2, apply(del, t))).toBe("01keep89");
     expect(apply(d2, apply(ins, t))).toBe("01keep89");
   });
+
+  it("folds keystrokes typed one by one into one compact change", () => {
+    let text = "ab";
+    let op: Op = [2];
+    for (const ch of "hey") {
+      const next = text.slice(0, 1) + text.slice(1, -1) + ch + text.slice(-1);
+      op = compose(op, diff(text, next)!);
+      text = next;
+    }
+    expect(op).toEqual([1, "hey", 1]);
+    // Backspacing over part of it, then over the text before it.
+    op = compose(op, diff(text, "ahb")!);
+    op = compose(op, diff("ahb", "hb")!);
+    expect(op).toEqual(["h", -1, 1]);
+  });
+
+  it("refuses operations that do not fit each other", () => {
+    expect(() => compose([3], [4])).toThrow("compose: lengths do not match");
+    expect(() => transform([3], [4])).toThrow("transform: lengths do not match");
+    expect(() => compose([2, -3], [2, -3])).toThrow("compose: lengths do not match");
+  });
+
+  it("transforms deletes against keeps and deletes against deletes", () => {
+    const t = "abcdef";
+    const a: Op = [1, -3, 2]; // bcd
+    const b: Op = [2, -3, 1]; // cde
+    const [a2, b2] = transform(a, b);
+    expect(apply(b2, apply(a, t))).toBe("af");
+    expect(apply(a2, apply(b, t))).toBe("af");
+    expect(a2).toEqual([1, -1, 1]);
+    expect(b2).toEqual([1, -1, 1]);
+  });
 });

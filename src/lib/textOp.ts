@@ -91,46 +91,63 @@ export function diff(a: string, b: string): Op | null {
     .retain(a.length - c.to).ops;
 }
 
+/** Reads an operation part by part, taking a part in pieces where the other operation's are shorter. */
+class Cursor {
+  private i = 0;
+  part: Part | undefined;
+  constructor(private op: Op) {
+    this.part = op[this.i++];
+  }
+  get done() {
+    return this.part === undefined;
+  }
+  next() {
+    this.part = this.op[this.i++];
+  }
+  /** Take `n` characters off the current keep, delete or insert. */
+  take(n: number) {
+    const p = this.part as Part;
+    const rest = typeof p === "string" ? p.slice(n) : p > 0 ? p - n : p + n;
+    if (rest === 0 || rest === "") this.next();
+    else this.part = rest;
+  }
+}
+
+/** How many characters both current parts span, or an error when one operation ran out first. */
+function overlap(x: Cursor, y: Cursor, what: string): number {
+  if (x.done || y.done) throw new Error(`${what}: an operation is too short`);
+  const size = (p: Part) => (typeof p === "string" ? p.length : Math.abs(p));
+  return Math.min(size(x.part as Part), size(y.part as Part));
+}
+
 /** `a` then `b`, as one operation. */
 export function compose(a: Op, b: Op): Op {
   if (targetLength(a) !== baseLength(b)) throw new Error("compose: lengths do not match");
   const out = new Builder();
-  let i = 0;
-  let j = 0;
-  let x: Part | undefined = a[i++];
-  let y: Part | undefined = b[j++];
-  for (;;) {
-    if (x === undefined && y === undefined) break;
-    // What `a` deleted, and what `b` inserted, pass straight through.
-    if (typeof x === "number" && x < 0) {
-      out.delete(x);
-      x = a[i++];
-      continue;
-    }
-    if (typeof y === "string") {
-      out.insert(y);
-      y = b[j++];
-      continue;
-    }
-    if (x === undefined || y === undefined) throw new Error("compose: an operation is too short");
-    if (typeof x === "number") {
-      // `a` keeps x characters; `b` keeps (y > 0) or deletes (y < 0) some.
-      const n = Math.min(x, Math.abs(y));
-      if (y > 0) out.retain(n);
-      else out.delete(n);
-      x -= n;
-      y = y > 0 ? y - n : y + n;
-    } else {
-      // `a` inserted x; `b` keeps or deletes some of it.
-      const n = Math.min(x.length, Math.abs(y));
-      if (y > 0) out.insert(x.slice(0, n));
-      x = x.slice(n);
-      y = y > 0 ? y - n : y + n;
-    }
-    if (x === 0 || x === "") x = a[i++];
-    if (y === 0) y = b[j++];
-  }
+  const x = new Cursor(a);
+  const y = new Cursor(b);
+  while (!x.done || !y.done) composeStep(x, y, out);
   return out.ops;
+}
+
+function composeStep(x: Cursor, y: Cursor, out: Builder) {
+  // What `a` deleted, and what `b` inserted, pass straight through.
+  if (isDelete(x.part)) {
+    out.delete(x.part);
+    return x.next();
+  }
+  if (isInsert(y.part)) {
+    out.insert(y.part);
+    return y.next();
+  }
+  const n = overlap(x, y, "compose");
+  // `a` kept or inserted n characters; `b` keeps or deletes them.
+  if (isDelete(y.part)) {
+    if (isRetain(x.part)) out.delete(n);
+  } else if (isInsert(x.part)) out.insert(x.part.slice(0, n));
+  else out.retain(n);
+  x.take(n);
+  y.take(n);
 }
 
 /**
@@ -142,36 +159,32 @@ export function transform(a: Op, b: Op): [Op, Op] {
   if (baseLength(a) !== baseLength(b)) throw new Error("transform: lengths do not match");
   const ap = new Builder();
   const bp = new Builder();
-  let i = 0;
-  let j = 0;
-  let x: Part | undefined = a[i++];
-  let y: Part | undefined = b[j++];
-  for (;;) {
-    if (x === undefined && y === undefined) break;
-    if (typeof x === "string") {
-      ap.insert(x);
-      bp.retain(x.length);
-      x = a[i++];
-      continue;
-    }
-    if (typeof y === "string") {
-      ap.retain(y.length);
-      bp.insert(y);
-      y = b[j++];
-      continue;
-    }
-    if (x === undefined || y === undefined) throw new Error("transform: an operation is too short");
-    const n = Math.min(Math.abs(x), Math.abs(y));
-    if (x > 0 && y > 0) {
-      ap.retain(n);
-      bp.retain(n);
-    } else if (x < 0 && y > 0) ap.delete(n);
-    else if (x > 0 && y < 0) bp.delete(n);
-    // Both deleted the same characters: nothing left to do for either.
-    x = x > 0 ? x - n : x + n;
-    y = y > 0 ? y - n : y + n;
-    if (x === 0) x = a[i++];
-    if (y === 0) y = b[j++];
-  }
+  const x = new Cursor(a);
+  const y = new Cursor(b);
+  while (!x.done || !y.done) transformStep(x, y, ap, bp);
   return [ap.ops, bp.ops];
+}
+
+function transformStep(x: Cursor, y: Cursor, ap: Builder, bp: Builder) {
+  // An insert goes in as it is, and the other operation keeps it.
+  if (isInsert(x.part)) {
+    ap.insert(x.part);
+    bp.retain(x.part.length);
+    return x.next();
+  }
+  if (isInsert(y.part)) {
+    ap.retain(y.part.length);
+    bp.insert(y.part);
+    return y.next();
+  }
+  const n = overlap(x, y, "transform");
+  // Kept by both: kept. Deleted by one: that one deletes it. Deleted by
+  // both: nothing left to do for either.
+  if (isRetain(x.part) && isRetain(y.part)) {
+    ap.retain(n);
+    bp.retain(n);
+  } else if (isRetain(y.part)) ap.delete(n);
+  else if (isRetain(x.part)) bp.delete(n);
+  x.take(n);
+  y.take(n);
 }
