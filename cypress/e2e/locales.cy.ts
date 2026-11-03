@@ -6,6 +6,21 @@ import { expectNoOverflow } from "../support/layout";
 
 const LANGS = ["en", "fr"] as const;
 
+/**
+ * A fresh Character, opened from the sidebar, with its lifespan just added
+ * through "Add Date". Made through the engine rather than the palette: a spec
+ * should not have to know what the Command is called in each language.
+ */
+function jaelWithALifespan() {
+  cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+  cy.openApp();
+  cy.get("[data-sidebar=trigger]").first().click();
+  cy.get("[data-testid=group-character]").click();
+  cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
+  cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+  cy.get("[data-testid=add-date-pair]").click();
+}
+
 describe("Locale layout", () => {
   // Every other spec asserts English strings, so never leave the app in French.
   afterEach(() => cy.bridge("set_language", { lang: "en" }));
@@ -28,20 +43,45 @@ describe("Locale layout", () => {
       // "Quitter et supprimer les documents" on a 390px phone is the longest
       // button label in the app, and it sits in a dialog rather than a card.
       // "Naissance"/"Mort" put a label beside a field on a 390px screen, and
-      // the New dialog sets the pair in a two-column grid. The Character is
-      // made through the engine rather than the palette: a spec should not
-      // have to know what the Command is called in each language.
+      // the New dialog sets the pair in a two-column grid.
       it("keeps a Character's Span inside its row and its dialog", () => {
+        jaelWithALifespan();
+        cy.get("[data-testid=date-input-born]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // "Ajouter naissance et mort", the menu beside "Dates", and the refusal
+      // of a name the Vault types otherwise, at 390px (the Add Date control).
+      it("keeps Add Date, its menu and its name field inside the Hub", () => {
         cy.bridge("create_document", {
-          docType: "character",
-          title: "Jael",
+          docType: "place",
+          title: "Nineveh",
           fields: {},
         });
         cy.openApp();
-        cy.get("[data-sidebar=trigger]").first().click();
-        cy.get("[data-testid=group-character]").click();
-        cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
-        cy.get("[data-testid=date-input-born]").should("be.visible");
+        cy.openDoc("Nineveh");
+        cy.get("[data-testid=hub-dates] [data-testid=add-date]").scrollIntoView().should("be.visible").click();
+        cy.get("[data-testid=add-date-pair]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=add-date-named]").click();
+        cy.get("[data-testid=date-name-input]").type("lat{enter}");
+        cy.get("[data-testid=date-name-error]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Date preview's Span hint is the longest line under a field, and
+      // it sits beside a label on a 390px screen.
+      it("keeps the Date preview inside its row on a phone", () => {
+        jaelWithALifespan();
+        cy.get("[data-testid=date-input-born]").type("1250–1200 BCE");
+        cy.get("[data-testid=date-preview-born]").should(
+          "have.attr",
+          "data-error",
+          "span_in_one_value",
+        );
+        expectNoOverflow();
+        cy.get("[data-testid=date-input-born]").clear().type("c. 1250 BCE");
+        cy.get("[data-testid=date-preview-born]").should("have.attr", "data-ok", "true");
         expectNoOverflow();
       });
 

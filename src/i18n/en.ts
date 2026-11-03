@@ -94,6 +94,9 @@ export const en = {
   tl_mini_events: "Events",
   bce: "BCE",
   ce: "CE",
+  /** The era markers of a Date written "1513 BC" or "33 AD", answered in kind. */
+  bc: "BC",
+  ad: "AD",
   backlinks: "Backlinks",
   no_backlinks: "Nothing links here yet.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -128,8 +131,6 @@ export const en = {
   via: "via",
   inferred: "inferred",
   dates: "Dates",
-  date_invalid:
-    "Not a Date the app can read. Write it like “c. 1513 BCE” or “14 Nisan 33 CE”.",
   events: "Events",
   no_events: "No Event names this page yet.",
   start: "Start",
@@ -201,6 +202,43 @@ export const en = {
     url: "URL",
   },
   date_placeholder: "c. 1513 BCE",
+  add_date: "Add Date",
+  add_lifespan: "Add lifespan",
+  add_span: "Add Span",
+  add_date_half: (label: string) => `Add ${label}`,
+  add_date_named: "Date…",
+  date_name_placeholder: "Name, e.g. anointed",
+  date_name_add: "Add",
+  date_name_taken: (name: string, type: string) =>
+    `“${name}” is already a ${type} Property in this vault. A name has one type everywhere; choose another.`,
+  date_name_reserved: (name: string) =>
+    `“${name}” is reserved and cannot be a Property.`,
+  /** Before an approximate year in the Date preview: "≈ 1513 BCE". */
+  date_approx: "≈",
+  date_precision: { year: "year", month: "month", day: "day" },
+  hebrew_months: {
+    nisan: "Nisan",
+    iyyar: "Iyyar",
+    sivan: "Sivan",
+    tammuz: "Tammuz",
+    ab: "Ab",
+    elul: "Elul",
+    tishri: "Tishri",
+    heshvan: "Heshvan",
+    chislev: "Chislev",
+    tebeth: "Tebeth",
+    shebat: "Shebat",
+    adar: "Adar",
+  },
+  /** Why a Date field's value is not a Date, under the field as you type. */
+  date_errors: {
+    no_era: "Not a Date: no era. Add BCE or CE, as in “c. 1513 BCE”.",
+    unknown_month: "Not a Date: unknown month. Write it like “14 Nisan 33 CE”.",
+    span_in_one_value:
+      "Not a Date: this holds two. A Span is two Dates: put the start and the end in two Properties, such as Start and End.",
+    unreadable:
+      "Not a Date the app can read. Write it like “c. 1513 BCE” or “14 Nisan 33 CE”.",
+  },
   candidates: "Candidate material",
   candidates_hint:
     "Notes and Clippings sharing Tags or Passages with this Composition, not yet linked from it.",

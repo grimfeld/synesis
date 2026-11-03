@@ -32,6 +32,7 @@ import {
   type BacklinkGroup,
 } from "@/lib/backlinks";
 import { removeField, setField } from "@/lib/frontmatter";
+import { checkNewProperty, nameTyped } from "@/lib/propertyName";
 import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
 import { useQuery } from "@/lib/useQuery";
@@ -66,6 +67,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
+import { DatePreview } from "./DatePreview";
 import { PanelTitle } from "./Field";
 
 interface Props {
@@ -303,8 +305,9 @@ export function Properties({
     doc.summary.type === "book" ||
     doc.summary.type === "chapter" ||
     doc.summary.type === "verse";
-  const newName = adding.trim().replace(/[^\w-]/g, "");
-  const knownType = newName ? s.schema.types[newName] : undefined;
+  const check = checkNewProperty(adding, s.schema.types);
+  const newName = nameTyped(check);
+  const knownType = check.ok ? check.known : undefined;
   // Not a component defined inline: that would remount every input on each render.
   // A disabled fieldset turns off every control inside it — inputs, selects,
   // the type menus — so no widget needs to learn about the lock one by one.
@@ -361,7 +364,7 @@ export function Properties({
         data-testid="add-property"
         onSubmit={async (e) => {
           e.preventDefault();
-          if (!newName || RESERVED_PROPERTIES.includes(newName)) return;
+          if (!check.ok) return;
           const type = knownType ?? addingType;
           if (!knownType) await s.setPropertyType(newName, type);
           onFmChange(
@@ -433,6 +436,10 @@ function PropertyRow({
   const shown = Array.isArray(value)
     ? value.map(fmString).join(", ")
     : fmString(value);
+  // What a Date field holds as typed, for its live preview; the field itself
+  // stays uncontrolled and commits on blur like every other Property.
+  const [typed, setTyped] = useState(shown);
+  useEffect(() => setTyped(shown), [shown]);
   const link =
     propType === "link" || /^\[\[.*\]\]$/.test(shown.trim())
       ? linkTarget(shown)
@@ -485,90 +492,103 @@ function PropertyRow({
   );
   return (
     <div
-      className="flex items-center gap-2 text-sm"
+      className="min-w-0 space-y-0.5"
       data-testid={`property-${name}`}
       data-prop-type={propType}
     >
-      {retypable ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex w-24 shrink-0 items-center text-left hover:text-foreground"
-              aria-label={`${name}: ${t.property_type}`}
-            >
-              {label}
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start">
-            <DropdownMenuLabel>{t.property_type}</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={propType}
-              onValueChange={(v) =>
-                s.setPropertyType(name, v as PropertyType).catch(console.error)
-              }
-            >
-              {PROPERTY_TYPES.map((x) => (
-                <DropdownMenuRadioItem key={x} value={x}>
-                  {t.property_types[x]}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              variant="destructive"
-              data-testid={`remove-property-${name}`}
-              onSelect={() => onFmChange(removeField(fm, name))}
-            >
-              <Trash2 />
-              {t.remove_property}
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      ) : (
-        label
-      )}
-      {propType === "checkbox" ? (
-        <input
-          type="checkbox"
-          className="size-4"
-          checked={value === true || shown === "true"}
-          onChange={(e) => onFmChange(setField(fm, name, e.target.checked))}
+      <div className="flex items-center gap-2 text-sm">
+        {retypable ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex w-24 shrink-0 items-center text-left hover:text-foreground"
+                aria-label={`${name}: ${t.property_type}`}
+              >
+                {label}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              <DropdownMenuLabel>{t.property_type}</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={propType}
+                onValueChange={(v) =>
+                  s.setPropertyType(name, v as PropertyType).catch(console.error)
+                }
+              >
+                {PROPERTY_TYPES.map((x) => (
+                  <DropdownMenuRadioItem key={x} value={x}>
+                    {t.property_types[x]}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                data-testid={`remove-property-${name}`}
+                onSelect={() => onFmChange(removeField(fm, name))}
+              >
+                <Trash2 />
+                {t.remove_property}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          label
+        )}
+        {propType === "checkbox" ? (
+          <input
+            type="checkbox"
+            className="size-4"
+            checked={value === true || shown === "true"}
+            onChange={(e) => onFmChange(setField(fm, name, e.target.checked))}
+          />
+        ) : (
+          <Input
+            className="h-7 min-w-0 flex-1 text-xs"
+            key={name + shown}
+            defaultValue={shown}
+            type={
+              propType === "number"
+                ? "number"
+                : propType === "calendar" && /^(\d{4}-\d{2}-\d{2})?$/.test(shown)
+                  ? "date"
+                  : "text"
+            }
+            step={propType === "number" ? "any" : undefined}
+            placeholder={
+              propType === "date"
+                ? t.date_placeholder
+                : propType === "link"
+                  ? "[[…]]"
+                  : undefined
+            }
+            onChange={
+              propType === "date" ? (e) => setTyped(e.target.value) : undefined
+            }
+            onBlur={(e) => commit(e.target.value)}
+          />
+        )}
+        {link && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-link"
+            onClick={() => s.openLink(link)}
+            title={link}
+            aria-label={t.open}
+          >
+            <ExternalLink />
+          </Button>
+        )}
+      </div>
+      {propType === "date" && (
+        // Indented past the label (w-24 + gap-2), under the value it reads.
+        <DatePreview
+          text={typed}
+          testId={`date-preview-${name}`}
+          className="pl-26"
         />
-      ) : (
-        <Input
-          className="h-7 min-w-0 flex-1 text-xs"
-          key={name + shown}
-          defaultValue={shown}
-          type={
-            propType === "number"
-              ? "number"
-              : propType === "calendar" && /^(\d{4}-\d{2}-\d{2})?$/.test(shown)
-                ? "date"
-                : "text"
-          }
-          step={propType === "number" ? "any" : undefined}
-          placeholder={
-            propType === "date"
-              ? t.date_placeholder
-              : propType === "link"
-                ? "[[…]]"
-                : undefined
-          }
-          onBlur={(e) => commit(e.target.value)}
-        />
-      )}
-      {link && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          className="shrink-0 text-link"
-          onClick={() => s.openLink(link)}
-          title={link}
-          aria-label={t.open}
-        >
-          <ExternalLink />
-        </Button>
       )}
     </div>
   );

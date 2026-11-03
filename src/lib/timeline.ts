@@ -2,6 +2,7 @@
 // Hub mini-timeline. Lanes, year projection, label collision and Clusters live
 // here so both shells stay dumb SVG and the logic is tested once (`test:unit`).
 import type { BibleDate, DatedProperty, DocSummary, DocType, EventLink } from "./api";
+import { RUNS_ON, SPAN } from "./docTypes";
 import { fold } from "./names";
 
 /** One thing drawn on a Lane: a point Date, or a span when it has a `to`. */
@@ -13,6 +14,12 @@ export interface Mark {
   text: string;
   from: number;
   to: number | null;
+  /**
+   * A span with no end yet: a Place with `start` and no `end`, a city still
+   * standing. `to` stays null so the extent is not stretched to some year;
+   * the bar runs to the plot's right edge instead (`placeMarks`).
+   */
+  runsOn?: boolean;
   approx: boolean;
   type: DocType;
 }
@@ -65,54 +72,6 @@ export function buildLanes(
    */
   propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
-  const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
-  for (const r of rows) {
-    if (!r.date) continue;
-    const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
-    g.dates.push(r);
-    byDoc.set(r.doc.id, g);
-  }
-  const marksFor = (
-    doc: DocSummary,
-    dates: DatedProperty[],
-    label: (name: string) => string,
-  ): Mark[] => {
-    const named = new Map(dates.map((d) => [d.name, d]));
-    const out: Mark[] = [];
-    const used = new Set<string>();
-    for (const [a, b] of SPAN_PAIRS) {
-      const da = named.get(a);
-      const db = named.get(b);
-      if (da?.date && db?.date) {
-        out.push({
-          key: `${doc.id}:${a}-${b}`,
-          doc,
-          label: label("span"),
-          text: `${da.text} – ${db.text}`,
-          from: yearOf(da.date),
-          to: yearOf(db.date),
-          approx: da.date.approx || db.date.approx,
-          type: doc.type,
-        });
-        used.add(a);
-        used.add(b);
-      }
-    }
-    for (const d of dates) {
-      if (used.has(d.name) || !d.date) continue;
-      out.push({
-        key: `${doc.id}:${d.name}`,
-        doc,
-        label: label(d.name),
-        text: d.text,
-        from: yearOf(d.date),
-        to: null,
-        approx: d.date.approx,
-        type: doc.type,
-      });
-    }
-    return out;
-  };
   const events: Lane = {
     id: "events",
     title: eventsTitle,
@@ -123,43 +82,167 @@ export function buildLanes(
   };
   const subjects: Lane[] = [];
   const eventMarks = new Map<string, Mark>();
-  for (const { doc, dates } of byDoc.values()) {
+  for (const { doc, dates } of byDocument(rows)) {
     if (doc.type === "event") {
-      // An Event is one mark: its span, or its start alone.
-      const ms = marksFor(doc, dates, () => doc.title);
-      const m =
-        ms.find((x) => x.to != null) ??
-        ms.find((x) => x.key.endsWith(":start")) ??
-        ms[0];
-      if (!m) continue;
-      const mark = { ...m, label: doc.title };
+      const mark = eventMark(doc, dates);
+      if (!mark) continue;
       events.marks.push(mark);
       events.first = Math.min(events.first, mark.from);
       eventMarks.set(doc.id, mark);
     } else {
-      const marks = marksFor(doc, dates, (name) =>
-        name === "span" ? doc.title : propertyLabel(name),
-      );
-      if (marks.length === 0) continue;
-      subjects.push({
-        id: doc.id,
-        title: doc.title,
-        type: doc.type,
-        doc,
-        first: Math.min(...marks.map((m) => m.from)),
-        marks,
-      });
+      const lane = subjectLane(doc, dates, propertyLabel);
+      if (lane) subjects.push(lane);
     }
   }
-  // Events also sit on the lanes of the Subjects they name.
+  onSubjectLanes(subjects, eventMarks, links);
+  subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
+  return [...(events.marks.length ? [events] : []), ...subjects];
+}
+
+/** Events also sit on the lanes of the Subjects they name. */
+function onSubjectLanes(
+  subjects: Lane[],
+  eventMarks: Map<string, Mark>,
+  links: EventLink[],
+): void {
   for (const l of links) {
     const lane = subjects.find((x) => x.id === l.subject);
     const mark = eventMarks.get(l.event);
     if (lane && mark)
       lane.marks.push({ ...mark, key: `${lane.id}:${mark.key}` });
   }
-  subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
-  return [...(events.marks.length ? [events] : []), ...subjects];
+}
+
+/**
+ * Each document's Date rows, in first-seen order. Unread Dates too: they draw
+ * nothing, but an end that is written and unreadable still means the Span has
+ * an end (`openSpan`).
+ */
+function byDocument(rows: DatedProperty[]): { doc: DocSummary; dates: DatedProperty[] }[] {
+  const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
+  for (const r of rows) {
+    const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
+    g.dates.push(r);
+    byDoc.set(r.doc.id, g);
+  }
+  return [...byDoc.values()];
+}
+
+/** An Event is one mark: its span, or its start alone, labelled with its title. */
+function eventMark(doc: DocSummary, dates: DatedProperty[]): Mark | null {
+  const ms = marksFor(doc, dates, () => doc.title);
+  const m =
+    ms.find((x) => x.to != null) ??
+    ms.find((x) => x.key.endsWith(":start")) ??
+    ms[0];
+  return m ? { ...m, label: doc.title } : null;
+}
+
+/** A Subject's own Lane, or null when none of its Dates reads. */
+function subjectLane(
+  doc: DocSummary,
+  dates: DatedProperty[],
+  propertyLabel: (name: string) => string,
+): Lane | null {
+  const marks = marksFor(doc, dates, (name) =>
+    name === "span" ? doc.title : propertyLabel(name),
+  );
+  if (marks.length === 0) return null;
+  return {
+    id: doc.id,
+    title: doc.title,
+    type: doc.type,
+    doc,
+    first: Math.min(...marks.map((m) => m.from)),
+    marks,
+  };
+}
+
+/** One document's marks: its Spans, a Span that runs on, then its other Dates as points. */
+function marksFor(
+  doc: DocSummary,
+  dates: DatedProperty[],
+  label: (name: string) => string,
+): Mark[] {
+  const named = new Map(dates.map((d) => [d.name, d]));
+  const used = new Set<string>();
+  const out = closedSpans(doc, named, label, used);
+  const open = openSpan(doc, named, label, used);
+  if (open) out.push(open);
+  for (const d of dates) {
+    if (used.has(d.name) || !d.date) continue;
+    out.push({
+      key: `${doc.id}:${d.name}`,
+      doc,
+      label: label(d.name),
+      text: d.text,
+      from: yearOf(d.date),
+      to: null,
+      approx: d.date.approx,
+      type: doc.type,
+    });
+  }
+  return out;
+}
+
+/** Every `SPAN_PAIRS` pair with both halves read; their names go into `used`. */
+function closedSpans(
+  doc: DocSummary,
+  named: Map<string, DatedProperty>,
+  label: (name: string) => string,
+  used: Set<string>,
+): Mark[] {
+  const out: Mark[] = [];
+  for (const [a, b] of SPAN_PAIRS) {
+    const ta = named.get(a);
+    const tb = named.get(b);
+    if (!ta?.date || !tb?.date) continue;
+    const da = ta.date;
+    const db = tb.date;
+    out.push({
+      key: `${doc.id}:${a}-${b}`,
+      doc,
+      label: label("span"),
+      text: `${ta.text} – ${tb.text}`,
+      from: yearOf(da),
+      to: yearOf(db),
+      approx: da.approx || db.approx,
+      type: doc.type,
+    });
+    used.add(a);
+    used.add(b);
+  }
+  return out;
+}
+
+/**
+ * A Span that began and has no end runs on where its type says so
+ * (`RUNS_ON`): a city still standing. An end that is written but unreadable
+ * is a mistake to fix, not an open end. Its start goes into `used`.
+ */
+function openSpan(
+  doc: DocSummary,
+  named: Map<string, DatedProperty>,
+  label: (name: string) => string,
+  used: Set<string>,
+): Mark | null {
+  const pair = SPAN[doc.type];
+  if (!RUNS_ON[doc.type] || !pair) return null;
+  const [a, b] = pair;
+  const start = named.get(a);
+  if (!start?.date || used.has(a) || named.has(b)) return null;
+  used.add(a);
+  return {
+    key: `${doc.id}:${a}-`,
+    doc,
+    label: label("span"),
+    text: `${start.text} –`,
+    from: yearOf(start.date),
+    to: null,
+    runsOn: true,
+    approx: start.date.approx,
+    type: doc.type,
+  };
 }
 
 /** Room one axis label needs: "1513 av. n. è." at 11px, with a gap. */
@@ -208,6 +291,14 @@ export interface Placed {
   overSpan?: boolean;
 }
 
+/**
+ * `data-runs-on` for a placed mark: "true" on a bar that runs on, nothing
+ * otherwise. A Cluster never runs on, whatever its first member is.
+ */
+export function runsOnAttr(p: Placed): "true" | undefined {
+  return p.marks.length === 1 && p.marks[0].runsOn ? "true" : undefined;
+}
+
 /** Points closer than this merge into one Cluster: a mark's diameter plus a gap. */
 export const CLUSTER_PX = 14;
 
@@ -215,42 +306,58 @@ export const CLUSTER_PX = 14;
  * Lay one Lane's marks out in plot space. Spans keep their width and never
  * Cluster, since the bar is the thing they show; points within CLUSTER_PX of
  * each other merge into one mark carrying a count.
+ *
+ * `right` is the plot's right edge, where a span that runs on ends.
  */
-export function placeMarks(marks: Mark[], x: (year: number) => number): Placed[] {
-  const spans = marks.filter((m) => m.to != null);
-  const points = marks.filter((m) => m.to == null).sort((a, b) => a.from - b.from);
-  const out: Placed[] = spans.map((m) => ({
-    key: m.key,
-    marks: [m],
-    x: x(m.from),
-    // A span thinner than a point reads as a mark that lost its width.
-    x2: Math.max(x(m.to as number), x(m.from) + 3),
-    label: m.label,
-  }));
-  let group: Mark[] = [];
-  const flush = () => {
-    if (group.length === 0) return;
-    const xs = group.map((m) => x(m.from));
-    out.push({
-      key: group.length === 1 ? group[0].key : `cluster:${group[0].key}`,
-      marks: group,
-      x: (Math.min(...xs) + Math.max(...xs)) / 2,
-      x2: null,
-      label: group.length === 1 ? group[0].label : String(group.length),
-    });
-    group = [];
-  };
-  for (const m of points) {
-    if (group.length > 0 && x(m.from) - x(group[group.length - 1].from) > CLUSTER_PX) flush();
-    group.push(m);
-  }
-  flush();
+export function placeMarks(
+  marks: Mark[],
+  x: (year: number) => number,
+  right: number,
+): Placed[] {
+  const isSpan = (m: Mark) => m.to != null || m.runsOn === true;
+  const points = marks.filter((m) => !isSpan(m)).sort((a, b) => a.from - b.from);
+  const out = [
+    ...marks.filter(isSpan).map((m) => placeSpan(m, x, right)),
+    ...clusterPoints(points, x),
+  ];
   const bars = out.filter((p) => p.x2 != null);
   return out.map((p) =>
     p.x2 == null && bars.some((b) => p.x >= b.x - 2 && p.x <= (b.x2 as number) + 2)
       ? { ...p, overSpan: true }
       : p,
   );
+}
+
+/** A span's bar: to its end, or to `right` when it runs on. */
+function placeSpan(m: Mark, x: (year: number) => number, right: number): Placed {
+  return {
+    key: m.key,
+    marks: [m],
+    x: x(m.from),
+    // A span thinner than a point reads as a mark that lost its width.
+    x2: Math.max(m.runsOn ? right : x(m.to as number), x(m.from) + 3),
+    label: m.label,
+  };
+}
+
+/** Points in year order, merged into Clusters where they fall within CLUSTER_PX. */
+function clusterPoints(points: Mark[], x: (year: number) => number): Placed[] {
+  const groups: Mark[][] = [];
+  for (const m of points) {
+    const group = groups[groups.length - 1];
+    if (group && x(m.from) - x(group[group.length - 1].from) <= CLUSTER_PX) group.push(m);
+    else groups.push([m]);
+  }
+  return groups.map((group) => {
+    const xs = group.map((m) => x(m.from));
+    return {
+      key: group.length === 1 ? group[0].key : `cluster:${group[0].key}`,
+      marks: group,
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      x2: null,
+      label: group.length === 1 ? group[0].label : String(group.length),
+    };
+  });
 }
 
 /** How much horizontal room a mark's own shape takes, label aside. */
@@ -366,7 +473,9 @@ export function filterRows(
  */
 export function cullToView(lanes: Lane[], from: number, to: number): Lane[] {
   return lanes.filter((l) =>
-    l.marks.some((m) => m.from <= to && (m.to ?? m.from) >= from),
+    l.marks.some(
+      (m) => m.from <= to && (m.runsOn ? Infinity : (m.to ?? m.from)) >= from,
+    ),
   );
 }
 

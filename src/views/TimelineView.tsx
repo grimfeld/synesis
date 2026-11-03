@@ -24,6 +24,7 @@ import {
   formatYear,
   niceStep,
   placeMarks,
+  runsOnAttr,
   propertyNames,
   resolveLabels,
   type Lane,
@@ -251,7 +252,7 @@ export function TimelineView() {
   );
   const placedFor = useCallback(
     (lane: Lane) =>
-      resolveLabels(placeMarks(lane.marks, x), labelWidth, GUTTER + plotW),
+      resolveLabels(placeMarks(lane.marks, x, GUTTER + plotW), labelWidth, GUTTER + plotW),
     [x, GUTTER, plotW],
   );
   const showCard = (p: Placed, cx: number, cy: number) =>
@@ -466,6 +467,7 @@ export function TimelineView() {
                           data-doc={cluster ? undefined : m.doc.id}
                           data-count={cluster ? p.marks.length : undefined}
                           data-approx={m.approx ? "true" : "false"}
+                          data-runs-on={runsOnAttr(p)}
                           className="cursor-pointer"
                           onClick={open}
                           onPointerEnter={(e) =>

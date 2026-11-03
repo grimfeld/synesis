@@ -279,6 +279,53 @@ export interface BibleDate {
   approx: boolean;
 }
 
+/** A Hebrew month under the one name the engine gives it, whatever spelling was typed. */
+export type HebrewMonth =
+  | "nisan"
+  | "iyyar"
+  | "sivan"
+  | "tammuz"
+  | "ab"
+  | "elul"
+  | "tishri"
+  | "heshvan"
+  | "chislev"
+  | "tebeth"
+  | "shebat"
+  | "adar";
+
+/** Why a text is not a Date (crates/engine/src/dates.rs `DateError`). */
+export type DateErrorKind =
+  | "no_era"
+  | "unknown_month"
+  | "span_in_one_value"
+  | "unreadable";
+
+/**
+ * How the engine reads a Date field's text, for the live preview under it.
+ * The UI formats these parts; it never parses a Date itself (ADR 0005).
+ */
+export type DatePreview =
+  | {
+      ok: true;
+      /** The year as people say it, in the era `bce` names. */
+      era_year: number;
+      bce: boolean;
+      /**
+       * The era markers the text was written with: BCE/CE or av./de n. è.
+       * ("common"), BC/AD or av./ap. J.-C. ("christian"). The preview answers
+       * in the same family.
+       */
+      era: "common" | "christian";
+      month: number | null;
+      /** Set when the text named a Hebrew month; null for a civil one. */
+      month_name: HebrewMonth | null;
+      day: number | null;
+      approx: boolean;
+      precision: "year" | "month" | "day";
+    }
+  | { ok: false; error: DateErrorKind };
+
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
 export interface DatedProperty {
   doc: DocSummary;
@@ -955,6 +1002,8 @@ export const api = {
     invoke<DocSummary | null>("find_source_by_url", { url }),
   detectPassages: (text: string) =>
     invoke<DetectedRange[]>("detect_passages", { text }),
+  /** How the engine reads a Date as typed, for the preview under its field. */
+  readDate: (text: string) => invoke<DatePreview>("read_date", { text }),
   books: () => invoke<BookMeta[]>("books"),
   fetchUrlMetadata: (url: string) =>
     invoke<UrlMeta>("fetch_url_metadata", { url }),

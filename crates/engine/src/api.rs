@@ -5,6 +5,7 @@
 //! two cannot drift apart. Offsets here are UTF-16, which is what the editor
 //! counts in; the engine itself works in bytes.
 
+use crate::dates::{BibleDate, DateError, DateReading};
 use crate::document::DocType;
 use crate::index::{DocSummary, Linkable};
 use crate::scripture::{Lang, Passage, Unit};
@@ -133,6 +134,49 @@ pub fn detect_passages(text: &str, lang: Lang) -> Vec<DetectedRange> {
             inferred: d.inferred,
         })
         .collect()
+}
+
+/// The live preview under a Date field: `{ ok: true, …parts }` or
+/// `{ ok: false, error }`. The engine is the only Date parser (ADR 0005); the
+/// UI formats the parts and never reads the text itself.
+///
+/// `ok` is written from the variant, so a reading with an error, or an error
+/// with parts, cannot be sent.
+#[derive(Debug, PartialEq, Eq)]
+pub enum DatePreview {
+    Read(DateReading),
+    NotADate(DateError),
+}
+
+impl Serialize for DatePreview {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        #[derive(Serialize)]
+        struct Read<'a> {
+            ok: bool,
+            #[serde(flatten)]
+            date: &'a DateReading,
+        }
+        #[derive(Serialize)]
+        struct NotADate {
+            ok: bool,
+            error: DateError,
+        }
+        match self {
+            DatePreview::Read(date) => Read { ok: true, date }.serialize(s),
+            DatePreview::NotADate(error) => NotADate {
+                ok: false,
+                error: *error,
+            }
+            .serialize(s),
+        }
+    }
+}
+
+pub fn read_date(text: &str) -> DatePreview {
+    match BibleDate::read(text) {
+        Ok(date) => DatePreview::Read(date),
+        Err(error) => DatePreview::NotADate(error),
+    }
 }
 
 #[derive(Serialize)]
@@ -323,4 +367,26 @@ pub fn prepare_vault_folder(root: &std::path::Path) -> std::io::Result<()> {
         std::fs::create_dir_all(root.join(folder))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn read_date_answers_parts_or_an_error_kind() {
+        let v = serde_json::to_value(read_date("c. 1513 BCE")).unwrap();
+        assert_eq!(v["ok"], true);
+        assert_eq!(v["era_year"], 1513);
+        assert_eq!(v["bce"], true);
+        assert_eq!(v["approx"], true);
+        assert_eq!(v["precision"], "year");
+        assert_eq!(v["era"], "common");
+        assert_eq!(v["month"], serde_json::Value::Null);
+        assert_eq!(
+            serde_json::to_value(read_date("1513–1473 BCE")).unwrap(),
+            json!({ "ok": false, "error": "span_in_one_value" })
+        );
+    }
 }

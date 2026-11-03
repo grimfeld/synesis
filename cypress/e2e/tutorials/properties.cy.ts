@@ -42,7 +42,12 @@ describe("Tutorial: Properties & Dates", () => {
     cy.tutorialStep(2);
     cy.openDoc("Ephesus");
     cy.hubTitle("Ephesus");
-    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("c. 1050 BCE");
+    // Two Dates in one value are not a Date: the preview says a Span is two.
+    cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("1050–1000 BCE");
+    cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-error", "span_in_one_value");
+    cy.get("[data-testid=property-founded] input").clear().type("c. 1050 BCE");
+    // Read as typed, before it is saved.
+    cy.get("[data-testid=date-preview-founded]").should("contain", "≈ 1050 BCE · year");
     // Requeried: the Hub can re-render the field while it is typed into.
     cy.get("[data-testid=property-founded] input").blur();
     cy.get("[data-testid=hub-dates] [data-testid=date-founded]", { timeout: 10000 })
@@ -50,15 +55,33 @@ describe("Tutorial: Properties & Dates", () => {
       .and("contain", "c. 1050 BCE");
     cy.tutorialNext();
 
-    // 4. Do it once: a Character with Born and Died makes a Span on the Timeline.
+    // 4. Add Date offers the kind's pair, only its missing half, and a named Date.
     cy.tutorialStep(3);
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add Span").click();
+    cy.focused().should("have.attr", "data-testid", "date-input-start");
+    cy.get("[data-testid=date-input-end]").should("have.value", "");
+    cy.get("[data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("not.exist");
+    cy.get("[data-testid=add-date-named]").click();
+    // A name the Vault types otherwise is refused.
+    cy.get("[data-testid=date-name-input]").type("modern_name{enter}");
+    cy.get("[data-testid=date-name-error]").should("contain", "Text");
+    cy.get("[data-testid=date-name-input]").clear().type("{esc}");
+    cy.get("[data-testid=date-name-form]").should("not.exist");
+    cy.tutorialNext();
+
+    // 5. Do it once: a Character's lifespan, added from Add Date, makes a Span on the Timeline.
+    cy.tutorialStep(4);
     cy.tutorialCommand("create.character");
     cy.get("[data-testid=new-doc-form]").should("contain", "Character");
     cy.get("[data-testid=new-doc-title]").type("Caleb");
-    cy.get("[data-testid=new-born]").type("c. 1553 BCE");
-    cy.get("[data-testid=new-died]").type("c. 1450 BCE");
     cy.get("[data-testid=submit-doc]").click();
     cy.hubTitle("Caleb");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add lifespan").click();
+    cy.focused().type("c. 1553 BCE").blur();
+    cy.get("[data-testid=date-input-died]").type("c. 1450 BCE").blur();
     cy.get("[data-testid=date-born]").should("have.attr", "data-valid", "true");
     cy.get("[data-testid=date-died]").should("have.attr", "data-valid", "true");
     cy.tutorialCommand("nav.timeline");

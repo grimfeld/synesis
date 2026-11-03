@@ -1,5 +1,139 @@
 // Typed Properties (ADR 0006): one type per name, vault-wide, widgets by type,
 // new names declared with a type the first time they are used.
+
+// "Add Date" in a Hub's Dates area: the kind's Span pair, its missing half, or
+// a Date the user names (CONTEXT.md, Span).
+describe("Add Date", () => {
+  beforeEach(() => cy.openApp());
+
+  /** The selector of a document's own Lane, with the Timeline searched for it. */
+  const timelineLane = (title: string) => {
+    cy.runCommand("Timeline");
+    cy.get("[data-testid=tl-search]").clear().type(title);
+    return cy.docByTitle(title).then((d) => `[data-testid=tl-lane][data-lane=${d.id}]`);
+  };
+
+  it("adds a lifespan on a Character and draws it on the Timeline", () => {
+    cy.bridge("create_document", { docType: "character", title: "Othniel", fields: {} });
+    cy.openApp();
+    cy.openDoc("Othniel");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add lifespan").click();
+    // Focus moves straight into the new field.
+    cy.focused().should("have.attr", "data-testid", "date-input-born").type("c. 1450 BCE").blur();
+    cy.get("[data-testid=date-born]").should("have.attr", "data-valid", "true");
+    // Both halves are there, added or filled: the pair is no longer offered.
+    cy.get("[data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("not.exist");
+    cy.get("[data-testid=add-date-half]").should("not.exist");
+    cy.get("body").type("{esc}");
+    // Radix keeps pointer events off for a moment after a menu closes.
+    cy.wait(500);
+    cy.get("[data-testid=date-input-died]").type("c. 1370 BCE").blur();
+    cy.get("[data-testid=date-died]").should("have.attr", "data-valid", "true");
+    timelineLane("Othniel").then((lane) => {
+      cy.get(`${lane} [data-testid=tl-mark] rect`).should("exist");
+    });
+  });
+
+  it("offers only the missing half of a pair already half there", () => {
+    cy.bridge("create_document", {
+      docType: "event",
+      title: "Siege of Jericho",
+      fields: { start: "c. 1473 BCE" },
+    });
+    cy.openApp();
+    cy.openDoc("Siege of Jericho");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("not.exist");
+    cy.get("[data-testid=add-date-half]").should("have.attr", "data-name", "end").click();
+    cy.focused().should("have.attr", "data-testid", "date-input-end");
+  });
+
+  it("adds a Span on a Place and shows it on the Timeline, running on with start only", () => {
+    cy.bridge("create_document", { docType: "place", title: "Nineveh", fields: {} });
+    cy.openApp();
+    cy.openDoc("Nineveh");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-pair]").should("contain", "Add Span").click();
+    cy.focused().should("have.attr", "data-testid", "date-input-start").type("c. 2000 BCE").blur();
+    cy.get("[data-testid=date-start]").should("have.attr", "data-valid", "true");
+    // Start alone: the city still stands, drawn running on.
+    cy.get("[data-testid=hub-minitimeline] [data-testid=mini-mark][data-runs-on=true]").should("exist");
+    timelineLane("Nineveh").then((lane) => {
+      cy.get(`${lane} [data-testid=tl-mark][data-runs-on=true] rect`).should("exist");
+    });
+    cy.openDoc("Nineveh");
+    // A page opened afresh shows only what it has, and offers the other half.
+    cy.get("[data-testid=date-input-end]").should("not.exist");
+    cy.get("[data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-half]").should("have.attr", "data-name", "end").click();
+    cy.focused().type("612 BCE").blur();
+    cy.get("[data-testid=date-end]").should("have.attr", "data-valid", "true");
+    timelineLane("Nineveh").then((lane) => {
+      cy.get(`${lane} [data-testid=tl-mark] rect`).should("exist");
+      cy.get(`${lane} [data-testid=tl-mark][data-runs-on=true]`).should("not.exist");
+    });
+  });
+
+  it("names a Date, and refuses a name the vault types otherwise", () => {
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-named]").click();
+    cy.focused().should("have.attr", "data-testid", "date-name-input");
+    cy.get("[data-testid=date-name-input]").type("modern_name{enter}");
+    cy.get("[data-testid=date-name-error]").should("contain", "modern_name");
+    cy.get("[data-testid=date-name-input]").clear().type("destroyed_by_goths{enter}");
+    cy.get("[data-testid=date-name-form]").should("not.exist");
+    // Named but not yet written: nothing is recorded vault-wide.
+    cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
+      expect(s.types.destroyed_by_goths).to.equal(undefined);
+    });
+    cy.focused()
+      .should("have.attr", "data-testid", "date-input-destroyed_by_goths")
+      .type("262 CE")
+      .blur();
+    cy.get("[data-testid=date-destroyed_by_goths]").should("have.attr", "data-valid", "true");
+    cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
+      expect(s.types.destroyed_by_goths).to.equal("date");
+    });
+    // Written, it is a Property like any other: one field, in Properties,
+    // and a read-only line under Dates.
+    cy.get("[data-testid=date-input-destroyed_by_goths]").should("not.exist");
+    cy.get("[data-testid=hub-properties] [data-testid=property-destroyed_by_goths]").should(
+      "have.length",
+      1,
+    );
+  });
+
+  it("records nothing when a named Date is left empty", () => {
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+    cy.get("[data-testid=add-date-named]").click();
+    cy.get("[data-testid=date-name-input]").type("abandoned_moment{enter}");
+    cy.get("[data-testid=date-input-abandoned_moment]").should("be.visible");
+    cy.openDoc("Paul");
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=date-input-abandoned_moment]").should("not.exist");
+    cy.bridge<{ types: Record<string, string> }>("property_schema").then((s) => {
+      expect(s.types.abandoned_moment).to.equal(undefined);
+    });
+  });
+
+  it("says why a read-only Date under Dates is not one", () => {
+    cy.bridge("set_property_type", { name: "rebuilt", propType: "date" });
+    cy.bridge("create_document", {
+      docType: "place",
+      title: "Jericho Rebuilt",
+      fields: { rebuilt: "c. 870" },
+    });
+    cy.openApp();
+    cy.openDoc("Jericho Rebuilt");
+    cy.get("[data-testid=date-rebuilt]").should("have.attr", "data-valid", "false");
+    cy.get("[data-testid=date-preview-rebuilt]").should("have.attr", "data-error", "no_era");
+  });
+});
+
 describe("Properties", () => {
   beforeEach(() => cy.openApp());
 
@@ -113,5 +247,63 @@ describe("Properties", () => {
         },
       );
     });
+  });
+});
+
+// The live Date preview (ADR 0005): under each Date field, how the engine reads
+// the value as typed, or why it is not a Date. The text itself is never touched.
+describe("Date preview", () => {
+  beforeEach(() => cy.openApp());
+
+  it("reads a value as you type, before it is saved", () => {
+    cy.openDoc("David");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "true")
+      .and("contain", "≈ 1107 BCE · year");
+    cy.get("[data-testid=date-input-born]").clear().type("14 nisan 33 c.e.");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "true")
+      .and("contain", "14 Nisan 33 CE · day");
+    // As typed, not rewritten to the preview's spelling.
+    cy.get("[data-testid=date-input-born]").should("have.value", "14 nisan 33 c.e.");
+    cy.get("[data-testid=date-input-born]").clear().type("1107");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-error", "no_era")
+      .and("contain", "BCE or CE");
+    cy.get("[data-testid=date-input-born]").type("{esc}");
+  });
+
+  it("tells you a Span typed in one value is two Dates", () => {
+    cy.openDoc("David");
+    cy.get("[data-testid=date-input-born]").clear().type("1107–1037 BCE");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "false")
+      .and("have.attr", "data-error", "span_in_one_value")
+      .and("contain", "A Span is two Dates");
+    cy.get("[data-testid=date-input-born]").should("have.value", "1107–1037 BCE");
+    cy.get("[data-testid=date-input-born]").type("{esc}");
+  });
+
+  it("shows under a Date in the Properties panel too", () => {
+    // `founded` is declared a Date here, so it is edited in the panel, not
+    // in the Hub's Span.
+    cy.openDoc("Ephesus");
+    cy.get("[data-testid=add-property] input").type("founded");
+    cy.get(
+      "[data-testid=add-property] button[aria-label='Property type']",
+    ).click();
+    cy.get("[role=option]").contains("Date (Bible)").click();
+    cy.get("[data-testid=add-property] input").type("{enter}");
+    cy.get("[data-testid=property-founded] input").type("c. 1000 BCE");
+    cy.get("[data-testid=date-preview-founded]").should(
+      "contain",
+      "≈ 1000 BCE · year",
+    );
+    cy.get("[data-testid=property-founded] input").clear().type("1000 to 900 BCE");
+    cy.get("[data-testid=date-preview-founded]").should(
+      "have.attr",
+      "data-error",
+      "span_in_one_value",
+    );
   });
 });
