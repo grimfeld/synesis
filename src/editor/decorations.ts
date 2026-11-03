@@ -1,5 +1,6 @@
 // Live-preview decorations: wikilinks, tags (local, immediate) and Scripture
 // Passages (from the engine, async). Nothing here ever changes the text.
+import { otherPane } from "@/lib/panes";
 import { Decoration, EditorView, ViewPlugin, ViewUpdate, WidgetType, type DecorationSet } from "@codemirror/view";
 import { RangeSetBuilder, StateEffect, StateField, Facet } from "@codemirror/state";
 import type { DetectedRange, PassageInfo } from "@/lib/api";
@@ -12,7 +13,8 @@ export const TAG_RE = /(^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]+)/gu;
 
 export interface EditorEnv {
   names: NameIndex;
-  onOpenLink: (target: string) => void;
+  /** `other`: Cmd/Ctrl-click, for the other Pane (spec #35). */
+  onOpenLink: (target: string, other?: boolean) => void;
   onOpenPassage: (p: PassageInfo, alt: boolean) => void;
   onPassageHover: (info: { p: PassageInfo[]; x: number; y: number } | null) => void;
   onLinkHover: (info: { target: string; x: number; y: number } | null) => void;
@@ -216,7 +218,7 @@ export const interactions = EditorView.domEventHandlers({
       return true;
     }
     if (el.dataset.link !== undefined) {
-      env.onOpenLink(el.dataset.link);
+      env.onOpenLink(el.dataset.link, otherPane(e));
       e.preventDefault();
       return true;
     }

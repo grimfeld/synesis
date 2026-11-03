@@ -215,7 +215,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         "quit" => {
             let state = app.state::<AppState>();
             state.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
-            app.exit(0);
+            // Every Window saves its typing first (spec #35).
+            crate::windows::flush_all_then(app, |app| app.exit(0));
         }
         _ => {}
     });
@@ -228,7 +229,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(desktop)]
 pub fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(engine::windows::MAIN) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();

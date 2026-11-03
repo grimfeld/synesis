@@ -25,7 +25,7 @@ function ClippingCard({ entry }: { entry: TrailEntry }) {
       type="button"
       data-testid="clipping-card"
       className="w-full min-w-0 rounded-lg border bg-card p-3 text-left transition-shadow hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-      onClick={() => s.openDoc(entry.doc.id)}
+      onClick={s.openDocOnClick(entry.doc.id)}
     >
       {/* The quote is the card. `label` is the Clipping's own text, already
           stripped of its `>` and capped by the engine. */}
