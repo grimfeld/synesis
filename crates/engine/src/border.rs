@@ -87,39 +87,31 @@ pub fn parse(text: &str) -> std::result::Result<Vec<Polygon>, String> {
     Ok(out)
 }
 
+/// Gather the Polygons of a GeoJSON object: the containers are walked, the
+/// geometries read.
 fn collect(v: &Value, out: &mut Vec<Polygon>) -> std::result::Result<(), String> {
     let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
+    let children: Vec<&Value> = match kind {
+        "FeatureCollection" => members(v, "features", "a FeatureCollection without `features`")?,
+        "GeometryCollection" => members(v, "geometries", "a GeometryCollection without `geometries`")?,
+        "Feature" => v.get("geometry").filter(|g| !g.is_null()).into_iter().collect(),
+        _ => return geometry(kind, v, out),
+    };
+    children.into_iter().try_for_each(|c| collect(c, out))
+}
+
+/// The list under `key`, or `missing` as the reason it cannot be read.
+fn members<'a>(v: &'a Value, key: &str, missing: &str) -> std::result::Result<Vec<&'a Value>, String> {
+    let list = v.get(key).and_then(Value::as_array).ok_or(missing)?;
+    Ok(list.iter().collect())
+}
+
+/// The Polygons of one geometry of type `kind`.
+fn geometry(kind: &str, v: &Value, out: &mut Vec<Polygon>) -> std::result::Result<(), String> {
     match kind {
-        "FeatureCollection" => {
-            let features = v
-                .get("features")
-                .and_then(Value::as_array)
-                .ok_or("a FeatureCollection without `features`")?;
-            for f in features {
-                collect(f, out)?;
-            }
-        }
-        "Feature" => {
-            if let Some(g) = v.get("geometry").filter(|g| !g.is_null()) {
-                collect(g, out)?;
-            }
-        }
-        "GeometryCollection" => {
-            let gs = v
-                .get("geometries")
-                .and_then(Value::as_array)
-                .ok_or("a GeometryCollection without `geometries`")?;
-            for g in gs {
-                collect(g, out)?;
-            }
-        }
         "Polygon" => out.push(polygon(v.get("coordinates"))?),
         "MultiPolygon" => {
-            let polys = v
-                .get("coordinates")
-                .and_then(Value::as_array)
-                .ok_or("a MultiPolygon without coordinates")?;
-            for p in polys {
+            for p in members(v, "coordinates", "a MultiPolygon without coordinates")? {
                 out.push(polygon(Some(p))?);
             }
         }
@@ -144,22 +136,11 @@ fn polygon(coords: Option<&Value>) -> std::result::Result<Polygon, String> {
 
 fn ring(v: &Value) -> std::result::Result<Vec<LatLon>, String> {
     let positions = v.as_array().ok_or("a ring that is not a list of positions")?;
-    let mut out = Vec::with_capacity(positions.len());
-    for p in positions {
-        let pair = p.as_array().filter(|a| a.len() >= 2);
-        let (lon, lat) = match pair.map(|a| (a[0].as_f64(), a[1].as_f64())) {
-            Some((Some(lon), Some(lat))) => (lon, lat),
-            _ => return Err("a position that is not [longitude, latitude]".into()),
-        };
-        if !(-180.0..=180.0).contains(&lon) || !(-90.0..=90.0).contains(&lat) {
-            return Err(format!("a position off the globe: [{lon}, {lat}]"));
-        }
-        out.push([lat, lon]);
-    }
+    let mut out = positions.iter().map(position).collect::<std::result::Result<Vec<_>, _>>()?;
     // RFC 7946 asks for closed rings; a hand-written file that forgot is
     // still plainly an area, so it is closed here rather than refused.
-    if out.first() != out.last() {
-        if let Some(&first) = out.first() {
+    if let (Some(&first), Some(&last)) = (out.first(), out.last()) {
+        if first != last {
             out.push(first);
         }
     }
@@ -167,6 +148,18 @@ fn ring(v: &Value) -> std::result::Result<Vec<LatLon>, String> {
         return Err("a ring with fewer than three corners".into());
     }
     Ok(out)
+}
+
+/// One GeoJSON position, `[longitude, latitude]`, as `[lat, lon]`.
+fn position(p: &Value) -> std::result::Result<LatLon, String> {
+    let pair = p.as_array().filter(|a| a.len() >= 2);
+    let Some((Some(lon), Some(lat))) = pair.map(|a| (a[0].as_f64(), a[1].as_f64())) else {
+        return Err("a position that is not [longitude, latitude]".into());
+    };
+    if !(-180.0..=180.0).contains(&lon) || !(-90.0..=90.0).contains(&lat) {
+        return Err(format!("a position off the globe: [{lon}, {lat}]"));
+    }
+    Ok([lat, lon])
 }
 
 /// Whether a point lies within a Border: inside any of its pieces and not in
@@ -195,25 +188,34 @@ enum Where {
 /// Ray casting on a closed ring of `[lat, lon]` positions, with the edge
 /// told apart from both sides.
 fn in_ring(ring: &[LatLon], lat: f64, lon: f64) -> Where {
-    const EPS: f64 = 1e-9;
     let mut inside = false;
     for w in ring.windows(2) {
-        let ([y1, x1], [y2, x2]) = (w[0], w[1]);
-        // On this segment: collinear and within its box.
-        let cross = (x2 - x1) * (lat - y1) - (y2 - y1) * (lon - x1);
-        if cross.abs() < EPS
-            && lon >= x1.min(x2) - EPS
-            && lon <= x1.max(x2) + EPS
-            && lat >= y1.min(y2) - EPS
-            && lat <= y1.max(y2) + EPS
-        {
+        if on_segment(w[0], w[1], lat, lon) {
             return Where::Edge;
         }
-        if (y1 > lat) != (y2 > lat) && lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1) {
+        if crosses(w[0], w[1], lat, lon) {
             inside = !inside;
         }
     }
     if inside { Where::Inside } else { Where::Outside }
+}
+
+const EPS: f64 = 1e-9;
+
+/// Whether the point lies on the segment: collinear and within its box.
+fn on_segment([y1, x1]: LatLon, [y2, x2]: LatLon, lat: f64, lon: f64) -> bool {
+    let cross = (x2 - x1) * (lat - y1) - (y2 - y1) * (lon - x1);
+    cross.abs() < EPS && within(lon, x1, x2) && within(lat, y1, y2)
+}
+
+fn within(v: f64, a: f64, b: f64) -> bool {
+    v >= a.min(b) - EPS && v <= a.max(b) + EPS
+}
+
+/// Whether a ray cast from the point towards increasing longitude crosses
+/// the segment.
+fn crosses([y1, x1]: LatLon, [y2, x2]: LatLon, lat: f64, lon: f64) -> bool {
+    (y1 > lat) != (y2 > lat) && lon < x1 + (lat - y1) * (x2 - x1) / (y2 - y1)
 }
 
 /// The GeoJSON for a Border drawn on the Map: one Polygon from its corners,
@@ -637,6 +639,51 @@ mod tests {
             [[[0,0],[1,0],[1,1],[0,0]]],
             [[[5,5],[6,5],[6,6],[5,5]]]]}"#;
         assert_eq!(parse(text).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn polygons_are_found_in_every_container_and_labels_are_skipped() {
+        let text = r#"{"type":"FeatureCollection","features":[
+            {"type":"Feature","properties":{"name":"label"},"geometry":null},
+            {"type":"Feature","geometry":{"type":"Point","coordinates":[35.2,31.7]}},
+            {"type":"Feature","geometry":{"type":"GeometryCollection","geometries":[
+                {"type":"LineString","coordinates":[[0,0],[1,1]]},
+                {"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]},
+                {"type":"MultiPoint","coordinates":[[0,0]]},
+                {"type":"MultiLineString","coordinates":[[[0,0],[1,1]]]}]}}]}"#;
+        assert_eq!(parse(text).unwrap(), vec![vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 0.0]]]]);
+    }
+
+    #[test]
+    fn a_malformed_file_says_what_is_wrong() {
+        for (bad, why) in [
+            ("{nope", "not JSON"),
+            (r#"{"coordinates":[]}"#, "no `type`"),
+            (r#"{"type":"Circle"}"#, "unknown type `Circle`"),
+            (r#"{"type":"FeatureCollection"}"#, "without `features`"),
+            (r#"{"type":"GeometryCollection"}"#, "without `geometries`"),
+            (r#"{"type":"MultiPolygon"}"#, "MultiPolygon without coordinates"),
+            (r#"{"type":"Polygon"}"#, "Polygon without coordinates"),
+            (r#"{"type":"Polygon","coordinates":[]}"#, "no ring"),
+            (r#"{"type":"Polygon","coordinates":[7]}"#, "not a list of positions"),
+            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,0]]]}"#, "fewer than three corners"),
+            (r#"{"type":"Polygon","coordinates":[[[0],[1,0],[1,1]]]}"#, "not [longitude, latitude]"),
+            (r#"{"type":"Polygon","coordinates":[[["a","b"],[1,0],[1,1]]]}"#, "not [longitude, latitude]"),
+            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,100]]]}"#, "off the globe"),
+            (r#"{"type":"Polygon","coordinates":[[[0,0],[181,0],[1,1]]]}"#, "off the globe"),
+            (r#"{"type":"Polygon","coordinates":[[[0,0],[-181,0],[1,1]]]}"#, "off the globe"),
+            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,-91],[1,1]]]}"#, "off the globe"),
+            (r#"{"type":"Point","coordinates":[0,0]}"#, "no Polygon or MultiPolygon"),
+        ] {
+            let e = parse(bad).unwrap_err();
+            assert!(e.contains(why), "{bad}: {e}");
+        }
+    }
+
+    #[test]
+    fn positions_on_the_edge_of_the_globe_are_on_it() {
+        let text = r#"{"type":"Polygon","coordinates":[[[-180,-90],[180,-90],[180,90],[-180,-90]]]}"#;
+        assert_eq!(parse(text).unwrap()[0][0][1], [-90.0, 180.0]);
     }
 
     #[test]
