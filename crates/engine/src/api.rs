@@ -470,6 +470,15 @@ mod border_tests {
         (dir, v)
     }
 
+    /// `vault`, plus a Note `n`: a document that is not a Place.
+    fn vault_with_note() -> (tempfile::TempDir, Vault) {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::write(dir.path().join("Notes/N.md"), "---\nid: n\n---\nx\n").unwrap();
+        v.scan().unwrap();
+        (dir, v)
+    }
+
     fn borders(v: &Vault) -> Vec<crate::border::Border> {
         match v.query(Query::Borders).unwrap() {
             Answer::Borders(b) => b,
@@ -540,10 +549,7 @@ mod border_tests {
 
     #[test]
     fn only_a_place_takes_a_border() {
-        let (dir, mut v) = vault();
-        fs::create_dir_all(dir.path().join("Notes")).unwrap();
-        fs::write(dir.path().join("Notes/N.md"), "---\nid: n\n---\nx\n").unwrap();
-        v.scan().unwrap();
+        let (dir, mut v) = vault_with_note();
         assert!(save_border(&mut v, "n", &CORNERS).is_err());
         assert!(save_border(&mut v, "judah", &CORNERS[..2]).is_err());
         assert!(!dir.path().join("Places/Judah.geojson").exists());
@@ -601,10 +607,7 @@ mod border_tests {
 
     #[test]
     fn only_a_place_takes_an_imported_border() {
-        let (dir, mut v) = vault();
-        fs::create_dir_all(dir.path().join("Notes")).unwrap();
-        fs::write(dir.path().join("Notes/N.md"), "---\nid: n\n---\nx\n").unwrap();
-        v.scan().unwrap();
+        let (dir, mut v) = vault_with_note();
         assert!(import_border(&mut v, "n", "islands.geojson", ISLANDS).is_err());
         assert!(!dir.path().join("Notes/N.geojson").exists());
     }
