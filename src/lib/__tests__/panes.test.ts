@@ -245,6 +245,44 @@ describe("saving and restoring the layout", () => {
       expect(restoreLayout(raw, all)).toBeNull();
   });
 
+  it("restores every kind of view, and a graph with or without its focus", () => {
+    const kinds = ["home", "library", "clippings", "map", "coverage", "timeline", "settings"] as const;
+    for (const kind of kinds) {
+      const back = restoreLayout({ views: [{ kind }, { kind: "graph" }], lastUsed: 1, ratio: 0.3 }, all);
+      expect(back?.panes.map((p) => p.view)).toEqual([{ kind }, { kind: "graph" }]);
+      expect(back?.lastUsed).toBe(1);
+      expect(back?.ratio).toBe(0.3);
+    }
+    const focused = restoreLayout({ views: [{ kind: "graph", focus: "a" }, doc("b")] }, all);
+    expect(focused?.panes[0].view).toEqual({ kind: "graph", focus: "a" });
+  });
+
+  it("opens Home in place of a graph whose focus is not a document's id", () => {
+    const back = restoreLayout({ views: [{ kind: "graph", focus: 3 }, doc("b")] }, all);
+    expect(back?.panes[0].view).toEqual({ kind: "home" });
+  });
+
+  it("refuses a view that is not one: no kind, a document with no id, an inherited name", () => {
+    for (const bad of [5, { id: "a" }, { kind: "doc" }, { kind: "doc", id: 4 }, { kind: "toString" }])
+      expect(restoreLayout({ views: [bad, doc("a")] }, all)).toBeNull();
+    expect(restoreLayout({ views: [doc("a"), doc("b"), doc("c")] }, all)).toBeNull();
+    expect(restoreLayout({ views: "ab" }, all)).toBeNull();
+  });
+
+  it("keeps the divider strictly between the two edges", () => {
+    for (const ratio of [0, 1, -0.2, 1.5])
+      expect(restoreLayout({ views: [doc("a"), doc("b")], ratio }, all)?.ratio).toBe(0.5);
+  });
+
+  it("gives each restored Pane its own identity, the Talk face and no history", () => {
+    const back = restoreLayout({ views: [doc("a"), doc("b")] }, all);
+    expect(new Set(back?.panes.map((p) => p.key)).size).toBe(2);
+    expect(back?.panes.map((p) => [p.docTab, p.back, p.forward])).toEqual([
+      ["talk", [], []],
+      ["talk", [], []],
+    ]);
+  });
+
   it("keeps a broken divider or last-used Pane in range", () => {
     const back = restoreLayout({ views: [doc("a"), doc("b")], lastUsed: 7, ratio: "wide" }, all);
     expect(back?.lastUsed).toBe(0);

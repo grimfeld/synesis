@@ -113,57 +113,52 @@ export function otherIndex(i: PaneIndex): PaneIndex {
   return i === 0 ? 1 : 0;
 }
 
+/** Back or Forward through one Pane's history: the view left goes on the other list. */
+function travel(p: Pane, dir: "back" | "forward"): Pane {
+  const from = p[dir];
+  if (from.length === 0) return p;
+  const view = from[from.length - 1];
+  const rest = from.slice(0, -1);
+  if (dir === "back") return { ...p, view, back: rest, forward: [...p.forward, p.view] };
+  return { ...p, view, back: [...p.back, p.view], forward: rest };
+}
+
+/** The new state for each kind of action, so every transition has its own name. */
+type Handlers = {
+  [K in PaneAction["type"]]: (s: PanesState, a: Extract<PaneAction, { type: K }>) => PanesState;
+};
+
+const handlers: Handlers = {
+  open: (s, a) => update(s, target(s, a), (p) => navigate(p, a.view)),
+  back: (s, a) => update(s, target(s, a), (p) => travel(p, "back")),
+  forward: (s, a) => update(s, target(s, a), (p) => travel(p, "forward")),
+  openInOther(s, a) {
+    if (s.panes.length === 1) return { ...s, panes: [s.panes[0], newPane(a.view)], lastUsed: 1 };
+    const other = otherIndex(s.lastUsed);
+    return { ...update(s, other, (p) => navigate(p, a.view)), lastUsed: other };
+  },
+  focus: (s, a) => (a.pane >= s.panes.length || a.pane === s.lastUsed ? s : { ...s, lastUsed: a.pane }),
+  close(s, a) {
+    if (s.panes.length === 1) return s;
+    const closing = a.pane ?? s.lastUsed;
+    return { ...s, panes: [s.panes[otherIndex(closing)]], lastUsed: 0 };
+  },
+  swap(s) {
+    if (s.panes.length === 1) return s;
+    return { panes: [s.panes[1], s.panes[0]], lastUsed: otherIndex(s.lastUsed), ratio: 1 - s.ratio };
+  },
+  setDocTab: (s, a) => update(s, target(s, a), (p) => (p.docTab === a.tab ? p : { ...p, docTab: a.tab })),
+  setSplitRatio: (s, a) => update(s, target(s, a), (p) => ({ ...p, splitRatio: a.ratio })),
+  setRatio: (s, a) => ({ ...s, ratio: a.ratio }),
+  reset: () => initialPanes(),
+  load: (_, a) => a.state,
+};
+
 export function panesReducer(s: PanesState, a: PaneAction): PanesState {
-  switch (a.type) {
-    case "open":
-      return update(s, target(s, a), (p) => navigate(p, a.view));
-    case "back":
-      return update(s, target(s, a), (p) => {
-        if (p.back.length === 0) return p;
-        return {
-          ...p,
-          view: p.back[p.back.length - 1],
-          back: p.back.slice(0, -1),
-          forward: [...p.forward, p.view],
-        };
-      });
-    case "forward":
-      return update(s, target(s, a), (p) => {
-        if (p.forward.length === 0) return p;
-        return {
-          ...p,
-          view: p.forward[p.forward.length - 1],
-          back: [...p.back, p.view],
-          forward: p.forward.slice(0, -1),
-        };
-      });
-    case "openInOther": {
-      if (s.panes.length === 1) return { ...s, panes: [s.panes[0], newPane(a.view)], lastUsed: 1 };
-      const other = otherIndex(s.lastUsed);
-      return { ...update(s, other, (p) => navigate(p, a.view)), lastUsed: other };
-    }
-    case "focus":
-      if (a.pane >= s.panes.length || a.pane === s.lastUsed) return s;
-      return { ...s, lastUsed: a.pane };
-    case "close": {
-      if (s.panes.length === 1) return s;
-      const closing = a.pane ?? s.lastUsed;
-      return { ...s, panes: [s.panes[otherIndex(closing)]], lastUsed: 0 };
-    }
-    case "swap":
-      if (s.panes.length === 1) return s;
-      return { panes: [s.panes[1], s.panes[0]], lastUsed: otherIndex(s.lastUsed), ratio: 1 - s.ratio };
-    case "setDocTab":
-      return update(s, target(s, a), (p) => (p.docTab === a.tab ? p : { ...p, docTab: a.tab }));
-    case "setSplitRatio":
-      return update(s, target(s, a), (p) => ({ ...p, splitRatio: a.ratio }));
-    case "setRatio":
-      return { ...s, ratio: a.ratio };
-    case "reset":
-      return initialPanes();
-    case "load":
-      return a.state;
-  }
+  // `handlers` pairs each action type with the handler for it; TypeScript
+  // cannot follow that pairing through an index, hence the widening.
+  const handle = handlers[a.type] as (s: PanesState, a: PaneAction) => PanesState;
+  return handle(s, a);
 }
 
 /**
@@ -219,11 +214,19 @@ function restoreView(raw: unknown, exists: (id: string) => boolean): View | null
   if (typeof v.kind !== "string") return null;
   if (isSimpleKind(v.kind)) return { kind: v.kind };
   if (v.kind === "doc" && typeof v.id === "string") return exists(v.id) ? { kind: "doc", id: v.id } : HOME;
-  if (v.kind === "graph") {
-    if (v.focus === undefined) return { kind: "graph" };
-    return typeof v.focus === "string" && exists(v.focus) ? { kind: "graph", focus: v.focus } : HOME;
-  }
+  if (v.kind === "graph") return restoreGraph(v.focus, exists);
   return null;
+}
+
+/** A saved graph: whole, or on a document that still exists (Home if it is gone). */
+function restoreGraph(focus: unknown, exists: (id: string) => boolean): View {
+  if (focus === undefined) return { kind: "graph" };
+  return typeof focus === "string" && exists(focus) ? { kind: "graph", focus } : HOME;
+}
+
+/** A saved divider, or half and half when it is not strictly between the edges. */
+function restoreRatio(raw: unknown): number {
+  return typeof raw === "number" && raw > 0 && raw < 1 ? raw : DEFAULT_RATIO;
 }
 
 /** Two Panes from a saved layout, or null when `raw` is not one. */
@@ -234,6 +237,5 @@ export function restoreLayout(raw: unknown, exists: (id: string) => boolean): Pa
   const a = restoreView(r.views[0], exists);
   const b = restoreView(r.views[1], exists);
   if (!a || !b) return null;
-  const ratio = typeof r.ratio === "number" && r.ratio > 0 && r.ratio < 1 ? r.ratio : DEFAULT_RATIO;
-  return { panes: [newPane(a), newPane(b)], lastUsed: r.lastUsed === 1 ? 1 : 0, ratio };
+  return { panes: [newPane(a), newPane(b)], lastUsed: r.lastUsed === 1 ? 1 : 0, ratio: restoreRatio(r.ratio) };
 }
