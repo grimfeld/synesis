@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   initialPanes,
   keepLayout,
+  otherPane,
   panesReducer,
   readLayout,
   restoreLayout,
@@ -345,5 +346,13 @@ describe("the layout kept on this Device, per Vault", () => {
     expect(readLayout("/v", all, refused)).toBeNull();
     expect(() => keepLayout("/v", two, refused)).not.toThrow();
     expect(() => keepLayout("/v", initialPanes(), refused)).not.toThrow();
+  });
+});
+
+describe("a click that asks for the other Pane", () => {
+  it("is Cmd-click or Ctrl-click, not a plain click", () => {
+    expect(otherPane({ metaKey: true, ctrlKey: false })).toBe(true);
+    expect(otherPane({ metaKey: false, ctrlKey: true })).toBe(true);
+    expect(otherPane({ metaKey: false, ctrlKey: false })).toBe(false);
   });
 });

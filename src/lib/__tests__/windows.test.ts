@@ -11,6 +11,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   closeOtherWindows,
+  engineSyncTransport,
   flushThen,
   guardWindowClose,
   isSecondaryWindow,
@@ -154,5 +155,23 @@ describe("guarding a Window's typing", () => {
     vi.mocked(listen).mockReset();
     guardWindowClose(async () => {});
     expect(listen).not.toHaveBeenCalled();
+  });
+});
+
+describe("the engine's Window sessions", () => {
+  afterEach(() => vi.mocked(isTauri).mockReturnValue(false));
+
+  it("are reached through the engine's commands where there are Windows, and not otherwise", async () => {
+    expect(engineSyncTransport()).toBeNull();
+    desktopWindow("main");
+    const t = engineSyncTransport()!;
+    await t.join("a", 1, "text");
+    await t.sync({ id: "a", client: 1, base: 0 });
+    await t.leave("a", 1);
+    expect(vi.mocked(invoke).mock.calls).toEqual([
+      ["doc_join", { id: "a", client: 1, text: "text" }],
+      ["doc_sync", { req: { id: "a", client: 1, base: 0 } }],
+      ["doc_leave", { id: "a", client: 1 }],
+    ]);
   });
 });

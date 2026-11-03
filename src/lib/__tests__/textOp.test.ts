@@ -86,4 +86,12 @@ describe("a text operation", () => {
     expect(a2).toEqual([1, -1, 1]);
     expect(b2).toEqual([1, -1, 1]);
   });
+
+  it("keeps its operations compact: neighbours merge, an insert goes before a delete", () => {
+    // What the other Window inserted is kept as part of one run.
+    expect(transform([1, "a", 2], [3])).toEqual([[1, "a", 2], [4]]);
+    expect(compose([-1, 2], [-1, 1])).toEqual([-2, 1]);
+    expect(compose([-1, 2], ["x", 2])).toEqual(["x", -1, 2]);
+    expect(compose(["a", -1, 1], [1, "b", 1])).toEqual(["ab", -1, 1]);
+  });
 });
