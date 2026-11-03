@@ -13,6 +13,9 @@
 //!
 //! Offsets are byte offsets into the input.
 
+// Code, URLs and pictures are skipped by the same rule the document parser
+// and the matcher use, so a heading found inside code is never a section break.
+use crate::document::{in_zone, zones};
 use crate::names;
 use crate::scripture::{is_single_chapter, Passage};
 use once_cell::sync::Lazy;
@@ -52,10 +55,6 @@ static BOOK_AT_RE: Lazy<Regex> = Lazy::new(|| {
 
 static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:^|[^\p{L}\p{N}])(?P<kw>versets|verset|verses|verse|vv|vs|v)\.?[ \t]*(?P<num>\d{1,3})").expect("context regex")
-});
-
-static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
@@ -257,17 +256,6 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     }
 }
 
-fn skip_zones(text: &str) -> Vec<(usize, usize)> {
-    SKIP_RE
-        .find_iter(text)
-        .map(|m| (m.start(), m.end()))
-        .collect()
-}
-
-fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
-    zones.iter().any(|&(a, b)| start < b && end > a)
-}
-
 /// Byte offsets at which a new section begins: the start of every ATX heading
 /// line outside code. A bare verse only resolves within its section.
 fn section_breaks(text: &str, zones: &[(usize, usize)]) -> Vec<usize> {
@@ -283,7 +271,7 @@ fn section_of(breaks: &[usize], pos: usize) -> usize {
 
 /// Detect every Scripture reference in `text`.
 pub fn detect(text: &str) -> Vec<Detected> {
-    let zones = skip_zones(text);
+    let zones = zones(text);
     let mut out: Vec<Detected> = Vec::new();
 
     for caps in BOOK_RE.captures_iter(text) {
