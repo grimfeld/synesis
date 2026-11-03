@@ -176,6 +176,34 @@ describe("buildLanes", () => {
     expect(lanes[0].doc).to.equal(null);
   });
 
+  it("draws an Event once: its span, else its start, else the Date it has", () => {
+    const one = (rows: DatedProperty[]) => {
+      const [lane] = buildLanes(rows, [], "Events");
+      expect(lane.marks).to.have.length(1);
+      return lane.marks[0];
+    };
+    const span = one([
+      dated(flood, "announced", -2490),
+      dated(flood, "start", -2370),
+      dated(flood, "end", -2369),
+    ]);
+    expect([span.from, span.to, span.label]).to.deep.equal([-2370, -2369, "The Flood"]);
+    const start = one([dated(flood, "announced", -2490), dated(flood, "start", -2370)]);
+    expect([start.from, start.to]).to.deep.equal([-2370, null]);
+    const other = one([dated(flood, "announced", -2490)]);
+    expect([other.from, other.label]).to.deep.equal([-2490, "The Flood"]);
+  });
+
+  it("leaves out an Event none of whose Dates reads", () => {
+    const lanes = buildLanes(
+      [dated(flood, "start", null), dated(david, "born", -1107)],
+      [{ event: "flood", subject: "david" }],
+      "Events",
+    );
+    expect(lanes.map((l) => l.id)).to.deep.equal(["david"]);
+    expect(lanes[0].marks).to.have.length(1);
+  });
+
   it("omits the Events Lane when nothing dated is an Event", () => {
     const lanes = buildLanes([dated(david, "born", -1107)], [], "Events");
     expect(lanes.map((l) => l.id)).to.deep.equal(["david"]);

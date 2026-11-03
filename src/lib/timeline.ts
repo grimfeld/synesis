@@ -94,15 +94,23 @@ export function buildLanes(
       if (lane) subjects.push(lane);
     }
   }
-  // Events also sit on the lanes of the Subjects they name.
+  onSubjectLanes(subjects, eventMarks, links);
+  subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
+  return [...(events.marks.length ? [events] : []), ...subjects];
+}
+
+/** Events also sit on the lanes of the Subjects they name. */
+function onSubjectLanes(
+  subjects: Lane[],
+  eventMarks: Map<string, Mark>,
+  links: EventLink[],
+): void {
   for (const l of links) {
     const lane = subjects.find((x) => x.id === l.subject);
     const mark = eventMarks.get(l.event);
     if (lane && mark)
       lane.marks.push({ ...mark, key: `${lane.id}:${mark.key}` });
   }
-  subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
-  return [...(events.marks.length ? [events] : []), ...subjects];
 }
 
 /**
