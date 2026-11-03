@@ -47,6 +47,7 @@ import { yearOf } from "@/lib/timeline";
 import { addAtlas, removeMap, type Atlas } from "@/lib/atlas";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
+import { cssVar, esc } from "@/lib/utils";
 import { useT } from "@/i18n";
 import { ViewHeader } from "@/components/ViewHeader";
 import { MapFilters } from "@/components/MapFilters";
@@ -58,10 +59,6 @@ import { Input } from "@/components/ui/input";
 
 /** A pin's diameter in CSS pixels (PLAN §27.8). */
 const PIN = 22;
-
-function esc(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
 
 /**
  * One Place as Leaflet draws it: a round badge carrying the kind's glyph on
@@ -107,14 +104,6 @@ function placeHtml(o: {
     pin +
     `<span class="map-name">${esc(o.title)}</span></div>`
   );
-}
-
-/** Read a CSS custom property, so routes follow the theme like every colour. */
-function cssVar(name: string, fallback: string): string {
-  const v = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim();
-  return v || fallback;
 }
 
 /**
@@ -650,7 +639,6 @@ export function MapView() {
       }
     }
   }, [borders, shown, places, inPeriod.regions, drawing, kindById, mf.colorBy, mf.colored, facts, skinTick, s.docsById]);
-
 
   return (
     <div className="flex h-full flex-col">

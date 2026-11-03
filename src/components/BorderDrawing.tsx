@@ -10,17 +10,9 @@ import { api, type Border, type LatLon } from "@/lib/api";
 import { addCorner, canClose, editableCorners } from "@/lib/border";
 import { useDeleteBorder } from "@/lib/useBorders";
 import { useStore } from "@/lib/store";
+import { cssVar, esc } from "@/lib/utils";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
-
-function esc(text: string): string {
-  return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
-function cssVar(name: string, fallback: string): string {
-  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return v || fallback;
-}
 
 export function BorderDrawing({
   map,
