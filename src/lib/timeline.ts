@@ -307,40 +307,49 @@ export function placeMarks(
   right: number,
 ): Placed[] {
   const isSpan = (m: Mark) => m.to != null || m.runsOn === true;
-  const spans = marks.filter(isSpan);
   const points = marks.filter((m) => !isSpan(m)).sort((a, b) => a.from - b.from);
-  const out: Placed[] = spans.map((m) => ({
-    key: m.key,
-    marks: [m],
-    x: x(m.from),
-    // A span thinner than a point reads as a mark that lost its width.
-    x2: Math.max(m.runsOn ? right : x(m.to as number), x(m.from) + 3),
-    label: m.label,
-  }));
-  let group: Mark[] = [];
-  const flush = () => {
-    if (group.length === 0) return;
-    const xs = group.map((m) => x(m.from));
-    out.push({
-      key: group.length === 1 ? group[0].key : `cluster:${group[0].key}`,
-      marks: group,
-      x: (Math.min(...xs) + Math.max(...xs)) / 2,
-      x2: null,
-      label: group.length === 1 ? group[0].label : String(group.length),
-    });
-    group = [];
-  };
-  for (const m of points) {
-    if (group.length > 0 && x(m.from) - x(group[group.length - 1].from) > CLUSTER_PX) flush();
-    group.push(m);
-  }
-  flush();
+  const out = [
+    ...marks.filter(isSpan).map((m) => placeSpan(m, x, right)),
+    ...clusterPoints(points, x),
+  ];
   const bars = out.filter((p) => p.x2 != null);
   return out.map((p) =>
     p.x2 == null && bars.some((b) => p.x >= b.x - 2 && p.x <= (b.x2 as number) + 2)
       ? { ...p, overSpan: true }
       : p,
   );
+}
+
+/** A span's bar: to its end, or to `right` when it runs on. */
+function placeSpan(m: Mark, x: (year: number) => number, right: number): Placed {
+  return {
+    key: m.key,
+    marks: [m],
+    x: x(m.from),
+    // A span thinner than a point reads as a mark that lost its width.
+    x2: Math.max(m.runsOn ? right : x(m.to as number), x(m.from) + 3),
+    label: m.label,
+  };
+}
+
+/** Points in year order, merged into Clusters where they fall within CLUSTER_PX. */
+function clusterPoints(points: Mark[], x: (year: number) => number): Placed[] {
+  const groups: Mark[][] = [];
+  for (const m of points) {
+    const group = groups[groups.length - 1];
+    if (group && x(m.from) - x(group[group.length - 1].from) <= CLUSTER_PX) group.push(m);
+    else groups.push([m]);
+  }
+  return groups.map((group) => {
+    const xs = group.map((m) => x(m.from));
+    return {
+      key: group.length === 1 ? group[0].key : `cluster:${group[0].key}`,
+      marks: group,
+      x: (Math.min(...xs) + Math.max(...xs)) / 2,
+      x2: null,
+      label: group.length === 1 ? group[0].label : String(group.length),
+    };
+  });
 }
 
 /** How much horizontal room a mark's own shape takes, label aside. */
