@@ -487,6 +487,42 @@ fn graph_label(d: &DocSummary) -> String {
         .unwrap_or(cut.len());
     format!("{}…", cut[..end].trim_end())
 }
+/// A Character↔Place tie and where it sorts: by Character, then `places`
+/// before Events, then in order within each (`Index::place_ties`).
+struct KeyedTie {
+    character: String,
+    from_event: bool,
+    order: f64,
+    event: String,
+    tie: PlaceTie,
+}
+
+impl KeyedTie {
+    /// Named in the Character's own `places`, the `n`th such link.
+    fn lifelong(character: DocSummary, place: DocSummary, n: usize) -> Self {
+        KeyedTie {
+            character: character.title.to_lowercase(),
+            from_event: false,
+            order: n as f64,
+            event: String::new(),
+            tie: PlaceTie { character, place, event: None, start: None, end: None },
+        }
+    }
+
+    /// Through an Event naming both, sorted by its `start`, undated last.
+    fn through(character: DocSummary, place: DocSummary, event: &DocSummary) -> Self {
+        let start = event.start.as_deref().and_then(BibleDate::parse);
+        let end = event.end.as_deref().and_then(BibleDate::parse);
+        KeyedTie {
+            character: character.title.to_lowercase(),
+            from_event: true,
+            order: start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
+            event: event.title.to_lowercase(),
+            tie: PlaceTie { character, place, event: Some(event.clone()), start, end },
+        }
+    }
+}
+
 /// Record a region's Border (or its lack) and the Places inside it, in place
 /// of what was recorded.
 fn replace_region(tx: &rusqlite::Transaction, region: &str, json: Option<&str>, inside: &[String]) -> rusqlite::Result<()> {
@@ -1547,97 +1583,10 @@ impl Index {
     /// `place` when that is a Place; links that resolve to nothing, or to
     /// another type, tie no one.
     pub fn place_ties(&self, id: Option<&str>) -> Result<Vec<PlaceTie>> {
-        let resolve_as = |target: &str, t: DocType| -> Result<Option<DocSummary>> {
-            Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
-        };
-        /// Where a tie sorts: by Character, then `places` before Events, then
-        /// in order within each.
-        struct Keyed {
-            character: String,
-            from_event: bool,
-            order: f64,
-            event: String,
-            tie: PlaceTie,
+        let mut keyed = self.lifelong_ties()?;
+        for event in self.events_by_title()? {
+            keyed.extend(self.event_ties(event)?);
         }
-        let mut keyed: Vec<Keyed> = Vec::new();
-
-        let mut st = self.conn.prepare(&format!(
-            "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
-             WHERE d.type = 'character' AND l.property = 'places' ORDER BY d.id, l.start"
-        ))?;
-        let rows: Vec<(DocSummary, String)> = st
-            .query_map([], |r| Ok((row_summary(r)?, r.get::<_, String>("target")?)))?
-            .collect::<rusqlite::Result<_>>()?;
-        for (n, (character, target)) in rows.into_iter().enumerate() {
-            if let Some(place) = resolve_as(&target, DocType::Place)? {
-                if keyed.iter().any(|k| {
-                    !k.from_event && k.tie.character.id == character.id && k.tie.place.id == place.id
-                }) {
-                    continue;
-                }
-                keyed.push(Keyed {
-                    character: character.title.to_lowercase(),
-                    from_event: false,
-                    order: n as f64,
-                    event: String::new(),
-                    tie: PlaceTie {
-                        character,
-                        place,
-                        event: None,
-                        start: None,
-                        end: None,
-                    },
-                });
-            }
-        }
-
-        let mut st = self.conn.prepare(&format!(
-            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'event' ORDER BY d.title"
-        ))?;
-        let events: Vec<DocSummary> = st
-            .query_map([], row_summary)?
-            .collect::<rusqlite::Result<_>>()?;
-        let mut targets = self.conn.prepare(
-            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
-        )?;
-        for event in events {
-            let links: Vec<(String, String)> = targets
-                .query_map([&event.id], |r| Ok((r.get(0)?, r.get(1)?)))?
-                .collect::<rusqlite::Result<_>>()?;
-            let mut place = None;
-            for (_, target) in links.iter().filter(|(p, _)| p == "place") {
-                if let Some(p) = resolve_as(target, DocType::Place)? {
-                    place = Some(p);
-                    break;
-                }
-            }
-            let Some(place) = place else { continue };
-            let start = event.start.as_deref().and_then(BibleDate::parse);
-            let end = event.end.as_deref().and_then(BibleDate::parse);
-            let mut seen = HashSet::new();
-            for (_, target) in links.iter().filter(|(p, _)| p == "characters") {
-                let Some(character) = resolve_as(target, DocType::Character)? else {
-                    continue;
-                };
-                if !seen.insert(character.id.clone()) {
-                    continue;
-                }
-                keyed.push(Keyed {
-                    character: character.title.to_lowercase(),
-                    from_event: true,
-                    order: start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
-                    event: event.title.to_lowercase(),
-                    tie: PlaceTie {
-                        character,
-                        place: place.clone(),
-                        event: Some(event.clone()),
-                        start,
-                        end,
-                    },
-                });
-            }
-        }
-
         keyed.sort_by(|a, b| {
             a.character
                 .cmp(&b.character)
@@ -1651,6 +1600,73 @@ impl Index {
             .map(|k| k.tie)
             .filter(|t| id.is_none_or(|id| t.character.id == id || t.place.id == id))
             .collect())
+    }
+
+    fn events_by_title(&self) -> Result<Vec<DocSummary>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'event' ORDER BY d.title"
+        ))?;
+        let rows = st.query_map([], row_summary)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// A link's target, when it resolves to a document of type `t`.
+    fn resolve_as(&self, target: &str, t: DocType) -> Result<Option<DocSummary>> {
+        Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
+    }
+
+    /// Each Character's `places` that are Places, in the order written, each once.
+    fn lifelong_ties(&self) -> Result<Vec<KeyedTie>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
+             WHERE d.type = 'character' AND l.property = 'places' ORDER BY d.id, l.start"
+        ))?;
+        let rows: Vec<(DocSummary, String)> = st
+            .query_map([], |r| Ok((row_summary(r)?, r.get::<_, String>("target")?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for (n, (character, target)) in rows.into_iter().enumerate() {
+            let Some(place) = self.resolve_as(&target, DocType::Place)? else { continue };
+            if seen.insert((character.id.clone(), place.id.clone())) {
+                out.push(KeyedTie::lifelong(character, place, n));
+            }
+        }
+        Ok(out)
+    }
+
+    /// An Event's ties: each of its `characters` that is a Character, once,
+    /// to the first of its `place` links that is a Place. None without one.
+    fn event_ties(&self, event: DocSummary) -> Result<Vec<KeyedTie>> {
+        let mut targets = self.conn.prepare_cached(
+            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
+        )?;
+        let links: Vec<(String, String)> = targets
+            .query_map([&event.id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let named = |property: &'static str| links.iter().filter(move |(p, _)| p == property).map(|(_, t)| t);
+        let Some(place) = self.first_as(named("place"), DocType::Place)? else {
+            return Ok(Vec::new());
+        };
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for target in named("characters") {
+            let Some(character) = self.resolve_as(target, DocType::Character)? else { continue };
+            if seen.insert(character.id.clone()) {
+                out.push(KeyedTie::through(character, place.clone(), &event));
+            }
+        }
+        Ok(out)
+    }
+
+    /// The first of `targets` that resolves to a document of type `t`.
+    fn first_as<'a>(&self, targets: impl Iterator<Item = &'a String>, t: DocType) -> Result<Option<DocSummary>> {
+        for target in targets {
+            if let Some(d) = self.resolve_as(target, t)? {
+                return Ok(Some(d));
+            }
+        }
+        Ok(None)
     }
 
     pub fn places(&self) -> Result<Vec<DocSummary>> {
