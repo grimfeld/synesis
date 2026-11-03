@@ -121,50 +121,17 @@ fn read_tokens(
     tokens: &[&str],
     bce: bool,
 ) -> Result<(BibleDate, Option<&'static str>), DateError> {
-    use DateError::{UnknownMonth, Unreadable};
     let mut tokens = tokens.to_vec();
-    let mut approx = false;
-    if let Some(first) = tokens.first() {
-        if APPROX.contains(first) {
-            approx = true;
-            tokens.remove(0);
-        } else if let Some(rest) = first.strip_prefix('~') {
-            approx = true;
-            tokens[0] = rest;
-            if rest.is_empty() {
-                tokens.remove(0);
-            }
-        }
-    }
+    let approx = take_approx(&mut tokens);
     // The year is the last token: digits only.
-    let year_tok = tokens.pop().ok_or(Unreadable)?;
+    let year_tok = tokens.pop().ok_or(DateError::Unreadable)?;
     let n: i32 = year_tok
         .parse()
         .ok()
         .filter(|n| *n > 0 && *n < 100_000)
-        .ok_or(Unreadable)?;
+        .ok_or(DateError::Unreadable)?;
     let year = if bce { 1 - n } else { n };
-    // A word where the month goes that names no month.
-    let month = |m: &str| month_of(m).ok_or(if is_word(m) { UnknownMonth } else { Unreadable });
-    let ((month, name), day) = match tokens.as_slice() {
-        [] => ((None, None), None),
-        [m] => (month(m)?, None),
-        [a, b] => {
-            if let Some(m) = month_of(a) {
-                (m, Some(day_number(b).ok_or(Unreadable)?))
-            } else {
-                let m = month(b)?;
-                (m, Some(day_number(a).ok_or(Unreadable)?))
-            }
-        }
-        words => {
-            return Err(if words.iter().any(|w| is_word(w) && month_of(w).is_none()) {
-                UnknownMonth
-            } else {
-                Unreadable
-            })
-        }
-    };
+    let ((month, name), day) = month_and_day(&tokens)?;
     let date = BibleDate {
         year,
         month,
@@ -172,6 +139,49 @@ fn read_tokens(
         approx,
     };
     Ok((date, name))
+}
+
+/// Take a leading "c." (or "~", alone or stuck to the next token) off
+/// `tokens`; whether there was one.
+fn take_approx(tokens: &mut Vec<&str>) -> bool {
+    let Some(first) = tokens.first() else {
+        return false;
+    };
+    if APPROX.contains(first) {
+        tokens.remove(0);
+        return true;
+    }
+    let Some(rest) = first.strip_prefix('~') else {
+        return false;
+    };
+    if rest.is_empty() {
+        tokens.remove(0);
+    } else {
+        tokens[0] = rest;
+    }
+    true
+}
+
+/// The month (and the Hebrew month's name) and the day in what comes before
+/// the year: nothing, a month, or a day and a month in either order.
+fn month_and_day(tokens: &[&str]) -> Result<(Month, Option<u8>), DateError> {
+    use DateError::{UnknownMonth, Unreadable};
+    // A word where the month goes that names no month.
+    let month = |m: &str| month_of(m).ok_or(if is_word(m) { UnknownMonth } else { Unreadable });
+    let day = |d: &str| day_number(d).ok_or(Unreadable);
+    match tokens {
+        [] => Ok(((None, None), None)),
+        [m] => Ok((month(m)?, None)),
+        [a, b] => match month_of(a) {
+            Some(m) => Ok((m, Some(day(b)?))),
+            None => Ok((month(b)?, Some(day(a)?))),
+        },
+        words => Err(if words.iter().any(|w| is_word(w) && month_of(w).is_none()) {
+            UnknownMonth
+        } else {
+            Unreadable
+        }),
+    }
 }
 
 /// Why a text with no era marker at its end is not a Date.
@@ -340,9 +350,12 @@ fn day_number(s: &str) -> Option<u8> {
     s.parse().ok().filter(|d| (1..=31).contains(d))
 }
 
+/// A civil month, 1–12, and the Hebrew month's one name when the text named one.
+type Month = (Option<u8>, Option<&'static str>);
+
 /// Civil month for an English, French or Hebrew month name (or abbreviation),
 /// with the Hebrew month's one name when it is one.
-fn month_of(s: &str) -> Option<(Option<u8>, Option<&'static str>)> {
+fn month_of(s: &str) -> Option<Month> {
     if let Some((m, name)) = hebrew_month(s) {
         return Some((Some(m), Some(name)));
     }
