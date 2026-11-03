@@ -333,8 +333,8 @@ pub fn read(root: &Path, doc: &str, rel: &str) -> Border {
 /// Vault.
 pub fn is_synced(name: &str) -> bool {
     let parts: Vec<&str> = name.split('/').collect();
-    name.len() > EXT.len() + 1
-        && name.ends_with(&format!(".{EXT}"))
+    // A bare `.geojson` is a hidden file, refused with the hidden folders.
+    name.ends_with(&format!(".{EXT}"))
         && !name.contains('\\')
         && parts.iter().all(|p| {
             !p.is_empty()
@@ -634,6 +634,42 @@ mod tests {
     }
 
     #[test]
+    fn slanted_edges_and_corners_level_with_a_point_are_told_apart() {
+        // A diamond, corners at lat/lon (0,2) (2,4) (4,2) (2,0): every edge slants.
+        let diamond = parse(r#"{"type":"Polygon","coordinates":[[[2,0],[4,2],[2,4],[0,2],[2,0]]]}"#).unwrap();
+        let at = |lat: f64, lon: f64| contains(&diamond, lat, lon);
+        assert!(at(2.0, 2.0), "the middle");
+        // Level with the east and west corners: the ray passes through a corner.
+        assert!(at(2.0, 1.0), "inside, level with two corners");
+        assert!(!at(2.0, -1.0), "west of it, level with two corners");
+        assert!(!at(2.0, 5.0), "east of it, level with two corners");
+        // Just either side of a slanted edge, and on it.
+        assert!(!at(1.0, 0.9), "just outside the south-west edge");
+        assert!(at(1.0, 1.1), "just inside the south-west edge");
+        assert!(at(1.0, 1.0), "on the south-west edge");
+        assert!(!at(3.0, 3.1), "just outside the north-east edge");
+        assert!(at(3.0, 2.9), "just inside the north-east edge");
+        assert!(at(3.0, 3.0), "on the north-east edge");
+        assert!(at(1.0, 3.0), "on the south-east edge");
+        assert!(at(3.0, 1.0), "on the north-west edge");
+        assert!(!at(1.0, 3.1), "just outside the south-east edge");
+        assert!(at(1.0, 2.9), "just inside the south-east edge");
+    }
+
+    #[test]
+    fn a_point_in_line_with_an_edge_but_past_its_end_is_outside() {
+        let square = parse(SQUARE).unwrap(); // lon 35–36, lat 31–32
+        assert!(!contains(&square, 31.0, 37.0), "east along the southern edge");
+        assert!(!contains(&square, 33.0, 35.0), "north along the western edge");
+    }
+
+    #[test]
+    fn a_polygon_with_no_ring_contains_nothing() {
+        assert!(!contains(&[vec![]], 0.0, 0.0));
+        assert!(!contains(&[], 0.0, 0.0));
+    }
+
+    #[test]
     fn a_point_in_any_piece_of_a_multipolygon_is_inside_but_not_in_a_hole() {
         let text = r#"{"type":"MultiPolygon","coordinates":[
             [[[0,0],[4,0],[4,4],[0,4],[0,0]],[[1,1],[3,1],[3,3],[1,3],[1,1]]],
@@ -748,6 +784,15 @@ mod tests {
     }
 
     #[test]
+    fn a_drawn_corner_must_be_on_the_globe() {
+        for bad in [[f64::NAN, 1.0], [1.0, f64::NAN], [-90.5, 1.0], [1.0, 180.5], [1.0, -181.0], [f64::INFINITY, 1.0]] {
+            assert!(drawn(&[[1.0, 1.0], [2.0, 2.0], bad], 0).is_err(), "{bad:?}");
+        }
+        // The poles and the antimeridian are on it.
+        assert!(drawn(&[[90.0, 180.0], [-90.0, -180.0], [0.0, 0.0]], 0).is_ok());
+    }
+
+    #[test]
     fn a_link_names_a_file_beside_the_place() {
         assert_eq!(link_target(&json!("[[Judah.geojson]]")).as_deref(), Some("Judah.geojson"));
         assert_eq!(link_target(&json!("[[Judah.geojson|outline]]")).as_deref(), Some("Judah.geojson"));
@@ -776,6 +821,10 @@ mod tests {
         assert!(!is_synced("Places/Judah.md"));
         assert!(!is_synced("c:/x.geojson"));
         assert!(!is_synced(".geojson"));
+        assert!(is_synced("J.geojson"));
+        assert!(!is_synced("Places/Ju?dah.geojson"));
+        assert!(!is_synced("Places/Ju\ndah.geojson"));
+        assert!(!is_synced("Places\\Judah.geojson"));
     }
 
     /// A Device: its Vault folder and its per-Device local folder.
