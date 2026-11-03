@@ -652,6 +652,35 @@ mod border_tests {
     }
 
     #[test]
+    fn a_place_saved_after_the_border_is_inside_only_where_it_lies() {
+        let (dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        place(dir.path(), "bethlehem", 31.7, 35.2);
+        place(dir.path(), "damascus", 33.5, 36.3);
+        v.index_file("Places/bethlehem.md").unwrap();
+        v.index_file("Places/damascus.md").unwrap();
+        assert_eq!(members(&v, "judah"), ["bethlehem", "frontier", "jerusalem"]);
+        // A region lying inside its own Border is not a Place inside itself.
+        fs::write(
+            dir.path().join("Places/Judah.md"),
+            "---\nid: judah\ntype: place\nkind: region\nlat: 31.5\nlon: 35.4\nborder: \"[[Judah.geojson]]\"\n---\nThe southern kingdom.\n",
+        )
+        .unwrap();
+        v.index_file("Places/Judah.md").unwrap();
+        assert_eq!(members(&v, "judah"), ["bethlehem", "frontier", "jerusalem"]);
+    }
+
+    #[test]
+    fn only_a_border_that_changed_is_reported_to_the_views() {
+        let (dir, mut v) = with_places();
+        save_border(&mut v, "judah", &SQUARE).unwrap();
+        assert!(v.border_file_changed().unwrap().is_empty(), "nothing changed");
+        crate::border::write(dir.path(), "Places/Judah.geojson", &SQUARE[..3]).unwrap();
+        let changed: Vec<String> = v.border_file_changed().unwrap().into_iter().map(|d| d.id).collect();
+        assert_eq!(changed, ["judah"]);
+    }
+
+    #[test]
     fn a_region_without_a_border_contains_nothing() {
         let (_dir, v) = with_places();
         assert!(members(&v, "judah").is_empty());

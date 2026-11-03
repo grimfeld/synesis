@@ -3142,6 +3142,24 @@ tags: [judgment]
     }
 
     #[test]
+    fn a_characters_own_places_come_before_the_events_that_place_them() {
+        // The Event sorts by its year, far below any `places` position: the
+        // `places` ties still come first.
+        let idx = idx_with(&[
+            ("jer", "Characters/Jeremiah.md", "---\ntype: character\nplaces: [\"[[Anathoth]]\"]\n---\n"),
+            ("ana", "Places/Anathoth.md", "---\ntype: place\n---\n"),
+            ("jeru", "Places/Jerusalem.md", "---\ntype: place\n---\n"),
+            ("fall", "Events/Fall.md", "---\ntype: event\nstart: 587 BCE\nplace: \"[[Jerusalem]]\"\ncharacters: [\"[[Jeremiah]]\"]\n---\n"),
+        ]);
+        let ties = idx.place_ties(None).unwrap();
+        let rows = tie_rows(&ties)
+            .into_iter()
+            .map(|(c, p, e, _, _)| (c, p, e))
+            .collect::<Vec<_>>();
+        assert_eq!(rows, [("jer", "ana", None), ("jer", "jeru", Some("fall"))]);
+    }
+
+    #[test]
     fn place_ties_narrow_to_one_character_or_one_place() {
         let idx = ties_vault();
         let jerusalem = idx.place_ties(Some("jeru")).unwrap();
