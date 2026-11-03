@@ -72,74 +72,6 @@ export function buildLanes(
    */
   propertyLabel: (name: string) => string = (n) => n,
 ): Lane[] {
-  const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
-  // Unread Dates too: they draw nothing, but an end that is written and
-  // unreadable still means the Span has an end (`RUNS_ON` below).
-  for (const r of rows) {
-    const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
-    g.dates.push(r);
-    byDoc.set(r.doc.id, g);
-  }
-  const marksFor = (
-    doc: DocSummary,
-    dates: DatedProperty[],
-    label: (name: string) => string,
-  ): Mark[] => {
-    const named = new Map(dates.map((d) => [d.name, d]));
-    const out: Mark[] = [];
-    const used = new Set<string>();
-    for (const [a, b] of SPAN_PAIRS) {
-      const da = named.get(a);
-      const db = named.get(b);
-      if (da?.date && db?.date) {
-        out.push({
-          key: `${doc.id}:${a}-${b}`,
-          doc,
-          label: label("span"),
-          text: `${da.text} – ${db.text}`,
-          from: yearOf(da.date),
-          to: yearOf(db.date),
-          approx: da.date.approx || db.date.approx,
-          type: doc.type,
-        });
-        used.add(a);
-        used.add(b);
-      }
-    }
-    // A Span that began and has no end runs on where its type says so
-    // (`RUNS_ON`): a city still standing. An end that is written but
-    // unreadable is a mistake to fix, not an open end.
-    const pair = SPAN[doc.type];
-    const start = pair ? named.get(pair[0]) : undefined;
-    if (RUNS_ON[doc.type] && pair && start?.date && !used.has(pair[0]) && !named.has(pair[1])) {
-      out.push({
-        key: `${doc.id}:${pair[0]}-`,
-        doc,
-        label: label("span"),
-        text: `${start.text} –`,
-        from: yearOf(start.date),
-        to: null,
-        runsOn: true,
-        approx: start.date.approx,
-        type: doc.type,
-      });
-      used.add(pair[0]);
-    }
-    for (const d of dates) {
-      if (used.has(d.name) || !d.date) continue;
-      out.push({
-        key: `${doc.id}:${d.name}`,
-        doc,
-        label: label(d.name),
-        text: d.text,
-        from: yearOf(d.date),
-        to: null,
-        approx: d.date.approx,
-        type: doc.type,
-      });
-    }
-    return out;
-  };
   const events: Lane = {
     id: "events",
     title: eventsTitle,
@@ -150,32 +82,16 @@ export function buildLanes(
   };
   const subjects: Lane[] = [];
   const eventMarks = new Map<string, Mark>();
-  for (const { doc, dates } of byDoc.values()) {
+  for (const { doc, dates } of byDocument(rows)) {
     if (doc.type === "event") {
-      // An Event is one mark: its span, or its start alone.
-      const ms = marksFor(doc, dates, () => doc.title);
-      const m =
-        ms.find((x) => x.to != null) ??
-        ms.find((x) => x.key.endsWith(":start")) ??
-        ms[0];
-      if (!m) continue;
-      const mark = { ...m, label: doc.title };
+      const mark = eventMark(doc, dates);
+      if (!mark) continue;
       events.marks.push(mark);
       events.first = Math.min(events.first, mark.from);
       eventMarks.set(doc.id, mark);
     } else {
-      const marks = marksFor(doc, dates, (name) =>
-        name === "span" ? doc.title : propertyLabel(name),
-      );
-      if (marks.length === 0) continue;
-      subjects.push({
-        id: doc.id,
-        title: doc.title,
-        type: doc.type,
-        doc,
-        first: Math.min(...marks.map((m) => m.from)),
-        marks,
-      });
+      const lane = subjectLane(doc, dates, propertyLabel);
+      if (lane) subjects.push(lane);
     }
   }
   // Events also sit on the lanes of the Subjects they name.
@@ -187,6 +103,138 @@ export function buildLanes(
   }
   subjects.sort((a, b) => a.first - b.first || a.title.localeCompare(b.title));
   return [...(events.marks.length ? [events] : []), ...subjects];
+}
+
+/**
+ * Each document's Date rows, in first-seen order. Unread Dates too: they draw
+ * nothing, but an end that is written and unreadable still means the Span has
+ * an end (`openSpan`).
+ */
+function byDocument(rows: DatedProperty[]): { doc: DocSummary; dates: DatedProperty[] }[] {
+  const byDoc = new Map<string, { doc: DocSummary; dates: DatedProperty[] }>();
+  for (const r of rows) {
+    const g = byDoc.get(r.doc.id) ?? { doc: r.doc, dates: [] };
+    g.dates.push(r);
+    byDoc.set(r.doc.id, g);
+  }
+  return [...byDoc.values()];
+}
+
+/** An Event is one mark: its span, or its start alone, labelled with its title. */
+function eventMark(doc: DocSummary, dates: DatedProperty[]): Mark | null {
+  const ms = marksFor(doc, dates, () => doc.title);
+  const m =
+    ms.find((x) => x.to != null) ??
+    ms.find((x) => x.key.endsWith(":start")) ??
+    ms[0];
+  return m ? { ...m, label: doc.title } : null;
+}
+
+/** A Subject's own Lane, or null when none of its Dates reads. */
+function subjectLane(
+  doc: DocSummary,
+  dates: DatedProperty[],
+  propertyLabel: (name: string) => string,
+): Lane | null {
+  const marks = marksFor(doc, dates, (name) =>
+    name === "span" ? doc.title : propertyLabel(name),
+  );
+  if (marks.length === 0) return null;
+  return {
+    id: doc.id,
+    title: doc.title,
+    type: doc.type,
+    doc,
+    first: Math.min(...marks.map((m) => m.from)),
+    marks,
+  };
+}
+
+/** One document's marks: its Spans, a Span that runs on, then its other Dates as points. */
+function marksFor(
+  doc: DocSummary,
+  dates: DatedProperty[],
+  label: (name: string) => string,
+): Mark[] {
+  const named = new Map(dates.map((d) => [d.name, d]));
+  const used = new Set<string>();
+  const out = closedSpans(doc, named, label, used);
+  const open = openSpan(doc, named, label, used);
+  if (open) out.push(open);
+  for (const d of dates) {
+    if (used.has(d.name) || !d.date) continue;
+    out.push({
+      key: `${doc.id}:${d.name}`,
+      doc,
+      label: label(d.name),
+      text: d.text,
+      from: yearOf(d.date),
+      to: null,
+      approx: d.date.approx,
+      type: doc.type,
+    });
+  }
+  return out;
+}
+
+/** Every `SPAN_PAIRS` pair with both halves read; their names go into `used`. */
+function closedSpans(
+  doc: DocSummary,
+  named: Map<string, DatedProperty>,
+  label: (name: string) => string,
+  used: Set<string>,
+): Mark[] {
+  const out: Mark[] = [];
+  for (const [a, b] of SPAN_PAIRS) {
+    const ta = named.get(a);
+    const tb = named.get(b);
+    if (!ta?.date || !tb?.date) continue;
+    const da = ta.date;
+    const db = tb.date;
+    out.push({
+      key: `${doc.id}:${a}-${b}`,
+      doc,
+      label: label("span"),
+      text: `${ta.text} – ${tb.text}`,
+      from: yearOf(da),
+      to: yearOf(db),
+      approx: da.approx || db.approx,
+      type: doc.type,
+    });
+    used.add(a);
+    used.add(b);
+  }
+  return out;
+}
+
+/**
+ * A Span that began and has no end runs on where its type says so
+ * (`RUNS_ON`): a city still standing. An end that is written but unreadable
+ * is a mistake to fix, not an open end. Its start goes into `used`.
+ */
+function openSpan(
+  doc: DocSummary,
+  named: Map<string, DatedProperty>,
+  label: (name: string) => string,
+  used: Set<string>,
+): Mark | null {
+  const pair = SPAN[doc.type];
+  if (!RUNS_ON[doc.type] || !pair) return null;
+  const [a, b] = pair;
+  const start = named.get(a);
+  if (!start?.date || used.has(a) || named.has(b)) return null;
+  used.add(a);
+  return {
+    key: `${doc.id}:${a}-`,
+    doc,
+    label: label("span"),
+    text: `${start.text} –`,
+    from: yearOf(start.date),
+    to: null,
+    runsOn: true,
+    approx: start.date.approx,
+    type: doc.type,
+  };
 }
 
 /** Room one axis label needs: "1513 av. n. è." at 11px, with a gap. */
