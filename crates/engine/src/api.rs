@@ -370,9 +370,11 @@ pub fn import_border(
     put_border(v, id, |root, rel| crate::border::import(root, rel, text))
 }
 
-/// Write a Place's Border file with `write`, then name it in `border`. The
+/// Name a Place's Border file in `border`, then write it with `write`. The
 /// file is the one `border` already names, or a new one after the Place's
-/// title beside it.
+/// title beside it. Named first so that a save cut short and made again
+/// writes the same file: written first, the retry would find the name taken
+/// and make a second one beside it.
 fn put_border(
     v: &mut Vault,
     id: &str,
@@ -388,9 +390,6 @@ fn put_border(
                 .ok_or_else(|| crate::Error::Invalid(format!("no place for {name}")))?
         }
     };
-    write(&root, &rel)?;
-    // Written again after a deletion: Pairing carries it, not the tombstone.
-    crate::border::revive(v.local_dir(), &rel)?;
     let name = rel.rsplit('/').next().unwrap_or(&rel);
     // A link to a file elsewhere is spelled from the root, as Obsidian does.
     let beside = crate::border::path_for(&view.summary.path, name).as_deref() == Some(rel.as_str());
@@ -402,6 +401,9 @@ fn put_border(
         let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, Some(&link));
         v.write(id, &text)?
     };
+    write(&root, &rel)?;
+    // Written again after a deletion: Pairing carries it, not the tombstone.
+    crate::border::revive(v.local_dir(), &rel)?;
     // The Place may be unchanged (a Border rewritten in place): the Places
     // inside it are recomputed from the new file either way.
     v.border_file_changed()?;
@@ -789,6 +791,46 @@ mod border_tests {
         assert!(dir.path().join("Places/Judah.geojson").exists(), "a Border still named went");
         v.delete("kingdom").unwrap();
         assert!(!dir.path().join("Places/Judah.geojson").exists(), "the Border outlived its region");
+    }
+
+    fn geojson_files(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir.join("Places"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.ends_with(".geojson"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_border_saved_again_after_a_crash_halfway_ends_as_one_save_does() {
+        let (dir, mut v) = vault();
+        // The app stops after the file is written and before anything else.
+        let crashed = put_border(&mut v, "judah", |root, rel| {
+            crate::border::write(root, rel, &CORNERS)?;
+            Err(crate::Error::Invalid("the app stopped".into()))
+        });
+        assert!(crashed.is_err());
+        let doc = save_border(&mut v, "judah", &CORNERS).unwrap();
+        assert_eq!(doc.frontmatter["border"], "[[Judah.geojson]]");
+        assert_eq!(geojson_files(dir.path()), ["Judah.geojson"], "a second Border file was made");
+        assert_eq!(borders(&v)[0].status, BorderStatus::Ok);
+    }
+
+    #[test]
+    fn a_region_whose_border_is_downloading_is_not_deleted_halfway() {
+        let (dir, mut v) = vault();
+        save_border(&mut v, "judah", &CORNERS).unwrap();
+        // iCloud evicted the Border: only its placeholder is on disk.
+        let file = dir.path().join("Places/Judah.geojson");
+        fs::remove_file(&file).unwrap();
+        fs::write(crate::cloud::placeholder_of(&file).unwrap(), "").unwrap();
+        assert!(v.delete("judah").is_err());
+        // Refused whole: the region is still there to delete once it arrives.
+        assert!(dir.path().join("Places/Judah.md").exists(), "the region went without its Border");
+        assert!(v.read("judah").is_ok());
     }
 
     #[test]

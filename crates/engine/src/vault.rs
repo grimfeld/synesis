@@ -1186,6 +1186,19 @@ impl Vault {
         if cloud::is_evicted(&p) {
             return Err(cloud::downloading(&p));
         }
+        // A region's Border goes with it, as a Composition's Board does,
+        // unless another region names the file too (ADR 0023). Before the
+        // Place itself: while the Place is there, a delete that stopped
+        // halfway, or was refused for a Border still downloading, can be
+        // made again.
+        let border = self
+            .bordered_places()?
+            .into_iter()
+            .find(|(place, _, _)| place == id)
+            .and_then(|(_, path, value)| Self::border_path(&path, &value));
+        if let Some(rel) = border {
+            self.drop_border_file(&rel, id)?;
+        }
         if p.exists() {
             fs::remove_file(p)?;
         }
@@ -1195,16 +1208,6 @@ impl Vault {
         let board = self.abs(&canvas::board_path(&summary.path));
         if board.exists() {
             fs::remove_file(board)?;
-        }
-        // Likewise a region's Border, unless another region names the file
-        // too (ADR 0023).
-        let border = self
-            .bordered_places()?
-            .into_iter()
-            .find(|(place, _, _)| place == id)
-            .and_then(|(_, path, value)| Self::border_path(&path, &value));
-        if let Some(rel) = border {
-            self.drop_border_file(&rel, id)?;
         }
         if let Some(sync) = self.sync.as_mut() {
             sync.record_delete(id)?;
