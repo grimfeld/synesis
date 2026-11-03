@@ -86,43 +86,45 @@ const fn is_low(c: u16) -> bool {
     c >= 0xdc00 && c <= 0xdfff
 }
 
+/// How many units `a` and `b` share at their start, never ending inside a surrogate pair.
+fn common_start(a: &[u16], b: &[u16]) -> usize {
+    let start = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    if start > 0 && is_high(a[start - 1]) {
+        start - 1
+    } else {
+        start
+    }
+}
+
+/// How many units `a` and `b` share at their end, before `start` and never
+/// beginning inside a surrogate pair.
+fn common_end(a: &[u16], b: &[u16], start: usize) -> usize {
+    let max = a.len().min(b.len()) - start;
+    let end = a.iter().rev().zip(b.iter().rev()).take(max).take_while(|(x, y)| x == y).count();
+    if end > 0 && is_low(a[a.len() - end]) {
+        end - 1
+    } else {
+        end
+    }
+}
+
 /// The smallest single change from `a` to `b`: their common start and end are
 /// kept. Never splits a surrogate pair. None when they are equal.
 pub fn diff(a: &[u16], b: &[u16]) -> Option<Op> {
     if a == b {
         return None;
     }
-    let max = a.len().min(b.len());
-    let mut start = 0;
-    while start < max && a[start] == b[start] {
-        start += 1;
-    }
-    if start > 0 && is_high(a[start - 1]) {
-        start -= 1;
-    }
-    let mut end = 0;
-    while end < max - start && a[a.len() - 1 - end] == b[b.len() - 1 - end] {
-        end += 1;
-    }
-    if end > 0 && is_low(a[a.len() - end]) {
-        end -= 1;
-    }
-    let mut op = Vec::new();
-    if start > 0 {
-        op.push(Part::Count(start as i64));
-    }
-    let insert = &b[start..b.len() - end];
-    if !insert.is_empty() {
-        op.push(Part::Insert(String::from_utf16_lossy(insert)));
-    }
-    let deleted = a.len() - end - start;
-    if deleted > 0 {
-        op.push(Part::Count(-(deleted as i64)));
-    }
-    if end > 0 {
-        op.push(Part::Count(end as i64));
-    }
-    Some(op)
+    let start = common_start(a, b);
+    let end = common_end(a, b, start);
+    let insert = String::from_utf16_lossy(&b[start..b.len() - end]);
+    let parts = [
+        Part::Count(start as i64),
+        Part::Insert(insert),
+        Part::Count(-((a.len() - end - start) as i64)),
+        Part::Count(end as i64),
+    ];
+    let empty = |p: &Part| matches!(p, Part::Count(0)) || matches!(p, Part::Insert(s) if s.is_empty());
+    Some(parts.into_iter().filter(|p| !empty(p)).collect())
 }
 
 fn hash_text(s: &str) -> u64 {
@@ -220,6 +222,35 @@ impl Session {
             return Err(format!("revision {base} is not in this session"));
         }
         Ok(self.log.iter().skip((base - self.log_start) as usize).cloned().collect())
+    }
+
+    /// A Window's change made on `base`: taken only when `base` is the latest revision.
+    fn take_op(&mut self, base: u64, op: Op) -> Result<bool, String> {
+        if base != self.rev {
+            return Ok(false);
+        }
+        self.push(Entry { op, disk: false })?;
+        Ok(true)
+    }
+
+    /// The file as a Window just read it. Returns whether the text changed,
+    /// and whether it is an edit made outside the app over unsaved typing.
+    fn take_disk(&mut self, disk: &str, force: bool) -> Result<(bool, bool), String> {
+        let h = hash_text(disk);
+        let own_save = self.saved.contains(&h);
+        if !force && (own_save || self.on_disk != hash_text(&self.text())) {
+            return Ok((false, !own_save));
+        }
+        // Everything the Windows agreed on is saved, so the file is newer:
+        // take it, as a change, so typing not yet sent survives.
+        let new: Vec<u16> = disk.encode_utf16().collect();
+        let op = diff(&self.text, &new);
+        let changed = op.is_some();
+        if let Some(op) = op {
+            self.push(Entry { op, disk: true })?;
+        }
+        self.on_disk = h;
+        Ok((changed, false))
     }
 
     /// Drop the changes every member has seen.
@@ -351,26 +382,10 @@ impl Windows {
         let mut reply = SyncReply { rev: s.rev, ops: Vec::new(), accepted: false, external: false };
         let mut changed = false;
         if let Some(op) = req.op {
-            if req.base == s.rev {
-                s.push(Entry { op, disk: false })?;
-                reply.accepted = true;
-                changed = true;
-            }
+            reply.accepted = s.take_op(req.base, op)?;
+            changed = reply.accepted;
         } else if let Some(disk) = req.disk {
-            let h = hash_text(&disk);
-            let own_save = s.saved.contains(&h);
-            if req.force || (!own_save && s.on_disk == hash_text(&s.text())) {
-                // Everything the Windows agreed on is saved, so the file is
-                // newer: take it, as a change, so typing not yet sent survives.
-                let new: Vec<u16> = disk.encode_utf16().collect();
-                if let Some(op) = diff(&s.text, &new) {
-                    s.push(Entry { op, disk: true })?;
-                    changed = true;
-                }
-                s.on_disk = h;
-            } else if !own_save {
-                reply.external = true;
-            }
+            (changed, reply.external) = s.take_disk(&disk, req.force)?;
         }
         if !reply.accepted {
             reply.ops = s.since(req.base)?;
