@@ -5,7 +5,9 @@ import {
   buildLanes,
   cullToView,
   extentOf,
+  filterRows,
   formatYear,
+  NO_FILTERS,
   niceStep,
   TICK_LABEL_PX,
   placeMarks,
@@ -479,5 +481,28 @@ describe("resolveLabels", () => {
   it("leaves an already blank label blank", () => {
     const out = resolveLabels([{ ...placed("a", 0, "a"), label: null }], w);
     expect(out[0].label).to.equal(null);
+  });
+});
+
+describe("filterRows", () => {
+  const jer = doc("jer", "Jérémie");
+  const fall = doc("fall", "Fall of Jerusalem", "event");
+  const rows = [dated(jer, "born", -650), dated(jer, "died", -570), dated(fall, "start", -586)];
+
+  it("keeps every row with no filter set", () => {
+    expect(filterRows(rows, NO_FILTERS)).toEqual(rows);
+  });
+
+  it("drops the rows of a hidden kind", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, hiddenTypes: ["event"] })).toEqual(rows.slice(0, 2));
+  });
+
+  it("keeps only the chosen Date Properties, ignoring case and accents", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, props: ["BORN"] })).toEqual([rows[0]]);
+  });
+
+  it("keeps the documents whose title holds the search, ignoring case and accents", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, search: "  jeremie " })).toEqual(rows.slice(0, 2));
+    expect(filterRows(rows, { ...NO_FILTERS, search: "   " })).toEqual(rows);
   });
 });

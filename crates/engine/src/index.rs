@@ -197,6 +197,27 @@ pub struct EventLink {
     pub subject: String,
 }
 
+/// A Character in a Place (CONTEXT.md, Character). Named in the Character's own `places`
+/// list, it holds for their whole life: `event` is `None` and so is the span,
+/// because the Character's own Span applies. Through an Event naming both, it
+/// holds only for the Event's time: `start` and `end` are the Event's, either
+/// `None` when missing or not a Date.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaceTie {
+    pub character: DocSummary,
+    pub place: DocSummary,
+    pub event: Option<DocSummary>,
+    pub start: Option<BibleDate>,
+    pub end: Option<BibleDate>,
+}
+
+/// A Place inside a region's Border (ADR 0023), as computed at index time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RegionMember {
+    pub place: String,
+    pub region: String,
+}
+
 /// One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DocTag {
@@ -381,6 +402,14 @@ CREATE INDEX IF NOT EXISTS mentions_doc ON mentions(doc_id);
 CREATE TABLE IF NOT EXISTS dates(doc_id TEXT NOT NULL, name TEXT NOT NULL, text TEXT NOT NULL, year INTEGER, month INTEGER, day INTEGER, approx INTEGER, sort_key REAL);
 CREATE INDEX IF NOT EXISTS dates_doc ON dates(doc_id);
 CREATE INDEX IF NOT EXISTS dates_sort ON dates(sort_key);
+-- Containment (ADR 0023): each region's Border as last read from its
+-- `.geojson` file (polygons as JSON, `[lat, lon]`), and the Places inside it.
+-- Kept here so a Place saved alone is tested against every Border without
+-- reading a file, and a Border saved alone against every Place.
+CREATE TABLE IF NOT EXISTS region_borders(region TEXT PRIMARY KEY, polygons TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS in_region(place TEXT NOT NULL, region TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS in_region_place ON in_region(place);
+CREATE INDEX IF NOT EXISTS in_region_region ON in_region(region);
 CREATE VIRTUAL TABLE IF NOT EXISTS docs_fts USING fts5(id UNINDEXED, title, body, tokenize='unicode61 remove_diacritics 2');
 "#;
 
@@ -458,6 +487,70 @@ fn graph_label(d: &DocSummary) -> String {
         .unwrap_or(cut.len());
     format!("{}…", cut[..end].trim_end())
 }
+/// A Character↔Place tie and where it sorts: by Character, then `places`
+/// before Events, then in order within each (`Index::place_ties`).
+struct KeyedTie {
+    character: String,
+    from_event: bool,
+    order: f64,
+    event: String,
+    tie: PlaceTie,
+}
+
+impl KeyedTie {
+    /// Named in the Character's own `places`, the `n`th such link.
+    fn lifelong(character: DocSummary, place: DocSummary, n: usize) -> Self {
+        KeyedTie {
+            character: character.title.to_lowercase(),
+            from_event: false,
+            order: n as f64,
+            event: String::new(),
+            tie: PlaceTie { character, place, event: None, start: None, end: None },
+        }
+    }
+
+    /// Through an Event naming both, sorted by its `start`, undated last.
+    fn through(character: DocSummary, place: DocSummary, event: &DocSummary) -> Self {
+        let start = event.start.as_deref().and_then(BibleDate::parse);
+        let end = event.end.as_deref().and_then(BibleDate::parse);
+        KeyedTie {
+            character: character.title.to_lowercase(),
+            from_event: true,
+            order: start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
+            event: event.title.to_lowercase(),
+            tie: PlaceTie { character, place, event: Some(event.clone()), start, end },
+        }
+    }
+}
+
+/// Record a region's Border (or its lack) and the Places inside it, in place
+/// of what was recorded.
+fn replace_region(tx: &rusqlite::Transaction, region: &str, json: Option<&str>, inside: &[String]) -> rusqlite::Result<()> {
+    tx.execute("DELETE FROM in_region WHERE region = ?1", [region])?;
+    tx.execute("DELETE FROM region_borders WHERE region = ?1", [region])?;
+    if let Some(json) = json {
+        tx.execute("INSERT INTO region_borders(region, polygons) VALUES(?1, ?2)", params![region, json])?;
+    }
+    for place in inside {
+        insert_member(tx, place, region)?;
+    }
+    Ok(())
+}
+
+/// Record the regions one Place lies inside, in place of what was recorded.
+fn replace_place(tx: &rusqlite::Transaction, place: &str, regions: &[String]) -> rusqlite::Result<()> {
+    tx.execute("DELETE FROM in_region WHERE place = ?1", [place])?;
+    for region in regions {
+        insert_member(tx, place, region)?;
+    }
+    Ok(())
+}
+
+fn insert_member(tx: &rusqlite::Transaction, place: &str, region: &str) -> rusqlite::Result<()> {
+    tx.execute("INSERT INTO in_region(place, region) VALUES(?1, ?2)", params![place, region])?;
+    Ok(())
+}
+
 
 fn label_for(doc_type: DocType, title: &str, body: &str) -> String {
     if doc_type != DocType::Clipping {
@@ -610,9 +703,7 @@ impl Index {
     }
 
     pub fn all_paths(&self) -> Result<Vec<String>> {
-        let mut st = self.conn.prepare("SELECT path FROM documents")?;
-        let rows = st.query_map([], |r| r.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        self.strings("SELECT path FROM documents")
     }
 
     /// Replace everything the index knows about one document. `date_names`
@@ -643,6 +734,14 @@ impl Index {
             tx.execute("DELETE FROM links WHERE from_id = ?1 AND kind = 'prose'", [&victim])?;
             tx.execute("DELETE FROM docs_fts WHERE id = ?1", [&victim])?;
             tx.execute("DELETE FROM documents WHERE id = ?1", [&victim])?;
+            // Where it lies is recomputed from its new coordinates by the
+            // Vault (`index_containment`); what it contains only changes with
+            // its Border, unless it is no longer that Place at all.
+            tx.execute("DELETE FROM in_region WHERE place = ?1", [&victim])?;
+            if doc.doc_type != DocType::Place || victim != id {
+                tx.execute("DELETE FROM in_region WHERE region = ?1", [&victim])?;
+                tx.execute("DELETE FROM region_borders WHERE region = ?1", [&victim])?;
+            }
         }
         let fm = &doc.frontmatter;
         let book = number_field(fm, "book_number").map(|x| x as i64);
@@ -759,6 +858,8 @@ impl Index {
             tx.execute(&format!("DELETE FROM {t} WHERE doc_id = ?1"), [id])?;
         }
         tx.execute("DELETE FROM links WHERE from_id = ?1", [id])?;
+        tx.execute("DELETE FROM in_region WHERE place = ?1 OR region = ?1", [id])?;
+        tx.execute("DELETE FROM region_borders WHERE region = ?1", [id])?;
         tx.execute("DELETE FROM docs_fts WHERE id = ?1", [id])?;
         tx.execute("DELETE FROM documents WHERE id = ?1", [id])?;
         tx.commit()?;
@@ -1509,6 +1610,106 @@ impl Index {
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
+    /// Every Character↔Place tie, or only those touching `id` (a Character or
+    /// a Place). By Character title; within one Character, their `places` in
+    /// the order written, then Events earliest first, undated last.
+    ///
+    /// Only a Character's `places` count: a Journey's is its route, not anyone's
+    /// home. An Event ties each of its `characters` that is a Character to its
+    /// `place` when that is a Place; links that resolve to nothing, or to
+    /// another type, tie no one.
+    pub fn place_ties(&self, id: Option<&str>) -> Result<Vec<PlaceTie>> {
+        let mut keyed = self.lifelong_ties()?;
+        for event in self.events_by_title()? {
+            keyed.extend(self.event_ties(event)?);
+        }
+        keyed.sort_by(|a, b| {
+            a.character
+                .cmp(&b.character)
+                .then(a.tie.character.id.cmp(&b.tie.character.id))
+                .then(a.from_event.cmp(&b.from_event))
+                .then(a.order.total_cmp(&b.order))
+                .then(a.event.cmp(&b.event))
+        });
+        Ok(keyed
+            .into_iter()
+            .map(|k| k.tie)
+            .filter(|t| id.is_none_or(|id| t.character.id == id || t.place.id == id))
+            .collect())
+    }
+
+    fn events_by_title(&self) -> Result<Vec<DocSummary>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'event' ORDER BY d.title"
+        ))?;
+        let rows = st.query_map([], row_summary)?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// A link's target, when it resolves to a document of type `t`.
+    fn resolve_as(&self, target: &str, t: DocType) -> Result<Option<DocSummary>> {
+        Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
+    }
+
+    /// Each Character's `places` that are Places, in the order written, each once.
+    fn lifelong_ties(&self) -> Result<Vec<KeyedTie>> {
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
+             WHERE d.type = 'character' AND l.property = 'places' ORDER BY d.id, l.start"
+        ))?;
+        let rows: Vec<(DocSummary, String)> = st
+            .query_map([], |r| Ok((row_summary(r)?, r.get::<_, String>("target")?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for (n, (character, target)) in rows.into_iter().enumerate() {
+            let Some(place) = self.resolve_as(&target, DocType::Place)? else { continue };
+            if seen.insert((character.id.clone(), place.id.clone())) {
+                out.push(KeyedTie::lifelong(character, place, n));
+            }
+        }
+        Ok(out)
+    }
+
+    /// An Event's ties: each of its `characters` that is a Character, once,
+    /// to the first of its `place` links that is a Place. None without one.
+    fn event_ties(&self, event: DocSummary) -> Result<Vec<KeyedTie>> {
+        let links = self.tie_links(&event.id)?;
+        let named = |property: &'static str| links.iter().filter(move |(p, _)| p == property).map(|(_, t)| t);
+        let Some(place) = self.first_as(named("place"), DocType::Place)? else {
+            return Ok(Vec::new());
+        };
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for target in named("characters") {
+            let Some(character) = self.resolve_as(target, DocType::Character)? else { continue };
+            if seen.insert(character.id.clone()) {
+                out.push(KeyedTie::through(character, place.clone(), &event));
+            }
+        }
+        Ok(out)
+    }
+
+    /// An Event's `place` and `characters` links, `(property, target)`, in
+    /// the order written.
+    fn tie_links(&self, event: &str) -> Result<Vec<(String, String)>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
+        )?;
+        let rows = st.query_map([event], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// The first of `targets` that resolves to a document of type `t`.
+    fn first_as<'a>(&self, targets: impl Iterator<Item = &'a String>, t: DocType) -> Result<Option<DocSummary>> {
+        for target in targets {
+            if let Some(d) = self.resolve_as(target, t)? {
+                return Ok(Some(d));
+            }
+        }
+        Ok(None)
+    }
+
     pub fn places(&self) -> Result<Vec<DocSummary>> {
         let mut st = self.conn.prepare(&format!("SELECT {SUMMARY_COLS} FROM documents d WHERE d.type = 'place' AND d.lat IS NOT NULL AND d.lon IS NOT NULL ORDER BY d.title"))?;
         let rows = st.query_map([], row_summary)?;
@@ -1986,6 +2187,132 @@ impl Index {
         Ok(out)
     }
 
+    // ---- Containment (ADR 0023) -------------------------------------------
+
+    /// Record a region's Border as just read (`None`: it has none, or none
+    /// that can be read) and, when that changed it, recompute which Places
+    /// lie inside. Returns whether it changed.
+    pub fn set_region_border(&mut self, region: &str, polygons: Option<&[crate::border::Polygon]>) -> Result<bool> {
+        let json = polygons.map(serde_json::to_string).transpose()?;
+        if self.recorded_border(region)? == json {
+            return Ok(false);
+        }
+        let inside = polygons.map(|p| self.places_inside(region, p)).transpose()?.unwrap_or_default();
+        let tx = self.conn.transaction()?;
+        replace_region(&tx, region, json.as_deref(), &inside)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// A region's Border as last recorded, as JSON.
+    fn recorded_border(&self, region: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT polygons FROM region_borders WHERE region = ?1", [region], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// The Places with coordinates inside a Border, the region itself aside.
+    fn places_inside(&self, region: &str, polygons: &[crate::border::Polygon]) -> Result<Vec<String>> {
+        Ok(self
+            .place_points()?
+            .into_iter()
+            .filter(|(place, lat, lon)| place != region && crate::border::contains(polygons, *lat, *lon))
+            .map(|(place, _, _)| place)
+            .collect())
+    }
+
+    /// Recompute which regions one Place lies inside, from its coordinates
+    /// and every Border on record. A Place without coordinates is in none.
+    pub fn locate_place(&mut self, place: &str) -> Result<()> {
+        let regions = match self.place_point(place)? {
+            Some((lat, lon)) => self
+                .region_borders()?
+                .into_iter()
+                .filter(|(region, polygons)| region != place && crate::border::contains(polygons, lat, lon))
+                .map(|(region, _)| region)
+                .collect(),
+            None => Vec::new(),
+        };
+        let tx = self.conn.transaction()?;
+        replace_place(&tx, place, &regions)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// One Place's coordinates, when it is a Place that has them.
+    fn place_point(&self, place: &str) -> Result<Option<(f64, f64)>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT lat, lon FROM documents WHERE id = ?1 AND type = 'place' AND lat IS NOT NULL AND lon IS NOT NULL",
+                [place],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?)
+    }
+
+    /// Every region with a Border on record.
+    pub fn bordered_regions(&self) -> Result<Vec<String>> {
+        self.strings("SELECT region FROM region_borders")
+    }
+
+    /// The single text column a query answers, row by row.
+    fn strings(&self, sql: &str) -> Result<Vec<String>> {
+        let mut st = self.conn.prepare(sql)?;
+        let rows = st.query_map([], |r| r.get(0))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    fn region_borders(&self) -> Result<Vec<(String, Vec<crate::border::Polygon>)>> {
+        let mut st = self.conn.prepare("SELECT region, polygons FROM region_borders")?;
+        let rows: Vec<(String, String)> = st
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(r, json)| Some((r, serde_json::from_str(&json).ok()?)))
+            .collect())
+    }
+
+    fn place_points(&self) -> Result<Vec<(String, f64, f64)>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, lat, lon FROM documents WHERE type = 'place' AND lat IS NOT NULL AND lon IS NOT NULL",
+        )?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// Every Place inside a region's Border: the Map and the Timeline expand
+    /// a chosen region to these (CONTEXT.md: Period).
+    pub fn regions(&self) -> Result<Vec<RegionMember>> {
+        let mut st = self.conn.prepare(
+            "SELECT i.place, i.region FROM in_region i
+             JOIN documents p ON p.id = i.place JOIN documents r ON r.id = i.region
+             ORDER BY r.title_norm, p.title_norm",
+        )?;
+        let rows = st.query_map([], |r| Ok(RegionMember { place: r.get(0)?, region: r.get(1)? }))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
+    }
+
+    /// `(id, path, value)` for every document of a type that sets `name`.
+    pub fn property_on(&self, doc_type: DocType, name: &str) -> Result<Vec<(String, String, Value)>> {
+        let mut st = self.conn.prepare(
+            "SELECT id, path, frontmatter FROM documents WHERE type = ?1 ORDER BY title_norm",
+        )?;
+        let rows: Vec<(String, String, String)> = st
+            .query_map([doc_type.as_str()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(id, path, fm)| {
+                let v: Value = serde_json::from_str(&fm).ok()?;
+                let value = v.get(name).filter(|x| !x.is_null())?.clone();
+                Some((id, path, value))
+            })
+            .collect())
+    }
+
     pub fn unresolved(&self) -> Result<Vec<UnresolvedLink>> {
         let mut st = self
             .conn
@@ -1993,7 +2320,8 @@ impl Index {
             // something the user wrote, and an id resolves to nothing — a card
             // on a Board is not a link pointing nowhere.
             .prepare(
-                "SELECT target, COUNT(*) FROM links WHERE kind = 'prose' GROUP BY norm ORDER BY 2 DESC",
+                // A `border` names a `.geojson` file (ADR 0023), never a document.
+                "SELECT target, COUNT(*) FROM links WHERE kind = 'prose' AND (property IS NULL OR property != 'border') GROUP BY norm ORDER BY 2 DESC",
             )?;
         let rows: Vec<(String, i64)> = st
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
@@ -2796,6 +3124,99 @@ tags: [judgment]
             .map(|x| x.id)
             .collect();
         assert_eq!(ev, vec!["b", "x", "a", "n", "u"]);
+    }
+
+    /// The two ways a Character is in a Place (CONTEXT.md): their own `places`
+    /// list, for their whole life, and an Event naming both, for its time.
+    fn ties_vault() -> Index {
+        idx_with(&[
+            ("jer", "Characters/Jeremiah.md", "---\ntype: character\nborn: c. 650 BCE\nplaces: [\"[[Anathoth]]\", \"[[Jerusalem]]\", \"[[Nowhere]]\", \"[[Paul]]\"]\n---\n"),
+            ("paul", "Characters/Paul.md", "---\ntype: character\n---\n"),
+            ("ana", "Places/Anathoth.md", "---\ntype: place\n---\n"),
+            ("jeru", "Places/Jerusalem.md", "---\ntype: place\n---\n"),
+            ("eph", "Places/Ephesus.md", "---\ntype: place\n---\n"),
+            ("stay", "Events/Paul in Ephesus.md", "---\ntype: event\nstart: 52 CE\nend: 55 CE\nplace: \"[[Ephesus]]\"\ncharacters: [\"[[Paul]]\", \"[[Grace]]\"]\n---\n"),
+            ("visit", "Events/Paul in Jerusalem.md", "---\ntype: event\nstart: 49 CE\nplace: \"[[Jerusalem]]\"\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // An Event with no Place ties no one.
+            ("talk", "Events/A talk.md", "---\ntype: event\nstart: 50 CE\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // A Concept named in `characters` is not a Character.
+            ("grace", "Concepts/Grace.md", "---\ntype: concept\n---\n"),
+            // A Journey's `places` is its route, not anyone's home.
+            ("trip", "Journeys/Trip.md", "---\ntype: journey\nplaces: [\"[[Ephesus]]\"]\ncharacters: [\"[[Paul]]\"]\n---\n"),
+            // `places` ties only Characters.
+            ("love", "Concepts/Love.md", "---\ntype: concept\nplaces: [\"[[Ephesus]]\"]\n---\n"),
+        ])
+    }
+
+    fn tie_rows(ties: &[PlaceTie]) -> Vec<(&str, &str, Option<&str>, Option<i32>, Option<i32>)> {
+        ties.iter()
+            .map(|t| {
+                (
+                    t.character.id.as_str(),
+                    t.place.id.as_str(),
+                    t.event.as_ref().map(|e| e.id.as_str()),
+                    t.start.map(|d| d.year),
+                    t.end.map(|d| d.year),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn place_ties_come_from_places_and_from_events() {
+        let idx = ties_vault();
+        let all = idx.place_ties(None).unwrap();
+        assert_eq!(
+            tie_rows(&all),
+            vec![
+                // `places` holds for the whole life: no span of its own.
+                ("jer", "ana", None, None, None),
+                ("jer", "jeru", None, None, None),
+                // An Event holds only for its own time, earliest first.
+                ("paul", "jeru", Some("visit"), Some(49), None),
+                ("paul", "eph", Some("stay"), Some(52), Some(55)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_characters_own_places_come_before_the_events_that_place_them() {
+        // The Event sorts by its year, far below any `places` position: the
+        // `places` ties still come first.
+        let idx = idx_with(&[
+            ("jer", "Characters/Jeremiah.md", "---\ntype: character\nplaces: [\"[[Anathoth]]\"]\n---\n"),
+            ("ana", "Places/Anathoth.md", "---\ntype: place\n---\n"),
+            ("jeru", "Places/Jerusalem.md", "---\ntype: place\n---\n"),
+            ("fall", "Events/Fall.md", "---\ntype: event\nstart: 587 BCE\nplace: \"[[Jerusalem]]\"\ncharacters: [\"[[Jeremiah]]\"]\n---\n"),
+        ]);
+        let ties = idx.place_ties(None).unwrap();
+        let rows = tie_rows(&ties)
+            .into_iter()
+            .map(|(c, p, e, _, _)| (c, p, e))
+            .collect::<Vec<_>>();
+        assert_eq!(rows, [("jer", "ana", None), ("jer", "jeru", Some("fall"))]);
+    }
+
+    #[test]
+    fn place_ties_narrow_to_one_character_or_one_place() {
+        let idx = ties_vault();
+        let jerusalem = idx.place_ties(Some("jeru")).unwrap();
+        assert_eq!(
+            tie_rows(&jerusalem),
+            vec![
+                ("jer", "jeru", None, None, None),
+                ("paul", "jeru", Some("visit"), Some(49), None),
+            ]
+        );
+        let paul = idx.place_ties(Some("paul")).unwrap();
+        assert_eq!(
+            tie_rows(&paul),
+            vec![
+                ("paul", "jeru", Some("visit"), Some(49), None),
+                ("paul", "eph", Some("stay"), Some(52), Some(55)),
+            ]
+        );
+        assert!(idx.place_ties(Some("love")).unwrap().is_empty());
     }
 
     #[test]

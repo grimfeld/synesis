@@ -12,5 +12,6 @@ A Hub is the page of a Source or a Subject: a Book, Chapter or Verse, a Place, C
 - A Tag and a link inside a sentence are the same Mention, so both make a Backlink.
 - **Unlinked mentions**, beside Backlinks, lists documents that write this page's name without linking it.
 - A Place, Character, Concept, Event or Journey may go by other names: add them under **Aliases** in its header, such as Saul for Paul or Joppa for Jaffa. A link to an alias opens this Hub, and an alias written without a link counts as an Unlinked mention. A Place's modern name is not an alias.
+- A Character is in a Place in two ways: by naming it under `places` in their Properties, which holds for their whole life, or through an Event that names both, which holds for the Event's time. A Place's Hub lists its **Characters here**, and a Character's Hub lists its **Places**, each with when.
 - A Hub lists its Boards too: the Compositions whose Board holds a card for it.
 - The header keeps only what says what the page is. Its other values, such as a Place's latitude or a Source's URL, are under **Properties**, just above **About**.

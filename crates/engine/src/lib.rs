@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod attachments;
+pub mod border;
 pub mod canvas;
 pub mod cloud;
 pub mod config;

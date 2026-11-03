@@ -186,7 +186,7 @@ The view that lays every dated thing along the Bible's chronology: Events, and e
 _Avoid_: Chronology (that is the subject matter), history view, Gantt
 
 **Period**:
-A stretch of the Bible's chronology the reader narrows to, shared by the Timeline and the Map: set it on one and the other shows the same years. Whatever overlaps the Period is shown; whatever lies wholly outside it is not. Narrowing to Places as well ("prophets in Judah, 640–580 BCE") keeps only what is in those Places, a region taking in every Place inside it. A Character or Event with no Date lies outside every Period; a Place with no Span lies inside every one, and a Span missing one end runs on without limit that way.
+A stretch of the Bible's chronology the reader narrows to, shared by the Timeline and the Map: set it on one and the other shows the same years. Whatever overlaps the Period is shown; whatever lies wholly outside it is not. Narrowing to Places as well ("prophets in Judah, 640–580 BCE") keeps only what is in those Places, a region taking in every Place inside it. A Character or Event with no Date lies outside every Period; a Place with no Span lies inside every one, and a Place's Span missing one end runs on without limit that way. Anything else with a single Date counts at that Date alone: a Character with only a death year is in a Period only if it holds that year.
 _Avoid_: Era, epoch, range, time filter
 
 **Lane**:

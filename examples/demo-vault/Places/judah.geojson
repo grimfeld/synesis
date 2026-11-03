@@ -1,0 +1,24 @@
+{
+  "type": "FeatureCollection",
+  "updated": 1793001600000,
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {},
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [34.75, 31.9],
+            [35.45, 31.9],
+            [35.55, 31.45],
+            [35.4, 31.0],
+            [34.85, 31.05],
+            [34.7, 31.5],
+            [34.75, 31.9]
+          ]
+        ]
+      }
+    }
+  ]
+}

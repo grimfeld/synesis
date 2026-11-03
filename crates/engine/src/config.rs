@@ -55,7 +55,7 @@ fn path(hidden: &Path, name: &str) -> PathBuf {
     name.split('/').fold(hidden.to_path_buf(), |p, part| p.join(part))
 }
 
-fn mtime_ms(p: &Path) -> i64 {
+pub(crate) fn mtime_ms(p: &Path) -> i64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
         .ok()
@@ -65,7 +65,7 @@ fn mtime_ms(p: &Path) -> i64 {
 }
 
 /// The `updated` stamp of these bytes, if they are JSON carrying one.
-fn stamp_of(bytes: &[u8]) -> Option<i64> {
+pub(crate) fn stamp_of(bytes: &[u8]) -> Option<i64> {
     serde_json::from_slice::<Value>(bytes).ok()?.get("updated")?.as_i64()
 }
 

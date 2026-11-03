@@ -29,6 +29,7 @@ import {
   type VaultInfo,
 } from "./api";
 import { NO_FILTERS, type Filters } from "./timeline";
+import { NO_PERIOD_FILTER, type PeriodFilter } from "./period";
 import { COLOR_BY, NO_MAP_FILTERS, type ColorBy, type CustomKind, type MapFilters } from "./map";
 import { RELOAD_EVERYTHING } from "./query";
 import {
@@ -57,6 +58,11 @@ import {
 
 export type { DocTab, View } from "./panes";
 export { otherPane } from "./panes";
+
+/** The Map's Border drawing mode: the region Place being drawn, if picked. */
+export interface BorderDraw {
+  placeId: string | null;
+}
 
 /** The Delivery view: which Composition is being given (PLAN §23). */
 export interface Delivery {
@@ -162,6 +168,13 @@ interface Store {
    *  round-trip to a Hub and back does not lose them. */
   timelineFilters: Filters;
   setTimelineFilters: (f: Filters) => void;
+  /**
+   * The Period and the Tags chosen with it: one selection the Timeline and the
+   * Map share, so setting it on one view shows the same thing on the other.
+   * Session-only, like the Tag chips it replaced.
+   */
+  periodFilter: PeriodFilter;
+  setPeriodFilter: (f: PeriodFilter) => void;
   mapFilters: MapFilters;
   setMapFilters: (f: MapFilters) => void;
   /**
@@ -170,6 +183,12 @@ interface Store {
    * Composition returns to the same face (PLAN §17.9).
    */
   docTab: DocTab;
+  /**
+   * The Map's Border drawing mode (ADR 0023), when it is on: which region is
+   * being drawn, or `null` until the reader picks one on the Map.
+   */
+  borderDraw: BorderDraw | null;
+  setBorderDraw: (d: BorderDraw | null) => void;
   /** The talk's share of the width when split. Session-only (PLAN §22.4). */
   splitRatio: number;
   openVault: (path?: string) => Promise<void>;
@@ -321,6 +340,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(window.innerWidth >= 900);
   const [timelineFilters, setTimelineFiltersState] =
     useState<Filters>(NO_FILTERS);
+  const [periodFilter, setPeriodFilter] =
+    useState<PeriodFilter>(NO_PERIOD_FILTER);
   const [mapFilters, setMapFiltersState] =
     useState<MapFilters>(NO_MAP_FILTERS);
   const [panelOpen, setPanelOpen] = useState(window.innerWidth >= 1100);
@@ -336,6 +357,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   // The talk/Board split belongs to each Pane (spec #35).
   const setDocTab = useCallback((tab: DocTab) => dispatchPanes({ type: "setDocTab", tab }), []);
   const setSplitRatio = useCallback((ratio: number) => dispatchPanes({ type: "setSplitRatio", ratio }), []);
+  const [borderDraw, setBorderDraw] = useState<BorderDraw | null>(null);
+  // Drawing a Border happens on the Map; once no Pane shows it, the drawing ends.
+  const mapShown = panes.panes.some((p) => p.view.kind === "map");
+  useEffect(() => {
+    if (!mapShown) setBorderDraw(null);
+  }, [mapShown]);
   const booted = useRef(false);
 
   const lang: Lang = settings?.lang ?? "en";
@@ -731,6 +758,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     lastChange,
     sidebarOpen,
     timelineFilters,
+    periodFilter,
     mapFilters,
     panelOpen,
     sourceMode,
@@ -740,6 +768,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     deliveryTimer,
     docTab: pane.docTab,
     splitRatio: pane.splitRatio,
+    borderDraw,
+    setBorderDraw,
     openVault,
     attachVault,
     closeVault,
@@ -762,6 +792,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setSyncMethod,
     setSidebarOpen,
     setTimelineFilters,
+    setPeriodFilter,
     setMapFilters,
     setPanelOpen,
     setSourceMode,
