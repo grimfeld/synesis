@@ -144,22 +144,22 @@ fn read_tokens(
 /// Take a leading "c." (or "~", alone or stuck to the next token) off
 /// `tokens`; whether there was one.
 fn take_approx(tokens: &mut Vec<&str>) -> bool {
-    let Some(first) = tokens.first() else {
-        return false;
-    };
-    if APPROX.contains(first) {
-        tokens.remove(0);
-        return true;
+    match tokens.first().copied() {
+        Some(t) if APPROX.contains(&t) => {
+            tokens.remove(0);
+            true
+        }
+        Some(t) if t.starts_with('~') => {
+            let rest = &t[1..];
+            if rest.is_empty() {
+                tokens.remove(0);
+            } else {
+                tokens[0] = rest;
+            }
+            true
+        }
+        _ => false,
     }
-    let Some(rest) = first.strip_prefix('~') else {
-        return false;
-    };
-    if rest.is_empty() {
-        tokens.remove(0);
-    } else {
-        tokens[0] = rest;
-    }
-    true
 }
 
 /// The month (and the Hebrew month's name) and the day in what comes before
