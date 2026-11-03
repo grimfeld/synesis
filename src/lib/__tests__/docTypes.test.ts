@@ -2,7 +2,7 @@
 // live inside an async submit handler beside four engine calls, so the only
 // way to check them was to drive the app.
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER, RUNS_ON, SPAN, dateAdds, titleFor } from "../docTypes";
+import { FRONTMATTER, RUNS_ON, SPAN, dateAdds, dateRows, titleFor } from "../docTypes";
 import type { DocType } from "../api";
 
 const stamp = () => "2026-09-17 14.30";
@@ -204,5 +204,49 @@ describe("dateAdds", () => {
   it("offers a Concept only a free-named Date", () => {
     // Out of scope: Spans on Concepts.
     expect(dateAdds("concept", [])).toEqual([{ kind: "named" }]);
+  });
+});
+
+describe("dateRows", () => {
+  const row = (name: string, text = "33 CE") => ({ name, text });
+
+  it("shows no Span field until one half is there or was just added", () => {
+    const r = dateRows("character", [], []);
+    expect(r.editable).toEqual([]);
+    expect(r.others).toEqual([]);
+    expect(r.present).toEqual([]);
+  });
+
+  it("puts a Span added through Add Date first, empty, in the Span's order", () => {
+    const r = dateRows("character", [], ["died", "born"]);
+    expect(r.editable).toEqual([
+      { name: "born", row: null },
+      { name: "died", row: null },
+    ]);
+  });
+
+  it("edits a written Span half in place and lists other Dates read-only", () => {
+    const born = row("born", "c. 1037 BCE");
+    const reign = row("reign_start", "1077 BCE");
+    const r = dateRows("character", [reign, born], []);
+    expect(r.editable).toEqual([{ name: "born", row: born }]);
+    expect(r.others).toEqual([reign]);
+    expect(r.present).toEqual(["reign_start", "born"]);
+  });
+
+  it("edits a just-named Date until it is written, then leaves it to Properties", () => {
+    expect(dateRows("concept", [], ["founded"]).editable).toEqual([
+      { name: "founded", row: null },
+    ]);
+    const founded = row("founded");
+    const r = dateRows("concept", [founded], ["founded"]);
+    expect(r.editable).toEqual([]);
+    expect(r.others).toEqual([founded]);
+  });
+
+  it("names each Date once, written or just added", () => {
+    const r = dateRows("place", [row("start")], ["start", "end"]);
+    expect(r.present).toEqual(["start", "end"]);
+    expect(r.editable.map((e) => e.name)).toEqual(["start", "end"]);
   });
 });

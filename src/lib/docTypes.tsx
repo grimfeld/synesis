@@ -146,6 +146,39 @@ export function dateAdds(type: DocType, present: readonly string[]): DateAdd[] {
   return out;
 }
 
+/**
+ * The rows of a Hub's Dates section, from the page's Date Properties (`dates`)
+ * and the names just added through "Add Date" and not yet typed into
+ * (`added`).
+ *
+ * `editable` has a field each: the Span its type suggests, in the Span's
+ * order, for the halves that are there or were just added, then a Date just
+ * named. A named Date is edited there only until it is written; from then on
+ * it is a Property like any other, edited in the Properties section and listed
+ * read-only in `others`, so no value has two fields to disagree. `present` is
+ * every name the page has or was just given, once each — what `dateAdds`
+ * reads.
+ */
+export function dateRows<R extends { name: string }>(
+  type: DocType,
+  dates: readonly R[],
+  added: readonly string[],
+): {
+  present: string[];
+  editable: { name: string; row: R | null }[];
+  others: R[];
+} {
+  const span: readonly string[] = SPAN[type] ?? [];
+  const present = [...new Set([...dates.map((d) => d.name), ...added])];
+  const byName = new Map(dates.map((d) => [d.name, d]));
+  const editable = [
+    ...span.filter((n) => present.includes(n)),
+    ...added.filter((n) => !span.includes(n) && !byName.has(n)),
+  ].map((name) => ({ name, row: byName.get(name) ?? null }));
+  const others = dates.filter((d) => !span.includes(d.name));
+  return { present, editable, others };
+}
+
 /** Whichever halves of a type's Span the user filled in. */
 function spanOf(type: DocType, f: Record<string, string>): Frontmatter {
   const out: Frontmatter = {};

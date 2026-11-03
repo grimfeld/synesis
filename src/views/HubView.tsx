@@ -41,7 +41,7 @@ import {
   type VerseCount,
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
-import { SPAN, dateAdds, type SectionProps } from "@/lib/docTypes";
+import { SPAN, dateAdds, dateRows, type SectionProps } from "@/lib/docTypes";
 import { checkNewProperty } from "@/lib/propertyName";
 import { useQuery } from "@/lib/useQuery";
 import { formatShortcut, shortcut } from "@/lib/keys";
@@ -1504,7 +1504,6 @@ function DatesSection({
   const t = useT();
   const id = doc.summary.id;
   const isEvent = doc.summary.type === "event";
-  const span = SPAN[doc.summary.type];
   // The mini-timeline needs each Event's own Dates, which `eventsNaming` omits.
   // This document's own Dates, and — unless it is an Event itself — every
   // Event naming it, each with the Dates the mini-timeline needs. One answer,
@@ -1538,20 +1537,10 @@ function DatesSection({
     setAdded((a) => [...a, ...names.filter((n) => !a.includes(n))]);
     setFocus(names[0] ?? null);
   };
-  const present = [...new Set([...dates.map((d) => d.name), ...added])];
   // The suggested pair first, then a Date just named, then any other Date the
   // document carries — a Character's `reign_start` keeps its place below the
-  // lifespan.
-  //
-  // A named Date is edited here only until it is written. From then on it is
-  // a Property like any other, edited in the Properties section and shown
-  // here read-only, so no value has two fields to disagree.
-  const byName = new Map(dates.map((d) => [d.name, d]));
-  const editable = [
-    ...(span ?? []).filter((n) => present.includes(n)),
-    ...added.filter((n) => !span?.includes(n) && !byName.has(n)),
-  ].map((name) => ({ name, row: byName.get(name) ?? null }));
-  const others = dates.filter((d) => !span?.includes(d.name));
+  // lifespan (`dateRows`).
+  const { present, editable, others } = dateRows(doc.summary.type, dates, added);
   // A name is typed Date for the whole Vault (ADR 0006) when its first value
   // is written, not when it is named: a Date named and left empty leaves no
   // trace.
