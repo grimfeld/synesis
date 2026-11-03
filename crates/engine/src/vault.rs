@@ -127,6 +127,17 @@ fn new_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
+/// Whether the scan walks into `e`. Hidden entries are skipped, iCloud's
+/// placeholders among them: an evicted document stays indexed because
+/// `forget_vanished` asks the disk (see `cloud`), not because it was walked.
+fn is_walked(e: &walkdir::DirEntry) -> bool {
+    e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.')
+}
+
+fn is_markdown(p: &Path) -> bool {
+    p.extension().is_some_and(|x| x == "md")
+}
+
 fn mtime_of(p: &Path) -> i64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
@@ -191,8 +202,20 @@ impl Vault {
             sync: Some(sync),
             schema,
         };
-        v.scan()?;
+        v.catch_up()?;
         Ok(v)
+    }
+
+    /// Bring the index up to date on open. An index written by an older
+    /// parser is re-parsed in full, once: its unchanged files would otherwise
+    /// keep the old rows forever.
+    fn catch_up(&mut self) -> Result<()> {
+        let stale = self.index.parser_stale()?;
+        self.scan_files(stale)?;
+        if stale {
+            self.index.set_parser_version(index::PARSER_VERSION)?;
+        }
+        Ok(())
     }
 
     /// What this Vault is and what to call it (ADR 0014).
@@ -429,59 +452,63 @@ impl Vault {
     /// Walk the folder and bring the index up to date. Files whose mtime is
     /// unchanged are skipped; files that vanished are forgotten.
     pub fn scan(&mut self) -> Result<Vec<DocSummary>> {
-        let mut seen = std::collections::HashSet::new();
+        self.scan_files(false)
+    }
+
+    /// [`Vault::scan`], re-parsing every file when `all` is set rather than
+    /// only those whose mtime moved.
+    fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
-        let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(&self.root)
-            .follow_links(false)
-            .into_iter()
-            // Hidden entries are skipped, except iCloud's placeholders: an
-            // evicted document is still the user's (see `cloud`).
-            .filter_entry(|e| {
-                e.depth() == 0
-                    || !e.file_name().to_string_lossy().starts_with('.')
-                    || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
-            })
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() && cloud::is_placeholder(entry.path()) {
-                // Keep what the index knows about an evicted document; it is
-                // indexed again when iCloud brings it back.
-                if let Some(orig) = cloud::original_of(entry.path()) {
-                    let hidden = orig.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
-                    if !hidden && orig.extension().is_some_and(|x| x == "md") && !orig.exists() {
-                        if let Some(rel) = self.rel(&orig) {
-                            seen.insert(rel);
-                        }
-                    }
-                }
-                continue;
-            }
-            if entry.file_type().is_file() && entry.path().extension().map_or(false, |x| x == "md")
-            {
-                if let Some(rel) = self.rel(entry.path()) {
-                    files.push((rel, mtime_of(entry.path())));
-                }
-            }
-        }
+        let files = self.markdown_files();
+        changed.extend(self.reindex(files, all)?);
+        self.forget_vanished()?;
+        self.index_boards()?;
+        Ok(changed)
+    }
+
+    /// Parse each of `files` whose mtime moved since it was indexed, or
+    /// every one when `all` is set.
+    fn reindex(&mut self, files: Vec<(String, i64)>, all: bool) -> Result<Vec<DocSummary>> {
+        let mut changed = Vec::new();
         for (rel, mtime) in files {
-            seen.insert(rel.clone());
-            if self.index.mtime_of(&rel)? == Some(mtime) {
+            if !all && self.is_current(&rel, mtime)? {
                 continue;
             }
             if let Some(d) = self.index_file(&rel)? {
                 changed.push(d);
             }
         }
-        // Forget files that vanished. Scripture pages materialised during this
-        // scan are not in `seen`, so check the disk rather than the set.
+        Ok(changed)
+    }
+
+    /// Every markdown file of the Vault, with its mtime.
+    fn markdown_files(&self) -> Vec<(String, i64)> {
+        walkdir::WalkDir::new(&self.root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(is_walked)
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && is_markdown(e.path()))
+            .filter_map(|e| Some((self.rel(e.path())?, mtime_of(e.path()))))
+            .collect()
+    }
+
+    /// Whether the index already holds `rel` as it was at `mtime`.
+    fn is_current(&self, rel: &str, mtime: i64) -> Result<bool> {
+        Ok(self.index.mtime_of(rel)? == Some(mtime))
+    }
+
+    /// Forget files that vanished. The disk decides, not the walk: Scripture
+    /// pages materialised during a scan were not walked, and a document iCloud
+    /// has evicted is the user's still, kept until it really goes.
+    fn forget_vanished(&mut self) -> Result<()> {
         for path in self.index.all_paths()? {
-            if !seen.contains(&path) && !self.abs(&path).is_file() && !cloud::is_evicted(&self.abs(&path)) {
+            let abs = self.abs(&path);
+            if !abs.is_file() && !cloud::is_evicted(&abs) {
                 self.index.remove_path(&path)?;
             }
         }
-        self.index_boards()?;
-        Ok(changed)
+        Ok(())
     }
 
     /// Record the Board refs of every Composition that has a Board.
@@ -1490,6 +1517,80 @@ mod tests {
     }
 
     #[test]
+    fn linking_after_a_french_elision_keeps_the_elision_outside_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        fs::write(
+            dir.path().join("Places/israel.md"),
+            "---\ntype: place\ntitle: \"Israël\"\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Notes/fils.md"),
+            "# Les fils\n\nLes fils d'Israël sortirent.\n",
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::Fr).unwrap();
+
+        let place = v.resolve("Israël").unwrap().unwrap();
+        let u = v.unlinked_mentions(&place.id).unwrap();
+        assert_eq!(u.total, 1, "the elided name is an Unlinked mention");
+        let m = &u.items[0];
+        assert_eq!(m.matched, "Israël");
+
+        v.link_mention(&m.doc.id, m.start, m.end, &m.matched, &place.id)
+            .unwrap();
+        let after = fs::read_to_string(dir.path().join("Notes/fils.md")).unwrap();
+        assert!(
+            after.contains("Les fils d'[[Israël]] sortirent."),
+            "only the name is linked: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_parser_version_reindexes_unchanged_files_once() {
+        // Files whose mtime has not moved are skipped on open, so a change to
+        // the parser would never reach them. The index records which parser
+        // wrote it; a different one re-parses everything once.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let note = dir.path().join("Notes/a.md");
+        fs::write(&note, "Romans 8:28.\n").unwrap();
+        let data = dir.path().join(".data");
+        let on_29 = |v: &Vault| {
+            v.index
+                .mentions_of(45, Some(8), Some(29), Lang::En, None)
+                .unwrap()
+                .len()
+        };
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0);
+        drop(v);
+
+        // Change the text behind the index's back, keeping the mtime: the
+        // index only learns of it through a full re-index.
+        let when = fs::metadata(&note).unwrap().modified().unwrap();
+        fs::write(&note, "Romans 8:28.\n\nv. 29\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&note)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0, "same parser, unchanged mtime: skipped");
+        v.index.set_parser_version(index::PARSER_VERSION - 1).unwrap();
+        drop(v);
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 1, "an older parser's index is re-parsed");
+        assert!(!v.index.parser_stale().unwrap());
+    }
+
+    #[test]
     fn linking_works_on_a_crlf_file() {
         // Windows-authored documents are CRLF throughout. The index measures
         // the file as it is on disk and the splice reads the same bytes back,
@@ -1730,6 +1831,26 @@ Antioch is where they met.
             .create(DocType::Note, "Ro 8:28 / thoughts?", &Map::new(), "")
             .unwrap();
         assert_eq!(b.summary.path, "Notes/ro 8 28 thoughts 2.md");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_not_scanned() {
+        // The Vault is the folder itself: a link to somewhere else would pull
+        // outside files in, and a link back up would walk forever.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("Elsewhere.md"), "Not the vault's.\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Linked")).unwrap();
+        v.scan().unwrap();
+        let paths: Vec<_> = v.list(None).unwrap().into_iter().map(|d| d.path).collect();
+        assert!(paths.contains(&"Notes/First.md".to_string()), "{paths:?}");
+        assert!(!paths.iter().any(|p| p.starts_with("Linked/")), "{paths:?}");
+        assert_eq!(
+            fs::read_to_string(outside.path().join("Elsewhere.md")).unwrap(),
+            "Not the vault's.\n",
+            "a file outside the Vault is never touched"
+        );
     }
 
     #[test]

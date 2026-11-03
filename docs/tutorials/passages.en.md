@@ -12,7 +12,7 @@ Type a Scripture reference the way you usually write it and the app recognises i
 ## Good to know
 
 - A book name alone is not a Passage: `Acts` needs a chapter. Link a whole Book as `[[Acts]]`.
-- `v. 17` after a Passage in the same paragraph counts too, with a different underline.
+- `v. 17` after a Passage in the same section (since the last heading, even across blank lines) counts too, with a different underline. A new heading ends it.
 - A range covers every Verse in it, across chapters too: `Ge 1:1-2:3`.
 - The underline is only a decoration. The file keeps what you typed, so Obsidian shows it unchanged.
 - [Go to Coverage](command:nav.coverage) shades every chapter by how much you have written on it.

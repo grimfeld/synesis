@@ -946,6 +946,8 @@ export function UnlinkedMentions({
                 className="mt-1 shrink-0 text-muted-foreground hover:text-link"
                 disabled={busy}
                 aria-label={`${t.link_mention}: ${m.doc.label}`}
+                data-testid="unlinked-link"
+                data-target={m.doc.label}
                 onClick={() => link([m])}
               >
                 <Link2 />
@@ -1051,6 +1053,8 @@ export function Linkables({
                       size="icon-xs"
                       className="mt-1 shrink-0 text-amber-600 hover:text-link"
                       aria-label={`${t.link_mention}: ${l.doc.label} (${t.ambiguous_pick})`}
+                      data-testid="linkable-link"
+                      data-target={l.doc.label}
                       title={t.ambiguous_pick}
                     >
                       <Link2 />
@@ -1074,6 +1078,8 @@ export function Linkables({
                   size="icon-xs"
                   className="mt-1 shrink-0 text-muted-foreground hover:text-link"
                   aria-label={`${t.link_mention}: ${l.doc.label}`}
+                  data-testid="linkable-link"
+                  data-target={l.doc.label}
                   onClick={() => onLink(l, l.doc)}
                 >
                   <Link2 />
