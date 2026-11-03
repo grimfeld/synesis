@@ -1,6 +1,6 @@
 // The Map's time slider: two ends and a middle, dragged in whole years.
 import { describe, expect, it } from "vitest";
-import { dragPeriod, sliderExtent, sliderStops } from "../periodSlider";
+import { dragPeriod, fractionOf, sliderExtent, sliderStops } from "../periodSlider";
 
 const bce = (n: number) => 1 - n;
 const ext = { min: bce(2000), max: 100 };
@@ -60,5 +60,14 @@ describe("dragPeriod", () => {
     });
     // No Period yet: dragging the end sets one, starting from the track's edge.
     expect(dragPeriod(null, "to", -100, ext)).toEqual({ from: null, to: 0 });
+  });
+});
+
+describe("fractionOf", () => {
+  it("places a year along the track, from its start to its end", () => {
+    const track = { min: bce(100), max: 100 }; // -99 … 100
+    expect(fractionOf(bce(100), track)).toBe(0);
+    expect(fractionOf(100, track)).toBe(1);
+    expect(fractionOf(bce(50), track)).toBeCloseTo(50 / 199);
   });
 });
