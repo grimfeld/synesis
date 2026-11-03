@@ -33,4 +33,11 @@ describe("textChange", () => {
     expect(apply(a, c)).toBe(b);
     expect(c).toEqual({ from: 1, to: 3, insert: "\u{1F601}" });
   });
+
+  it("never splits a pair that shares its second half", () => {
+    // U+10600 and U+1F600 end in the same low surrogate.
+    const a = "x\u{10600}";
+    const b = "x\u{1F600}";
+    expect(textChange(a, b)).toEqual({ from: 1, to: 3, insert: "\u{1F600}" });
+  });
 });
