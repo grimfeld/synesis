@@ -31,6 +31,7 @@ import {
   tiesOf,
   type Period,
   type PeriodFilter,
+  type PeriodItem,
 } from "./period";
 
 /** An Event in the Period, and the Place its mark sits at. */
@@ -52,7 +53,8 @@ export interface MapInPeriod {
   charactersAt: Map<string, DocSummary[]>;
 }
 
-export function mapInPeriod(o: {
+/** What the Map knows, for `mapInPeriod`. */
+export interface MapInPeriodInput {
   places: DocSummary[];
   journeys: Journey[];
   /** Every Event, dated or not, so the undated can be counted. */
@@ -77,58 +79,87 @@ export function mapInPeriod(o: {
   regionMembers?: RegionMember[];
   /** The Tags each document carries, as far as the chosen Tags go. */
   tagsByDoc?: Map<string, string[]>;
-}): MapInPeriod {
-  const regions = o.regions ?? [];
-  const period = ordered(o.period);
-  const filter: PeriodFilter = {
-    period,
-    tags: o.tags ?? [],
-    places: o.chosenPlaces ?? [],
-  };
-  const docs = [
-    ...o.places,
-    ...regions,
-    ...o.journeys.map((j) => j.doc),
-    ...o.events,
-    ...(o.characters ?? []),
-  ];
-  const wanted = new Set(docs.map((d) => d.id));
-  const items = itemsOf(
-    o.rows.filter((r) => wanted.has(r.doc.id)),
-    docs,
-    o.tagsByDoc ?? new Map(),
-  );
-  const ties = tiesOf(o.placeTies ?? [], o.eventLinks);
+}
+
+export function mapInPeriod(input: MapInPeriodInput): MapInPeriod {
+  const o = withDefaults(input);
+  const filter: PeriodFilter = { period: o.period, tags: o.tags, places: o.chosenPlaces };
+  const items = mapItems(o);
+  const ties = tiesOf(o.placeTies, o.eventLinks);
   const { visible, undatedItems } = filterByPeriod(
     items.filter((it) => it.doc.type !== "journey"),
     filter,
     ties,
-    o.regionMembers ?? [],
+    o.regionMembers,
   );
   const kept = new Set(visible.map((it) => it.doc.id));
-  // Journeys answer to the Period alone.
-  const journeysKept = new Set(
+  const places = o.places.filter((p) => kept.has(p.id));
+  return {
+    places,
+    regions: o.regions.filter((r) => kept.has(r.id)),
+    journeys: journeysIn(o.journeys, items, o.period),
+    events: o.period ? eventMarks(o.events, o.eventLinks, kept, places) : [],
+    undated: undatedItems.filter((it) => it.doc.type === "event").length,
+    charactersAt: charactersAt(items, filter, ties, o.regionMembers),
+  };
+}
+
+/** The input with every optional part filled, and the Period in order. */
+function withDefaults(o: MapInPeriodInput): Required<MapInPeriodInput> {
+  return {
+    ...o,
+    regions: o.regions ?? [],
+    period: ordered(o.period),
+    tags: o.tags ?? [],
+    chosenPlaces: o.chosenPlaces ?? [],
+    characters: o.characters ?? [],
+    placeTies: o.placeTies ?? [],
+    regionMembers: o.regionMembers ?? [],
+    tagsByDoc: o.tagsByDoc ?? new Map(),
+  };
+}
+
+/** One item per document the Map weighs, from its own Date rows. */
+function mapItems(o: Required<MapInPeriodInput>): PeriodItem[] {
+  const docs = [
+    ...o.places,
+    ...o.regions,
+    ...o.journeys.map((j) => j.doc),
+    ...o.events,
+    ...o.characters,
+  ];
+  const wanted = new Set(docs.map((d) => d.id));
+  return itemsOf(
+    o.rows.filter((r) => wanted.has(r.doc.id)),
+    docs,
+    o.tagsByDoc,
+  );
+}
+
+/** The Journeys in the Period: they answer to the Period alone. */
+function journeysIn(journeys: Journey[], items: PeriodItem[], period: Period | null): Journey[] {
+  const kept = new Set(
     filterByPeriod(
       items.filter((it) => it.doc.type === "journey"),
       { period, tags: [], places: [] },
     ).visible.map((it) => it.doc.id),
   );
-  const places = o.places.filter((p) => kept.has(p.id));
-  const shownPlaces = new Set(places.map((p) => p.id));
-  const eventById = new Map(o.events.map((e) => [e.id, e]));
-  const events: EventMark[] = [];
-  if (period)
-    for (const l of o.eventLinks) {
-      const event = eventById.get(l.event);
-      if (event && kept.has(event.id) && shownPlaces.has(l.subject))
-        events.push({ event, place: l.subject });
-    }
-  return {
-    places,
-    regions: regions.filter((r) => kept.has(r.id)),
-    journeys: o.journeys.filter((j) => journeysKept.has(j.doc.id)),
-    events,
-    undated: undatedItems.filter((it) => it.doc.type === "event").length,
-    charactersAt: charactersAt(items, filter, ties, o.regionMembers ?? []),
-  };
+  return journeys.filter((j) => kept.has(j.doc.id));
+}
+
+/** A mark for each kept Event, at each shown Place it names. */
+function eventMarks(
+  events: DocSummary[],
+  links: EventLink[],
+  kept: Set<string>,
+  places: DocSummary[],
+): EventMark[] {
+  const shown = new Set(places.map((p) => p.id));
+  const byId = new Map(events.map((e) => [e.id, e]));
+  const out: EventMark[] = [];
+  for (const l of links) {
+    const event = byId.get(l.event);
+    if (event && kept.has(event.id) && shown.has(l.subject)) out.push({ event, place: l.subject });
+  }
+  return out;
 }
