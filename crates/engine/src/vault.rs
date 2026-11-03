@@ -574,21 +574,27 @@ impl Vault {
     fn refresh_borders(&mut self) -> Result<Vec<String>> {
         let mut changed = Vec::new();
         let named = self.bordered_places()?;
-        let mut seen = std::collections::HashSet::new();
+        let seen: std::collections::HashSet<String> = named.iter().map(|(id, _, _)| id.clone()).collect();
         for (id, path, value) in named {
-            seen.insert(id.clone());
             if self.record_border(&id, &path, Some(&value))? {
                 changed.push(id);
             }
         }
-        // A Border on record whose Place no longer names one.
-        for id in self.index.bordered_regions()? {
-            if !seen.contains(&id) && self.index.set_region_border(&id, None)? {
-                changed.push(id);
-            }
-        }
+        changed.extend(self.forget_unnamed_borders(&seen)?);
         self.note_border_names()?;
         Ok(changed)
+    }
+
+    /// Forget each Border on record whose Place no longer names one. Returns
+    /// those regions.
+    fn forget_unnamed_borders(&mut self, named: &std::collections::HashSet<String>) -> Result<Vec<String>> {
+        let mut gone = Vec::new();
+        for id in self.index.bordered_regions()? {
+            if !named.contains(&id) && self.index.set_region_border(&id, None)? {
+                gone.push(id);
+            }
+        }
+        Ok(gone)
     }
 
     /// A `.geojson` file changed on disk without its Place changing (an edit
