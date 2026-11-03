@@ -127,13 +127,11 @@ fn new_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
-/// Whether the scan walks into `e`. Hidden entries are skipped, except
-/// iCloud's placeholders: an evicted document is still the user's (see
-/// `cloud`).
+/// Whether the scan walks into `e`. Hidden entries are skipped, iCloud's
+/// placeholders among them: an evicted document stays indexed because
+/// `forget_vanished` asks the disk (see `cloud`), not because it was walked.
 fn is_walked(e: &walkdir::DirEntry) -> bool {
-    e.depth() == 0
-        || !e.file_name().to_string_lossy().starts_with('.')
-        || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
+    e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.')
 }
 
 fn is_markdown(p: &Path) -> bool {
@@ -461,9 +459,9 @@ impl Vault {
     /// only those whose mtime moved.
     fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
-        let (files, seen) = self.markdown_files();
+        let files = self.markdown_files();
         changed.extend(self.reindex(files, all)?);
-        self.forget_vanished(&seen)?;
+        self.forget_vanished()?;
         self.index_boards()?;
         Ok(changed)
     }
@@ -483,35 +481,16 @@ impl Vault {
         Ok(changed)
     }
 
-    /// Every markdown file of the Vault with its mtime, and every path the
-    /// Vault still holds: those files, plus the documents iCloud has evicted,
-    /// which stay known though not on disk.
-    fn markdown_files(&self) -> (Vec<(String, i64)>, std::collections::HashSet<String>) {
-        let mut seen = std::collections::HashSet::new();
-        let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(&self.root)
+    /// Every markdown file of the Vault, with its mtime.
+    fn markdown_files(&self) -> Vec<(String, i64)> {
+        walkdir::WalkDir::new(&self.root)
             .follow_links(false)
             .into_iter()
             .filter_entry(is_walked)
             .filter_map(|e| e.ok())
-        {
-            if !entry.file_type().is_file() {
-                continue;
-            }
-            if cloud::is_placeholder(entry.path()) {
-                // Keep what the index knows about an evicted document; it is
-                // indexed again when iCloud brings it back.
-                if let Some(rel) = self.evicted_original(entry.path()) {
-                    seen.insert(rel);
-                }
-            } else if is_markdown(entry.path()) {
-                if let Some(rel) = self.rel(entry.path()) {
-                    seen.insert(rel.clone());
-                    files.push((rel, mtime_of(entry.path())));
-                }
-            }
-        }
-        (files, seen)
+            .filter(|e| e.file_type().is_file() && is_markdown(e.path()))
+            .filter_map(|e| Some((self.rel(e.path())?, mtime_of(e.path()))))
+            .collect()
     }
 
     /// Whether the index already holds `rel` as it was at `mtime`.
@@ -519,25 +498,13 @@ impl Vault {
         Ok(self.index.mtime_of(rel)? == Some(mtime))
     }
 
-    /// The vault path of the markdown document an iCloud `placeholder`
-    /// stands for, while that document is not on disk.
-    fn evicted_original(&self, placeholder: &Path) -> Option<String> {
-        let orig = cloud::original_of(placeholder)?;
-        let hidden = orig
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with('.'));
-        if hidden || !is_markdown(&orig) || orig.exists() {
-            return None;
-        }
-        self.rel(&orig)
-    }
-
-    /// Forget files that vanished. Scripture pages materialised during a
-    /// scan are not in `seen`, so check the disk rather than the set.
-    fn forget_vanished(&mut self, seen: &std::collections::HashSet<String>) -> Result<()> {
+    /// Forget files that vanished. The disk decides, not the walk: Scripture
+    /// pages materialised during a scan were not walked, and a document iCloud
+    /// has evicted is the user's still, kept until it really goes.
+    fn forget_vanished(&mut self) -> Result<()> {
         for path in self.index.all_paths()? {
             let abs = self.abs(&path);
-            if !seen.contains(&path) && !abs.is_file() && !cloud::is_evicted(&abs) {
+            if !abs.is_file() && !cloud::is_evicted(&abs) {
                 self.index.remove_path(&path)?;
             }
         }
