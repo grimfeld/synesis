@@ -457,6 +457,9 @@ mod tests {
         assert!(refs("`John 3:16` in code").is_empty());
         assert!(refs("https://example.com/John 3:16").is_empty());
         assert!(refs("```\nJohn 3:16\n```").is_empty());
+        // A bare verse inside code is code too, even with a reference before it.
+        assert_eq!(refs("Romans 8:28, `v. 29`"), vec!["Romans 8:28"]);
+        assert_eq!(refs("Romans 8:28.\n\n```\nv. 29\n```"), vec!["Romans 8:28"]);
     }
 
     #[test]

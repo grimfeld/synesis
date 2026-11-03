@@ -356,6 +356,10 @@ mod tests {
         // The nested heading does not end the section, so A still starts at Alpha.
         assert_eq!(excerpt(body, "t", Some("#A")).text, "Alpha.");
         assert_eq!(excerpt(body, "t", Some("#B")).text, "Beta.");
+        // An empty section stops at its sibling rather than borrowing its words.
+        let empty = excerpt("## A\n\n## B\n\nBeta.", "t", Some("#A"));
+        assert_eq!(empty.text, "");
+        assert!(!empty.subpath_missing);
     }
 
     #[test]
