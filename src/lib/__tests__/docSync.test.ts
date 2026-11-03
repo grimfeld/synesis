@@ -1,7 +1,7 @@
 // Windows typing into the same document at once (spec #35, #51): Vitest,
 // `npm run test:unit`. The engine is `FakeEngine`, with its replies delivered
 // in random order.
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DocSync } from "../docSync";
 import { FakeEngine, run, settle } from "./fakeWindows";
 import { randomEdit, rng } from "./randomText";
@@ -149,5 +149,93 @@ describe("the file changing under two Windows", () => {
     await run(engine);
     expect(await r).toEqual({ external: true });
     expect(b.text).toBe("one two");
+  });
+});
+
+describe("a Window that cannot or no longer syncs", () => {
+  const quiet = () => vi.spyOn(console, "error").mockImplementation(() => {});
+
+  it("keeps its own text when it cannot join, and sends nothing", async () => {
+    quiet();
+    const refused = () => Promise.reject(new Error("no engine"));
+    const lone = new DocSync("a", { join: refused, sync: refused, leave: refused }, {
+      text: () => "mine",
+      remote: () => {},
+    });
+    await lone.join("mine");
+    expect(lone.active).toBe(false);
+    lone.local("mine", "mine!");
+    expect(lone.pending()).toBe(false);
+    expect(await lone.disk("theirs", false)).toEqual({ external: false });
+    await lone.drain();
+  });
+
+  it("does not join when it left while joining", async () => {
+    const engine = new FakeEngine();
+    const w = windowOn(engine, "main");
+    const joining = w.sync.join("x");
+    w.sync.leave();
+    await run(engine);
+    await joining;
+    expect(w.sync.active).toBe(false);
+    // The engine took the join, but this Window never sends on it.
+    w.type("xy");
+    await run(engine);
+    expect(engine.sessions.get("a")!.text).toBe("x");
+  });
+
+  it("joins once, however often it is asked", async () => {
+    const engine = new FakeEngine();
+    const w = windowOn(engine, "main");
+    const first = w.sync.join("x");
+    void w.sync.join("x");
+    await run(engine);
+    await first;
+    void w.sync.join("x");
+    expect(engine.queue).toHaveLength(0);
+  });
+
+  it("leaves the session, so the other Window's typing no longer reaches it", async () => {
+    const { engine, a, b } = await twoWindows("x");
+    b.sync.leave();
+    b.sync.leave();
+    await run(engine);
+    expect([...engine.sessions.get("a")!.members.keys()]).toEqual([`main/${a.sync.client}`]);
+    a.type("xa");
+    await run(engine);
+    expect(b.text).toBe("x");
+    expect(b.sync.active).toBe(false);
+  });
+
+  it("answers a file read waiting to be sent when it leaves", async () => {
+    const { a } = await twoWindows("x");
+    a.type("xy"); // busy with this change
+    const r = a.sync.disk("file", false);
+    a.sync.leave();
+    expect(await r).toEqual({ external: false });
+    expect(a.sync.pending()).toBe(false);
+  });
+
+  it("stops syncing when the engine refuses a change, and keeps its text", async () => {
+    quiet();
+    const { engine, a } = await twoWindows("x");
+    engine.sessions.delete("a"); // the Vault changed
+    const r = a.sync.disk("file", false);
+    await run(engine);
+    expect(await r).toEqual({ external: false });
+    expect(a.sync.active).toBe(false);
+    a.type("xy");
+    expect(a.sync.pending()).toBe(false);
+    expect(a.text).toBe("xy");
+  });
+
+  it("answers a file read sent before it left without taking the reply", async () => {
+    const { engine, a, b } = await twoWindows("one");
+    const r = b.sync.disk("ONE", false);
+    b.sync.leave();
+    await run(engine);
+    expect(await r).toEqual({ external: false });
+    expect(b.text).toBe("one");
+    expect(a.text).toBe("ONE");
   });
 });

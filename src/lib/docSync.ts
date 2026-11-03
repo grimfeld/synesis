@@ -49,6 +49,13 @@ export interface SyncHost {
   remote(text: string, disk: boolean): void;
 }
 
+/** A file read from disk, waiting to be sent, and who waits for the answer. */
+interface PendingDisk {
+  text: string;
+  force: boolean;
+  done: (r: { external: boolean }) => void;
+}
+
 let clients = 0;
 
 export class DocSync {
@@ -61,7 +68,7 @@ export class DocSync {
   private busy = false;
   /** Another Window changed the text: ask for it once the request in hand is answered. */
   private pull = false;
-  private disks: { text: string; force: boolean; done: (r: { external: boolean }) => void }[] = [];
+  private disks: PendingDisk[] = [];
   private idle: (() => void)[] = [];
   private closed = false;
 
@@ -174,39 +181,46 @@ export class DocSync {
     this.rev = reply.rev;
   }
 
+  /** The next request to send: a file read from disk, then a change, then a pull; null when there is none. */
+  private nextRequest(): SyncRequest | null {
+    const base = { id: this.id, client: this.client, base: this.rev };
+    const disk = this.disks[0];
+    if (disk) return { ...base, disk: disk.text, force: disk.force };
+    if (!this.inflight && this.buffer) [this.inflight, this.buffer] = [this.buffer, null];
+    if (this.inflight) return { ...base, op: this.inflight };
+    return this.pull ? base : null;
+  }
+
   private kick() {
     if (!this.joined || this.closed || this.busy) return;
-    const disk = this.disks.shift();
-    let req: SyncRequest;
-    if (disk) req = { id: this.id, client: this.client, base: this.rev, disk: disk.text, force: disk.force };
-    else {
-      if (!this.inflight && this.buffer) {
-        this.inflight = this.buffer;
-        this.buffer = null;
-      }
-      if (this.inflight) req = { id: this.id, client: this.client, base: this.rev, op: this.inflight };
-      else if (this.pull) req = { id: this.id, client: this.client, base: this.rev };
-      else return this.settle();
-    }
+    const req = this.nextRequest();
+    if (!req) return this.settle();
+    const disk = req.disk === undefined ? undefined : this.disks.shift();
     this.pull = false;
     this.busy = true;
     this.transport.sync(req).then(
-      (reply) => {
-        this.busy = false;
-        if (this.closed) return disk?.done({ external: false });
-        this.take(reply);
-        disk?.done({ external: reply.external });
-        this.kick();
-      },
-      (e) => {
-        // The engine refused (a session ended with the Vault, or a change
-        // that does not fit): stop rather than retry forever. This Window
-        // keeps and saves its own text, as without Windows.
-        console.error(e);
-        this.busy = false;
-        disk?.done({ external: false });
-        this.leave();
-      },
+      (reply) => this.answered(reply, disk),
+      (e) => this.refused(e, disk),
     );
+  }
+
+  private answered(reply: SyncReply, disk: PendingDisk | undefined) {
+    this.busy = false;
+    if (this.closed) return disk?.done({ external: false });
+    this.take(reply);
+    disk?.done({ external: reply.external });
+    this.kick();
+  }
+
+  /**
+   * The engine refused (a session ended with the Vault, or a change that does
+   * not fit): stop rather than retry forever. This Window keeps and saves its
+   * own text, as without Windows.
+   */
+  private refused(e: unknown, disk: PendingDisk | undefined) {
+    console.error(e);
+    this.busy = false;
+    disk?.done({ external: false });
+    this.leave();
   }
 }
