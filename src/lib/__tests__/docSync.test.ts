@@ -178,10 +178,11 @@ describe("a Window that cannot or no longer syncs", () => {
     await run(engine);
     await joining;
     expect(w.sync.active).toBe(false);
-    // The engine took the join, but this Window never sends on it.
+    // The engine took the join; the Window takes it back, and never sends on it.
+    expect(engine.sessions.get("a")?.members.size ?? 0).toBe(0);
     w.type("xy");
     await run(engine);
-    expect(engine.sessions.get("a")!.text).toBe("x");
+    expect(engine.queue).toHaveLength(0);
   });
 
   it("joins once, however often it is asked", async () => {
@@ -237,5 +238,85 @@ describe("a Window that cannot or no longer syncs", () => {
     expect(await r).toEqual({ external: false });
     expect(b.text).toBe("one");
     expect(a.text).toBe("ONE");
+  });
+});
+
+describe("what a Window sends, and when", () => {
+  it("asks the engine to join once, even when asked again while joining", async () => {
+    const engine = new FakeEngine();
+    const joins = vi.spyOn(engine, "join");
+    const w = windowOn(engine, "main");
+    const first = w.sync.join("x");
+    const second = w.sync.join("x");
+    await run(engine);
+    await Promise.all([first, second]);
+    expect(joins).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends nothing typed before it joins, and answers a file read at once", async () => {
+    const engine = new FakeEngine();
+    const w = windowOn(engine, "main");
+    w.type("typed");
+    expect(w.sync.pending()).toBe(false);
+    expect(await w.sync.disk("file", false)).toEqual({ external: false });
+    expect(engine.queue).toHaveLength(0);
+  });
+
+  it("hands a newcomer the others' typing as a change still to save", async () => {
+    const engine = new FakeEngine();
+    const a = windowOn(engine, "main");
+    a.text = "one";
+    const ja = a.sync.join("one");
+    await run(engine);
+    await ja;
+    a.type("one two");
+    await run(engine);
+    const heard: { text: string; disk: boolean }[] = [];
+    const b = new DocSync("a", engine.transport("doc-1"), {
+      text: () => "one",
+      remote: (text, disk) => heard.push({ text, disk }),
+    });
+    const jb = b.join("one");
+    await run(engine);
+    await jb;
+    expect(heard).toEqual([{ text: "one two", disk: false }]);
+  });
+
+  it("is not done while a file read is on its way to the engine", async () => {
+    const { engine, a } = await twoWindows("x");
+    void a.sync.disk("x!", true);
+    let drained = false;
+    void a.sync.drain().then(() => (drained = true));
+    await settle();
+    expect(drained).toBe(false);
+    await run(engine);
+    expect(drained).toBe(true);
+  });
+
+  it("asks nothing more of the engine once it left, even when told of a change", async () => {
+    const { engine, a } = await twoWindows("x");
+    a.sync.leave();
+    await run(engine);
+    a.sync.poke();
+    expect(engine.queue).toHaveLength(0);
+  });
+
+  it("drops the answer to a change sent before it left", async () => {
+    const { engine, a, b } = await twoWindows("x");
+    a.type("xy");
+    a.sync.leave();
+    await run(engine);
+    expect(a.sync.pending()).toBe(false);
+    expect(b.text).toBe("xy");
+  });
+
+  it("stops when the engine refuses a typed change", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { engine, a } = await twoWindows("x");
+    engine.sessions.delete("a");
+    a.type("xy");
+    await run(engine);
+    expect(a.sync.active).toBe(false);
+    expect(a.text).toBe("xy");
   });
 });

@@ -61,8 +61,11 @@ let clients = 0;
 export class DocSync {
   readonly client = ++clients;
   private rev = 0;
-  private joined = false;
-  private joining = false;
+  /**
+   * Where this Window is in the session: not asked yet, asking, in it, or
+   * gone for good. One field, so it cannot be joining and closed at once.
+   */
+  private phase: "new" | "joining" | "joined" | "closed" = "new";
   private inflight: Op | null = null;
   private buffer: Op | null = null;
   private busy = false;
@@ -70,7 +73,6 @@ export class DocSync {
   private pull = false;
   private disks: PendingDisk[] = [];
   private idle: (() => void)[] = [];
-  private closed = false;
 
   constructor(
     readonly id: string,
@@ -84,21 +86,23 @@ export class DocSync {
    * as a change, over any typing made here meanwhile.
    */
   async join(text: string): Promise<void> {
-    if (this.joined || this.joining || this.closed) return;
-    this.joining = true;
+    if (this.phase !== "new") return;
+    this.phase = "joining";
     let j: { rev: number; text: string };
     try {
       j = await this.transport.join(this.id, this.client, text);
     } catch (e) {
       // No session: this Window keeps and saves its own text, as without Windows.
       console.error(e);
-      this.joining = false;
       return this.leave();
     }
-    this.joining = false;
-    if (this.closed) return;
+    if (this.left()) {
+      // Left while the engine was taking the join: take it back.
+      this.transport.leave(this.id, this.client).catch(console.error);
+      return;
+    }
     this.rev = j.rev;
-    this.joined = true;
+    this.phase = "joined";
     const d = diff(text, j.text);
     if (d) this.applyRemote(d, false);
     this.kick();
@@ -106,7 +110,7 @@ export class DocSync {
 
   /** Typing here: the text went from `before` to `after`. */
   local(before: string, after: string) {
-    if ((!this.joined && !this.joining) || this.closed) return;
+    if (this.phase !== "joined" && this.phase !== "joining") return;
     const op = diff(before, after);
     if (!op) return;
     this.buffer = this.buffer ? compose(this.buffer, op) : op;
@@ -125,7 +129,7 @@ export class DocSync {
    * sent yet survives; `external` when unsaved typing would be lost.
    */
   disk(text: string, force: boolean): Promise<{ external: boolean }> {
-    if (!this.joined || this.closed) return Promise.resolve({ external: false });
+    if (this.phase !== "joined") return Promise.resolve({ external: false });
     return new Promise((done) => {
       this.disks.push({ text, force, done });
       this.kick();
@@ -140,7 +144,7 @@ export class DocSync {
 
   /** Joined, and not left: changes go through the engine. */
   get active(): boolean {
-    return this.joined && !this.closed;
+    return this.phase === "joined";
   }
 
   /** Whether changes made here are still on their way. */
@@ -149,18 +153,24 @@ export class DocSync {
   }
 
   leave() {
-    if (this.closed) return;
-    this.closed = true;
+    if (this.phase === "closed") return;
+    const joined = this.phase === "joined";
+    this.phase = "closed";
     this.inflight = this.buffer = null;
     this.disks.splice(0).forEach((d) => d.done({ external: false }));
     this.settle();
-    if (this.joined) this.transport.leave(this.id, this.client).catch(console.error);
+    if (joined) this.transport.leave(this.id, this.client).catch(console.error);
   }
 
   // -------------------------------------------------------------------------
 
+  /** Read through a call: TypeScript would keep the phase narrowed across an await. */
+  private left() {
+    return this.phase === "closed";
+  }
+
   private settled() {
-    return this.closed || (!this.busy && !this.inflight && !this.buffer && this.disks.length === 0);
+    return this.phase === "closed" || (!this.busy && !this.inflight && !this.buffer && this.disks.length === 0);
   }
 
   private settle() {
@@ -192,7 +202,7 @@ export class DocSync {
   }
 
   private kick() {
-    if (!this.joined || this.closed || this.busy) return;
+    if (this.phase !== "joined" || this.busy) return;
     const req = this.nextRequest();
     if (!req) return this.settle();
     const disk = req.disk === undefined ? undefined : this.disks.shift();
@@ -206,7 +216,7 @@ export class DocSync {
 
   private answered(reply: SyncReply, disk: PendingDisk | undefined) {
     this.busy = false;
-    if (this.closed) return disk?.done({ external: false });
+    if (this.phase === "closed") return disk?.done({ external: false });
     this.take(reply);
     disk?.done({ external: reply.external });
     this.kick();
