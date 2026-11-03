@@ -229,7 +229,6 @@ export class DocSync {
    */
   private refused(e: unknown, disk: PendingDisk | undefined) {
     console.error(e);
-    this.busy = false;
     disk?.done({ external: false });
     this.leave();
   }
