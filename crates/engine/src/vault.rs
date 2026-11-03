@@ -1833,6 +1833,26 @@ Antioch is where they met.
         assert_eq!(b.summary.path, "Notes/ro 8 28 thoughts 2.md");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_not_scanned() {
+        // The Vault is the folder itself: a link to somewhere else would pull
+        // outside files in, and a link back up would walk forever.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("Elsewhere.md"), "Not the vault's.\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Linked")).unwrap();
+        v.scan().unwrap();
+        let paths: Vec<_> = v.list(None).unwrap().into_iter().map(|d| d.path).collect();
+        assert!(paths.contains(&"Notes/First.md".to_string()), "{paths:?}");
+        assert!(!paths.iter().any(|p| p.starts_with("Linked/")), "{paths:?}");
+        assert_eq!(
+            fs::read_to_string(outside.path().join("Elsewhere.md")).unwrap(),
+            "Not the vault's.\n",
+            "a file outside the Vault is never touched"
+        );
+    }
+
     #[test]
     fn rescan_picks_up_external_changes() {
         let (dir, mut v) = vault();
