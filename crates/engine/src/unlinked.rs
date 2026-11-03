@@ -115,7 +115,7 @@ impl Matcher {
 /// language's Book names at once, so this is the same set of Passages the
 /// editor decorates, whatever the document's language.
 fn passage_spans(body: &str) -> Vec<(usize, usize)> {
-    parser::detect(body).into_iter().map(|d| (d.start, d.end)).collect()
+    parser::spans(&parser::detect(body))
 }
 
 /// Byte ranges covered by ATX heading lines.
@@ -242,22 +242,26 @@ pub fn link_targets(body: &str) -> Vec<String> {
 /// "hui" in "aujourd'hui" is not a separate word — unless what precedes the
 /// apostrophe is a French elision: "Israël" in "les fils d'Israël" is a name.
 fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
-    let before = text[..start].chars().next_back();
-    let after = text[end..].chars().next();
-    let ok = |c: Option<char>| match c {
-        None => true,
-        Some(c) => !(c.is_alphanumeric() || c == '_' || c == '\'' || c == '\u{2019}'),
-    };
-    let before_ok = match before {
-        Some(a @ ('\'' | '\u{2019}')) => follows_elision(&text[..start - a.len_utf8()]),
-        other => ok(other),
+    let before = match text[..start].chars().next_back() {
+        Some(a) if is_apostrophe(a) => follows_elision(&text[..start - a.len_utf8()]),
+        other => is_separator(other),
     };
     // A trailing apostrophe is allowed: the possessive is handled by the caller.
-    before_ok
-        && match after {
-            Some('\'') | Some('\u{2019}') => true,
-            other => ok(other),
-        }
+    let after = match text[end..].chars().next() {
+        Some(a) if is_apostrophe(a) => true,
+        other => is_separator(other),
+    };
+    before && after
+}
+
+fn is_apostrophe(c: char) -> bool {
+    c == '\'' || c == '\u{2019}'
+}
+
+/// Whether `c`, the character beside a match (`None` at either end of the
+/// text), keeps the match a word of its own.
+fn is_separator(c: Option<char>) -> bool {
+    c.map_or(true, |c| !(c.is_alphanumeric() || c == '_' || is_apostrophe(c)))
 }
 
 /// The French words that elide before a vowel: `d'`, `l'`, `qu'`, `jusqu'`…

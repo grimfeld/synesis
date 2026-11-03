@@ -348,7 +348,8 @@ fn bare_verses(text: &str, zones: &[(usize, usize)], explicit: &[Detected]) -> V
     inferred
 }
 
-fn spans(detected: &[Detected]) -> Vec<(usize, usize)> {
+/// Byte ranges of `detected`.
+pub(crate) fn spans(detected: &[Detected]) -> Vec<(usize, usize)> {
     detected.iter().map(|d| (d.start, d.end)).collect()
 }
 
