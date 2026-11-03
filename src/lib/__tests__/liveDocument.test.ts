@@ -303,6 +303,59 @@ describe("saving", () => {
     expect(saves.at(-1)?.text).toBe("one two three");
   });
 
+  it("shows a failed save and tries again after the debounce", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const { left, saves, engine } = await opened("one");
+    const save = engine.saveDocument;
+    engine.saveDocument = () => Promise.reject(new Error("disk full"));
+    left.write("one two");
+    await vi.advanceTimersByTimeAsync(700);
+    expect(left.snapshot().status).toBe("error");
+    expect(saves).toEqual([]);
+    engine.saveDocument = save;
+    await vi.advanceTimersByTimeAsync(700);
+    expect(left.snapshot().status).toBe("saved");
+    expect(saves.map((s) => s.text)).toEqual(["one two"]);
+  });
+
+  it("saves typing made during a save once the debounce runs out again", async () => {
+    const { left, saves, engine } = await opened("one");
+    let land!: () => void;
+    const save = engine.saveDocument;
+    engine.saveDocument = (id, text) => new Promise((r) => (land = () => r(save(id, text))));
+    left.write("one two");
+    await vi.advanceTimersByTimeAsync(700); // a save is in flight
+    left.editFm("---\ntype: note\n---\n"); // saves now: joins the one in flight
+    left.write("one two three");
+    engine.saveDocument = save;
+    land();
+    await vi.advanceTimersByTimeAsync(700);
+    expect(saves.map((s) => s.text)).toEqual(["one two", "---\ntype: note\n---\none two three"]);
+    expect(left.snapshot().status).toBe("saved");
+  });
+
+  it("takes the frontmatter the engine wrote on save, unless there is typing since", async () => {
+    const { left, engine, files } = await opened("---\ntype: note\n---\nbody");
+    const save = engine.saveDocument;
+    engine.saveDocument = async (id, text) => {
+      const d = await save(id, text);
+      files[id] = text.replace("type: note", "type: note\ncreated: today");
+      return { ...d, text: files[id] };
+    };
+    left.write("body!");
+    await left.flush();
+    expect(left.snapshot().fm).toBe("---\ntype: note\ncreated: today\n---\n");
+    expect(left.snapshot().body).toBe("body!");
+  });
+
+  it("has nothing to save when nothing was typed", async () => {
+    const { left, saves } = await opened("one");
+    await left.flush();
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saves).toEqual([]);
+    expect(left.snapshot().status).toBe("idle");
+  });
+
   it("normalises line breaks in a restored Version like a read does", async () => {
     const { left } = await opened("hello");
     left.replaceText("---\r\ntype: note\r\n---\r\nline one\r\nline two");

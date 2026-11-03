@@ -232,13 +232,15 @@ export class LiveDocument implements LiveBody {
     if (patch.body !== undefined) patch.body = toLf(patch.body);
     this.dirty = true;
     this.set(o.wholesale ? { ...patch, revision: this.state.revision + 1 } : patch);
-    if (!o.wholesale && patch.body !== undefined)
-      for (const m of [...this.members]) if (m !== o.from) m(this.state.body);
+    if (!o.wholesale && patch.body !== undefined) this.tellMembers(o.from);
     this.sync?.local(before, this.text());
-    if (o.now) {
-      clearTimeout(this.timer);
-      void this.save();
-    } else this.schedule();
+    if (o.now) this.saveNow();
+    else this.schedule();
+  }
+
+  /** Hand the body to every editor but `except`, the one that typed it. */
+  private tellMembers(except?: ((body: string) => void) | null) {
+    for (const m of [...this.members]) if (m !== except) m(this.state.body);
   }
 
   private edit(body: string, from: ((body: string) => void) | null) {
@@ -260,7 +262,7 @@ export class LiveDocument implements LiveBody {
     if (sp.fm !== this.state.fm) patch.fm = sp.fm;
     if (sp.body !== this.state.body) patch.body = sp.body;
     this.set(patch);
-    if (patch.body !== undefined) for (const m of [...this.members]) m(sp.body);
+    if (patch.body !== undefined) this.tellMembers();
     if (disk) {
       this.known = text;
       return;
@@ -289,6 +291,11 @@ export class LiveDocument implements LiveBody {
   private schedule() {
     clearTimeout(this.timer);
     this.timer = setTimeout(() => void this.save(), this.delay);
+  }
+
+  private saveNow() {
+    clearTimeout(this.timer);
+    void this.save();
   }
 
   private save(): Promise<void> {
@@ -439,15 +446,13 @@ export class LiveDocument implements LiveBody {
   }
 }
 
-export function createLiveDocuments(
-  engine: LiveEngine,
-  opts: LiveOptions = {},
-): LiveDocuments {
-  const docs = new Map<string, LiveDocument>();
+/** The bookkeeping the LiveDocuments of one Window share: who is held, who hears of opens and saves. */
+function liveRegistry(docs: Map<string, LiveDocument>, opts: LiveOptions) {
   const closers = new Map<LiveDocument, () => void>();
   const savedFns = new Set<(id: string) => void>();
   const registry = {
     transport: opts.sync,
+    savedFns,
     dispose(d: LiveDocument) {
       if (docs.get(d.id) === d) docs.delete(d.id);
       closers.get(d)?.();
@@ -461,6 +466,15 @@ export function createLiveDocuments(
       for (const fn of [...savedFns]) fn(id);
     },
   };
+  return registry;
+}
+
+export function createLiveDocuments(
+  engine: LiveEngine,
+  opts: LiveOptions = {},
+): LiveDocuments {
+  const docs = new Map<string, LiveDocument>();
+  const registry = liveRegistry(docs, opts);
   const get = (id: string) => {
     let d = docs.get(id);
     if (!d) {
@@ -478,8 +492,8 @@ export function createLiveDocuments(
     },
     peek: (id) => docs.get(id),
     onSaved(fn) {
-      savedFns.add(fn);
-      return () => savedFns.delete(fn);
+      registry.savedFns.add(fn);
+      return () => registry.savedFns.delete(fn);
     },
     async suspend() {
       const all = [...docs.values()];
