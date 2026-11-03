@@ -127,6 +127,15 @@ fn new_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
+/// Whether the scan walks into `e`. Hidden entries are skipped, except
+/// iCloud's placeholders: an evicted document is still the user's (see
+/// `cloud`).
+fn is_walked(e: &walkdir::DirEntry) -> bool {
+    e.depth() == 0
+        || !e.file_name().to_string_lossy().starts_with('.')
+        || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
+}
+
 fn is_markdown(p: &Path) -> bool {
     p.extension().is_some_and(|x| x == "md")
 }
@@ -452,36 +461,38 @@ impl Vault {
     /// only those whose mtime moved.
     fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
-        let (files, mut seen) = self.markdown_files();
+        let (files, seen) = self.markdown_files();
+        changed.extend(self.reindex(files, all)?);
+        self.forget_vanished(&seen)?;
+        self.index_boards()?;
+        Ok(changed)
+    }
+
+    /// Parse each of `files` whose mtime moved since it was indexed, or
+    /// every one when `all` is set.
+    fn reindex(&mut self, files: Vec<(String, i64)>, all: bool) -> Result<Vec<DocSummary>> {
+        let mut changed = Vec::new();
         for (rel, mtime) in files {
-            seen.insert(rel.clone());
-            if !all && self.index.mtime_of(&rel)? == Some(mtime) {
+            if !all && self.is_current(&rel, mtime)? {
                 continue;
             }
             if let Some(d) = self.index_file(&rel)? {
                 changed.push(d);
             }
         }
-        self.forget_vanished(&seen)?;
-        self.index_boards()?;
         Ok(changed)
     }
 
-    /// Every markdown file of the Vault with its mtime, and the paths of
-    /// documents iCloud has evicted, which stay known though not on disk.
+    /// Every markdown file of the Vault with its mtime, and every path the
+    /// Vault still holds: those files, plus the documents iCloud has evicted,
+    /// which stay known though not on disk.
     fn markdown_files(&self) -> (Vec<(String, i64)>, std::collections::HashSet<String>) {
-        let mut evicted = std::collections::HashSet::new();
+        let mut seen = std::collections::HashSet::new();
         let mut files = Vec::new();
         for entry in walkdir::WalkDir::new(&self.root)
             .follow_links(false)
             .into_iter()
-            // Hidden entries are skipped, except iCloud's placeholders: an
-            // evicted document is still the user's (see `cloud`).
-            .filter_entry(|e| {
-                e.depth() == 0
-                    || !e.file_name().to_string_lossy().starts_with('.')
-                    || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
-            })
+            .filter_entry(is_walked)
             .filter_map(|e| e.ok())
         {
             if !entry.file_type().is_file() {
@@ -491,15 +502,21 @@ impl Vault {
                 // Keep what the index knows about an evicted document; it is
                 // indexed again when iCloud brings it back.
                 if let Some(rel) = self.evicted_original(entry.path()) {
-                    evicted.insert(rel);
+                    seen.insert(rel);
                 }
             } else if is_markdown(entry.path()) {
                 if let Some(rel) = self.rel(entry.path()) {
+                    seen.insert(rel.clone());
                     files.push((rel, mtime_of(entry.path())));
                 }
             }
         }
-        (files, evicted)
+        (files, seen)
+    }
+
+    /// Whether the index already holds `rel` as it was at `mtime`.
+    fn is_current(&self, rel: &str, mtime: i64) -> Result<bool> {
+        Ok(self.index.mtime_of(rel)? == Some(mtime))
     }
 
     /// The vault path of the markdown document an iCloud `placeholder`
