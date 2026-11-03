@@ -278,6 +278,15 @@ pub fn path_for(place_path: &str, target: &str) -> Option<String> {
     })
 }
 
+/// The `border` value naming the file `rel` from the Place at `place_path`:
+/// a file beside the Place by its name alone, one elsewhere from the Vault's
+/// root, as Obsidian spells a link.
+pub fn link_to(place_path: &str, rel: &str) -> String {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    let beside = path_for(place_path, name).as_deref() == Some(rel);
+    format!("[[{}]]", if beside { name } else { rel })
+}
+
 /// A file name beside `place_path` for a new Border, after the Place's title,
 /// that no other file holds.
 pub fn free_name(root: &Path, place_path: &str, title: &str) -> String {
@@ -363,6 +372,19 @@ pub fn is_newer(theirs: &BorderEntry, mine: Option<&BorderEntry>) -> bool {
         (true, _) => false,
         (false, false) => theirs.size > m.size,
     }
+}
+
+/// What a Pairing round does with two manifests: the peer's entries newer
+/// than this Device's (to take, a file or a deletion) and this Device's newer
+/// than the peer's (to give). A name Pairing may not touch is never taken.
+pub fn exchange<'a>(
+    mine: &'a [BorderEntry],
+    theirs: &'a [BorderEntry],
+) -> (Vec<&'a BorderEntry>, Vec<&'a BorderEntry>) {
+    let newer = |e: &BorderEntry, other: &'a [BorderEntry]| is_newer(e, other.iter().find(|o| o.name == e.name));
+    let take = theirs.iter().filter(|e| is_synced(&e.name) && newer(e, mine)).collect();
+    let give = mine.iter().filter(|e| newer(e, theirs)).collect();
+    (take, give)
 }
 
 /// When a Border file was last changed: the later of its `updated` member and
@@ -737,6 +759,14 @@ mod tests {
     }
 
     #[test]
+    fn a_link_spells_a_file_beside_the_place_by_name_and_any_other_from_the_root() {
+        assert_eq!(link_to("Places/Judah.md", "Places/Judah.geojson"), "[[Judah.geojson]]");
+        assert_eq!(link_to("Places/Judah.md", "Maps/Judah.geojson"), "[[Maps/Judah.geojson]]");
+        assert_eq!(link_to("Judah.md", "Judah.geojson"), "[[Judah.geojson]]");
+        assert_eq!(link_to("Places/Judah.md", "Judah.geojson"), "[[Judah.geojson]]");
+    }
+
+    #[test]
     fn only_geojson_outside_hidden_folders_syncs() {
         assert!(is_synced("Places/Judah.geojson"));
         assert!(is_synced("Judah.geojson"));
@@ -764,6 +794,41 @@ mod tests {
     fn set_mtime(p: &Path, ms: i64) {
         let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms as u64);
         fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
+    }
+
+    fn e(name: &str, stamp: i64, size: u64, deleted: bool) -> BorderEntry {
+        BorderEntry { name: name.into(), stamp, size, deleted }
+    }
+
+    #[test]
+    fn a_round_takes_what_is_newer_there_and_gives_what_is_newer_here() {
+        let mine = [
+            e("Places/A.geojson", 5, 10, false),
+            e("Places/B.geojson", 9, 10, false),
+            e("Places/C.geojson", 3, 0, true),
+            e("Places/Mine.geojson", 1, 10, false),
+        ];
+        let theirs = [
+            e("Places/A.geojson", 7, 10, false),
+            e("Places/B.geojson", 2, 10, false),
+            e("Places/C.geojson", 3, 10, false),
+            e("Places/Theirs.geojson", 4, 0, true),
+            e("../Escape.geojson", 99, 10, false),
+            e("Places/note.md", 99, 10, false),
+        ];
+        let (take, give) = exchange(&mine, &theirs);
+        let names = |v: Vec<&BorderEntry>| v.into_iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+        // A is newer there; C's file beats a tombstone of the same stamp;
+        // a tombstone for a file never seen here still travels.
+        assert_eq!(names(take), ["Places/A.geojson", "Places/C.geojson", "Places/Theirs.geojson"]);
+        assert_eq!(names(give), ["Places/B.geojson", "Places/Mine.geojson"]);
+    }
+
+    #[test]
+    fn identical_manifests_exchange_nothing() {
+        let both = [e("Places/A.geojson", 5, 10, false), e("Places/B.geojson", 6, 0, true)];
+        let (take, give) = exchange(&both, &both);
+        assert!(take.is_empty() && give.is_empty());
     }
 
     #[test]

@@ -384,18 +384,10 @@ fn put_border(
     let root = v.root().to_path_buf();
     let rel = match current {
         Some(rel) => rel,
-        None => {
-            let name = crate::border::free_name(&root, &view.summary.path, &view.summary.title);
-            crate::border::path_for(&view.summary.path, &name)
-                .ok_or_else(|| crate::Error::Invalid(format!("no place for {name}")))?
-        }
+        None => new_border_path(&root, &view)?,
     };
-    let name = rel.rsplit('/').next().unwrap_or(&rel);
-    // A link to a file elsewhere is spelled from the root, as Obsidian does.
-    let beside = crate::border::path_for(&view.summary.path, name).as_deref() == Some(rel.as_str());
-    let link = format!("[[{}]]", if beside { name } else { rel.as_str() });
-    let wanted = Value::String(link.clone());
-    let view = if view.frontmatter.get(crate::border::PROPERTY) == Some(&wanted) {
+    let link = crate::border::link_to(&view.summary.path, &rel);
+    let view = if view.frontmatter.get(crate::border::PROPERTY) == Some(&Value::String(link.clone())) {
         view
     } else {
         let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, Some(&link));
@@ -408,6 +400,14 @@ fn put_border(
     // inside it are recomputed from the new file either way.
     v.border_file_changed()?;
     Ok(payload(v, view))
+}
+
+/// A free file beside the Place, after its title, for a Border it does not
+/// have yet.
+fn new_border_path(root: &std::path::Path, view: &DocumentView) -> crate::Result<String> {
+    let name = crate::border::free_name(root, &view.summary.path, &view.summary.title);
+    crate::border::path_for(&view.summary.path, &name)
+        .ok_or_else(|| crate::Error::Invalid(format!("no place for {name}")))
 }
 
 /// Remove a Place's Border: its `border` Property, and its file unless

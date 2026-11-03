@@ -937,38 +937,20 @@ impl Node {
     /// and a deletion travels as a tombstone. `accept` and `forget` compare
     /// with what is on disk here, so a stale manifest never does harm.
     async fn border_round(&self, conn: &Connection) -> Result<(), String> {
-        let (root, local) = (&self.vault_root, &self.local_dir);
-        let mine = crate::border::manifest(root, local);
+        let mine = crate::border::manifest(&self.vault_root, &self.local_dir);
         let theirs = match request(conn, &Request::BorderManifest(mine.clone())).await? {
             Response::BorderManifest(t) => t,
             _ => return Err("bad border manifest reply".into()),
         };
-        let mine_by: HashMap<_, _> = mine.iter().map(|e| (e.name.as_str(), e)).collect();
-        let theirs_by: HashMap<_, _> = theirs.iter().map(|e| (e.name.as_str(), e)).collect();
+        let (take, give) = crate::border::exchange(&mine, &theirs);
         let mut got = Vec::new();
-        for e in &theirs {
-            if !crate::border::is_synced(&e.name) || !crate::border::is_newer(e, mine_by.get(e.name.as_str()).copied()) {
-                continue;
-            }
-            if e.deleted {
-                if crate::border::forget(root, local, &e.name, e.stamp) {
-                    got.push(e.name.clone());
-                }
-            } else if let Response::File(Some(bytes)) = request(conn, &Request::GetBorder(e.name.clone())).await? {
-                if crate::border::accept(root, local, &e.name, &bytes, e.stamp) {
-                    got.push(e.name.clone());
-                }
+        for e in take {
+            if self.take_border(conn, e).await? {
+                got.push(e.name.clone());
             }
         }
-        for e in &mine {
-            if !crate::border::is_newer(e, theirs_by.get(e.name.as_str()).copied()) {
-                continue;
-            }
-            if e.deleted {
-                request(conn, &Request::DeleteBorder(e.clone())).await?;
-            } else if let Some(bytes) = crate::border::read_file(root, &e.name) {
-                request(conn, &Request::PutBorder { entry: e.clone(), bytes }).await?;
-            }
+        for e in give {
+            self.give_border(conn, e).await?;
         }
         if !got.is_empty() {
             self.emit(Event::Borders { names: got }).await;
@@ -976,10 +958,33 @@ impl Node {
         Ok(())
     }
 
-    /// Pictures both ways, whole (ADR 0020). A picture is the same picture
-    /// when its bytes are, whatever it is called: a side fetches every hash it
-    /// does not hold, so a file saved under another name after a clash is not
-    /// fetched again on the next round.
+    /// Take a peer's newer Border, or its deletion. Returns whether anything
+    /// changed here.
+    async fn take_border(&self, conn: &Connection, e: &BorderEntry) -> Result<bool, String> {
+        let (root, local) = (&self.vault_root, &self.local_dir);
+        if e.deleted {
+            return Ok(crate::border::forget(root, local, &e.name, e.stamp));
+        }
+        Ok(match request(conn, &Request::GetBorder(e.name.clone())).await? {
+            Response::File(Some(bytes)) => crate::border::accept(root, local, &e.name, &bytes, e.stamp),
+            _ => false,
+        })
+    }
+
+    /// Give a peer this Device's newer Border, or its deletion.
+    async fn give_border(&self, conn: &Connection, e: &BorderEntry) -> Result<(), String> {
+        let req = if e.deleted {
+            Some(Request::DeleteBorder(e.clone()))
+        } else {
+            crate::border::read_file(&self.vault_root, &e.name)
+                .map(|bytes| Request::PutBorder { entry: e.clone(), bytes })
+        };
+        if let Some(req) = req {
+            request(conn, &req).await?;
+        }
+        Ok(())
+    }
+
     async fn attachment_round(&self, conn: &Connection) -> Result<(), String> {
         let mine = self.attachment_manifest();
         let theirs = match request(conn, &Request::AttachmentManifest(mine.clone())).await? {
