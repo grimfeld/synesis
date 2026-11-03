@@ -15,6 +15,7 @@ import {
   fieldToYear,
   filterByPeriod,
   formatPeriod,
+  isFiltered,
   itemsOf,
   NO_PERIOD_FILTER,
   tiesOf,
@@ -420,5 +421,76 @@ describe("year fields", () => {
     expect(fieldToYear("  ", false)).toBeNull();
     expect(fieldToYear("abc", true)).toBeNull();
     expect(fieldToYear("0", true)).toBeNull(); // there is no year 0
+  });
+});
+
+describe("the edges of a Period", () => {
+  it("ends with its final year: what begins the year after is out", () => {
+    // 580 BCE is the last year in; 579 BCE is not.
+    const late = doc("late", "event");
+    const r = filterByPeriod(itemsOf([dated(late, "start", bce(579))], [], new Map()), {
+      ...NO_PERIOD_FILTER,
+      period: period(bce(640), bce(580)),
+    });
+    expect(r.visible).toEqual([]);
+  });
+
+  it("reads an open start as reaching back without limit", () => {
+    expect(run({ period: period(null, bce(1400)) }).ids).toContain("exodus");
+    expect(run({ period: period(null, bce(1400)) }).ids).not.toContain("jeremiah");
+  });
+
+  it("starts at 1 BCE when 1 BCE is the first year", () => {
+    // Astronomical 0 is 1 BCE: a falsy year that is still a bound.
+    const { ids } = run({ period: period(0, 10) });
+    expect(ids).toContain("paul");
+    expect(ids).not.toContain("jeremiah");
+  });
+
+  it("keeps a Place with both ends only within them", () => {
+    // Babylon ran 626–539 BCE: neither end runs on.
+    expect(run({ period: period(bce(700), bce(650)) }).ids).not.toContain("neo-babylonian-empire");
+    expect(run({ period: period(bce(500), bce(450)) }).ids).not.toContain("neo-babylonian-empire");
+  });
+
+  it("names 1 BCE and 1 CE apart", () => {
+    const eras = { bce: "BCE", ce: "CE" };
+    expect(formatPeriod(period(0, 0), eras)).toBe("1 BCE");
+    expect(formatPeriod(period(1, 1), eras)).toBe("1 CE");
+    expect(formatPeriod(period(0, 1), eras)).toBe("1 BCE – 1 CE");
+    expect(yearToField(0)).toEqual({ text: "1", bce: true });
+    expect(yearToField(1)).toEqual({ text: "1", bce: false });
+  });
+});
+
+describe("isFiltered", () => {
+  it("is off with nothing chosen and no own filter", () => {
+    expect(isFiltered(NO_PERIOD_FILTER)).toBe(false);
+    expect(isFiltered(NO_PERIOD_FILTER, 0)).toBe(false);
+  });
+
+  it("is on with a Period, a Tag, a Place or a view's own filter", () => {
+    expect(isFiltered({ ...NO_PERIOD_FILTER, period: period(null, 30) })).toBe(true);
+    expect(isFiltered({ ...NO_PERIOD_FILTER, tags: ["prophet"] })).toBe(true);
+    expect(isFiltered({ ...NO_PERIOD_FILTER, places: ["jerusalem"] })).toBe(true);
+    expect(isFiltered(NO_PERIOD_FILTER, 1)).toBe(true);
+  });
+});
+
+describe("charactersAt, at the edges", () => {
+  const place = doc("anathoth", "place");
+  const priest = doc("hilkiah", "character");
+  const its = itemsOf([dated(priest, "died", bce(620))], [place], new Map());
+
+  it("lists no Place whose Characters all lie outside the Period", () => {
+    const ties = [{ doc: priest.id, place: place.id, when: "own" as const }];
+    const at = charactersAt(its, { ...NO_PERIOD_FILTER, period: period(30, 60) }, ties);
+    expect(at.has(place.id)).toBe(false);
+    expect(charactersAt(its, NO_PERIOD_FILTER, ties).get(place.id)).toEqual([priest]);
+  });
+
+  it("passes over a tie to a document it was not given", () => {
+    const ties = [{ doc: "nobody", place: place.id, when: "own" as const }];
+    expect(charactersAt(its, NO_PERIOD_FILTER, ties).has(place.id)).toBe(false);
   });
 });
