@@ -487,6 +487,34 @@ fn graph_label(d: &DocSummary) -> String {
         .unwrap_or(cut.len());
     format!("{}…", cut[..end].trim_end())
 }
+/// Record a region's Border (or its lack) and the Places inside it, in place
+/// of what was recorded.
+fn replace_region(tx: &rusqlite::Transaction, region: &str, json: Option<&str>, inside: &[String]) -> rusqlite::Result<()> {
+    tx.execute("DELETE FROM in_region WHERE region = ?1", [region])?;
+    tx.execute("DELETE FROM region_borders WHERE region = ?1", [region])?;
+    if let Some(json) = json {
+        tx.execute("INSERT INTO region_borders(region, polygons) VALUES(?1, ?2)", params![region, json])?;
+    }
+    for place in inside {
+        insert_member(tx, place, region)?;
+    }
+    Ok(())
+}
+
+/// Record the regions one Place lies inside, in place of what was recorded.
+fn replace_place(tx: &rusqlite::Transaction, place: &str, regions: &[String]) -> rusqlite::Result<()> {
+    tx.execute("DELETE FROM in_region WHERE place = ?1", [place])?;
+    for region in regions {
+        insert_member(tx, place, region)?;
+    }
+    Ok(())
+}
+
+fn insert_member(tx: &rusqlite::Transaction, place: &str, region: &str) -> rusqlite::Result<()> {
+    tx.execute("INSERT INTO in_region(place, region) VALUES(?1, ?2)", params![place, region])?;
+    Ok(())
+}
+
 
 fn label_for(doc_type: DocType, title: &str, body: &str) -> String {
     if doc_type != DocType::Clipping {
@@ -603,9 +631,7 @@ impl Index {
     }
 
     pub fn all_paths(&self) -> Result<Vec<String>> {
-        let mut st = self.conn.prepare("SELECT path FROM documents")?;
-        let rows = st.query_map([], |r| r.get(0))?;
-        Ok(rows.collect::<rusqlite::Result<_>>()?)
+        self.strings("SELECT path FROM documents")
     }
 
     /// Replace everything the index knows about one document. `date_names`
@@ -2111,66 +2137,75 @@ impl Index {
     /// lie inside. Returns whether it changed.
     pub fn set_region_border(&mut self, region: &str, polygons: Option<&[crate::border::Polygon]>) -> Result<bool> {
         let json = polygons.map(serde_json::to_string).transpose()?;
-        let cached: Option<String> = self
-            .conn
-            .query_row("SELECT polygons FROM region_borders WHERE region = ?1", [region], |r| r.get(0))
-            .optional()?;
-        if cached == json {
+        if self.recorded_border(region)? == json {
             return Ok(false);
         }
-        let points = self.place_points()?;
+        let inside = match polygons {
+            Some(polygons) => self.places_inside(region, polygons)?,
+            None => Vec::new(),
+        };
         let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM in_region WHERE region = ?1", [region])?;
-        tx.execute("DELETE FROM region_borders WHERE region = ?1", [region])?;
-        if let (Some(json), Some(polygons)) = (json, polygons) {
-            tx.execute(
-                "INSERT INTO region_borders(region, polygons) VALUES(?1, ?2)",
-                params![region, json],
-            )?;
-            for (place, lat, lon) in points {
-                if place != region && crate::border::contains(polygons, lat, lon) {
-                    tx.execute(
-                        "INSERT INTO in_region(place, region) VALUES(?1, ?2)",
-                        params![place, region],
-                    )?;
-                }
-            }
-        }
+        replace_region(&tx, region, json.as_deref(), &inside)?;
         tx.commit()?;
         Ok(true)
+    }
+
+    /// A region's Border as last recorded, as JSON.
+    fn recorded_border(&self, region: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT polygons FROM region_borders WHERE region = ?1", [region], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// The Places with coordinates inside a Border, the region itself aside.
+    fn places_inside(&self, region: &str, polygons: &[crate::border::Polygon]) -> Result<Vec<String>> {
+        Ok(self
+            .place_points()?
+            .into_iter()
+            .filter(|(place, lat, lon)| place != region && crate::border::contains(polygons, *lat, *lon))
+            .map(|(place, _, _)| place)
+            .collect())
     }
 
     /// Recompute which regions one Place lies inside, from its coordinates
     /// and every Border on record. A Place without coordinates is in none.
     pub fn locate_place(&mut self, place: &str) -> Result<()> {
-        let at: Option<(f64, f64)> = self
+        let regions = match self.place_point(place)? {
+            Some((lat, lon)) => self
+                .region_borders()?
+                .into_iter()
+                .filter(|(region, polygons)| region != place && crate::border::contains(polygons, lat, lon))
+                .map(|(region, _)| region)
+                .collect(),
+            None => Vec::new(),
+        };
+        let tx = self.conn.transaction()?;
+        replace_place(&tx, place, &regions)?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// One Place's coordinates, when it is a Place that has them.
+    fn place_point(&self, place: &str) -> Result<Option<(f64, f64)>> {
+        Ok(self
             .conn
             .query_row(
                 "SELECT lat, lon FROM documents WHERE id = ?1 AND type = 'place' AND lat IS NOT NULL AND lon IS NOT NULL",
                 [place],
                 |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .optional()?;
-        let borders = self.region_borders()?;
-        let tx = self.conn.transaction()?;
-        tx.execute("DELETE FROM in_region WHERE place = ?1", [place])?;
-        if let Some((lat, lon)) = at {
-            for (region, polygons) in borders {
-                if region != place && crate::border::contains(&polygons, lat, lon) {
-                    tx.execute(
-                        "INSERT INTO in_region(place, region) VALUES(?1, ?2)",
-                        params![place, region],
-                    )?;
-                }
-            }
-        }
-        tx.commit()?;
-        Ok(())
+            .optional()?)
     }
 
     /// Every region with a Border on record.
     pub fn bordered_regions(&self) -> Result<Vec<String>> {
-        let mut st = self.conn.prepare("SELECT region FROM region_borders")?;
+        self.strings("SELECT region FROM region_borders")
+    }
+
+    /// The single text column a query answers, row by row.
+    fn strings(&self, sql: &str) -> Result<Vec<String>> {
+        let mut st = self.conn.prepare(sql)?;
         let rows = st.query_map([], |r| r.get(0))?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
