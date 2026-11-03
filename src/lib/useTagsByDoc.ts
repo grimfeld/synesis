@@ -22,18 +22,29 @@ export function useTagsByDoc(tags: string[], known: DocTag[] = NO_TAGS): Map<str
       return tags.map((tag, i) => ({ tag, docs: lists[i] }));
     },
   });
-  return useMemo(() => {
-    const m = new Map<string, string[]>();
-    const add = (doc: string, tag: string) => {
-      const list = m.get(doc);
-      if (!list) m.set(doc, [tag]);
-      else if (!list.includes(tag)) list.push(tag);
-    };
-    for (const dt of known) add(dt.doc, dt.tag);
-    for (const { tag, docs } of tags.length > 0 ? (data ?? []) : [])
-      for (const d of docs) add(d.id, tag);
-    return m;
-  }, [known, data, tags]);
+  return useMemo(
+    () => tagsByDoc(known, tags.length > 0 ? (data ?? []) : []),
+    [known, data, tags],
+  );
+}
+
+/**
+ * Document id → its Tags: the `known` pairs, then each document carrying a
+ * chosen Tag, each pair once and in the order first seen.
+ */
+export function tagsByDoc(
+  known: DocTag[],
+  tagged: { tag: string; docs: { id: string }[] }[],
+): Map<string, string[]> {
+  const m = new Map<string, string[]>();
+  const add = (doc: string, tag: string) => {
+    const list = m.get(doc);
+    if (!list) m.set(doc, [tag]);
+    else if (!list.includes(tag)) list.push(tag);
+  };
+  for (const dt of known) add(dt.doc, dt.tag);
+  for (const { tag, docs } of tagged) for (const d of docs) add(d.id, tag);
+  return m;
 }
 
 const NO_TAGS: DocTag[] = [];
