@@ -2,7 +2,9 @@
 import { describe, expect, it } from "vitest";
 import {
   initialPanes,
+  keepLayout,
   panesReducer,
+  readLayout,
   restoreLayout,
   savedLayout,
   shownPanes,
@@ -303,5 +305,45 @@ describe("acting on a named Pane", () => {
     const s = panesReducer(two, { type: "setDocTab", tab: "split", pane: 0 });
     expect(s.panes[0].docTab).toBe("split");
     expect(s.panes[1]?.docTab).toBe("talk");
+  });
+});
+
+describe("the layout kept on this Device, per Vault", () => {
+  const all = () => true;
+  const two = run({ type: "open", view: doc("a") }, { type: "openInOther", view: doc("b") });
+
+  it("comes back for the same Vault only", () => {
+    localStorage.clear();
+    keepLayout("/vaults/one", two);
+    expect(readLayout("/vaults/one", all)?.panes.map((p) => p.view)).toEqual([doc("a"), doc("b")]);
+    expect(readLayout("/vaults/two", all)).toBeNull();
+  });
+
+  it("is forgotten when a single Pane is left", () => {
+    localStorage.clear();
+    keepLayout("/v", two);
+    keepLayout("/v", panesReducer(two, { type: "close" }));
+    expect(readLayout("/v", all)).toBeNull();
+    expect(localStorage.length).toBe(0);
+  });
+
+  it("opens on Home when what is kept is not a layout, or storage is refused", () => {
+    localStorage.clear();
+    localStorage.setItem("synesis.panes:/v", "{not json");
+    expect(readLayout("/v", all)).toBeNull();
+    const refused = {
+      getItem: () => {
+        throw new Error("denied");
+      },
+      setItem: () => {
+        throw new Error("denied");
+      },
+      removeItem: () => {
+        throw new Error("denied");
+      },
+    };
+    expect(readLayout("/v", all, refused)).toBeNull();
+    expect(() => keepLayout("/v", two, refused)).not.toThrow();
+    expect(() => keepLayout("/v", initialPanes(), refused)).not.toThrow();
   });
 });

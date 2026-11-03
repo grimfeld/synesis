@@ -36,8 +36,8 @@ import {
   initialPanes,
   panesReducer,
   otherPane,
-  restoreLayout,
-  savedLayout,
+  keepLayout,
+  readLayout,
   type ModifierClick,
   type PaneIndex,
   type DocTab,
@@ -105,8 +105,6 @@ export type Dialog =
 const SOURCE_MODE_KEY = "synesis.sourceMode";
 const READING_MODE_KEY = "synesis.readingMode";
 const DELIVERY_SIZE_KEY = "synesis.deliverySize";
-/** The Pane layout, per Device (localStorage) and per Vault (its root). */
-const PANES_KEY = (root: string) => `synesis.panes:${root}`;
 /**
  * A secondary Window (issue #51) shares the Vault the main Window opened and
  * keeps its Panes to itself: it neither restores nor saves the Vault's layout.
@@ -288,15 +286,6 @@ function writeFlag(key: string, b: boolean) {
   }
 }
 
-function readJson(key: string): unknown {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : null;
-  } catch {
-    return null;
-  }
-}
-
 function readDeliverySize(): number {
   try {
     const n = Number(localStorage.getItem(DELIVERY_SIZE_KEY));
@@ -402,7 +391,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const { docs, info } = await refresh();
       // Two Panes left open come back as they were (spec #35); one Pane opens on Home.
       const ids = new Set(docs.map((d) => d.id));
-      const restored = restoreLayout(readJson(PANES_KEY(info.root)), (id) => ids.has(id));
+      const restored = readLayout(info.root, (id) => ids.has(id));
       if (restored) dispatchPanes({ type: "load", state: restored });
       layoutFor.current = info.root;
     },
@@ -703,13 +692,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const vaultRoot = info?.root;
   useEffect(() => {
     if (SECONDARY_WINDOW || !vaultRoot || layoutFor.current !== vaultRoot) return;
-    const saved = savedLayout(panes);
-    try {
-      if (saved) localStorage.setItem(PANES_KEY(vaultRoot), JSON.stringify(saved));
-      else localStorage.removeItem(PANES_KEY(vaultRoot));
-    } catch {
-      /* preference only */
-    }
+    keepLayout(vaultRoot, panes);
   }, [panes, vaultRoot]);
 
   const openDocOnClick = useCallback(

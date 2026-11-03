@@ -239,3 +239,33 @@ export function restoreLayout(raw: unknown, exists: (id: string) => boolean): Pa
   if (!a || !b) return null;
   return { panes: [newPane(a), newPane(b)], lastUsed: r.lastUsed === 1 ? 1 : 0, ratio: restoreRatio(r.ratio) };
 }
+
+/** Where a Vault's layout is kept on this Device: per Vault, by its root. */
+const layoutKey = (root: string) => `synesis.panes:${root}`;
+
+/** The layout kept for the Vault at `root`, or null (one Pane on Home). */
+export function readLayout(
+  root: string,
+  exists: (id: string) => boolean,
+  storage?: Pick<Storage, "getItem">,
+): PanesState | null {
+  try {
+    // `localStorage` is read inside the try: a sandboxed page throws on it.
+    const raw = (storage ?? localStorage).getItem(layoutKey(root));
+    return raw ? restoreLayout(JSON.parse(raw), exists) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep `s` as the layout of the Vault at `root`; a single Pane keeps nothing. */
+export function keepLayout(root: string, s: PanesState, storage?: Pick<Storage, "setItem" | "removeItem">): void {
+  const saved = savedLayout(s);
+  try {
+    const store = storage ?? localStorage;
+    if (saved) store.setItem(layoutKey(root), JSON.stringify(saved));
+    else store.removeItem(layoutKey(root));
+  } catch {
+    /* a preference only */
+  }
+}
