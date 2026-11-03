@@ -387,12 +387,7 @@ fn put_border(
         None => new_border_path(&root, &view)?,
     };
     let link = crate::border::link_to(&view.summary.path, &rel);
-    let view = if view.frontmatter.get(crate::border::PROPERTY) == Some(&Value::String(link.clone())) {
-        view
-    } else {
-        let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, Some(&link));
-        v.write(id, &text)?
-    };
+    let view = name_border(v, id, view, &link)?;
     write(&root, &rel)?;
     // Written again after a deletion: Pairing carries it, not the tombstone.
     crate::border::revive(v.local_dir(), &rel)?;
@@ -400,6 +395,15 @@ fn put_border(
     // inside it are recomputed from the new file either way.
     v.border_file_changed()?;
     Ok(payload(v, view))
+}
+
+/// The Place with `border` set to `link`, written only when it differs.
+fn name_border(v: &mut Vault, id: &str, view: DocumentView, link: &str) -> crate::Result<DocumentView> {
+    if view.frontmatter.get(crate::border::PROPERTY).and_then(Value::as_str) == Some(link) {
+        return Ok(view);
+    }
+    let text = crate::document::set_frontmatter_field(&view.text, crate::border::PROPERTY, Some(link));
+    v.write(id, &text)
 }
 
 /// A free file beside the Place, after its title, for a Border it does not

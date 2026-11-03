@@ -1638,12 +1638,7 @@ impl Index {
     /// An Event's ties: each of its `characters` that is a Character, once,
     /// to the first of its `place` links that is a Place. None without one.
     fn event_ties(&self, event: DocSummary) -> Result<Vec<KeyedTie>> {
-        let mut targets = self.conn.prepare_cached(
-            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
-        )?;
-        let links: Vec<(String, String)> = targets
-            .query_map([&event.id], |r| Ok((r.get(0)?, r.get(1)?)))?
-            .collect::<rusqlite::Result<_>>()?;
+        let links = self.tie_links(&event.id)?;
         let named = |property: &'static str| links.iter().filter(move |(p, _)| p == property).map(|(_, t)| t);
         let Some(place) = self.first_as(named("place"), DocType::Place)? else {
             return Ok(Vec::new());
@@ -1657,6 +1652,16 @@ impl Index {
             }
         }
         Ok(out)
+    }
+
+    /// An Event's `place` and `characters` links, `(property, target)`, in
+    /// the order written.
+    fn tie_links(&self, event: &str) -> Result<Vec<(String, String)>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT property, target FROM links WHERE from_id = ?1 AND property IN ('place', 'characters') ORDER BY start",
+        )?;
+        let rows = st.query_map([event], |r| Ok((r.get(0)?, r.get(1)?)))?;
+        Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// The first of `targets` that resolves to a document of type `t`.
@@ -2156,10 +2161,7 @@ impl Index {
         if self.recorded_border(region)? == json {
             return Ok(false);
         }
-        let inside = match polygons {
-            Some(polygons) => self.places_inside(region, polygons)?,
-            None => Vec::new(),
-        };
+        let inside = polygons.map(|p| self.places_inside(region, p)).transpose()?.unwrap_or_default();
         let tx = self.conn.transaction()?;
         replace_region(&tx, region, json.as_deref(), &inside)?;
         tx.commit()?;
