@@ -729,9 +729,15 @@ impl Vault {
     /// clock that runs ahead would otherwise have the save replaced by the
     /// older merged text.
     fn index_file_as(&mut self, rel: &str, own_write: bool) -> Result<Option<DocSummary>> {
-        let Ok(abs) = self.abs(rel) else {
-            self.index.remove_path(rel)?;
-            return Ok(None);
+        // A link is not followed, as the walk does not follow one: read and
+        // given an id, a link to a file outside the Vault would turn that file
+        // into a Note and sync it to every Device (#86).
+        let abs = match self.abs(rel) {
+            Ok(abs) if !crate::vault_path::is_link(&abs) => abs,
+            _ => {
+                self.index.remove_path(rel)?;
+                return Ok(None);
+            }
         };
         let text = match fs::read_to_string(&abs) {
             Ok(t) => t,
@@ -941,7 +947,10 @@ impl Vault {
         if comp.doc_type != DocType::Composition {
             return Ok(None);
         }
-        let abs = self.abs(rel)?;
+        let Ok(abs) = self.abs(rel) else { return Ok(None) };
+        if crate::vault_path::is_link(&abs) {
+            return Ok(None);
+        }
         let Ok(text) = fs::read_to_string(&abs) else { return Ok(None) };
         let Ok(parsed) = Canvas::parse(&text) else { return Ok(None) };
         let (changed, board) = match self.sync.as_mut() {
@@ -2172,6 +2181,36 @@ Antioch is where they met.
             "Not the vault's.\n",
             "a file outside the Vault is never touched"
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_note_is_never_read_or_rewritten() {
+        // #86: the watcher hands over any path that changed. A link to a file
+        // outside the Vault must not become a Note, get an id written into it,
+        // or be published to the other Devices.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        let secret = outside.path().join("id_rsa");
+        fs::write(&secret, "PRIVATE KEY\n").unwrap();
+        let link = dir.path().join("Notes/key.md");
+        std::os::unix::fs::symlink(&secret, &link).unwrap();
+        // One inside the Vault is not followed either: it is the same Note twice.
+        std::os::unix::fs::symlink(dir.path().join("Notes/First.md"), dir.path().join("Notes/again.md")).unwrap();
+
+        assert!(v.index_file("Notes/key.md").unwrap().is_none());
+        assert!(v.index_file("Notes/again.md").unwrap().is_none());
+        v.scan().unwrap();
+        let paths: Vec<_> = v.list(None).unwrap().into_iter().map(|d| d.path).collect();
+        assert!(!paths.iter().any(|p| p == "Notes/key.md" || p == "Notes/again.md"), "{paths:?}");
+        assert_eq!(fs::read_to_string(&secret).unwrap(), "PRIVATE KEY\n");
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        let published = walkdir::WalkDir::new(dir.path().join(HIDDEN_DIR))
+            .into_iter()
+            .flatten()
+            .filter(|e| e.file_type().is_file())
+            .any(|e| fs::read(e.path()).unwrap().windows(11).any(|w| w == b"PRIVATE KEY"));
+        assert!(!published, "the target's text reached the sync folder");
     }
 
     #[test]

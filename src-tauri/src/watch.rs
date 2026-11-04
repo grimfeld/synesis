@@ -101,6 +101,11 @@ impl Watcher {
                         }
                         continue;
                     }
+                    // `is_file` follows a link; the engine refuses one, and
+                    // leaving it out here keeps it from looking vanished.
+                    if engine::vault_path::is_link(&p) {
+                        continue;
+                    }
                     if p.is_file() {
                         if let Ok(Some(d)) = vault.index_file(&rel) {
                             changed.push(d);

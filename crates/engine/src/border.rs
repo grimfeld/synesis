@@ -305,7 +305,17 @@ pub fn free_name(root: &Path, place_path: &str, title: &str) -> String {
 
 /// Read one Border file into what the Map draws.
 pub fn read(root: &Path, doc: &str, rel: &str) -> Border {
-    let abs = root.join(rel);
+    // The name comes from a Place's frontmatter: it is read only inside the
+    // Vault, never through a link that leads out of it (#86).
+    let Some(abs) = crate::vault_path::VaultPath::parse(rel).and_then(|p| p.under(root)).ok() else {
+        return Border {
+            doc: doc.into(),
+            path: rel.into(),
+            status: BorderStatus::Missing,
+            error: Some(format!("{rel} is not in the Vault")),
+            polygons: vec![],
+        };
+    };
     let (status, error, polygons) = if crate::cloud::is_evicted(&abs) {
         (BorderStatus::Downloading, None, vec![])
     } else {
@@ -512,7 +522,11 @@ pub fn read_file(root: &Path, name: &str) -> Option<Vec<u8>> {
     if !is_synced(name) {
         return None;
     }
-    fs::read(join(root, name)).ok()
+    let p = join(root, name);
+    if !crate::vault_path::confined(root, &p) {
+        return None;
+    }
+    fs::read(p).ok()
 }
 
 /// Take a Border file from a peer, which stamped it `stamp`, when that is

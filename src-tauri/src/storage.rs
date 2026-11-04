@@ -100,7 +100,13 @@ pub fn copy_tree(from: &std::path::Path, to: &std::path::Path) -> std::io::Resul
     for entry in std::fs::read_dir(from)? {
         let entry = entry?;
         let dest = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
+        let kind = entry.file_type()?;
+        // A link is not copied: copying would bring its target into the
+        // Vault, wherever on the disk that is (#86).
+        if kind.is_symlink() {
+            continue;
+        }
+        if kind.is_dir() {
             copy_tree(&entry.path(), &dest)?;
         } else {
             std::fs::copy(entry.path(), &dest)?;
