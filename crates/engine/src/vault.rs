@@ -189,6 +189,40 @@ pub fn sanitize_title(title: &str) -> String {
     }
 }
 
+/// Remove `files` and `.bible-study/` from the Vault at `root`, then each
+/// folder that is left empty, up to and including `root`. A folder that still
+/// holds something is the user's and stays.
+fn remove_owned(root: &Path, files: &[PathBuf]) -> Result<()> {
+    let mut dirs = std::collections::BTreeSet::new();
+    for f in files {
+        // Removing a link removes the link, never its target; but a folder on
+        // the way that links out of the Vault is not walked through.
+        if !f.parent().is_some_and(|p| crate::vault_path::confined(root, p)) {
+            continue;
+        }
+        match fs::remove_file(f) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        let mut dir = f.parent();
+        while let Some(d) = dir.filter(|d| d.starts_with(root) && *d != root) {
+            dirs.insert(d.to_path_buf());
+            dir = d.parent();
+        }
+    }
+    let hidden = root.join(HIDDEN_DIR);
+    if hidden.is_dir() && !crate::vault_path::is_link(&hidden) {
+        fs::remove_dir_all(&hidden)?;
+    }
+    // Deepest first, so a parent is tried once its children are gone.
+    for d in dirs.iter().rev() {
+        let _ = fs::remove_dir(d);
+    }
+    let _ = fs::remove_dir(root);
+    Ok(())
+}
+
 fn write_atomic(path: &Path, text: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -1484,10 +1518,19 @@ impl Vault {
     /// mirroring this one's snapshots; then this Device's own state; then, if
     /// asked, the documents. A crash part way through leaves a Vault that
     /// still syncs rather than a folder whose history is gone.
+    ///
+    /// Deleting removes what the Vault owns and nothing else (#91): every file
+    /// the index knows, each Composition's Board and each Border a region
+    /// names, the pictures in `Attachments/`, and `.bible-study/`; then every
+    /// folder that leaves empty, the Vault's own included. Any other file stays
+    /// where it was, with the folders that hold it. A Vault can be opened on any
+    /// folder, a home folder by mistake among them, so removing the folder
+    /// whole could take far more than the Vault.
     pub fn leave(mut self, delete_documents: bool) -> Result<()> {
         if let Some(sync) = self.sync.as_mut() {
             sync.withdraw()?;
         }
+        let owned = if delete_documents { self.owned_files()? } else { vec![] };
         let root = self.root.clone();
         let local_dir = self.local_dir.clone();
         // Drop the index and the CRDT before removing what holds them.
@@ -1496,9 +1539,40 @@ impl Vault {
             fs::remove_dir_all(&local_dir)?;
         }
         if delete_documents && root.is_dir() {
-            fs::remove_dir_all(&root)?;
+            remove_owned(&root, &owned)?;
         }
         Ok(())
+    }
+
+    /// Every file under the Vault that the Vault itself accounts for, as the
+    /// paths `leave` removes. `.bible-study/` is not listed: it is removed whole.
+    fn owned_files(&self) -> Result<Vec<PathBuf>> {
+        let mut rels = self.index.all_paths()?;
+        for comp in self.index.list(Some(DocType::Composition))? {
+            rels.push(canvas::board_path(&comp.path));
+        }
+        rels.extend(
+            self.bordered_places()?
+                .into_iter()
+                .filter_map(|(_, path, value)| Self::border_path(&path, &value)),
+        );
+        let mut out = Vec::new();
+        for rel in rels {
+            let Ok(abs) = self.abs(&rel) else { continue };
+            // An evicted file is its iCloud placeholder until it downloads.
+            out.extend(cloud::placeholder_of(&abs));
+            out.push(abs);
+        }
+        if let Ok(pictures) = fs::read_dir(self.root.join(crate::attachments::FOLDER)) {
+            for f in pictures.flatten() {
+                let name = f.file_name().to_string_lossy().to_string();
+                let is_file = f.file_type().is_ok_and(|t| t.is_file());
+                if is_file && crate::attachments::is_supported(&name) {
+                    out.push(f.path());
+                }
+            }
+        }
+        Ok(out)
     }
 
     /// Stop holding another Device's snapshots in this Vault, and forget what

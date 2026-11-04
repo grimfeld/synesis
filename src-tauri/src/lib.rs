@@ -422,8 +422,8 @@ fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>
 /// Devices stop mirroring them, drop this Device's index and history, and stop
 /// listing it (ADR 0014).
 ///
-/// `delete_documents` also removes the folder, which is not recoverable and is
-/// the user's call; without it the folder is left as plain markdown that
+/// `delete_documents` also removes what the Vault owns (`Vault::leave`), which
+/// is not recoverable and is the user's call; without it the folder is left as plain markdown that
 /// Obsidian still opens (ADR 0003).
 ///
 /// Only the open Vault can be left: leaving runs the engine, and the engine

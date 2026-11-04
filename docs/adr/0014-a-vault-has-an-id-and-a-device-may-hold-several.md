@@ -102,7 +102,10 @@ So: **a folder in `sync/` is not a claim on the Vault. The pairing roster is.**
 - Removing a Vault from a Device is therefore a real operation, not a matter of
   forgetting a path: `Vault::leave` withdraws this Device's snapshots so the
   others stop mirroring them, then drops its index and CRDT, and optionally the
-  documents. Evicting another Device (`forget_device`) retires it in the roster
+  documents: only what the Vault owns (the files its index knows, their Boards
+  and Borders, the pictures in `Attachments/`, `.bible-study/`) and the folders
+  that leaves empty, never the folder whole, since any folder can be opened as
+  a Vault (#91). Evicting another Device (`forget_device`) retires it in the roster
   *before* deleting its folder, so a crash between the two leaves a Vault that
   still syncs rather than a folder that will be trusted again.
 

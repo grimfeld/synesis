@@ -966,6 +966,36 @@ fn leaving_a_vault_can_take_the_documents_too() {
     assert!(!local.exists());
 }
 
+/// Leaving with the documents takes what the Vault owns, never the folder
+/// whole (#91): a Vault opened on a folder that holds other things, a home
+/// folder by mistake, leaves those things where they were.
+#[test]
+fn leaving_with_the_documents_keeps_files_the_vault_does_not_own() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("home");
+    fs::create_dir_all(root.join("Notes")).unwrap();
+    fs::create_dir_all(root.join(".ssh")).unwrap();
+    fs::create_dir_all(root.join("Photos")).unwrap();
+    fs::write(root.join(".ssh/id_rsa"), "key").unwrap();
+    fs::write(root.join("Photos/beach.jpg"), "jpg").unwrap();
+    fs::write(root.join("Notes/todo.txt"), "not markdown").unwrap();
+    fs::write(root.join("Notes/old.md"), "An old note.\n").unwrap();
+    let da = tmp.path().join("devA");
+
+    let mut a = open(&root, &da);
+    a.create(DocType::Composition, "Talk", &Map::new(), "Mine.").unwrap();
+    a.create(DocType::Note, "Romans", &Map::new(), "Romans 8:28").unwrap();
+    a.leave(true).unwrap();
+
+    assert_eq!(fs::read_to_string(root.join(".ssh/id_rsa")).unwrap(), "key");
+    assert!(root.join("Photos/beach.jpg").is_file());
+    assert!(root.join("Notes/todo.txt").is_file(), "a file in a Vault folder that is not the Vault's");
+    assert!(!root.join("Notes/old.md").exists(), "an indexed document survived");
+    assert!(!root.join("Compositions").exists(), "an emptied type folder was kept");
+    assert!(!root.join("Scripture").exists(), "materialised Scripture pages were kept");
+    assert!(!root.join(engine::vault::HIDDEN_DIR).exists());
+}
+
 /// A Vault left and then reopened at the same folder is a fresh start for this
 /// Device: no snapshots of its own, no imported history, and the documents
 /// read from disk. It keeps its identity, because the folder is still the same
