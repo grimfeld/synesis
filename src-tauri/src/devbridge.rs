@@ -2,6 +2,18 @@
 //! (`vite` on :1420) against the live engine, for UI work and automated
 //! smoke tests. POST /invoke/<command> with a JSON body of arguments.
 //! Compiled only in debug builds; binds to localhost only.
+//!
+//! Binding to localhost does not keep other websites out: any page open in
+//! the developer's browser can send requests to 127.0.0.1, and the dev build
+//! shares the installed app's settings and open Vault. So every request is
+//! checked first (`admit`): the `Host` must be this bridge (which defeats DNS
+//! rebinding, where a hostile name resolves to 127.0.0.1), a browser's
+//! `Origin` must be the Vite dev server, and a POST must say
+//! `Content-Type: application/json`, which no cross-site form can send and
+//! which makes a browser ask first (a preflight that only the dev server's
+//! origin passes). Node scripts (Cypress's `cy.request`, ui-smoke,
+//! site-screenshots) send no `Origin` and are let through: a local process
+//! can read the Vault's files directly anyway.
 
 use crate::*;
 use serde_json::{json, Value};
@@ -28,17 +40,75 @@ pub fn start(app: AppHandle) {
     });
 }
 
-fn respond(stream: &mut TcpStream, status: u16, body: &str) {
-    let reason = if status == 200 {
-        "OK"
-    } else if status == 204 {
-        "No Content"
-    } else {
-        "Error"
+/// The origins of the Vite dev server (`devUrl` in tauri.conf.json), the
+/// only web pages allowed to call the bridge.
+const ALLOWED_ORIGINS: [&str; 2] = ["http://localhost:1420", "http://127.0.0.1:1420"];
+
+/// What `admit` decided about a request.
+#[derive(Debug, PartialEq)]
+enum Admission {
+    /// Answer it; `origin` is echoed in `Access-Control-Allow-Origin` (none
+    /// for a request with no `Origin`, which is not a browser's).
+    Allow { origin: Option<String> },
+    /// Refuse it with 403 and this reason.
+    Deny(&'static str),
+}
+
+/// The value of header `name` in a request head, if present.
+fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
+    head.lines().skip(1).find_map(|l| {
+        let (k, v) = l.split_once(':')?;
+        k.trim().eq_ignore_ascii_case(name).then(|| v.trim())
+    })
+}
+
+/// Whether a request may reach the engine (see the module comment).
+fn admit(method: &str, head: &str) -> Admission {
+    let host_ok = header(head, "host")
+        .map(|h| {
+            h.eq_ignore_ascii_case(&format!("127.0.0.1:{PORT}")) || h.eq_ignore_ascii_case(&format!("localhost:{PORT}"))
+        })
+        .unwrap_or(false);
+    if !host_ok {
+        return Admission::Deny("unexpected Host");
+    }
+    let origin = match header(head, "origin") {
+        None => None,
+        Some(o) if ALLOWED_ORIGINS.contains(&o) => Some(o.to_string()),
+        Some(_) => return Admission::Deny("origin not allowed"),
+    };
+    match method {
+        "OPTIONS" => Admission::Allow { origin },
+        "POST" => {
+            let json = header(head, "content-type")
+                .map(|c| c.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("application/json"))
+                .unwrap_or(false);
+            if json {
+                Admission::Allow { origin }
+            } else {
+                Admission::Deny("Content-Type must be application/json")
+            }
+        }
+        _ => Admission::Deny("only POST"),
+    }
+}
+
+fn respond(stream: &mut TcpStream, status: u16, origin: Option<&str>, body: &str) {
+    let reason = match status {
+        200 => "OK",
+        204 => "No Content",
+        403 => "Forbidden",
+        _ => "Error",
+    };
+    let cors = match origin {
+        Some(o) => format!(
+            "Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\n"
+        ),
+        None => String::new(),
     };
     let _ = write!(
         stream,
-        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: content-type\r\nAccess-Control-Allow-Methods: POST, OPTIONS\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     );
@@ -79,16 +149,25 @@ fn handle(mut stream: TcpStream, app: AppHandle) {
     let mut parts = first.split_whitespace();
     let method = parts.next().unwrap_or("");
     let path = parts.next().unwrap_or("");
+    let origin = match admit(method, &head) {
+        Admission::Allow { origin } => origin,
+        Admission::Deny(why) => {
+            eprintln!("[devbridge] refused {method} {path}: {why}");
+            respond(&mut stream, 403, None, &json!({ "error": why }).to_string());
+            return;
+        }
+    };
+    let origin = origin.as_deref();
     if method == "OPTIONS" {
-        respond(&mut stream, 204, "");
+        respond(&mut stream, 204, origin, "");
         return;
     }
     let cmd = path.strip_prefix("/invoke/").unwrap_or("").to_string();
     let body = &buf[head_end..(head_end + content_length).min(buf.len())];
     let args: Value = serde_json::from_slice(body).unwrap_or(json!({}));
     match dispatch(&app, &cmd, args) {
-        Ok(v) => respond(&mut stream, 200, &v.to_string()),
-        Err(e) => respond(&mut stream, 500, &json!({ "error": e }).to_string()),
+        Ok(v) => respond(&mut stream, 200, origin, &v.to_string()),
+        Err(e) => respond(&mut stream, 500, origin, &json!({ "error": e }).to_string()),
     }
 }
 
@@ -99,6 +178,10 @@ fn arg<T: serde::de::DeserializeOwned>(args: &Value, key: &str) -> Result<T, Str
 
 fn ok<T: Serialize>(v: T) -> Result<Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
+}
+
+fn no_window(cmd: &str) -> Result<Value, String> {
+    Err(format!("{cmd} needs a Tauri window"))
 }
 
 fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
@@ -229,12 +312,85 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             ui_log(arg(&a, "level")?, arg(&a, "message")?);
             ok(())
         }
+        // Windows (src-tauri/src/windows.rs) are Tauri windows: a page in a
+        // plain browser is none. They answer an error, as they did (with
+        // "unknown command") before they had arms here.
+        "open_window" => no_window(cmd),
+        "window_start" => no_window(cmd),
+        "doc_join" => no_window(cmd),
+        "doc_sync" => no_window(cmd),
+        "doc_leave" => no_window(cmd),
+        "close_other_windows" => no_window(cmd),
+        "window_flushed" => no_window(cmd),
+        "flush_all_windows" => no_window(cmd),
         other => Err(format!("unknown command {other}")),
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{admit, Admission};
+
+    fn head(lines: &[&str]) -> String {
+        let mut h = String::from("POST /invoke/get_settings HTTP/1.1");
+        for l in lines {
+            h.push_str("\r\n");
+            h.push_str(l);
+        }
+        h
+    }
+
+    fn allowed(origin: Option<&str>) -> Admission {
+        Admission::Allow { origin: origin.map(str::to_string) }
+    }
+
+    #[test]
+    fn the_dev_server_and_node_scripts_are_let_in() {
+        let page = head(&["Host: 127.0.0.1:4321", "Origin: http://localhost:1420", "Content-Type: application/json"]);
+        assert_eq!(admit("POST", &page), allowed(Some("http://localhost:1420")));
+        let page = head(&[
+            "host: localhost:4321",
+            "origin: http://127.0.0.1:1420",
+            "content-type: application/json; charset=utf-8",
+        ]);
+        assert_eq!(admit("POST", &page), allowed(Some("http://127.0.0.1:1420")));
+        let node = head(&["Host: 127.0.0.1:4321", "Content-Type: application/json"]);
+        assert_eq!(admit("POST", &node), allowed(None));
+        let preflight = head(&["Host: 127.0.0.1:4321", "Origin: http://localhost:1420"]);
+        assert_eq!(admit("OPTIONS", &preflight), allowed(Some("http://localhost:1420")));
+    }
+
+    /// #60: any website open in the browser could drive the engine.
+    #[test]
+    fn another_website_is_refused() {
+        for origin in ["https://evil.example", "http://localhost:1421", "null", "http://localhost:1420.evil.example"] {
+            let origin_line = format!("Origin: {origin}");
+            let h = head(&["Host: 127.0.0.1:4321", &origin_line, "Content-Type: application/json"]);
+            assert!(matches!(admit("POST", &h), Admission::Deny(_)), "{origin}");
+            assert!(matches!(admit("OPTIONS", &h), Admission::Deny(_)), "{origin} preflight");
+        }
+    }
+
+    /// DNS rebinding: a hostile name resolving to 127.0.0.1 makes the page
+    /// same-origin with the bridge, but its Host header still names it.
+    #[test]
+    fn a_rebound_host_is_refused() {
+        let h = head(&["Host: evil.example:4321", "Content-Type: application/json"]);
+        assert!(matches!(admit("POST", &h), Admission::Deny(_)));
+        let h = head(&["Content-Type: application/json"]);
+        assert!(matches!(admit("POST", &h), Admission::Deny(_)));
+    }
+
+    /// A cross-site form can POST text/plain without a preflight.
+    #[test]
+    fn a_post_that_is_not_json_is_refused() {
+        let h = head(&["Host: 127.0.0.1:4321", "Content-Type: text/plain"]);
+        assert!(matches!(admit("POST", &h), Admission::Deny(_)));
+        let h = head(&["Host: 127.0.0.1:4321"]);
+        assert!(matches!(admit("POST", &h), Admission::Deny(_)));
+        let h = head(&["Host: 127.0.0.1:4321", "Content-Type: application/json"]);
+        assert!(matches!(admit("GET", &h), Admission::Deny(_)));
+    }
     /// A Tauri command exists in three places: its `fn`, `generate_handler!`
     /// and this bridge's hand-written dispatch. The bridge is the one that gets
     /// forgotten, and then every spec that reaches the command fails with
