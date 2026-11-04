@@ -48,10 +48,8 @@ function ensureWasiSdk() {
   if (!platform) throw new Error("set WASI_SDK_PATH: no prebuilt wasi-sdk for " + process.platform);
   const name = `wasi-sdk-${WASI_SDK}.0-${arch}-${platform}`;
   const dir = path.join(root, "target", name);
-  // A restored CI cache can hold the folder without its clang: fetch again then.
-  if (!fs.existsSync(path.join(dir, "bin", "clang"))) {
+  if (!fs.existsSync(dir)) {
     console.log(`[build-web] fetching ${name}`);
-    fs.rmSync(dir, { recursive: true, force: true });
     const url = `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK}/${name}.tar.gz`;
     fs.mkdirSync(path.dirname(dir), { recursive: true });
     run(`curl -sSfL "${url}" | tar xz -C "${path.dirname(dir)}"`);
