@@ -16,6 +16,7 @@ use crate::scripture::{Lang, Passage};
 use crate::sync::{HistoryPoint, RemoteChange, Sync, Version};
 use crate::templates;
 use crate::unlinked;
+use crate::vault_path::VaultPath;
 use crate::{Error, Result};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -355,7 +356,8 @@ impl Vault {
             if !missing {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(self.abs(&d.path)) else { continue };
+            let Ok(abs) = self.abs(&d.path) else { continue };
+            let Ok(text) = fs::read_to_string(abs) else { continue };
             if let Some(sync) = self.sync.as_mut() {
                 sync.republish(&d.id, &text, &d.path)?;
                 n += 1;
@@ -380,7 +382,7 @@ impl Vault {
             let current = self.index.get(&c.id)?;
             if c.deleted {
                 if let Some(d) = current {
-                    let p = self.abs(&d.path);
+                    let p = self.abs(&d.path)?;
                     if p.exists() {
                         fs::remove_file(p)?;
                     }
@@ -402,21 +404,22 @@ impl Vault {
             // Never write over, or move, a file iCloud has evicted: the merged
             // text is in the CRDT, and `index_file` folds it in once the file
             // is back (a copy older than the snapshot is replaced there).
-            if cloud::is_evicted(&self.abs(&rel))
-                || current.as_ref().is_some_and(|d| cloud::is_evicted(&self.abs(&d.path)))
+            let current_abs = current.as_ref().map(|d| self.abs(&d.path)).transpose()?;
+            if cloud::is_evicted(&self.abs(&rel)?)
+                || current_abs.as_deref().is_some_and(cloud::is_evicted)
             {
                 continue;
             }
             if let Some(d) = current.as_ref() {
-                if d.path != rel && self.abs(&d.path).exists() {
-                    if let Some(parent) = self.abs(&rel).parent() {
+                if d.path != rel && self.abs(&d.path)?.exists() {
+                    if let Some(parent) = self.abs(&rel)?.parent() {
                         fs::create_dir_all(parent)?;
                     }
-                    fs::rename(self.abs(&d.path), self.abs(&rel))?;
+                    fs::rename(self.abs(&d.path)?, self.abs(&rel)?)?;
                     self.index.remove_path(&d.path)?;
                 }
             }
-            let abs = self.abs(&rel);
+            let abs = self.abs(&rel)?;
             let on_disk = fs::read_to_string(&abs).unwrap_or_default();
             if on_disk != c.text {
                 // A file edited after the newest remote snapshot arrived (in
@@ -476,8 +479,10 @@ impl Vault {
         })
     }
 
-    fn abs(&self, rel: &str) -> PathBuf {
-        self.root.join(rel)
+    /// The file `rel` names, refused when it would lie outside the Vault
+    /// (see [`VaultPath`]): every read and write of a document goes through here.
+    fn abs(&self, rel: &str) -> Result<PathBuf> {
+        VaultPath::parse(rel)?.under(&self.root)
     }
 
     fn rel(&self, abs: &Path) -> Option<String> {
@@ -550,7 +555,11 @@ impl Vault {
             if walked.contains(&path) {
                 continue;
             }
-            let abs = self.abs(&path);
+            // A path that now leads out of the Vault is not one of its files.
+            let Ok(abs) = self.abs(&path) else {
+                self.index.remove_path(&path)?;
+                continue;
+            };
             if !abs.is_file() && !cloud::is_evicted(&abs) {
                 self.index.remove_path(&path)?;
             }
@@ -688,7 +697,7 @@ impl Vault {
     fn index_boards(&mut self) -> Result<()> {
         for comp in self.index.list(Some(DocType::Composition))? {
             let rel = canvas::board_path(&comp.path);
-            let abs = self.abs(&rel);
+            let Ok(abs) = self.abs(&rel) else { continue };
             if !abs.exists() {
                 continue;
             }
@@ -720,7 +729,10 @@ impl Vault {
     /// clock that runs ahead would otherwise have the save replaced by the
     /// older merged text.
     fn index_file_as(&mut self, rel: &str, own_write: bool) -> Result<Option<DocSummary>> {
-        let abs = self.abs(rel);
+        let Ok(abs) = self.abs(rel) else {
+            self.index.remove_path(rel)?;
+            return Ok(None);
+        };
         let text = match fs::read_to_string(&abs) {
             Ok(t) => t,
             // Evicted, not deleted: keep what the index knows.
@@ -779,7 +791,7 @@ impl Vault {
         }
         let id = new_id();
         let text = document::with_frontmatter_fields(&text, &[("id", &id)]);
-        write_atomic(&self.abs(rel), &text)?;
+        write_atomic(&self.abs(rel)?, &text)?;
         let mut parsed = document::parse(rel, &text);
         parsed.id = Some(id.clone());
         Ok((text, parsed, id))
@@ -794,11 +806,11 @@ impl Vault {
         wanted.dedup();
         for (b, c, v) in wanted {
             let rel = templates::scripture_path(b, c, v);
-            if self.index.get_by_path(&rel)?.is_some() || cloud::occupied(&self.abs(&rel)) {
+            if self.index.get_by_path(&rel)?.is_some() || cloud::occupied(&self.abs(&rel)?) {
                 continue;
             }
             let id = new_id();
-            write_atomic(&self.abs(&rel), &templates::scripture_page(&id, b, c, v))?;
+            write_atomic(&self.abs(&rel)?, &templates::scripture_page(&id, b, c, v))?;
             if let Some(d) = self.index_file(&rel)? {
                 created.push(d);
             }
@@ -815,7 +827,7 @@ impl Vault {
     /// kept if iCloud only evicted it (see `cloud`). Returns whether it was
     /// forgotten.
     pub fn vanished(&mut self, rel: &str) -> Result<bool> {
-        if cloud::is_evicted(&self.abs(rel)) {
+        if self.abs(rel).is_ok_and(|abs| cloud::is_evicted(&abs)) {
             return Ok(false);
         }
         self.forget(rel)?;
@@ -834,7 +846,7 @@ impl Vault {
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
-        let abs = self.abs(&summary.path);
+        let abs = self.abs(&summary.path)?;
         if cloud::is_evicted(&abs) {
             return Err(cloud::downloading(&abs));
         }
@@ -857,12 +869,12 @@ impl Vault {
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
-        if cloud::is_evicted(&self.abs(&summary.path)) {
-            return Err(cloud::downloading(&self.abs(&summary.path)));
+        if cloud::is_evicted(&self.abs(&summary.path)?) {
+            return Err(cloud::downloading(&self.abs(&summary.path)?));
         }
         // Never let a save drop the id.
         let text = document::with_frontmatter_fields(text, &[("id", id)]);
-        write_atomic(&self.abs(&summary.path), &text)?;
+        write_atomic(&self.abs(&summary.path)?, &text)?;
         self.index_file_as(&summary.path, true)?;
         if summary.doc_type == DocType::Place {
             self.note_border_names()?;
@@ -882,7 +894,7 @@ impl Vault {
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
         let rel = canvas::board_path(&summary.path);
-        let abs = self.abs(&rel);
+        let abs = self.abs(&rel)?;
         if !abs.exists() {
             // No file: the CRDT may still hold a Board another Device made,
             // not yet materialised here.
@@ -929,7 +941,7 @@ impl Vault {
         if comp.doc_type != DocType::Composition {
             return Ok(None);
         }
-        let abs = self.abs(rel);
+        let abs = self.abs(rel)?;
         let Ok(text) = fs::read_to_string(&abs) else { return Ok(None) };
         let Ok(parsed) = Canvas::parse(&text) else { return Ok(None) };
         let (changed, board) = match self.sync.as_mut() {
@@ -966,7 +978,7 @@ impl Vault {
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
         let rel = canvas::board_path(&summary.path);
-        let abs = self.abs(&rel);
+        let abs = self.abs(&rel)?;
         if cloud::is_evicted(&abs) {
             return Err(cloud::downloading(&abs));
         }
@@ -986,7 +998,7 @@ impl Vault {
     /// `keep` is the document's own path, so renaming a file to a different
     /// casing of itself is not a clash (case-insensitive file systems would
     /// otherwise report it as existing and append " 2").
-    fn unique_path(&self, folder: &str, title: &str, keep: Option<&str>) -> String {
+    fn unique_path(&self, folder: &str, title: &str, keep: Option<&str>) -> Result<String> {
         let base = sanitize_title(title).to_lowercase();
         let mut n = 1;
         loop {
@@ -1001,9 +1013,9 @@ impl Vault {
                 format!("{folder}/{name}.md")
             };
             if keep.is_some_and(|k| k.to_lowercase() == rel.to_lowercase())
-                || !cloud::occupied(&self.abs(&rel))
+                || !cloud::occupied(&self.abs(&rel)?)
             {
-                return rel;
+                return Ok(rel);
             }
             n += 1;
         }
@@ -1070,13 +1082,11 @@ impl Vault {
                 "Scripture pages are created by mentioning them".into(),
             ));
         }
-        let folder = fields
-            .get("folder")
-            .and_then(Value::as_str)
-            .map(str::to_string)
-            .unwrap_or_else(|| doc_type.default_folder().to_string());
+        // A new document always goes in its type's folder. There is no field
+        // to name another: a caller-chosen folder could name one outside the
+        // Vault (#87), and `folder` is written as an ordinary Property.
+        let folder = doc_type.default_folder();
         let mut fields = fields.clone();
-        fields.remove("folder");
         // A Clipping is named by its Citation and never carries a title
         // (ADR 0013); the `title` argument is ignored for one, and a `title`
         // field a caller passed is dropped rather than written.
@@ -1086,7 +1096,7 @@ impl Vault {
         } else {
             document::display_title(&sanitize_title(title))
         };
-        let rel = self.unique_path(&folder, &title, None);
+        let rel = self.unique_path(folder, &title, None)?;
         if doc_type != DocType::Clipping
             && !fields.contains_key("title")
             && Self::needs_title_field(&rel, &title)
@@ -1095,7 +1105,7 @@ impl Vault {
         }
         let id = new_id();
         write_atomic(
-            &self.abs(&rel),
+            &self.abs(&rel)?,
             &templates::new_document(&id, doc_type, &fields, body),
         )?;
         self.index_file(&rel)?;
@@ -1126,9 +1136,9 @@ impl Vault {
             .rsplit_once('/')
             .map(|(f, _)| f.to_string())
             .unwrap_or_default();
-        let rel = self.unique_path(&folder, &title, None);
+        let rel = self.unique_path(&folder, &title, None)?;
         let new = new_id();
-        let mut text = fs::read_to_string(self.abs(&summary.path))?;
+        let mut text = fs::read_to_string(self.abs(&summary.path)?)?;
         text = document::set_frontmatter_field(&text, "id", Some(&new));
         text = document::set_frontmatter_field(
             &text,
@@ -1142,7 +1152,7 @@ impl Vault {
                 text = document::set_frontmatter_field(&text, key, Some(""));
             }
         }
-        write_atomic(&self.abs(&rel), &text)?;
+        write_atomic(&self.abs(&rel)?, &text)?;
         self.index_file_as(&rel, true)?;
         if let Some(board) = self.read_board(id)? {
             if !board.is_empty() {
@@ -1164,8 +1174,8 @@ impl Vault {
             // holds, and the file name is a Citation the app derives.
             return Err(Error::Invalid("A Clipping has no title".into()));
         }
-        if cloud::is_evicted(&self.abs(&summary.path)) {
-            return Err(cloud::downloading(&self.abs(&summary.path)));
+        if cloud::is_evicted(&self.abs(&summary.path)?) {
+            return Err(cloud::downloading(&self.abs(&summary.path)?));
         }
         let new_title = document::display_title(&sanitize_title(new_title));
         if new_title == summary.title {
@@ -1178,14 +1188,14 @@ impl Vault {
             .rsplit_once('/')
             .map(|(f, _)| f.to_string())
             .unwrap_or_default();
-        let new_rel = self.unique_path(&folder, &new_title, Some(&summary.path));
+        let new_rel = self.unique_path(&folder, &new_title, Some(&summary.path))?;
         if new_rel != summary.path {
-            fs::rename(self.abs(&summary.path), self.abs(&new_rel))?;
+            fs::rename(self.abs(&summary.path)?, self.abs(&new_rel)?)?;
             // A Board is identified by its pairing, so it moves with the
             // Composition or it stops being that Composition's (ADR 0009).
             let (old_board, new_board) = (
-                self.abs(&canvas::board_path(&summary.path)),
-                self.abs(&canvas::board_path(&new_rel)),
+                self.abs(&canvas::board_path(&summary.path))?,
+                self.abs(&canvas::board_path(&new_rel))?,
             );
             if old_board.exists() {
                 fs::rename(&old_board, &new_board)?;
@@ -1193,7 +1203,7 @@ impl Vault {
             self.index.remove_path(&summary.path)?;
         }
         // The file stem is lowercase; keep the typed capitalisation in `title` when it differs.
-        let p = self.abs(&new_rel);
+        let p = self.abs(&new_rel)?;
         let text = fs::read_to_string(&p)?;
         let updated = document::set_frontmatter_field(
             &text,
@@ -1220,7 +1230,7 @@ impl Vault {
             if bl.kind == index::BacklinkKind::Mention || bl.kind == index::BacklinkKind::Tag {
                 continue;
             }
-            let p = self.abs(&bl.doc.path);
+            let p = self.abs(&bl.doc.path)?;
             let text = fs::read_to_string(&p)?;
             let updated = re.replace_all(&text, |c: &regex::Captures| {
                 format!("[[{final_title}{}]]", &c["rest"])
@@ -1258,7 +1268,7 @@ impl Vault {
             .index
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
-        let p = self.abs(&summary.path);
+        let p = self.abs(&summary.path)?;
         // Deleting the placeholder would leave the cloud copy to come back;
         // deleting through it is iCloud's job, once the file is here.
         if cloud::is_evicted(&p) {
@@ -1283,7 +1293,7 @@ impl Vault {
         // The Board belongs to the Composition, so it goes too. Nodes on
         // *other* Boards that pointed here are left alone and render as
         // missing: never silently remove what the user placed (PLAN §17.13).
-        let board = self.abs(&canvas::board_path(&summary.path));
+        let board = self.abs(&canvas::board_path(&summary.path))?;
         if board.exists() {
             fs::remove_file(board)?;
         }
@@ -1673,6 +1683,25 @@ mod tests {
         ] {
             assert!(!is_document_path(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn a_new_document_cannot_be_written_outside_the_vault() {
+        // #87: `create` once took its folder from a `folder` field, verbatim.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        let escape = outside.path().join("x").display().to_string();
+        for folder in [escape.as_str(), "../escaped", "Notes/../../escaped"] {
+            let mut fields = Map::new();
+            fields.insert("folder".into(), Value::String(folder.into()));
+            let doc = v.create(DocType::Note, "Escape", &fields, "").unwrap();
+            assert!(doc.summary.path.starts_with("Notes/"), "{folder}: {}", doc.summary.path);
+        }
+        assert!(!dir.path().parent().unwrap().join("escaped").exists());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        // And no path the engine is handed reaches past the root.
+        assert!(v.abs("../escaped.md").is_err());
+        assert!(v.abs(&escape).is_err());
     }
 
     fn vault() -> (tempfile::TempDir, Vault) {

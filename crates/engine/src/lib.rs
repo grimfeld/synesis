@@ -28,6 +28,7 @@ pub mod p2p;
 pub mod templates;
 pub mod unlinked;
 pub mod vault;
+pub mod vault_path;
 pub mod versification;
 pub mod windows;
 
