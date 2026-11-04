@@ -9,6 +9,7 @@ pub mod canvas;
 pub mod cloud;
 pub mod config;
 pub mod dates;
+pub mod device_id;
 pub mod document;
 pub mod excerpt;
 pub mod gazetteer;
