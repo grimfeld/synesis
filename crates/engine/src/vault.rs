@@ -170,12 +170,15 @@ fn mtime_of(p: &Path) -> i64 {
         .unwrap_or(0)
 }
 
-/// Make a title safe as a file name on every platform.
+/// Make a title safe as a file name on every platform, and as a wikilink
+/// target: `#`, `^`, `[` and `]` would make `[[Title]]` point at a heading, a
+/// block or nothing, in Synesis and in Obsidian alike.
 pub fn sanitize_title(title: &str) -> String {
     let cleaned: String = title
         .chars()
         .map(|c| match c {
             '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => ' ',
+            '#' | '^' | '[' | ']' => ' ',
             c if c.is_control() => ' ',
             c => c,
         })
@@ -2267,6 +2270,22 @@ Antioch is where they met.
             .create(DocType::Note, "Ro 8:28 / thoughts?", &Map::new(), "")
             .unwrap();
         assert_eq!(b.summary.path, "Notes/ro 8 28 thoughts 2.md");
+    }
+
+    #[test]
+    fn a_title_loses_what_would_break_a_link_to_it() {
+        assert_eq!(sanitize_title("Acts #2"), "Acts 2");
+        assert_eq!(sanitize_title("[[x]]"), "x");
+        assert_eq!(sanitize_title("a^b"), "a b");
+        let (_dir, mut v) = vault();
+        let a = v.create(DocType::Note, "Acts #2 [draft]", &Map::new(), "").unwrap();
+        assert_eq!(a.summary.title, "Acts 2 draft");
+        assert_eq!(a.summary.path, "Notes/acts 2 draft.md");
+        // The link Synesis writes to it reads back as a link to that title.
+        let link = crate::unlinked::link_text(&a.summary.title, &a.summary.title, None);
+        let parsed = document::parse("Notes/other.md", &format!("See {link}.\n"));
+        assert_eq!(parsed.links.len(), 1);
+        assert_eq!(parsed.links[0].target, "Acts 2 draft");
     }
 
     #[cfg(unix)]
