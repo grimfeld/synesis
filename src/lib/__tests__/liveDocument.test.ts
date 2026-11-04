@@ -426,6 +426,41 @@ describe("saving", () => {
   });
 });
 
+describe("a file written with CRLF (issue #61)", () => {
+  const crlf = "---\r\ntype: note\r\n---\r\nline one\r\nline two";
+
+  it("is not saved again when the editor echoes the body it was given", async () => {
+    const { left, saves } = await opened(crlf);
+    const m = left.join(() => {});
+    m.write("line one\nline two");
+    await left.load(); // a Reload
+    m.write(left.snapshot().body);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(saves).toEqual([]);
+  });
+
+  it("keeps its CRLF line breaks when typed in", async () => {
+    const { left, saves } = await opened(crlf);
+    left.join(() => {}).write("line one\nline two\nline three");
+    await left.flush();
+    expect(saves.map((s) => s.text)).toEqual([
+      "---\r\ntype: note\r\n---\r\nline one\r\nline two\r\nline three",
+    ]);
+    // Its own save, heard back from the watcher, is no change.
+    left.noticeChange([{ id: "a", mtime: 99 }]);
+    await settle();
+    expect(left.snapshot().external).toBe(false);
+    expect(left.snapshot().body).toBe("line one\nline two\nline three");
+  });
+
+  it("leaves a file written with LF as LF", async () => {
+    const { left, saves } = await opened("---\ntype: note\n---\none");
+    left.join(() => {}).write("one\ntwo");
+    await left.flush();
+    expect(saves.map((s) => s.text)).toEqual(["---\ntype: note\n---\none\ntwo"]);
+  });
+});
+
 describe("a Vault change", () => {
   it("saves what is pending, then writes nothing more", async () => {
     const { left, saves, docs } = await opened("hello");
