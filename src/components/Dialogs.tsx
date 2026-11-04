@@ -45,6 +45,7 @@ import { gazetteerTitle } from "@/lib/map";
 import { KindPicker } from "@/components/KindPicker";
 import { addAtlas } from "@/lib/atlas";
 import { quoteBody } from "@/lib/clippingBody";
+import { snippetParts } from "@/lib/snippet";
 import { propertyLabel, useT } from "@/i18n";
 import {
   AlertDialog,
@@ -1576,14 +1577,11 @@ function Palette({
                           <span className="font-medium">{h.doc.label}</span>
                           <EventDate doc={h.doc} className="ml-2" />
                           {h.snippet && (
-                            <span
-                              className="ml-2 text-xs text-muted-foreground [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-foreground"
-                              dangerouslySetInnerHTML={{
-                                __html: h.snippet
-                                  .replace(/</g, "&lt;")
-                                  .replace(/\[([^\]]+)\]/g, "<mark>$1</mark>"),
-                              }}
-                            />
+                            <span className="ml-2 text-xs text-muted-foreground [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-foreground">
+                              {snippetParts(h.snippet).map((p, i) =>
+                                p.match ? <mark key={i}>{p.text}</mark> : p.text,
+                              )}
+                            </span>
                           )}
                         </span>
                       </CommandItem>
