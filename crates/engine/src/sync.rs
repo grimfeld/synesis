@@ -184,6 +184,9 @@ pub fn find_vaults(roots: &[PathBuf], self_id: Option<&str>) -> Vec<FoundVault> 
 pub struct RemoteChange {
     pub id: String,
     pub text: String,
+    /// The text this Device's CRDT held before the import. A file equal to it
+    /// holds nothing the merge has not already seen.
+    pub before: String,
     pub path: Option<String>,
     pub deleted: bool,
 }
@@ -983,6 +986,7 @@ impl Sync {
                     out.push(RemoteChange {
                         id,
                         text: after.0,
+                        before: before.0,
                         path: after.1,
                         deleted: after.2,
                     });

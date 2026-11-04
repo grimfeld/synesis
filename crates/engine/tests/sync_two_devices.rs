@@ -123,6 +123,47 @@ fn a_peer_path_cannot_leave_the_vault() {
     }
 }
 
+/// The same offline edit as above, but the importing Device saved last: its
+/// file is newer than the other Device's snapshot only because it was saved
+/// later, not because it holds an edit the CRDT has not seen. Both lines
+/// must survive on both Devices.
+#[test]
+fn concurrent_edits_survive_when_the_importer_saved_last() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let doc = a
+        .create(DocType::Note, "Shared", &Map::new(), "Base line.")
+        .unwrap();
+    let (id, file) = (doc.summary.id.clone(), root.join(&doc.summary.path));
+    let mut b = open(&root, &tmp.path().join("devB"));
+    let base = b.read(&id).unwrap().text;
+
+    b.write(&id, &format!("{base}B line.\n")).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    a.write(&id, &format!("{base}A line.\n")).unwrap();
+    // A's save is the newest thing on disk, well after B's snapshot.
+    let later = std::time::SystemTime::now() + std::time::Duration::from_secs(5);
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+
+    a.apply_remote().unwrap();
+    let merged_a = a.read(&id).unwrap().text;
+    assert!(
+        merged_a.contains("A line.") && merged_a.contains("B line."),
+        "B's edit was lost on A: {merged_a}"
+    );
+    b.apply_remote().unwrap();
+    let merged_b = b.read(&id).unwrap().text;
+    assert!(merged_b.contains("B line."), "B's edit was lost on B: {merged_b}");
+    assert_eq!(merged_a, merged_b);
+}
+
 #[test]
 fn rename_and_delete_propagate() {
     let tmp = tempfile::tempdir().unwrap();

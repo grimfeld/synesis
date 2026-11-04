@@ -416,8 +416,12 @@ impl Vault {
                 // the user's latest words: fold it into the merged state as a
                 // diff instead of overwriting it. Only a file older than the
                 // snapshot is a stale copy the provider has not replaced yet.
+                // A file equal to what this Device held before the import is
+                // its own last save, however recent: folding that back in
+                // would delete every remote edit the merge just brought.
                 let file_newer = abs.is_file()
                     && !on_disk.is_empty()
+                    && on_disk != c.before
                     && self
                         .sync
                         .as_ref()
