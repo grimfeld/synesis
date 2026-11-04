@@ -465,8 +465,9 @@ impl Vault {
     fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
         let files = self.markdown_files();
+        let walked: std::collections::HashSet<String> = files.iter().map(|(rel, _)| rel.clone()).collect();
         changed.extend(self.reindex(files, all)?);
-        self.forget_vanished()?;
+        self.forget_vanished(&walked)?;
         self.index_boards()?;
         // A Border file can change while the app is closed, with its Place
         // untouched (another tool, Pairing, iCloud): every one is read again.
@@ -507,11 +508,16 @@ impl Vault {
         Ok(self.index.mtime_of(rel)? == Some(mtime))
     }
 
-    /// Forget files that vanished. The disk decides, not the walk: Scripture
-    /// pages materialised during a scan were not walked, and a document iCloud
-    /// has evicted is the user's still, kept until it really goes.
-    fn forget_vanished(&mut self) -> Result<()> {
+    /// Forget files that vanished. A file the walk just found is there; for
+    /// the rest the disk decides: Scripture pages materialised during a scan
+    /// were not walked, and a document iCloud has evicted is the user's still,
+    /// kept until it really goes. Only those are looked up, not every file
+    /// the index holds.
+    fn forget_vanished(&mut self, walked: &std::collections::HashSet<String>) -> Result<()> {
         for path in self.index.all_paths()? {
+            if walked.contains(&path) {
+                continue;
+            }
             let abs = self.abs(&path);
             if !abs.is_file() && !cloud::is_evicted(&abs) {
                 self.index.remove_path(&path)?;

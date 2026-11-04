@@ -487,6 +487,9 @@ fn graph_label(d: &DocSummary) -> String {
         .unwrap_or(cut.len());
     format!("{}…", cut[..end].trim_end())
 }
+/// What each link target resolved to, kept for one `Index::place_ties`.
+type Memo = std::cell::RefCell<HashMap<String, Option<DocSummary>>>;
+
 /// A Character↔Place tie and where it sorts: by Character, then `places`
 /// before Events, then in order within each (`Index::place_ties`).
 struct KeyedTie {
@@ -1619,9 +1622,12 @@ impl Index {
     /// `place` when that is a Place; links that resolve to nothing, or to
     /// another type, tie no one.
     pub fn place_ties(&self, id: Option<&str>) -> Result<Vec<PlaceTie>> {
-        let mut keyed = self.lifelong_ties()?;
+        // One answer per link target for the whole call: the same Places and
+        // Characters are named by Event after Event.
+        let memo = Memo::default();
+        let mut keyed = self.lifelong_ties(&memo)?;
         for event in self.events_by_title()? {
-            keyed.extend(self.event_ties(event)?);
+            keyed.extend(self.event_ties(event, &memo)?);
         }
         keyed.sort_by(|a, b| {
             a.character
@@ -1647,12 +1653,17 @@ impl Index {
     }
 
     /// A link's target, when it resolves to a document of type `t`.
-    fn resolve_as(&self, target: &str, t: DocType) -> Result<Option<DocSummary>> {
-        Ok(self.resolve(target)?.filter(|d| d.doc_type == t))
+    fn resolve_as(&self, target: &str, t: DocType, memo: &Memo) -> Result<Option<DocSummary>> {
+        if let Some(d) = memo.borrow().get(target) {
+            return Ok(d.clone().filter(|d| d.doc_type == t));
+        }
+        let d = self.resolve(target)?;
+        memo.borrow_mut().insert(target.to_string(), d.clone());
+        Ok(d.filter(|d| d.doc_type == t))
     }
 
     /// Each Character's `places` that are Places, in the order written, each once.
-    fn lifelong_ties(&self) -> Result<Vec<KeyedTie>> {
+    fn lifelong_ties(&self, memo: &Memo) -> Result<Vec<KeyedTie>> {
         let mut st = self.conn.prepare(&format!(
             "SELECT {SUMMARY_COLS}, l.target FROM links l JOIN documents d ON d.id = l.from_id \
              WHERE d.type = 'character' AND l.property = 'places' ORDER BY d.id, l.start"
@@ -1663,7 +1674,7 @@ impl Index {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for (n, (character, target)) in rows.into_iter().enumerate() {
-            let Some(place) = self.resolve_as(&target, DocType::Place)? else { continue };
+            let Some(place) = self.resolve_as(&target, DocType::Place, memo)? else { continue };
             if seen.insert((character.id.clone(), place.id.clone())) {
                 out.push(KeyedTie::lifelong(character, place, n));
             }
@@ -1673,16 +1684,16 @@ impl Index {
 
     /// An Event's ties: each of its `characters` that is a Character, once,
     /// to the first of its `place` links that is a Place. None without one.
-    fn event_ties(&self, event: DocSummary) -> Result<Vec<KeyedTie>> {
+    fn event_ties(&self, event: DocSummary, memo: &Memo) -> Result<Vec<KeyedTie>> {
         let links = self.tie_links(&event.id)?;
         let named = |property: &'static str| links.iter().filter(move |(p, _)| p == property).map(|(_, t)| t);
-        let Some(place) = self.first_as(named("place"), DocType::Place)? else {
+        let Some(place) = self.first_as(named("place"), DocType::Place, memo)? else {
             return Ok(Vec::new());
         };
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for target in named("characters") {
-            let Some(character) = self.resolve_as(target, DocType::Character)? else { continue };
+            let Some(character) = self.resolve_as(target, DocType::Character, memo)? else { continue };
             if seen.insert(character.id.clone()) {
                 out.push(KeyedTie::through(character, place.clone(), &event));
             }
@@ -1701,9 +1712,9 @@ impl Index {
     }
 
     /// The first of `targets` that resolves to a document of type `t`.
-    fn first_as<'a>(&self, targets: impl Iterator<Item = &'a String>, t: DocType) -> Result<Option<DocSummary>> {
+    fn first_as<'a>(&self, targets: impl Iterator<Item = &'a String>, t: DocType, memo: &Memo) -> Result<Option<DocSummary>> {
         for target in targets {
-            if let Some(d) = self.resolve_as(target, t)? {
+            if let Some(d) = self.resolve_as(target, t, memo)? {
                 return Ok(Some(d));
             }
         }
