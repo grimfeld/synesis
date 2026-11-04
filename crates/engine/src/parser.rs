@@ -5,13 +5,17 @@
 //!   bare book names are never detected;
 //! - the book name must start with an uppercase letter or a digit ("Job 3" yes, "my job 3" no);
 //! - contextual "v. 17" / "verses 3, 4" resolve against the last explicit
-//!   reference in the same paragraph and are flagged `inferred`;
+//!   reference in the same section (since the last heading, across blank
+//!   lines) and are flagged `inferred`;
 //! - nothing is detected inside code spans, fenced code blocks or URLs;
 //! - every Passage is validated against the versification; invalid chapters or
 //!   verses are dropped rather than clamped.
 //!
 //! Offsets are byte offsets into the input.
 
+// Code, URLs and pictures are skipped by the same rule the document parser
+// and the matcher use, so a heading found inside code is never a section break.
+use crate::document::{in_zone, zones};
 use crate::names;
 use crate::scripture::{is_single_chapter, Passage};
 use once_cell::sync::Lazy;
@@ -51,10 +55,6 @@ static BOOK_AT_RE: Lazy<Regex> = Lazy::new(|| {
 
 static CONTEXT_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)(?:^|[^\p{L}\p{N}])(?P<kw>versets|verset|verses|verse|vv|vs|v)\.?[ \t]*(?P<num>\d{1,3})").expect("context regex")
-});
-
-static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).expect("skip regex")
 });
 
 fn is_dash(c: char) -> bool {
@@ -187,7 +187,7 @@ fn parse_verse_list(cur: &mut Cursor, book: u8, mut chapter: u16) -> Vec<Passage
         let sep_pos = probe.pos;
         if probe.eat(|c| c == ',' || c == ';') {
             probe.skip_spaces();
-            if probe.peek().map_or(false, |c| c.is_ascii_digit()) {
+            if probe.peek().is_some_and(|c| c.is_ascii_digit()) {
                 cur.pos = probe.pos;
                 continue;
             }
@@ -208,7 +208,7 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     let single = is_single_chapter(book);
     let next = cur.peek();
     let comma_then_digit =
-        next == Some(',') && cur.peek_at(1).map_or(false, |c| c.is_ascii_digit());
+        next == Some(',') && cur.peek_at(1).is_some_and(|c| c.is_ascii_digit());
     if next == Some(':') || comma_then_digit {
         cur.pos += 1;
         // "John 3:99" or a dangling "John 3:" yield nothing: invalid
@@ -256,32 +256,32 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     }
 }
 
-fn skip_zones(text: &str) -> Vec<(usize, usize)> {
-    SKIP_RE
-        .find_iter(text)
-        .map(|m| (m.start(), m.end()))
+/// Byte offsets at which a new section begins: the start of every ATX heading
+/// line outside code. A bare verse only resolves within its section.
+fn section_breaks(text: &str, zones: &[(usize, usize)]) -> Vec<usize> {
+    crate::document::headings(text, zones)
+        .into_iter()
+        .map(|h| h.start)
         .collect()
 }
 
-fn in_zone(zones: &[(usize, usize)], start: usize, end: usize) -> bool {
-    zones.iter().any(|&(a, b)| start < b && end > a)
-}
-
-/// Byte offsets at which a new paragraph begins (after a blank line).
-fn paragraph_breaks(text: &str) -> Vec<usize> {
-    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"\n[ \t]*\n").unwrap());
-    RE.find_iter(text).map(|m| m.end()).collect()
-}
-
-fn paragraph_of(breaks: &[usize], pos: usize) -> usize {
+fn section_of(breaks: &[usize], pos: usize) -> usize {
     breaks.partition_point(|&b| b <= pos)
 }
 
 /// Detect every Scripture reference in `text`.
 pub fn detect(text: &str) -> Vec<Detected> {
-    let zones = skip_zones(text);
-    let mut out: Vec<Detected> = Vec::new();
+    let zones = zones(text);
+    let mut out = explicit_references(text, &zones);
+    let inferred = bare_verses(text, &zones, &out);
+    out.extend(inferred);
+    out.sort_by_key(|d| d.start);
+    out
+}
 
+/// Every reference that names its Book, in order, none overlapping.
+fn explicit_references(text: &str, zones: &[(usize, usize)]) -> Vec<Detected> {
+    let mut out: Vec<Detected> = Vec::new();
     for caps in BOOK_RE.captures_iter(text) {
         let book_m = caps.name("book").unwrap();
         let num_m = caps.name("num").unwrap();
@@ -290,23 +290,19 @@ pub fn detect(text: &str) -> Vec<Detected> {
         if !(first.is_uppercase() || first.is_ascii_digit()) {
             continue;
         }
-        let book = match names::lookup(book_m.as_str()) {
-            Some(b) => b,
-            None => continue,
+        let Some(book) = names::lookup(book_m.as_str()) else {
+            continue;
         };
         let mut cur = Cursor {
             s: text,
             pos: num_m.start(),
         };
         let passages = parse_tail(&mut cur, book);
-        if passages.is_empty() {
-            continue;
-        }
         let (start, end) = (book_m.start(), cur.pos);
-        if in_zone(&zones, start, end) {
-            continue;
-        }
-        if out.last().map_or(false, |d| d.end > start) {
+        if passages.is_empty()
+            || in_zone(zones, start, end)
+            || out.last().is_some_and(|d| d.end > start)
+        {
             continue;
         }
         out.push(Detected {
@@ -316,33 +312,23 @@ pub fn detect(text: &str) -> Vec<Detected> {
             inferred: false,
         });
     }
+    out
+}
 
-    let breaks = paragraph_breaks(text);
-    let explicit = out.clone();
+/// Every contextual "v. 17" / "verses 3, 4", resolved against the last
+/// explicit reference before it in the same section and flagged `inferred`.
+fn bare_verses(text: &str, zones: &[(usize, usize)], explicit: &[Detected]) -> Vec<Detected> {
+    let breaks = section_breaks(text, zones);
     let mut inferred = Vec::new();
     for caps in CONTEXT_RE.captures_iter(text) {
         let kw = caps.name("kw").unwrap();
         let num = caps.name("num").unwrap();
         let start = kw.start();
-        if in_zone(&zones, start, num.end())
-            || explicit
-                .iter()
-                .any(|d| d.start < num.end() && d.end > start)
-        {
+        if in_zone(zones, start, num.end()) || in_zone(&spans(explicit), start, num.end()) {
             continue;
         }
-        let para = paragraph_of(&breaks, start);
-        let ctx = explicit
-            .iter()
-            .filter(|d| d.end <= start && paragraph_of(&breaks, d.start) == para)
-            .last();
-        let ctx = match ctx {
-            Some(c) => c,
-            None => continue,
-        };
-        let last = match ctx.passages.last() {
-            Some(p) => p,
-            None => continue,
+        let Some(last) = context_at(explicit, &breaks, start) else {
+            continue;
         };
         let mut cur = Cursor {
             s: text,
@@ -359,9 +345,23 @@ pub fn detect(text: &str) -> Vec<Detected> {
             inferred: true,
         });
     }
-    out.extend(inferred);
-    out.sort_by_key(|d| d.start);
-    out
+    inferred
+}
+
+/// Byte ranges of `detected`.
+pub(crate) fn spans(detected: &[Detected]) -> Vec<(usize, usize)> {
+    detected.iter().map(|d| (d.start, d.end)).collect()
+}
+
+/// The Passage a bare verse at `pos` continues: the last one of the last
+/// explicit reference that ends before `pos` in the same section.
+fn context_at<'a>(explicit: &'a [Detected], breaks: &[usize], pos: usize) -> Option<&'a Passage> {
+    let section = section_of(breaks, pos);
+    explicit
+        .iter()
+        .rfind(|d| d.end <= pos && section_of(breaks, d.start) == section)?
+        .passages
+        .last()
 }
 
 /// Convert byte offsets to UTF-16 code unit offsets (what the editor uses).
@@ -456,6 +456,9 @@ mod tests {
         assert!(refs("`John 3:16` in code").is_empty());
         assert!(refs("https://example.com/John 3:16").is_empty());
         assert!(refs("```\nJohn 3:16\n```").is_empty());
+        // A bare verse inside code is code too, even with a reference before it.
+        assert_eq!(refs("Romans 8:28, `v. 29`"), vec!["Romans 8:28"]);
+        assert_eq!(refs("Romans 8:28.\n\n```\nv. 29\n```"), vec!["Romans 8:28"]);
     }
 
     #[test]
@@ -482,14 +485,77 @@ mod tests {
             vec!["Romans 8:28", "Romans 8:29", "Romans 8:31", "Romans 8:32"]
         );
         assert!(d[1].inferred && d[2].inferred && !d[0].inferred);
-        // New paragraph: no context.
-        assert_eq!(refs("Romans 8:28.\n\nv. 29 alone"), vec!["Romans 8:28"]);
+        // New paragraph, same section: still in context.
+        assert_eq!(
+            refs("Romans 8:28.\n\nv. 29 alone"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
         // No prior reference: nothing.
         assert!(refs("v. 29 alone").is_empty());
         // French keyword.
         assert_eq!(
             refs("Jean 3:16, puis verset 17"),
             vec!["John 3:16", "John 3:17"]
+        );
+    }
+
+    #[test]
+    fn a_section_starts_only_at_a_commonmark_heading() {
+        // Four spaces of indent: code, not a heading, so the context holds.
+        assert_eq!(
+            refs("Romans 8:28.\n    # not a heading\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // A tab after the hashes, or a bare "#", is a heading.
+        assert_eq!(refs("Romans 8:28.\n#\tNext\nv. 29"), vec!["Romans 8:28"]);
+        assert_eq!(refs("Romans 8:28.\n#\nv. 29"), vec!["Romans 8:28"]);
+    }
+
+    #[test]
+    fn bare_verses_are_scoped_to_the_section() {
+        // Blank lines between the reference and the bare verse keep the context.
+        let d = detect("Read Romans 8:28.\n\nA thought.\n\nVerse 29 follows.");
+        assert_eq!(d.len(), 2);
+        assert!(d[1].inferred);
+        assert_eq!(d[1].passages[0].display(Lang::En), "Romans 8:29");
+        // A heading ends the context.
+        assert_eq!(
+            refs("Romans 8:28.\n\n## Next\n\nv. 3 alone"),
+            vec!["Romans 8:28"]
+        );
+        assert_eq!(
+            refs("Romans 8:28.\n# Next\nv. 3 alone"),
+            vec!["Romans 8:28"]
+        );
+        // A reference in the heading itself belongs to the new section.
+        assert_eq!(
+            refs("Romans 8:28.\n\n## John 3\n\nv. 16"),
+            vec!["Romans 8:28", "John 3", "John 3:16"]
+        );
+        // A later explicit reference takes over.
+        assert_eq!(
+            refs("Romans 8:28.\n\nThen John 3:16.\n\nv. 17"),
+            vec!["Romans 8:28", "John 3:16", "John 3:17"]
+        );
+        // Inferred references never become the context for later ones.
+        assert_eq!(
+            refs("Romans 8:28, v. 29.\n\n## Next\n\nv. 30"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // French keyword across a blank line.
+        assert_eq!(
+            refs("Jean 3:16\n\nverset 17"),
+            vec!["John 3:16", "John 3:17"]
+        );
+        // A "#" line inside a code block is not a heading.
+        assert_eq!(
+            refs("Romans 8:28.\n\n```\n# comment\n```\n\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
+        );
+        // "#tag" is a Tag, not a heading.
+        assert_eq!(
+            refs("Romans 8:28.\n#faith\nv. 29"),
+            vec!["Romans 8:28", "Romans 8:29"]
         );
     }
 

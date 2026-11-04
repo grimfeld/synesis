@@ -6,6 +6,8 @@ import { useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   ArrowLeft,
+  ArrowLeftRight,
+  Upload,
   ArrowRight,
   BookOpenText,
   CalendarRange,
@@ -30,18 +32,24 @@ import {
   Settings,
   LibraryBig,
   Quote,
+  SquareSplitHorizontal,
+  AppWindow,
   Waypoints,
+  X,
   Zap,
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
+import type { Dict } from "@/i18n/en";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
+import { useDrawBorder, useImportBorder, useRegionIds } from "@/lib/useBorders";
 import { checkForUpdate, isDesktopApp } from "@/lib/updater";
+import { openInNewWindow, windowsOffered } from "@/lib/windows";
 import { SOURCE_URL, openExternal } from "@/lib/links";
 import { toast } from "sonner";
 import { whenBoard } from "@/lib/activeBoard";
@@ -74,6 +82,60 @@ const TYPE_ICON: Partial<Record<DocType, LucideIcon>> = {
   composition: PenLine,
 };
 
+/**
+ * Panes (spec #35): what the last-used Pane shows, opened beside it, where
+ * two fit; with two open, closing the last-used one or swapping their sides.
+ * Windows (#51), where `windows` are offered (desktop only): the document in
+ * the last-used Pane, in a Window of its own.
+ */
+export function paneCommands(
+  s: Pick<ReturnType<typeof useStore>, "twoPanesFit" | "view" | "panes" | "openInOther" | "dispatchPanes">,
+  t: Pick<Dict, "pane_open_other" | "window_open" | "pane_close" | "pane_swap">,
+  windows: boolean,
+): Command[] {
+  const list: Command[] = [];
+  if (s.twoPanesFit)
+    list.push({
+      id: "pane.open_other",
+      title: t.pane_open_other,
+      group: "navigate",
+      icon: SquareSplitHorizontal,
+      keywords: "pane split side by side two documents beside open other",
+      run: () => s.openInOther(s.view),
+    });
+  if (s.view.kind === "doc" && windows) {
+    const id = s.view.id;
+    list.push({
+      id: "window.open",
+      title: t.window_open,
+      group: "navigate",
+      icon: AppWindow,
+      keywords: "window new separate screen monitor detach",
+      run: () => void openInNewWindow(id).catch(console.error),
+    });
+  }
+  if (s.panes.panes.length === 2)
+    list.push(
+      {
+        id: "pane.close",
+        title: t.pane_close,
+        group: "navigate",
+        icon: X,
+        keywords: "pane close one single",
+        run: () => s.dispatchPanes({ type: "close" }),
+      },
+      {
+        id: "pane.swap",
+        title: t.pane_swap,
+        group: "navigate",
+        icon: ArrowLeftRight,
+        keywords: "pane swap switch sides exchange left right",
+        run: () => s.dispatchPanes({ type: "swap" }),
+      },
+    );
+  return list;
+}
+
 export function useCommands(): Command[] {
   const s = useStore();
   const t = useT();
@@ -81,6 +143,9 @@ export function useCommands(): Command[] {
   const tutorials = useTutorials();
   const appearance = useAppearance();
   const fillKinds = useFillKinds();
+  const importBorder = useImportBorder();
+  const drawBorder = useDrawBorder();
+  const regionIds = useRegionIds();
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -170,6 +235,7 @@ export function useCommands(): Command[] {
       overEditor: !IS_MAC,
       run: s.forward,
     });
+    list.push(...paneCommands(s, t, windowsOffered()));
     list.push({
       id: "nav.passage",
       title: t.open_passage,
@@ -208,6 +274,30 @@ export function useCommands(): Command[] {
         fillKinds().catch(console.error);
       },
     });
+    // Draw a region's Border on the Map (ADR 0023). From a region's page it
+    // draws that region; anywhere else the Map asks which one.
+    {
+      const here = s.view.kind === "doc" ? s.docsById.get(s.view.id) : undefined;
+      const region = here && regionIds.has(here.id) ? here : undefined;
+      list.push({
+        id: "map.draw_border",
+        title: t.border_draw,
+        group: "create",
+        icon: MapPin,
+        keywords: "border frontier outline region area polygon map draw geojson",
+        run: () => drawBorder(region?.id ?? null),
+      });
+      // Import one from a `.geojson` file: from a region's page, for that region.
+      if (region)
+        list.push({
+          id: "map.import_border",
+          title: t.border_import,
+          group: "create",
+          icon: Upload,
+          keywords: "border frontier outline region area polygon map import geojson file",
+          run: () => importBorder(region.id),
+        });
+    }
     list.push({
       id: "nav.random",
       title: t.random_note,
@@ -407,7 +497,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds]);
 }
 
 /**
@@ -425,11 +515,17 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     ...["home", "graph", "library", "clippings", "map", "timeline", "coverage", "settings"].map((v) => `nav.${v}`),
     "nav.back",
     "nav.forward",
+    "pane.open_other",
+    "pane.close",
+    "pane.swap",
+    "window.open",
     "nav.passage",
     "nav.sync",
     "nav.random",
     "skins.gallery",
     "map.fill_kinds",
+    "map.draw_border",
+    "map.import_border",
     "doc.board",
     "doc.split",
     "doc.deliver",

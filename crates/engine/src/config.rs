@@ -55,7 +55,7 @@ fn path(hidden: &Path, name: &str) -> PathBuf {
     name.split('/').fold(hidden.to_path_buf(), |p, part| p.join(part))
 }
 
-fn mtime_ms(p: &Path) -> i64 {
+pub(crate) fn mtime_ms(p: &Path) -> i64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
         .ok()
@@ -65,7 +65,7 @@ fn mtime_ms(p: &Path) -> i64 {
 }
 
 /// The `updated` stamp of these bytes, if they are JSON carrying one.
-fn stamp_of(bytes: &[u8]) -> Option<i64> {
+pub(crate) fn stamp_of(bytes: &[u8]) -> Option<i64> {
     serde_json::from_slice::<Value>(bytes).ok()?.get("updated")?.as_i64()
 }
 
@@ -103,7 +103,7 @@ pub fn read(hidden: &Path, name: &str) -> Option<Vec<u8>> {
 
 /// Whether an entry a peer advertises should replace this Device's copy.
 pub fn is_newer(theirs: &ConfigEntry, mine: Option<&ConfigEntry>) -> bool {
-    mine.map_or(true, |m| theirs.stamp > m.stamp || (theirs.stamp == m.stamp && theirs.size > m.size))
+    mine.is_none_or(|m| theirs.stamp > m.stamp || (theirs.stamp == m.stamp && theirs.size > m.size))
 }
 
 /// Take a file from a peer when it is newer than what is here. Refuses names

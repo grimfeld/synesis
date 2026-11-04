@@ -3,12 +3,16 @@ import { describe, expect, it } from "vitest";
 import type { BibleDate, DatedProperty, DocSummary, DocType } from "../api";
 import {
   buildLanes,
+  cullToView,
   extentOf,
+  filterRows,
   formatYear,
+  NO_FILTERS,
   niceStep,
   TICK_LABEL_PX,
   placeMarks,
   resolveLabels,
+  runsOnAttr,
   yearOf,
   type Mark,
   type Placed,
@@ -174,6 +178,34 @@ describe("buildLanes", () => {
     expect(lanes[0].doc).to.equal(null);
   });
 
+  it("draws an Event once: its span, else its start, else the Date it has", () => {
+    const one = (rows: DatedProperty[]) => {
+      const [lane] = buildLanes(rows, [], "Events");
+      expect(lane.marks).to.have.length(1);
+      return lane.marks[0];
+    };
+    const span = one([
+      dated(flood, "announced", -2490),
+      dated(flood, "start", -2370),
+      dated(flood, "end", -2369),
+    ]);
+    expect([span.from, span.to, span.label]).to.deep.equal([-2370, -2369, "The Flood"]);
+    const start = one([dated(flood, "announced", -2490), dated(flood, "start", -2370)]);
+    expect([start.from, start.to]).to.deep.equal([-2370, null]);
+    const other = one([dated(flood, "announced", -2490)]);
+    expect([other.from, other.label]).to.deep.equal([-2490, "The Flood"]);
+  });
+
+  it("leaves out an Event none of whose Dates reads", () => {
+    const lanes = buildLanes(
+      [dated(flood, "start", null), dated(david, "born", -1107)],
+      [{ event: "flood", subject: "david" }],
+      "Events",
+    );
+    expect(lanes.map((l) => l.id)).to.deep.equal(["david"]);
+    expect(lanes[0].marks).to.have.length(1);
+  });
+
   it("omits the Events Lane when nothing dated is an Event", () => {
     const lanes = buildLanes([dated(david, "born", -1107)], [], "Events");
     expect(lanes.map((l) => l.id)).to.deep.equal(["david"]);
@@ -230,6 +262,74 @@ describe("buildLanes", () => {
   });
 });
 
+describe("a Place's Span", () => {
+  const babylon = doc("babylon", "Babylon", "place");
+
+  it("draws start and end as one span labelled by the Place", () => {
+    const lanes = buildLanes(
+      [dated(babylon, "start", -2000), dated(babylon, "end", -539)],
+      [],
+      "Events",
+    );
+    const [m] = lanes[0].marks;
+    expect(m.label).to.equal("Babylon");
+    expect(m.from).to.equal(-2000);
+    expect(m.to).to.equal(-539);
+    expect(m.runsOn ?? false).to.equal(false);
+  });
+
+  it("draws a Place with start only running on", () => {
+    // A city still standing: open-ended, not a point.
+    const lanes = buildLanes([dated(babylon, "start", -2000)], [], "Events");
+    expect(lanes[0].marks).to.have.length(1);
+    const [m] = lanes[0].marks;
+    expect(m.runsOn).to.equal(true);
+    expect(m.label).to.equal("Babylon");
+    expect(m.from).to.equal(-2000);
+    // The end is the plot's edge, not a year the extent should stretch to.
+    expect(m.to).to.equal(null);
+    const [p] = placeMarks(lanes[0].marks, (y) => y + 3000, 1500);
+    expect(p.x).to.equal(1000);
+    expect(p.x2).to.equal(1500);
+  });
+
+  it("does not draw a Place running on when its end is there but unreadable", () => {
+    // `end: 539` with no era is a mistake to fix, not a city still standing.
+    const lanes = buildLanes(
+      [dated(babylon, "start", -2000), dated(babylon, "end", null)],
+      [],
+      "Events",
+    );
+    expect(lanes[0].marks).to.have.length(1);
+    expect(lanes[0].marks[0].runsOn ?? false).to.equal(false);
+    expect(lanes[0].marks[0].to).to.equal(null);
+  });
+
+  it("marks the placed bar that runs on, never a Cluster", () => {
+    const lanes = buildLanes([dated(babylon, "start", -2000)], [], "Events");
+    const [p] = placeMarks(lanes[0].marks, (y) => y + 3000, 1500);
+    expect(runsOnAttr(p)).to.equal("true");
+    const point = buildLanes([dated(babylon, "founded", -2000)], [], "Events");
+    expect(runsOnAttr(placeMarks(point[0].marks, (y) => y, 0)[0])).to.equal(undefined);
+  });
+
+  it("keeps a running-on Place in view however far right the view is", () => {
+    const lanes = buildLanes([dated(babylon, "start", -2000)], [], "Events");
+    expect(cullToView(lanes, 0, 100)).to.have.length(1);
+    expect(cullToView(lanes, -3000, -2500)).to.have.length(0);
+  });
+
+  it("leaves another type's lone start a point", () => {
+    const lanes = buildLanes(
+      [dated(doc("j", "Exodus", "journey"), "start", -1513)],
+      [],
+      "Events",
+    );
+    expect(lanes[0].marks[0].runsOn ?? false).to.equal(false);
+    expect(lanes[0].marks[0].to).to.equal(null);
+  });
+});
+
 describe("extentOf", () => {
   const david = doc("david", "David");
 
@@ -269,17 +369,18 @@ describe("placeMarks", () => {
     type: "character",
   });
   // One plot pixel per year, so distances in the test read as pixels.
+  const RIGHT = 1000;
   const px = (y: number) => y;
 
   it("leaves points far apart alone", () => {
-    const out = placeMarks([mark("a", 0), mark("b", 100)], px);
+    const out = placeMarks([mark("a", 0), mark("b", 100)], px, RIGHT);
     expect(out).to.have.length(2);
     expect(out.every((p) => p.marks.length === 1)).to.equal(true);
     expect(out.map((p) => p.label)).to.deep.equal(["a", "b"]);
   });
 
   it("merges points closer than the Cluster threshold", () => {
-    const out = placeMarks([mark("a", 0), mark("b", 5), mark("c", 9)], px);
+    const out = placeMarks([mark("a", 0), mark("b", 5), mark("c", 9)], px, RIGHT);
     expect(out).to.have.length(1);
     expect(out[0].marks.map((m) => m.key)).to.deep.equal(["a", "b", "c"]);
     // A Cluster is labelled by how many it stands for, and centred on them.
@@ -290,20 +391,20 @@ describe("placeMarks", () => {
 
   it("splits a Cluster once zoom pushes the points apart", () => {
     const marks = [mark("a", 0), mark("b", 5)];
-    expect(placeMarks(marks, px)).to.have.length(1);
+    expect(placeMarks(marks, px, RIGHT)).to.have.length(1);
     // Ten plot pixels per year: the same two Dates now sit 50px apart.
-    expect(placeMarks(marks, (y) => y * 10)).to.have.length(2);
+    expect(placeMarks(marks, (y) => y * 10, RIGHT)).to.have.length(2);
   });
 
   it("keeps Clustering across a chain of near neighbours", () => {
     // Each step is under the threshold, so all four belong to one Cluster.
-    const out = placeMarks([mark("a", 0), mark("b", 10), mark("c", 20), mark("d", 30)], px);
+    const out = placeMarks([mark("a", 0), mark("b", 10), mark("c", 20), mark("d", 30)], px, RIGHT);
     expect(out).to.have.length(1);
     expect(out[0].marks).to.have.length(4);
   });
 
   it("never Clusters spans, and never merges a span into a point", () => {
-    const out = placeMarks([mark("s", 0, 8, "span"), mark("a", 1), mark("b", 2)], px);
+    const out = placeMarks([mark("s", 0, 8, "span"), mark("a", 1), mark("b", 2)], px, RIGHT);
     const span = out.find((p) => p.x2 != null)!;
     expect(span.marks).to.have.length(1);
     expect(span.label).to.equal("span");
@@ -312,12 +413,12 @@ describe("placeMarks", () => {
   });
 
   it("gives a zero-width span a visible minimum", () => {
-    const [span] = placeMarks([mark("s", 40, 40, "span")], px);
+    const [span] = placeMarks([mark("s", 40, 40, "span")], px, RIGHT);
     expect(span.x2! - span.x).to.be.greaterThan(0);
   });
 
   it("Clusters identical Dates that no zoom could separate", () => {
-    const out = placeMarks([mark("a", -1513), mark("b", -1513)], (y) => y * 1000);
+    const out = placeMarks([mark("a", -1513), mark("b", -1513)], (y) => y * 1000, RIGHT);
     expect(out).to.have.length(1);
     expect(out[0].label).to.equal("2");
   });
@@ -380,5 +481,28 @@ describe("resolveLabels", () => {
   it("leaves an already blank label blank", () => {
     const out = resolveLabels([{ ...placed("a", 0, "a"), label: null }], w);
     expect(out[0].label).to.equal(null);
+  });
+});
+
+describe("filterRows", () => {
+  const jer = doc("jer", "Jérémie");
+  const fall = doc("fall", "Fall of Jerusalem", "event");
+  const rows = [dated(jer, "born", -650), dated(jer, "died", -570), dated(fall, "start", -586)];
+
+  it("keeps every row with no filter set", () => {
+    expect(filterRows(rows, NO_FILTERS)).toEqual(rows);
+  });
+
+  it("drops the rows of a hidden kind", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, hiddenTypes: ["event"] })).toEqual(rows.slice(0, 2));
+  });
+
+  it("keeps only the chosen Date Properties, ignoring case and accents", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, props: ["BORN"] })).toEqual([rows[0]]);
+  });
+
+  it("keeps the documents whose title holds the search, ignoring case and accents", () => {
+    expect(filterRows(rows, { ...NO_FILTERS, search: "  jeremie " })).toEqual(rows.slice(0, 2));
+    expect(filterRows(rows, { ...NO_FILTERS, search: "   " })).toEqual(rows);
   });
 });

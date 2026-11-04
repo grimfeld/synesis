@@ -111,7 +111,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "set_timeline_filters" => ok(set_timeline_filters(state, arg(&a, "hiddenTypes")?, arg(&a, "inView")?)?),
         "set_map_filters" => ok(set_map_filters(state, arg(&a, "books")?, arg(&a, "mentionedOnly")?, arg(&a, "colorBy")?)?),
         "set_sync_method" => ok(set_sync_method(state, arg(&a, "method")?)?),
-        "leave_vault" => ok(leave_vault(state, arg(&a, "id")?, arg(&a, "deleteDocuments")?)?),
+        "leave_vault" => ok(leave_vault(app.clone(), state, arg(&a, "id")?, arg(&a, "deleteDocuments")?)?),
         "forget_device" => ok(forget_device(state, arg(&a, "device")?)?),
         "pairing_status" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_status(state))?),
         "pairing_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_invite(app.clone(), state))?),
@@ -131,7 +131,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "storage_access" => ok(crate::storage::storage_access(app.clone())?),
         "request_storage_access" => ok(crate::storage::request_storage_access(app.clone())?),
         "open_vault" => ok(open_vault(app.clone(), state, arg(&a, "path")?)?),
-        "close_vault" => ok(close_vault(state)?),
+        "close_vault" => ok(close_vault(app.clone(), state)?),
         "forget_vault" => ok(forget_vault(state, arg(&a, "id")?)?),
         "move_vault" => ok(move_vault(app.clone(), state, arg(&a, "id")?)?),
         "hidden_vaults" => ok(hidden_vaults(app.clone(), state)?),
@@ -144,7 +144,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         // `Query` variant, not another line here that someone forgets.
         "query" => ok(query(state, arg(&a, "query")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
-        "save_document" => ok(save_document(state, arg(&a, "id")?, arg(&a, "text")?)?),
+        "save_document" => ok(save_document(state, app.state::<crate::windows::WindowState>(), arg(&a, "id")?, arg(&a, "text")?)?),
         "create_document" => ok(create_document(
             state,
             arg(&a, "docType")?,
@@ -166,6 +166,14 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         )?),
         "undo_link_mentions" => ok(undo_link_mentions(state, arg(&a, "texts")?)?),
         "fill_kinds" => ok(fill_kinds(state, arg(&a, "fills")?)?),
+        "save_border" => ok(save_border(state, arg(&a, "id")?, arg(&a, "corners")?)?),
+        "import_border" => ok(import_border(
+            state,
+            arg(&a, "id")?,
+            arg(&a, "fileName")?,
+            arg(&a, "text")?,
+        )?),
+        "delete_border" => ok(delete_border(state, arg(&a, "id")?)?),
         "ensure_scripture_page" => ok(ensure_scripture_page(
             state,
             arg(&a, "book")?,
@@ -209,6 +217,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         ))?),
         "find_source_by_url" => ok(find_source_by_url(state, arg(&a, "url")?)?),
         "detect_passages" => ok(detect_passages(state, arg(&a, "text")?)?),
+        "read_date" => ok(read_date(arg(&a, "text")?)),
         "books" => ok(books(state)?),
         "fetch_url_metadata" => ok(tauri::async_runtime::block_on(fetch_url_metadata(arg(
             &a, "url",

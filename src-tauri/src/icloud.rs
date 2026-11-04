@@ -26,6 +26,7 @@ pub const CONTAINER_ID: &str = "iCloud.tech.grimfeld.synesis";
 
 /// The same container as a folder name: what iCloud Drive calls it on disk,
 /// on a Mac under `~/Library/Mobile Documents` and on Windows under `iCloudDrive`.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub const CONTAINER_DIR: &str = "iCloud~tech~grimfeld~synesis";
 
 /// Where this Device keeps the container's Documents folder, when iCloud

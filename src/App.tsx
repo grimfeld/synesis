@@ -21,6 +21,7 @@ import { SettingsView } from "./views/SettingsView";
 import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
 import { onPicturesArrived } from "./editor/pictures";
+import { BORDERS_CHANGED } from "./lib/border";
 import { SidebarInset, SidebarProvider } from "./components/ui/sidebar";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { Toaster } from "sonner";
@@ -29,6 +30,7 @@ import { TutorialPanel } from "./components/TutorialPanel";
 import { SkinGallery } from "./components/SkinGallery";
 import { DemoBanner } from "./components/DemoBanner";
 import { UpdateBanner } from "./components/UpdateBanner";
+import { Panes } from "./components/Panes";
 
 /** Global keyboard shortcuts come from the Command registry. */
 function Shortcuts() {
@@ -70,6 +72,38 @@ function Shortcuts() {
   return null;
 }
 
+/** What one Pane shows: its view, read from the store through its PaneScope. */
+function PaneView() {
+  const s = useStore();
+  switch (s.view.kind) {
+    case "home":
+      return <HomeView />;
+    case "doc": {
+      const type = s.docsById.get(s.view.id)?.type;
+      return type && HUB_TYPES.includes(type) ? (
+        <HubView key={s.view.id} id={s.view.id} />
+      ) : (
+        <DocView key={s.view.id} id={s.view.id} />
+      );
+    }
+    case "graph":
+      // Keyed by the document, so a local graph never inherits another's layout.
+      return <GraphView key={s.view.focus ?? ""} focus={s.view.focus} />;
+    case "library":
+      return <LibraryView />;
+    case "clippings":
+      return <ClippingsView />;
+    case "map":
+      return <MapView />;
+    case "timeline":
+      return <TimelineView />;
+    case "coverage":
+      return <CoverageView />;
+    case "settings":
+      return <SettingsView />;
+  }
+}
+
 function Shell() {
   const s = useStore();
 
@@ -79,6 +113,7 @@ function Shell() {
       .onPairingEvent((e) => {
         if (e.kind === "join_request") s.setDialog({ kind: "pairing-request", node: e.node, name: e.member.name, platform: e.member.platform });
         if (e.kind === "attachments") onPicturesArrived(e.names);
+        if (e.kind === "borders") window.dispatchEvent(new Event(BORDERS_CHANGED));
       })
       .then((u) => (unPair = u));
     return () => {
@@ -90,36 +125,6 @@ function Shell() {
   if (import.meta.env.DEV) (window as unknown as { __synesis_setDialog?: unknown }).__synesis_setDialog = s.setDialog;
 
   if (!s.info) return <Welcome />;
-
-  const main = (() => {
-    switch (s.view.kind) {
-      case "home":
-        return <HomeView />;
-      case "doc": {
-        const type = s.docsById.get(s.view.id)?.type;
-        return type && HUB_TYPES.includes(type) ? (
-          <HubView key={s.view.id} id={s.view.id} />
-        ) : (
-          <DocView key={s.view.id} id={s.view.id} />
-        );
-      }
-      case "graph":
-        // Keyed by the document, so a local graph never inherits another's layout.
-        return <GraphView key={s.view.focus ?? ""} focus={s.view.focus} />;
-      case "library":
-        return <LibraryView />;
-      case "clippings":
-        return <ClippingsView />;
-      case "map":
-        return <MapView />;
-      case "timeline":
-        return <TimelineView />;
-      case "coverage":
-        return <CoverageView />;
-      case "settings":
-        return <SettingsView />;
-    }
-  })();
 
   return (
     <SidebarProvider
@@ -141,7 +146,7 @@ function Shell() {
         <DemoBanner />
         <UpdateBanner />
         <div className="flex min-h-0 flex-1">
-          <div className="h-full min-h-0 min-w-0 flex-1">{main}</div>
+          <Panes view={<PaneView />} />
           <SkinGallery />
           <TutorialPanel />
         </div>

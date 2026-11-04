@@ -259,6 +259,19 @@ impl State {
                 let mentions: Vec<api::MentionRef> = arg(&a, "mentions")?;
                 ok(api::link_mentions(self.vault_mut()?, &target, &mentions))
             }
+            "save_border" => {
+                let (id, corners): (String, Vec<[f64; 2]>) = (arg(&a, "id")?, arg(&a, "corners")?);
+                ok(api::save_border(self.vault_mut()?, &id, &corners).map_err(err)?)
+            }
+            "import_border" => {
+                let (id, name, text): (String, String, String) =
+                    (arg(&a, "id")?, arg(&a, "fileName")?, arg(&a, "text")?);
+                ok(api::import_border(self.vault_mut()?, &id, &name, &text).map_err(err)?)
+            }
+            "delete_border" => {
+                let id: String = arg(&a, "id")?;
+                ok(api::delete_border(self.vault_mut()?, &id).map_err(err)?)
+            }
             "fill_kinds" => {
                 let fills: Vec<engine::vault::KindSuggestion> = arg(&a, "fills")?;
                 ok(self.vault_mut()?.fill_kinds(&fills))
@@ -355,6 +368,7 @@ impl State {
             "detect_passages" => {
                 ok(api::detect_passages(&arg::<String>(&a, "text")?, self.lang()))
             }
+            "read_date" => ok(api::read_date(&arg::<String>(&a, "text")?)),
             "books" => ok(api::books(self.lang())),
             "hidden_dir" => ok(engine::vault::HIDDEN_DIR),
             "ui_log" => ok(()),

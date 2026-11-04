@@ -61,13 +61,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SplitPanes } from "@/components/SplitPanes";
-import type { DocTab } from "@/lib/store";
+import { PaneButtons, PanelSlot } from "@/components/Panes";
+import { usePane, type DocTab } from "@/lib/store";
 import { splitFits } from "@/lib/split";
 import { toast } from "sonner";
 
 export function DocView({ id }: { id: string }) {
   const s = useStore();
   const t = useT();
+  const pane = usePane();
   const d = useDocument(id);
   const isMobile = useIsMobile();
   const tut = useTutorials();
@@ -140,7 +142,7 @@ export function DocView({ id }: { id: string }) {
   const env = useMemo<EditorEnv>(
     () => ({
       names: d.names,
-      onOpenLink: (target) => s.openLink(target),
+      onOpenLink: (target, other) => void s.openLink(target, other),
       onOpenPassage: (p) => s.openPassage(p),
       onPassageHover: (i) =>
         setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
@@ -225,6 +227,7 @@ export function DocView({ id }: { id: string }) {
           value={d.body}
           revision={d.revision}
           onChange={d.onBodyChange}
+          live={d.live}
           onDetected={setDetected}
           onReady={onEditorReady}
           env={env}
@@ -232,8 +235,10 @@ export function DocView({ id }: { id: string }) {
           tags={s.tags}
           placeholder={t.empty_doc}
           // Not while locked: focus on a read-only editor does nothing but
-          // put a caret where no text can go.
-          autofocus={!locked}
+          // put a caret where no text can go. Only in the last-used Pane, so
+          // a Pane drawn beside it does not take the keys (spec #35).
+          autofocus={!locked && pane.active}
+          register={pane.active}
           sourceMode={s.sourceMode}
           readOnly={locked}
           // A Clipping has no title, so its Pictures take its Source's (ADR 0019).
@@ -429,6 +434,7 @@ export function DocView({ id }: { id: string }) {
             </DropdownMenu>
           ) : (
             <>
+            <PaneButtons />
             <TutorialButton place={tutorialPlace} />
             <IconButton
               label={t.delete}
@@ -490,19 +496,22 @@ export function DocView({ id }: { id: string }) {
           </SheetContent>
         </Sheet>
       ) : (
+        // Beside both Panes, for the last-used one (spec #35).
         s.panelOpen && (
-          <RightPanel
-            doc={doc}
-            fm={d.fm}
-            onFmChange={d.onFmChange}
-            detected={detected}
-            body={d.body}
-            onBodyChange={d.setBodyText}
-            onReveal={(from, to) => selectRange.current?.(from, to)}
-            onRestore={d.replaceText}
-            flush={d.flush}
-            locked={locked}
-          />
+          <PanelSlot>
+            <RightPanel
+              doc={doc}
+              fm={d.fm}
+              onFmChange={d.onFmChange}
+              detected={detected}
+              body={d.body}
+              onBodyChange={d.setBodyText}
+              onReveal={(from, to) => selectRange.current?.(from, to)}
+              onRestore={d.replaceText}
+              flush={d.flush}
+              locked={locked}
+            />
+          </PanelSlot>
         )
       )}
       {hover && (

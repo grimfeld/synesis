@@ -88,7 +88,7 @@ export function DocLink({
         active && "bg-accent font-medium",
         className,
       )}
-      onClick={() => s.openDoc(doc.id)}
+      onClick={s.openDocOnClick(doc.id)}
       title={doc.path}
     >
       <TypeDot type={doc.type} />

@@ -18,10 +18,10 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane]")
       .first()
       .should("have.attr", "data-lane", "events");
-    // Eleven Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
+    // Thirteen Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
     cy.get("[data-testid=tl-lane][data-type=character]").should(
       "have.length",
-      11,
+      13,
     );
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(0)
@@ -29,9 +29,10 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(1)
       .should("contain", "Noah");
-    cy.get("[data-testid=tl-lane][data-type=place]")
-      .should("have.length", 1)
-      .and("contain", "Jerusalem");
+    // Jerusalem, and Judah, the region whose Border holds it.
+    cy.get("[data-testid=tl-lane][data-type=place]").should("have.length", 2);
+    cy.contains("[data-testid=tl-lane][data-type=place]", "Jerusalem").should("exist");
+    cy.contains("[data-testid=tl-lane][data-type=place]", "Judah").should("exist");
     // At fit zoom the 1st-century Events collapse into Clusters, so the Lane's
     // marks and the counts on its Clusters together still account for all 19.
     cy.get("[data-testid=tl-lane][data-lane=events]").then(($lane) => {
@@ -140,7 +141,9 @@ describe("Timeline", () => {
     // reads "Died" — a built-in Property is labelled in the reader's language,
     // while the filter itself still holds the front-matter name.
     cy.get("[data-slot=popover-content]").contains("button", "Died").click();
-    cy.get("[data-testid=tl-lane]").should("have.length.lessThan", 13);
+    cy.get("@all").then((all) => {
+      cy.get("[data-testid=tl-lane]").should("have.length.lessThan", Number(all));
+    });
     cy.get("[data-testid=tl-filter-clear]").click();
     cy.get("@all").then((all) => {
       cy.get("[data-testid=tl-lane]").should("have.length", Number(all));
@@ -170,6 +173,159 @@ describe("Timeline", () => {
       cy.get("[data-testid=tl-lane]").should("have.length", all);
       cy.get("[data-testid=tl-in-view]").check();
       cy.get("[data-testid=tl-lane]").should("have.length.lessThan", all);
+    });
+  });
+
+  it("narrows to a Period, counts the undated, combines Tags, and clears it", () => {
+    // Every Character in the demo vault is dated; Jael is not.
+    cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+    cy.openApp();
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "Period");
+    cy.get("[data-testid=period-clear]").should("not.exist");
+    // 1100–1000 BCE: David (1107–1037 BCE) overlaps it, Moses (1593–1473 BCE)
+    // lies wholly before it. Both fields start in BCE.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from-era]").should("have.attr", "data-bce", "true");
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    cy.docByTitle("David").then((david) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${david.id}]`).should("exist"),
+    );
+    cy.docByTitle("Moses").then((moses) =>
+      cy.get(`[data-testid=tl-lane][data-lane=${moses.id}]`).should("not.exist"),
+    );
+    cy.get("[data-testid=period-undated]").should("contain", "1 undated not shown");
+    // The Period stays set across a trip to another view and back.
+    cy.get("[data-testid=nav-home]").click();
+    cy.get("[data-testid=nav-timeline]").click();
+    cy.get("[data-testid=period-text]").should("contain", "1100–1000 BCE");
+    // A Tag narrows further: of the Events, only the Temple is tagged "prayer"
+    // within the Period, and no Character carries it.
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prayer").click();
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=tl-lane][data-type=character]").should("not.exist");
+    cy.docByTitle("Solomon's temple built").then((ev) =>
+      cy
+        .get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`)
+        .should("exist"),
+    );
+    // Jael carries no "prayer" Tag, so the Period no longer leaves her out.
+    cy.get("[data-testid=period-undated]").should("not.exist");
+    // Clearing the Period brings the whole chronology back; the Tag stays.
+    cy.get("[data-testid=period-clear]").click();
+    cy.get("[data-testid=period-text]").should("contain", "Period");
+    cy.docByTitle("The Exodus").then((ev) =>
+      cy
+        .get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`)
+        .should("exist"),
+    );
+  });
+
+  // Places in the shared filter (CONTEXT.md: Period, Character): a Character
+  // is in a Place for life through its `places`, or for an Event's time
+  // through an Event naming both.
+  const pickPlace = (title: string) => {
+    cy.get("[data-testid=period-places]").click();
+    cy.get("[data-testid=period-places-search]").clear().type(title);
+    cy.docByTitle(title).then((p) =>
+      cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+    );
+    cy.get("body").type("{esc}");
+  };
+  const lane = (title: string) =>
+    cy.docByTitle(title).then((d) => cy.get(`[data-testid=tl-lane][data-lane=${d.id}]`));
+  const eventMark = (title: string) =>
+    cy
+      .docByTitle(title)
+      .then((ev) => cy.get(`[data-testid=tl-lane][data-lane=events] [data-doc=${ev.id}]`));
+
+  it("narrows to the Places chosen, any of them, and what is tied to them", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    // David names Bethlehem in his `places`; David is anointed there.
+    pickPlace("Bethlehem");
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place][data-id="${p.id}"]`).should("exist"),
+    );
+    lane("David").should("exist");
+    lane("Moses").should("not.exist");
+    eventMark("David anointed king").should("exist");
+    eventMark("Solomon's temple built").should("not.exist");
+    // Several Places are any of them: Paul is in Ephesus during his stay.
+    pickPlace("Ephesus");
+    lane("David").should("exist");
+    lane("Paul").should("exist");
+    eventMark("Paul in Ephesus").should("exist");
+    // In 1100–1000 BCE only Bethlehem's ties hold.
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("1100");
+    cy.get("[data-testid=period-to]").type("1000");
+    cy.get("body").type("{esc}");
+    lane("David").should("exist");
+    lane("Paul").should("not.exist");
+    // Removing Bethlehem leaves nothing tied to Ephesus in those years.
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=period-place][data-id="${p.id}"] [data-testid=period-place-remove]`).click(),
+    );
+    cy.get("[data-testid=tl-lane][data-type=character]").should("not.exist");
+    cy.get("[data-testid=tl-empty-clear]").click();
+    cy.get("[data-testid=period-place]").should("not.exist");
+    lane("Moses").should("exist");
+  });
+
+  // A region takes in every Place inside its Border (ADR 0023): the demo
+  // vault's Judah holds Jerusalem, Bethlehem and Anathoth.
+  it("answers prophets in Judah, 640–580 BCE, through Judah's Border", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    pickPlace("Judah");
+    // Jeremiah names Anathoth and Jerusalem, both inside Judah's Border;
+    // David names Bethlehem and Jerusalem. Moses names no Place in it.
+    lane("Jeremiah").should("exist");
+    lane("David").should("exist");
+    lane("Moses").should("not.exist");
+    cy.get("[data-testid=tl-filter]").click();
+    cy.get("[data-slot=popover-content]").contains("button", "prophet").click();
+    cy.get("body").type("{esc}");
+    lane("David").should("not.exist");
+    lane("Isaiah").should("exist");
+    cy.get("[data-testid=period]").click();
+    cy.get("[data-testid=period-from]").type("640");
+    cy.get("[data-testid=period-to]").type("580");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=period-text]").should("contain", "640–580 BCE");
+    // Isaiah died long before; Jeremiah is the prophet of those years.
+    cy.get("[data-testid=tl-lane][data-type=character]")
+      .should("have.length", 1)
+      .and("contain", "Jeremiah");
+    // The same question on the Map: Judah's Border, and the Places in it
+    // where a prophet is in those years.
+    cy.runCommand("Go to Map");
+    cy.docByTitle("Judah").then((judah) =>
+      cy.get(`[data-testid=map-border][data-id="${judah.id}"]`).should("exist"),
+    );
+    cy.docByTitle("Jerusalem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("exist"),
+    );
+    cy.docByTitle("Bethlehem").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+    cy.docByTitle("Corinth").then((p) =>
+      cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"]`).should("not.exist"),
+    );
+  });
+
+  it("keeps the Places chosen on the Timeline when the Map opens", () => {
+    cy.get("[data-testid=nav-timeline]").click();
+    pickPlace("Jerusalem");
+    cy.runCommand("Go to Map");
+    cy.docByTitle("Jerusalem").then((p) => {
+      cy.get(`[data-testid=period-place][data-id="${p.id}"]`).should("exist");
+      cy.get("[data-testid=map] [data-testid=map-pin]")
+        .should("have.length", 1)
+        .and("have.attr", "data-id", p.id);
     });
   });
 

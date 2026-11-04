@@ -2,7 +2,7 @@
 // live inside an async submit handler beside four engine calls, so the only
 // way to check them was to drive the app.
 import { describe, expect, it } from "vitest";
-import { FRONTMATTER, SPAN, titleFor } from "../docTypes";
+import { FRONTMATTER, RUNS_ON, SPAN, dateAdds, dateRows, titleFor } from "../docTypes";
 import type { DocType } from "../api";
 
 const stamp = () => "2026-09-17 14.30";
@@ -131,11 +131,11 @@ describe("SPAN", () => {
     expect(SPAN.character).toEqual(["born", "died"]);
     expect(SPAN.event).toEqual(["start", "end"]);
     expect(SPAN.journey).toEqual(["start", "end"]);
+    // When a city or a kingdom existed (CONTEXT.md, Place).
+    expect(SPAN.place).toEqual(["start", "end"]);
   });
 
   it("suggests none where the vault has no date convention", () => {
-    // A Place carries lat/lon; offering it a Span would invent a convention.
-    expect(SPAN.place).toBeNull();
     expect(SPAN.concept).toBeNull();
   });
 
@@ -150,5 +150,103 @@ describe("SPAN", () => {
     for (const pair of Object.values(SPAN)) {
       if (pair) expect(pair).toHaveLength(2);
     }
+  });
+});
+
+describe("RUNS_ON", () => {
+  it("lets only a Place's Span run on with its start alone", () => {
+    // A city still standing (CONTEXT.md, Place). A Character with `born`
+    // alone is not known to be alive; an Event's lone `start` is its moment.
+    const open = (Object.keys(RUNS_ON) as DocType[]).filter((t) => RUNS_ON[t]);
+    expect(open).toEqual(["place"]);
+  });
+
+  it("only lets a type run on that suggests a Span", () => {
+    for (const t of Object.keys(RUNS_ON) as DocType[]) {
+      if (RUNS_ON[t]) expect(SPAN[t]).not.toBeNull();
+    }
+  });
+});
+
+describe("dateAdds", () => {
+  it("offers a Character its lifespan, then a free-named Date", () => {
+    expect(dateAdds("character", [])).toEqual([
+      { kind: "pair", names: ["born", "died"], label: "lifespan" },
+      { kind: "named" },
+    ]);
+  });
+
+  it("offers an Event, a Journey and a Place a Span", () => {
+    for (const t of ["event", "journey", "place"] as DocType[]) {
+      expect(dateAdds(t, [])[0]).toEqual({
+        kind: "pair",
+        names: ["start", "end"],
+        label: "span",
+      });
+    }
+  });
+
+  it("offers only the missing half when one half exists", () => {
+    expect(dateAdds("character", ["born"])[0]).toEqual({
+      kind: "half",
+      name: "died",
+    });
+    expect(dateAdds("place", ["end", "founded"])[0]).toEqual({
+      kind: "half",
+      name: "start",
+    });
+  });
+
+  it("drops the pair once both halves exist", () => {
+    expect(dateAdds("event", ["end", "start"])).toEqual([{ kind: "named" }]);
+  });
+
+  it("offers a Concept only a free-named Date", () => {
+    // Out of scope: Spans on Concepts.
+    expect(dateAdds("concept", [])).toEqual([{ kind: "named" }]);
+  });
+});
+
+describe("dateRows", () => {
+  const row = (name: string, text = "33 CE") => ({ name, text });
+
+  it("shows no Span field until one half is there or was just added", () => {
+    const r = dateRows("character", [], []);
+    expect(r.editable).toEqual([]);
+    expect(r.others).toEqual([]);
+    expect(r.present).toEqual([]);
+  });
+
+  it("puts a Span added through Add Date first, empty, in the Span's order", () => {
+    const r = dateRows("character", [], ["died", "born"]);
+    expect(r.editable).toEqual([
+      { name: "born", row: null },
+      { name: "died", row: null },
+    ]);
+  });
+
+  it("edits a written Span half in place and lists other Dates read-only", () => {
+    const born = row("born", "c. 1037 BCE");
+    const reign = row("reign_start", "1077 BCE");
+    const r = dateRows("character", [reign, born], []);
+    expect(r.editable).toEqual([{ name: "born", row: born }]);
+    expect(r.others).toEqual([reign]);
+    expect(r.present).toEqual(["reign_start", "born"]);
+  });
+
+  it("edits a just-named Date until it is written, then leaves it to Properties", () => {
+    expect(dateRows("concept", [], ["founded"]).editable).toEqual([
+      { name: "founded", row: null },
+    ]);
+    const founded = row("founded");
+    const r = dateRows("concept", [founded], ["founded"]);
+    expect(r.editable).toEqual([]);
+    expect(r.others).toEqual([founded]);
+  });
+
+  it("names each Date once, written or just added", () => {
+    const r = dateRows("place", [row("start")], ["start", "end"]);
+    expect(r.present).toEqual(["start", "end"]);
+    expect(r.editable.map((e) => e.name)).toEqual(["start", "end"]);
   });
 });

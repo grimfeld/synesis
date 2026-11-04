@@ -4,6 +4,7 @@
 
 pub mod api;
 pub mod attachments;
+pub mod border;
 pub mod canvas;
 pub mod cloud;
 pub mod config;
@@ -27,6 +28,7 @@ pub mod templates;
 pub mod unlinked;
 pub mod vault;
 pub mod versification;
+pub mod windows;
 
 pub use scripture::{Lang, Passage, Unit, VerseId};
 pub use vault::Vault;

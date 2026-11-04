@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": { "name": "Way of the Sea" },
+      "geometry": { "type": "LineString", "coordinates": [[31.2, 30.0], [34.5, 31.5]] }
+    }
+  ]
+}

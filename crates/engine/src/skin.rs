@@ -130,7 +130,7 @@ fn stored(root: &Path) -> Vec<(String, Skin)> {
             }
         }
     }
-    out.sort_by(|a, b| a.1.name.to_lowercase().cmp(&b.1.name.to_lowercase()));
+    out.sort_by_key(|a| a.1.name.to_lowercase());
     out
 }
 

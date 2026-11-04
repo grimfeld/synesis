@@ -3,7 +3,7 @@ import { ArrowUpRight, Plus } from "lucide-react";
 import { api, type Backlink, type DocSummary, type PassageInfo } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { splitFrontmatter } from "@/lib/frontmatter";
-import { useStore } from "@/lib/store";
+import { useStore, otherPane } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -107,9 +107,9 @@ function PassageCard({ passages, excludeId, onClose, stay }: { passages: Passage
                   type="button"
                   disabled={stay}
                   className="w-full rounded-md px-2 py-1 text-left transition-colors enabled:hover:bg-accent"
-                  onClick={() => {
+                  onClick={(e) => {
                     onClose();
-                    s.openDoc(b.doc.id);
+                    s.openDoc(b.doc.id, otherPane(e));
                   }}
                 >
                   <div className="flex items-center gap-2">
@@ -179,9 +179,9 @@ function LinkCard({ target, onClose, stay }: { target: string; onClose: () => vo
         type="button"
         disabled={stay}
         className="mb-0.5 flex w-full items-center gap-2 text-left font-semibold enabled:hover:underline underline-offset-4"
-        onClick={() => {
+        onClick={(e) => {
           onClose();
-          s.openDoc(doc.id);
+          s.openDoc(doc.id, otherPane(e));
         }}
       >
         <TypeDot type={doc.type} />

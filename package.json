@@ -19,7 +19,7 @@
     "test:e2e": "cypress run",
     "test:e2e:open": "cypress open --e2e",
     "prepare": "husky",
-    "check": "npm run typecheck && npm run test:unit && cargo check --workspace",
+    "check": "npm run typecheck && npm run test:unit && cargo clippy --workspace --all-targets -- -D warnings",
     "release": "node scripts/release.mjs",
     "icons": "tauri icon branding/icon-manifest.json",
     "icons:mobile": "node scripts/sync-mobile-icons.mjs",

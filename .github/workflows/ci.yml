@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   check:
-    name: Typecheck, engine tests, Tauri build check
+    name: Typecheck, engine tests, clippy, Tauri build check
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +28,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -39,6 +41,7 @@ jobs:
       - run: npm run build
       - run: cargo test -p engine
       - run: cargo check -p synesis
+      - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: npm run licenses -- --check
 
   web:

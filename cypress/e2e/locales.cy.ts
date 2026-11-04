@@ -6,6 +6,21 @@ import { expectNoOverflow } from "../support/layout";
 
 const LANGS = ["en", "fr"] as const;
 
+/**
+ * A fresh Character, opened from the sidebar, with its lifespan just added
+ * through "Add Date". Made through the engine rather than the palette: a spec
+ * should not have to know what the Command is called in each language.
+ */
+function jaelWithALifespan() {
+  cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+  cy.openApp();
+  cy.get("[data-sidebar=trigger]").first().click();
+  cy.get("[data-testid=group-character]").click();
+  cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
+  cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
+  cy.get("[data-testid=add-date-pair]").click();
+}
+
 describe("Locale layout", () => {
   // Every other spec asserts English strings, so never leave the app in French.
   afterEach(() => cy.bridge("set_language", { lang: "en" }));
@@ -28,20 +43,104 @@ describe("Locale layout", () => {
       // "Quitter et supprimer les documents" on a 390px phone is the longest
       // button label in the app, and it sits in a dialog rather than a card.
       // "Naissance"/"Mort" put a label beside a field on a 390px screen, and
-      // the New dialog sets the pair in a two-column grid. The Character is
-      // made through the engine rather than the palette: a spec should not
-      // have to know what the Command is called in each language.
+      // the New dialog sets the pair in a two-column grid.
       it("keeps a Character's Span inside its row and its dialog", () => {
+        jaelWithALifespan();
+        cy.get("[data-testid=date-input-born]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // "Ajouter naissance et mort", the menu beside "Dates", and the refusal
+      // of a name the Vault types otherwise, at 390px (the Add Date control).
+      it("keeps Add Date, its menu and its name field inside the Hub", () => {
         cy.bridge("create_document", {
-          docType: "character",
-          title: "Jael",
+          docType: "place",
+          title: "Nineveh",
           fields: {},
         });
         cy.openApp();
+        cy.openDoc("Nineveh");
+        cy.get("[data-testid=hub-dates] [data-testid=add-date]").scrollIntoView().should("be.visible").click();
+        cy.get("[data-testid=add-date-pair]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=add-date-named]").click();
+        cy.get("[data-testid=date-name-input]").type("lat{enter}");
+        cy.get("[data-testid=date-name-error]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Date preview's Span hint is the longest line under a field, and
+      // it sits beside a label on a 390px screen.
+      it("keeps the Date preview inside its row on a phone", () => {
+        jaelWithALifespan();
+        cy.get("[data-testid=date-input-born]").type("1250–1200 BCE");
+        cy.get("[data-testid=date-preview-born]").should(
+          "have.attr",
+          "data-error",
+          "span_in_one_value",
+        );
+        expectNoOverflow();
+        cy.get("[data-testid=date-input-born]").clear().type("c. 1250 BCE");
+        cy.get("[data-testid=date-preview-born]").should("have.attr", "data-ok", "true");
+        expectNoOverflow();
+      });
+
+      // The Period row carries the Period as text ("1100–1000 av. n. è."),
+      // "1 non daté non affiché" and "Effacer la Période" side by side on a
+      // 390px screen; its popover sets a year field beside an era button.
+      it("keeps the Timeline's Period row inside the screen", () => {
+        cy.bridge("create_document", { docType: "character", title: "Jael", fields: {} });
+        cy.openApp();
         cy.get("[data-sidebar=trigger]").first().click();
-        cy.get("[data-testid=group-character]").click();
-        cy.contains("[data-sidebar=content] a, [data-sidebar=content] button", "Jael").click();
-        cy.get("[data-testid=date-input-born]").should("be.visible");
+        cy.get("[data-testid=nav-timeline]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-testid=period-undated]").should("be.visible");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Map's Period row adds the time slider, its track between the two
+      // years it spans ("4027 av. n. è." … "96 de n. è.") on a 390px screen.
+      it("keeps the Map's Period row and slider inside the screen", () => {
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=period-slider]").should("be.visible");
+        cy.get("[data-testid=period-slider-from]").focus().type("{pageup}");
+        cy.get("[data-testid=period-clear]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The Places chosen with the Period sit on its row as chips beside
+      // "Lieux", and a pin card lists "Personnages ici" over the map.
+      it("keeps the Period's Place chips and a pin card inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-map]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        for (const title of ["Jerusalem", "Bethlehem", "Mount Sinai"]) {
+          cy.get("[data-testid=period-places]").click();
+          cy.get("[data-testid=period-places-search]").clear().type(title);
+          cy.docByTitle(title).then((p) =>
+            cy.get(`[data-testid=period-place-option][data-id="${p.id}"]`).click(),
+          );
+          expectNoOverflow();
+          cy.get("body").type("{esc}");
+        }
+        cy.get("[data-testid=period-place]").should("have.length", 3);
+        cy.get("[data-testid=period]").click();
+        cy.get("[data-testid=period-from]").type("1100");
+        cy.get("[data-testid=period-to]").type("1000");
+        cy.get("body").type("{esc}");
+        cy.docByTitle("Jerusalem").then((p) =>
+          cy.get(`[data-testid=map] [data-testid=map-pin][data-id="${p.id}"] .map-pin`).click({ force: true }),
+        );
+        cy.get("[data-testid=map-pin-card]").should("be.visible");
         expectNoOverflow();
       });
 
@@ -165,6 +264,28 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Two Panes on a landscape tablet (spec #35): each header carries the
+      // Pane's own buttons beside its tools, and "Ouvrir dans l’autre volet"
+      // is the longest label among them.
+      it("keeps two Panes and their headers inside a tablet", () => {
+        cy.viewport(1024, 768);
+        cy.openApp();
+        cy.openDoc("Endurance in trials");
+        cy.get("[data-testid=pane][data-pane=0] .cm-content [data-link='Undeserved kindness in Romans']")
+          .first()
+          .click({ ctrlKey: true });
+        cy.get("[data-testid=panes]").should("have.attr", "data-count", "2");
+        cy.get("[data-testid=pane-close]").should("have.length", 2);
+        expectNoOverflow();
+        // A Hub's header is the fullest; open one in the left Pane.
+        cy.get("[data-testid=pane][data-pane=1] .cm-content [data-link=Paul]").first().click({ ctrlKey: true });
+        cy.get("[data-testid=pane][data-pane=0] [data-testid=hub-header]").should("exist");
+        expectNoOverflow();
+        // The layout is kept per Device: leave one Pane for the next test.
+        cy.get("[data-testid=pane-close]").first().click();
+        cy.get("[data-testid=panes]").should("have.attr", "data-count", "1");
+      });
+
       it("keeps the Delivery view's bar inside a phone", () => {
         // "Réinitialiser", "Quitter" and the timer share one wrapping row.
         cy.openDoc("Talk on endurance");
@@ -263,6 +384,20 @@ describe("Locale layout", () => {
         cy.get("[data-testid=journey-stop-input]").type("kadesh");
         cy.get("[data-testid=journey-stop-option][data-kind=gazetteer]").should("exist");
         expectNoOverflow();
+      });
+
+      // A region's Border section on its Hub (« Pas encore de frontière… »,
+      // « Tracer la frontière ») and the Map's drawing bar with its region
+      // picker, hint and « Enregistrer la frontière ».
+      it("keeps a region's Border section and the Border drawing bar inside the screen", () => {
+        cy.openDoc("Egypt");
+        cy.get("[data-testid=hub-border]").scrollIntoView().should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=hub-border-draw]").click();
+        cy.get("[data-testid=border-toolbar]").should("be.visible");
+        cy.get("[data-testid=border-hint]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=border-cancel]").click();
       });
 
       // The Map's legend and filter popover (« Couleur selon », « Choisissez-en

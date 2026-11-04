@@ -22,6 +22,7 @@ import {
   Plus,
   RefreshCw,
   Trash2,
+  Upload,
   X,
   Waypoints,
 } from "lucide-react";
@@ -41,8 +42,10 @@ import {
   type VerseCount,
   LINKABLE_TARGET_TYPES,
 } from "@/lib/api";
-import { SPAN, type SectionProps } from "@/lib/docTypes";
+import { SPAN, dateAdds, dateRows, type SectionProps } from "@/lib/docTypes";
+import { checkNewProperty } from "@/lib/propertyName";
 import { useQuery } from "@/lib/useQuery";
+import { hubTies } from "@/lib/ties";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import {
   ancestorsOf,
@@ -59,8 +62,11 @@ import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
-import { useStore } from "@/lib/store";
+import { useStore, usePane } from "@/lib/store";
+import { editableCorners, isRegion } from "@/lib/border";
+import { useBorders, useDeleteBorder, useDrawBorder, useImportBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
+import type { LiveBody } from "@/lib/liveDocument";
 import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { attachPictures } from "@/editor/pictures";
@@ -82,14 +88,22 @@ import { Cover } from "@/components/Cover";
 import { DocLink } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { MiniTimeline } from "@/components/MiniTimeline";
+import { DatePreview } from "@/components/DatePreview";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { TutorialButton } from "@/components/TutorialPanel";
+import { PaneButtons } from "@/components/Panes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Popover,
   PopoverAnchor,
@@ -178,7 +192,7 @@ export function HubView({ id }: { id: string }) {
   const env = useMemo<EditorEnv>(
     () => ({
       names: d.names,
-      onOpenLink: (target) => s.openLink(target),
+      onOpenLink: (target, other) => void s.openLink(target, other),
       onOpenPassage: (p) => s.openPassage(p),
       onPassageHover: (i) =>
         setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
@@ -327,6 +341,7 @@ export function HubView({ id }: { id: string }) {
             ""
           )}
         </span>
+        <PaneButtons />
         <TutorialButton place={{ kind: "hub", type }} />
         {/* Not on a phone, where a Source's header is full already: the
             "Open local graph" Command reaches it there. */}
@@ -505,6 +520,8 @@ export function HubView({ id }: { id: string }) {
             <About
               doc={doc}
               body={d.body}
+              revision={d.revision}
+              live={d.live}
               onBodyChange={d.setBodyText}
               env={env}
               names={d.names}
@@ -736,7 +753,7 @@ function ownedProperties(type: DocType): string[] {
     ...(HAS_ALIASES.includes(type) ? ["aliases"] : []),
     // A Place's kind has its own picker (PLAN §27.12), and so has a
     // Source's (§28.1), with its Cover and its "Part of" (§28.3).
-    ...(type === "place" ? ["kind"] : []),
+    ...(type === "place" ? ["kind", "border"] : []),
     ...(type === "source" ? ["kind", "cover", "parent"] : []),
   ];
 }
@@ -879,7 +896,7 @@ function SourceBreadcrumb({
             type="button"
             data-testid="breadcrumb-step"
             className="min-w-0 truncate underline-offset-4 hover:text-foreground hover:underline"
-            onClick={() => s.openDoc(a.id)}
+            onClick={s.openDocOnClick(a.id)}
           >
             {a.title}
           </button>
@@ -1092,10 +1109,17 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
     <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
   ),
   character: ({ doc, fm, onFmChange }) => (
-    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+    <>
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
+    </>
   ),
   place: ({ doc, fm, onFmChange }) => (
-    <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+    <>
+      <BorderSection doc={doc} />
+      <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <TiesSection doc={doc} />
+    </>
   ),
   concept: ({ doc, fm, onFmChange }) => (
     <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
@@ -1228,7 +1252,7 @@ function JourneySection({
                 <button
                   type="button"
                   className="block max-w-full truncate text-left text-sm hover:underline underline-offset-2"
-                  onClick={() => s.openLink(linkTarget(stop.target))}
+                  onClick={s.openLinkOnClick(linkTarget(stop.target))}
                 >
                   {stop.doc?.title ?? linkTarget(stop.target)}
                 </button>
@@ -1421,14 +1445,16 @@ function SpanDate({
   name,
   value,
   invalid,
-  fm,
-  onFmChange,
+  onWrite,
+  autoFocus,
 }: {
   name: string;
   value: string;
   invalid: boolean;
-  fm: string;
-  onFmChange: (fm: string) => void;
+  /** Write the value typed, or `null` to remove the Property. */
+  onWrite: (value: string | null) => void;
+  /** Just added through "Add Date": the user means to type it now. */
+  autoFocus?: boolean;
 }) {
   const t = useT();
   const [text, setText] = useState(value);
@@ -1436,10 +1462,12 @@ function SpanDate({
   const commit = () => {
     const next = text.trim();
     if (next === value.trim()) return;
-    onFmChange(setField(fm, name, next === "" ? null : next));
+    onWrite(next === "" ? null : next);
   };
+  // The preview under the field reads the text as typed, so it also says why a
+  // saved value is not a Date; the red border marks what is saved.
   return (
-    <>
+    <div className="min-w-0 flex-1 space-y-0.5">
       <Input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -1451,21 +1479,111 @@ function SpanDate({
         placeholder={t.date_placeholder}
         aria-label={propertyLabel(name, t)}
         data-testid={`date-input-${name}`}
+        autoFocus={autoFocus}
         className={cn(
           "h-7 max-w-52 text-sm tabular-nums",
           invalid && "border-destructive text-destructive",
         )}
       />
-      {invalid && (
-        <span
-          className="flex shrink-0 items-center gap-1 text-xs text-destructive"
-          title={t.date_invalid}
+      <DatePreview text={text} testId={`date-preview-${name}`} />
+    </div>
+  );
+}
+
+/**
+ * A region's Border (ADR 0023): where its file is, whether it can be drawn,
+ * and the way to the Map to draw, edit or delete it. Shown on every region,
+ * and on any other Place that names a Border, so a warning is never hidden
+ * because the kind changed.
+ */
+function BorderSection({ doc }: { doc: DocumentPayload }) {
+  const t = useT();
+  const borders = useBorders();
+  const confirmDelete = useDeleteBorder();
+  const importBorder = useImportBorder();
+  const drawBorder = useDrawBorder();
+  const id = doc.summary.id;
+  const border = borders.find((b) => b.doc === id);
+  const region = isRegion({ type: doc.summary.type, kind: doc.frontmatter.kind });
+  if (!region && !border && doc.frontmatter.border == null) return null;
+  const warning = !border
+    ? null
+    : border.status === "missing"
+      ? t.border_missing(border.path)
+      : border.status === "malformed"
+        ? t.border_malformed(border.error ?? "")
+        : border.status === "downloading"
+          ? t.border_downloading
+          : null;
+  const draw = () => drawBorder(id);
+  return (
+    <section data-testid="hub-border" className="space-y-2">
+      <PanelTitle>{t.border}</PanelTitle>
+      {warning ? (
+        <p
+          data-testid="border-warning"
+          data-status={border?.status}
+          className="flex min-w-0 items-start gap-1.5 text-sm text-destructive"
         >
-          <CircleAlert className="size-3.5" />
-          {t.date_invalid}
-        </span>
+          <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span className="min-w-0 break-words">{warning}</span>
+        </p>
+      ) : border ? (
+        <p data-testid="border-file" className="min-w-0 break-words text-sm text-muted-foreground">
+          {t.border_file(border.path)}
+        </p>
+      ) : !region ? (
+        <p data-testid="border-not-region" className="text-sm text-muted-foreground">
+          {t.border_not_region}
+        </p>
+      ) : (
+        <p data-testid="border-none" className="text-sm text-muted-foreground">
+          {t.border_none}
+        </p>
       )}
-    </>
+      {border?.status === "ok" && !editableCorners(border) && (
+        <p className="text-xs text-muted-foreground">{t.border_pieces}</p>
+      )}
+      <div className="flex flex-wrap gap-2">
+        {/* Only a region takes a Border (ADR 0023); any Place may lose one. */}
+        {region && (
+          <>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-draw"
+              onClick={draw}
+            >
+              <MapPin />
+              {border && editableCorners(border) ? t.border_edit : t.border_draw}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-auto min-h-8"
+              data-testid="hub-border-import"
+              onClick={() => importBorder(id)}
+            >
+              <Upload />
+              {t.border_import}
+            </Button>
+          </>
+        )}
+        {border && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto min-h-8"
+            data-testid="hub-border-delete"
+            onClick={() => confirmDelete(id, border.path)}
+          >
+            <Trash2 />
+            {t.border_delete}
+          </Button>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -1473,15 +1591,19 @@ function SpanDate({
  * Dates on a Subject (ADR 0005) and, for anything but an Event, the Events
  * naming it.
  *
- * The Span its type suggests is always offered, filled or not (`SPAN` in
- * lib/docTypes.tsx). It used to render only what was already there, and a
- * Character with no Dates showed nothing at all — so the way to record a
- * lifespan was to know that a Property called `born` existed and to add it by
- * hand in the Properties panel. An empty labelled field says where a birth
- * goes; a button to reveal one does not.
+ * An "Add Date" control offers what the page can still take (`dateAdds` in
+ * lib/docTypes.tsx): the Span its type suggests in one click — "Add lifespan"
+ * on a Character, "Add Span" on an Event, a Journey or a Place — or the half
+ * of it that is missing, and a Date the user names. A Character with no Dates
+ * used to show nothing at all, so recording a lifespan meant knowing that a
+ * Property called `born` existed; the button names the convention instead.
+ *
+ * What is added is local until typed: a blank Date is not a Date, and
+ * writing `born:` with nothing after it would be read back as an invalid one.
+ * The row appears, focused, and the first value typed writes the Property.
  *
  * These Properties are edited here, so the Properties panel is told to leave
- * them out rather than offer the same value twice.
+ * the Span out rather than offer the same value twice.
  */
 function DatesSection({
   doc,
@@ -1495,7 +1617,6 @@ function DatesSection({
   const t = useT();
   const id = doc.summary.id;
   const isEvent = doc.summary.type === "event";
-  const span = SPAN[doc.summary.type];
   // The mini-timeline needs each Event's own Dates, which `eventsNaming` omits.
   // This document's own Dates, and — unless it is an Event itself — every
   // Event naming it, each with the Dates the mini-timeline needs. One answer,
@@ -1516,17 +1637,30 @@ function DatesSection({
   const dates = useMemo(() => data?.dates ?? [], [data]);
   const events = useMemo(() => data?.events ?? [], [data]);
   const eventDates = useMemo(() => data?.eventDates ?? [], [data]);
-  if (!span && dates.length === 0 && (isEvent || events.length === 0)) {
-    return null;
-  }
-  // The suggested pair first and always, then any other Date the document
-  // carries — a Character's `reign_start` keeps its place below the lifespan.
-  const byName = new Map(dates.map((d) => [d.name, d]));
-  const spanRows = (span ?? []).map((name) => ({
-    name,
-    row: byName.get(name) ?? null,
-  }));
-  const others = dates.filter((d) => !span?.includes(d.name));
+  const s = useStore();
+  // Names added through "Add Date" and not yet typed into, and the one to
+  // focus. Forgotten when another page opens.
+  const [added, setAdded] = useState<string[]>([]);
+  const [focus, setFocus] = useState<string | null>(null);
+  useEffect(() => {
+    setAdded([]);
+    setFocus(null);
+  }, [id]);
+  const add = (names: readonly string[]) => {
+    setAdded((a) => [...a, ...names.filter((n) => !a.includes(n))]);
+    setFocus(names[0] ?? null);
+  };
+  // The suggested pair first, then a Date just named, then any other Date the
+  // document carries — a Character's `reign_start` keeps its place below the
+  // lifespan (`dateRows`).
+  const { present, editable, others } = dateRows(doc.summary.type, dates, added);
+  // A name is typed Date for the whole Vault (ADR 0006) when its first value
+  // is written, not when it is named: a Date named and left empty leaves no
+  // trace.
+  const write = async (name: string, value: string | null) => {
+    if (value != null && !s.schema.types[name]) await s.setPropertyType(name, "date");
+    onFmChange(setField(fm, name, value));
+  };
   const anyParsed =
     dates.some((d) => d.date) ||
     eventDates.some((e) => e.dates.some((d) => d.date));
@@ -1535,19 +1669,22 @@ function DatesSection({
       {anyParsed && (
         <MiniTimeline doc={doc.summary} dates={dates} events={eventDates} />
       )}
-      {(spanRows.length > 0 || others.length > 0) && (
-        <div>
-          <PanelTitle className="mb-3">{t.dates}</PanelTitle>
+      <div>
+        <div className="mb-3 flex min-w-0 flex-wrap items-center gap-2">
+          <PanelTitle className="min-w-0">{t.dates}</PanelTitle>
+          <AddDate type={doc.summary.type} present={present} onAdd={add} />
+        </div>
+        {(editable.length > 0 || others.length > 0) && (
           <ul className="space-y-1">
-            {spanRows.map(({ name, row }) => (
+            {editable.map(({ name, row }) => (
               <li
                 key={name}
-                className="flex min-w-0 items-center gap-3 text-sm"
+                className="flex min-w-0 items-start gap-3 text-sm"
                 data-testid={`date-${name}`}
                 data-valid={row?.date ? "true" : "false"}
               >
                 <span
-                  className="w-24 shrink-0 truncate text-xs text-muted-foreground"
+                  className="w-24 shrink-0 truncate pt-1.5 text-xs text-muted-foreground"
                   title={name}
                 >
                   {propertyLabel(name, t)}
@@ -1556,15 +1693,15 @@ function DatesSection({
                   name={name}
                   value={row?.text ?? ""}
                   invalid={row != null && !row.date}
-                  fm={fm}
-                  onFmChange={onFmChange}
+                  onWrite={(v) => write(name, v).catch(console.error)}
+                  autoFocus={focus === name}
                 />
               </li>
             ))}
             {others.map((d) => (
               <li
                 key={d.name}
-                className="flex items-center gap-3 text-sm"
+                className="flex min-w-0 items-baseline gap-3 text-sm"
                 data-testid={`date-${d.name}`}
                 data-valid={d.date ? "true" : "false"}
               >
@@ -1574,25 +1711,25 @@ function DatesSection({
                 >
                   {propertyLabel(d.name, t)}
                 </span>
-                <span
-                  className={cn("tabular-nums", !d.date && "text-destructive")}
-                >
-                  {d.text}
-                </span>
-                {!d.date && (
+                <div className="min-w-0 flex-1 space-y-0.5">
                   <span
-                    className="flex items-center gap-1 text-xs text-destructive"
-                    title={t.date_invalid}
+                    className={cn(
+                      "break-words tabular-nums",
+                      !d.date && "text-destructive",
+                    )}
                   >
-                    <CircleAlert className="size-3.5" />
-                    {t.date_invalid}
+                    {d.text}
                   </span>
-                )}
+                  {/* Why it is not a Date, as the field's own preview says it. */}
+                  {!d.date && (
+                    <DatePreview text={d.text} testId={`date-preview-${d.name}`} />
+                  )}
+                </div>
               </li>
             ))}
           </ul>
-        </div>
-      )}
+        )}
+      </div>
       {!isEvent && events.length > 0 && (
         <div data-testid="hub-events">
           <PanelTitle className="mb-3">{t.events}</PanelTitle>
@@ -1605,6 +1742,187 @@ function DatesSection({
           </ul>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * The Dates section's "Add Date" menu, and the name field its "Date…" opens.
+ *
+ * Naming follows the Properties panel's rule (`checkNewProperty`) with the
+ * type fixed to Date: a name the Vault already types otherwise is refused,
+ * since a name has one type everywhere (ADR 0006). A new name is typed Date
+ * once its first value is written (`DatesSection`), not here.
+ */
+function AddDate({
+  type,
+  present,
+  onAdd,
+}: {
+  type: DocType;
+  present: readonly string[];
+  onAdd: (names: readonly string[]) => void;
+}) {
+  const s = useStore();
+  const t = useT();
+  const [naming, setNaming] = useState(false);
+  const [name, setName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const offers = dateAdds(type, present);
+  const close = () => {
+    setNaming(false);
+    setName("");
+    setError(null);
+  };
+  const submit = () => {
+    const check = checkNewProperty(name, s.schema.types, "date");
+    if (!check.ok) {
+      if (check.reason === "taken")
+        setError(t.date_name_taken(check.name, t.property_types[check.type]));
+      else if (check.reason === "reserved") setError(t.date_name_reserved(check.name));
+      return;
+    }
+    close();
+    onAdd([check.name]);
+  };
+  return (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="xs"
+            variant="ghost"
+            data-testid="add-date"
+            className="h-auto text-muted-foreground"
+          >
+            <Plus />
+            {t.add_date}
+          </Button>
+        </DropdownMenuTrigger>
+        {/* Focus goes to the field just added, not back to this button. */}
+        <DropdownMenuContent align="start" onCloseAutoFocus={(e) => e.preventDefault()}>
+          {offers.map((o) =>
+            o.kind === "pair" ? (
+              <DropdownMenuItem
+                key="pair"
+                data-testid="add-date-pair"
+                onSelect={() => onAdd(o.names)}
+              >
+                {o.label === "lifespan" ? t.add_lifespan : t.add_span}
+              </DropdownMenuItem>
+            ) : o.kind === "half" ? (
+              <DropdownMenuItem
+                key="half"
+                data-testid="add-date-half"
+                data-name={o.name}
+                onSelect={() => onAdd([o.name])}
+              >
+                {t.add_date_half(propertyLabel(o.name, t))}
+              </DropdownMenuItem>
+            ) : (
+              <DropdownMenuItem
+                key="named"
+                data-testid="add-date-named"
+                onSelect={() => setNaming(true)}
+              >
+                {t.add_date_named}
+              </DropdownMenuItem>
+            ),
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {naming && (
+        <form
+          className="flex w-full min-w-0 flex-wrap items-center gap-2"
+          data-testid="date-name-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
+          <Input
+            autoFocus
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") close();
+            }}
+            placeholder={t.date_name_placeholder}
+            aria-label={t.add_date_named}
+            data-testid="date-name-input"
+            className="h-7 min-w-0 max-w-52 flex-1 text-sm"
+          />
+          <Button type="submit" size="sm" variant="outline" data-testid="date-name-submit">
+            {t.date_name_add}
+          </Button>
+          <IconButton label={t.cancel} onClick={close}>
+            <X />
+          </IconButton>
+          {error && (
+            <p
+              className="flex w-full min-w-0 items-start gap-1 text-xs text-destructive"
+              data-testid="date-name-error"
+            >
+              <CircleAlert className="mt-px size-3.5 shrink-0" />
+              <span className="min-w-0">{error}</span>
+            </p>
+          )}
+        </form>
+      )}
+    </>
+  );
+}
+
+/**
+ * Who was in this Place, or where this Character was (CONTEXT.md, Character):
+ * one row per Character or Place, merged from the Character's own `places`,
+ * which holds for their whole life, and from Events naming both, each holding
+ * for the Event's time. Read-only: `places` is edited in Properties, Events
+ * on their own pages.
+ */
+function TiesSection({ doc }: { doc: DocumentPayload }) {
+  const t = useT();
+  const id = doc.summary.id;
+  const isPlace = doc.summary.type === "place";
+  const { data } = useQuery({
+    key: [id, doc.summary.mtime],
+    deps: { types: ["character", "place", "event"] },
+    fetch: () => api.placeTies(id),
+  });
+  const rows = useMemo(() => hubTies(data ?? [], id), [data, id]);
+  if (rows.length === 0) return null;
+  return (
+    <section data-testid="hub-ties">
+      <PanelTitle className="mb-3">
+        {isPlace ? t.ties_characters : t.ties_places}
+      </PanelTitle>
+      <ul className="space-y-1">
+        {rows.map((r) => (
+          <li
+            key={r.other.id}
+            data-testid="hub-tie"
+            data-lifelong={r.lifelong ? "true" : "false"}
+            className="min-w-0"
+          >
+            <DocLink doc={r.other} />
+            <ul className="ml-6 min-w-0 space-y-0.5 text-xs text-muted-foreground">
+              {r.lifelong && (
+                <li data-testid="hub-tie-lifelong" className="px-2">
+                  {t.tie_lifelong}
+                </li>
+              )}
+              {r.events.map((e) => (
+                <li key={e.id} data-testid="hub-tie-event" className="min-w-0">
+                  <DocLink doc={e} className="py-0.5 text-xs" />
+                </li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -1914,7 +2232,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                   type="button"
                   data-testid="hub-clipping"
                   className="flex w-full min-w-0 gap-3 rounded-md border px-3 py-2 text-left transition-colors hover:bg-accent"
-                  onClick={() => s.openDoc(e.doc.id)}
+                  onClick={s.openDocOnClick(e.doc.id)}
                 >
                   <span className="w-16 shrink-0 truncate pt-0.5 text-xs text-muted-foreground tabular-nums">
                     {e.locator ?? "—"}
@@ -1939,7 +2257,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                 <button
                   type="button"
                   className="mb-1 flex items-center gap-2 text-sm font-medium hover:underline underline-offset-4"
-                  onClick={() => s.openDoc(g.source.id)}
+                  onClick={s.openDocOnClick(g.source.id)}
                 >
                   <TypeDot type="source" />
                   {g.source.title}
@@ -1951,7 +2269,7 @@ function SourceSection({ doc }: { doc: DocumentPayload }) {
                     <button
                       type="button"
                       className="flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-accent"
-                      onClick={() => s.openDoc(e.doc.id)}
+                      onClick={s.openDocOnClick(e.doc.id)}
                     >
                       <span className="w-16 shrink-0 truncate text-xs text-muted-foreground tabular-nums">
                         {e.locator ?? "—"}
@@ -2080,7 +2398,7 @@ function MentionList({ items }: { items: Backlink[] }) {
           <button
             type="button"
             className="w-full rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-            onClick={() => s.openDoc(b.doc.id)}
+            onClick={s.openDocOnClick(b.doc.id)}
           >
             <div className="flex items-center gap-2 text-sm">
               <TypeDot type={b.doc.type} />
@@ -2116,6 +2434,8 @@ function Empty({ text }: { text: string }) {
 function About({
   doc,
   body,
+  revision,
+  live,
   onBodyChange,
   env,
   names,
@@ -2123,6 +2443,9 @@ function About({
 }: {
   doc: DocumentPayload;
   body: string;
+  revision: number;
+  live: LiveBody;
+  /** A write from outside the editor (a dropped Picture). */
   onBodyChange: (t: string) => void;
   env: EditorEnv;
   names: EditorEnv["names"];
@@ -2130,6 +2453,7 @@ function About({
 }) {
   const s = useStore();
   const t = useT();
+  const pane = usePane();
   const [open, setOpen] = useState(body.trim().length > 0);
   useEffect(() => {
     if (body.trim()) setOpen(true);
@@ -2162,12 +2486,15 @@ function About({
         <div className="rounded-xl border bg-card">
           <Editor
             value={body}
+            revision={revision}
+            live={live}
             onChange={onBodyChange}
             env={env}
             names={names}
             tags={s.tags}
             placeholder={prompt}
-            autofocus={!body.trim()}
+            autofocus={!body.trim() && pane.active}
+            register={pane.active}
             sourceMode={s.sourceMode}
             compact
             pictureTitle={title}

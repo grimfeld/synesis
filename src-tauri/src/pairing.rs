@@ -40,6 +40,16 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                     }
                 }
             }
+            // Border files that just arrived (ADR 0023): which Places lie
+            // inside each region is recomputed now, not at the next scan.
+            if let Event::Borders { .. } = &ev {
+                let state = forward.state::<AppState>();
+                if let Ok(changed) = state.with_vault_mut(|v| v.border_file_changed()) {
+                    if !changed.is_empty() {
+                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
+                    }
+                }
+            }
             // Config files that just arrived (ADR 0016): the schema is held in
             // memory, the rest is read by the UI on demand.
             if let Event::Config { names } = &ev {
@@ -215,7 +225,8 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
         "quit" => {
             let state = app.state::<AppState>();
             state.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
-            app.exit(0);
+            // Every Window saves its typing first (spec #35).
+            crate::windows::flush_all_then(app, |app| app.exit(0));
         }
         _ => {}
     });
@@ -228,7 +239,7 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
 
 #[cfg(desktop)]
 pub fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
+    if let Some(w) = app.get_webview_window(engine::windows::MAIN) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();

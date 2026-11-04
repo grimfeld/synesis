@@ -102,19 +102,28 @@ export function SettingsView() {
             </CardHeader>
             <CardContent className="grid gap-3">
               <code className="rounded-md bg-muted px-2 py-1.5 text-xs break-all">{s.info?.root}</code>
-              <div className="flex flex-wrap gap-2">
-                {!mobile && (
-                  <Button variant="outline" onClick={change}>
-                    <FolderOpen />
-                    {t.change_vault}
-                  </Button>
-                )}
-                <Button variant="outline" onClick={() => s.closeVault()} data-testid="close-vault">
-                  <LogOut />
-                  {t.close_vault}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">{t.close_vault_hint}</p>
+              {s.secondaryWindow ? (
+                // A secondary Window shows the main Window's Vault (spec #35).
+                <p className="text-xs text-muted-foreground" data-testid="vault-in-main-window">
+                  {t.vault_in_main_window}
+                </p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {!mobile && (
+                      <Button variant="outline" onClick={change}>
+                        <FolderOpen />
+                        {t.change_vault}
+                      </Button>
+                    )}
+                    <Button variant="outline" onClick={() => s.closeVault()} data-testid="close-vault">
+                      <LogOut />
+                      {t.close_vault}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{t.close_vault_hint}</p>
+                </>
+              )}
             </CardContent>
           </Card>
           <Card data-testid="settings-sync">
@@ -204,7 +213,7 @@ export function SettingsView() {
               </div>
             </CardContent>
           </Card>
-          <VaultsCard />
+          {!s.secondaryWindow && <VaultsCard />}
           <Card>
             <CardHeader>
               <CardTitle>{t.shortcuts}</CardTitle>
@@ -452,6 +461,7 @@ function VaultsCard() {
     if (!leaving) return;
     setLeaveError(null);
     try {
+      await s.releaseVault();
       await api.leaveVault(leaving.id, deleteDocuments);
       setLeaving(null);
       // The Vault is gone from this Device; the store has to let go of it too.
@@ -468,6 +478,7 @@ function VaultsCard() {
     setMoving(id);
     setMoveError(null);
     try {
+      await s.releaseVault();
       await api.moveVault(id);
       await s.attachVault();
       setHidden(await api.hiddenVaults());

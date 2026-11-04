@@ -141,6 +141,25 @@ fn new_id() -> String {
     ulid::Ulid::new().to_string()
 }
 
+/// Whether the scan walks into `e`. Hidden entries are skipped, iCloud's
+/// placeholders among them: an evicted document stays indexed because
+/// `forget_vanished` asks the disk (see `cloud`), not because it was walked.
+fn is_walked(e: &walkdir::DirEntry) -> bool {
+    e.depth() == 0 || !e.file_name().to_string_lossy().starts_with('.')
+}
+
+fn is_markdown(p: &Path) -> bool {
+    p.extension().is_some_and(|x| x == "md")
+}
+
+/// A stable id for a file the engine must not write an `id` into: the same
+/// path gives the same id on every launch and every Device.
+fn path_id(rel: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(rel.as_bytes());
+    format!("path-{}", &hex::encode(digest)[..26])
+}
+
 fn mtime_of(p: &Path) -> i64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
@@ -205,8 +224,20 @@ impl Vault {
             sync: Some(sync),
             schema,
         };
-        v.scan()?;
+        v.catch_up()?;
         Ok(v)
+    }
+
+    /// Bring the index up to date on open. An index written by an older
+    /// parser is re-parsed in full, once: its unchanged files would otherwise
+    /// keep the old rows forever.
+    fn catch_up(&mut self) -> Result<()> {
+        let stale = self.index.parser_stale()?;
+        self.scan_files(stale)?;
+        if stale {
+            self.index.set_parser_version(index::PARSER_VERSION)?;
+        }
+        Ok(())
     }
 
     /// What this Vault is and what to call it (ADR 0014).
@@ -320,7 +351,7 @@ impl Vault {
         let docs = self.index.list(None)?;
         let mut n = 0;
         for d in docs {
-            let missing = self.sync.as_ref().map_or(false, |s| !s.is_published(&d.id));
+            let missing = self.sync.as_ref().is_some_and(|s| !s.is_published(&d.id));
             if !missing {
                 continue;
             }
@@ -393,13 +424,17 @@ impl Vault {
                 // the user's latest words: fold it into the merged state as a
                 // diff instead of overwriting it. Only a file older than the
                 // snapshot is a stale copy the provider has not replaced yet.
+                // A file equal to what this Device held before the import is
+                // its own last save, however recent: folding that back in
+                // would delete every remote edit the merge just brought.
                 let file_newer = abs.is_file()
                     && !on_disk.is_empty()
+                    && on_disk != c.before
                     && self
                         .sync
                         .as_ref()
                         .and_then(|s| s.remote_mtime(&c.id))
-                        .map_or(false, |m| mtime_of(&abs) > m);
+                        .is_some_and(|m| mtime_of(&abs) > m);
                 if file_newer {
                     if let Some(sync) = self.sync.as_mut() {
                         sync.record_local(&c.id, &on_disk, &rel)?;
@@ -417,6 +452,11 @@ impl Vault {
 
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The Vault's per-Device folder, outside the synced one.
+    pub fn local_dir(&self) -> &Path {
+        &self.local_dir
     }
 
     pub fn lang(&self) -> Lang {
@@ -449,59 +489,193 @@ impl Vault {
     /// Walk the folder and bring the index up to date. Files whose mtime is
     /// unchanged are skipped; files that vanished are forgotten.
     pub fn scan(&mut self) -> Result<Vec<DocSummary>> {
-        let mut seen = std::collections::HashSet::new();
+        self.scan_files(false)
+    }
+
+    /// [`Vault::scan`], re-parsing every file when `all` is set rather than
+    /// only those whose mtime moved.
+    fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
-        let mut files = Vec::new();
-        for entry in walkdir::WalkDir::new(&self.root)
-            .follow_links(false)
-            .into_iter()
-            // Hidden entries are skipped, except iCloud's placeholders: an
-            // evicted document is still the user's (see `cloud`).
-            .filter_entry(|e| {
-                e.depth() == 0
-                    || !e.file_name().to_string_lossy().starts_with('.')
-                    || (e.file_type().is_file() && cloud::is_placeholder(e.path()))
-            })
-            .filter_map(|e| e.ok())
-        {
-            if entry.file_type().is_file() && cloud::is_placeholder(entry.path()) {
-                // Keep what the index knows about an evicted document; it is
-                // indexed again when iCloud brings it back.
-                if let Some(orig) = cloud::original_of(entry.path()) {
-                    let hidden = orig.file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'));
-                    if !hidden && orig.extension().is_some_and(|x| x == "md") && !orig.exists() {
-                        if let Some(rel) = self.rel(&orig) {
-                            seen.insert(rel);
-                        }
-                    }
-                }
-                continue;
-            }
-            if entry.file_type().is_file() && entry.path().extension().map_or(false, |x| x == "md")
-            {
-                if let Some(rel) = self.rel(entry.path()) {
-                    files.push((rel, mtime_of(entry.path())));
-                }
-            }
-        }
+        let files = self.markdown_files();
+        let walked: std::collections::HashSet<String> = files.iter().map(|(rel, _)| rel.clone()).collect();
+        changed.extend(self.reindex(files, all)?);
+        self.forget_vanished(&walked)?;
+        self.index_boards()?;
+        // A Border file can change while the app is closed, with its Place
+        // untouched (another tool, Pairing, iCloud): every one is read again.
+        self.refresh_borders()?;
+        Ok(changed)
+    }
+
+    /// Parse each of `files` whose mtime moved since it was indexed, or
+    /// every one when `all` is set.
+    fn reindex(&mut self, files: Vec<(String, i64)>, all: bool) -> Result<Vec<DocSummary>> {
+        let mut changed = Vec::new();
         for (rel, mtime) in files {
-            seen.insert(rel.clone());
-            if self.index.mtime_of(&rel)? == Some(mtime) {
+            if !all && self.is_current(&rel, mtime)? {
                 continue;
             }
-            if let Some(d) = self.index_file(&rel)? {
+            // The Border names are noted once, after the walk.
+            if let Some(d) = self.index_file_as(&rel, false)? {
                 changed.push(d);
             }
         }
-        // Forget files that vanished. Scripture pages materialised during this
-        // scan are not in `seen`, so check the disk rather than the set.
+        Ok(changed)
+    }
+
+    /// Every markdown file of the Vault, with its mtime.
+    fn markdown_files(&self) -> Vec<(String, i64)> {
+        walkdir::WalkDir::new(&self.root)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(is_walked)
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_file() && is_markdown(e.path()))
+            .filter_map(|e| Some((self.rel(e.path())?, mtime_of(e.path()))))
+            .collect()
+    }
+
+    /// Whether the index already holds `rel` as it was at `mtime`.
+    fn is_current(&self, rel: &str, mtime: i64) -> Result<bool> {
+        Ok(self.index.mtime_of(rel)? == Some(mtime))
+    }
+
+    /// Forget files that vanished. A file the walk just found is there; for
+    /// the rest the disk decides: Scripture pages materialised during a scan
+    /// were not walked, and a document iCloud has evicted is the user's still,
+    /// kept until it really goes. Only those are looked up, not every file
+    /// the index holds.
+    fn forget_vanished(&mut self, walked: &std::collections::HashSet<String>) -> Result<()> {
         for path in self.index.all_paths()? {
-            if !seen.contains(&path) && !self.abs(&path).is_file() && !cloud::is_evicted(&self.abs(&path)) {
+            if walked.contains(&path) {
+                continue;
+            }
+            let abs = self.abs(&path);
+            if !abs.is_file() && !cloud::is_evicted(&abs) {
                 self.index.remove_path(&path)?;
             }
         }
-        self.index_boards()?;
+        Ok(())
+    }
+
+    // ---- Containment (ADR 0023) ----------------------------------------------
+
+    /// After a Place is indexed: its own Border, read and recorded (with the
+    /// Places inside it recomputed when it changed), and the regions it lies
+    /// inside, from its coordinates. Only a region has a Border.
+    fn index_containment(&mut self, id: &str, rel: &str, fm: &Map<String, Value>) -> Result<()> {
+        let border = fm.get(crate::border::PROPERTY).filter(|_| crate::border::is_region(fm.get("kind")));
+        self.record_border(id, rel, border)?;
+        self.index.locate_place(id)
+    }
+
+    /// `(id, path, border value)` for every region Place that sets `border`.
+    /// A Place of another kind may carry the Property, written by hand; it is
+    /// not a Border (ADR 0023).
+    fn bordered_places(&self) -> Result<Vec<(String, String, Value)>> {
+        let regions: std::collections::HashSet<String> = self
+            .index
+            .property_on(DocType::Place, "kind")?
+            .into_iter()
+            .filter(|(_, _, k)| crate::border::is_region(Some(k)))
+            .map(|(id, _, _)| id)
+            .collect();
+        Ok(self
+            .index
+            .property_on(DocType::Place, crate::border::PROPERTY)?
+            .into_iter()
+            .filter(|(id, _, _)| regions.contains(id))
+            .collect())
+    }
+
+    /// The region Places whose `border` names the file `rel`.
+    pub fn places_naming_border(&self, rel: &str) -> Result<Vec<String>> {
+        Ok(self
+            .bordered_places()?
+            .into_iter()
+            .filter(|(_, path, value)| Self::border_path(path, value).as_deref() == Some(rel))
+            .map(|(id, _, _)| id)
+            .collect())
+    }
+
+    /// Tell Pairing which Border files the Vault's regions name: only those
+    /// travel (ADR 0023).
+    fn note_border_names(&self) -> Result<()> {
+        let names = self
+            .bordered_places()?
+            .into_iter()
+            .filter_map(|(_, path, value)| Self::border_path(&path, &value));
+        crate::border::set_named(&self.local_dir, names)
+    }
+
+    /// Delete a Border file the Vault no longer wants, unless another region
+    /// still names it, leaving a tombstone so a paired Device drops its copy
+    /// rather than pushing it back. `except` is the Place letting it go.
+    pub fn drop_border_file(&mut self, rel: &str, except: &str) -> Result<bool> {
+        if self.places_naming_border(rel)?.iter().any(|id| id != except) {
+            return Ok(false);
+        }
+        crate::border::remove(&self.root, &self.local_dir, rel)?;
+        Ok(true)
+    }
+
+    /// Read one region's Border file into the index. A file iCloud has not
+    /// downloaded yet keeps what was recorded before; one that is missing or
+    /// malformed contains nothing, as a region without a Border does.
+    fn record_border(&mut self, id: &str, place_path: &str, border: Option<&Value>) -> Result<bool> {
+        let Some(rel) = border.and_then(|b| Self::border_path(place_path, b)) else {
+            return self.index.set_region_border(id, None);
+        };
+        let b = crate::border::read(&self.root, id, &rel);
+        match b.status {
+            crate::border::BorderStatus::Downloading => Ok(false),
+            crate::border::BorderStatus::Ok => self.index.set_region_border(id, Some(&b.polygons)),
+            _ => self.index.set_region_border(id, None),
+        }
+    }
+
+    /// Read every region's Border file again and recompute containment where
+    /// one changed. Returns the regions that changed.
+    fn refresh_borders(&mut self) -> Result<Vec<String>> {
+        let mut changed = Vec::new();
+        let named = self.bordered_places()?;
+        let seen: std::collections::HashSet<String> = named.iter().map(|(id, _, _)| id.clone()).collect();
+        for (id, path, value) in named {
+            if self.record_border(&id, &path, Some(&value))? {
+                changed.push(id);
+            }
+        }
+        changed.extend(self.forget_unnamed_borders(&seen)?);
+        self.note_border_names()?;
         Ok(changed)
+    }
+
+    /// Forget each Border on record whose Place no longer names one. Returns
+    /// those regions.
+    fn forget_unnamed_borders(&mut self, named: &std::collections::HashSet<String>) -> Result<Vec<String>> {
+        let mut gone = Vec::new();
+        for id in self.index.bordered_regions()? {
+            if !named.contains(&id) && self.index.set_region_border(&id, None)? {
+                gone.push(id);
+            }
+        }
+        Ok(gone)
+    }
+
+    /// A `.geojson` file changed on disk without its Place changing (an edit
+    /// in another tool, a Border from a paired Device, a Border command): the
+    /// Places inside each region are recomputed. Returns the regions whose
+    /// containment changed, for the views to ask again.
+    pub fn border_file_changed(&mut self) -> Result<Vec<DocSummary>> {
+        // Every Border is read, not only the one that changed: a file can be
+        // named by more than one Place, and there are few regions in any Vault.
+        let mut out = Vec::new();
+        for id in self.refresh_borders()? {
+            if let Some(d) = self.index.get(&id)? {
+                out.push(d);
+            }
+        }
+        Ok(out)
     }
 
     /// Record the Board refs of every Composition that has a Board.
@@ -533,7 +707,11 @@ impl Vault {
     /// Parse one file into the index, assigning an id if it has none and
     /// materialising any Scripture pages it mentions.
     pub fn index_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
-        self.index_file_as(rel, false)
+        let d = self.index_file_as(rel, false)?;
+        if d.as_ref().is_some_and(|d| d.doc_type == DocType::Place) {
+            self.note_border_names()?;
+        }
+        Ok(d)
     }
 
     /// `index_file`, told whether the file was just written by this app from
@@ -552,8 +730,7 @@ impl Vault {
                 return Ok(None);
             }
         };
-        let (mut text, mut parsed) = self.ensure_id(rel, text)?;
-        let id = parsed.id.clone().expect("id ensured");
+        let (mut text, mut parsed, id) = self.ensure_id(rel, text)?;
         let mut mtime = mtime_of(&abs);
         if let Some(sync) = self.sync.as_mut() {
             // A file older than another device's snapshot is a stale copy the
@@ -561,7 +738,7 @@ impl Vault {
             if let Some(crdt) = sync.text_of(&id) {
                 if !own_write
                     && crdt != text
-                    && sync.remote_mtime(&id).map_or(false, |m| m > mtime)
+                    && sync.remote_mtime(&id).is_some_and(|m| m > mtime)
                 {
                     write_atomic(&abs, &crdt)?;
                     text = crdt;
@@ -574,6 +751,9 @@ impl Vault {
         let date_names = self.schema.date_names();
         self.index
             .upsert(&id, rel, mtime, &text, &parsed, &date_names)?;
+        if parsed.doc_type == DocType::Place {
+            self.index_containment(&id, rel, &parsed.frontmatter)?;
+        }
         let passages: Vec<Passage> = parsed
             .references
             .iter()
@@ -583,16 +763,26 @@ impl Vault {
         self.index.get(&id)
     }
 
-    fn ensure_id(&self, rel: &str, text: String) -> Result<(String, ParsedDoc)> {
-        let parsed = document::parse(rel, &text);
-        if parsed.id.is_some() {
-            return Ok((text, parsed));
+    /// The document's id, giving the file one when it has none. A file whose
+    /// frontmatter cannot take an `id` line safely (YAML that does not parse,
+    /// or an `id` key holding nothing usable) is never written to: it is
+    /// known by an id derived from its path until the user fixes it.
+    fn ensure_id(&self, rel: &str, text: String) -> Result<(String, ParsedDoc, String)> {
+        let mut parsed = document::parse(rel, &text);
+        if let Some(id) = parsed.id.clone() {
+            return Ok((text, parsed, id));
+        }
+        if !document::can_add_field(&text, "id") {
+            let id = path_id(rel);
+            parsed.id = Some(id.clone());
+            return Ok((text, parsed, id));
         }
         let id = new_id();
         let text = document::with_frontmatter_fields(&text, &[("id", &id)]);
         write_atomic(&self.abs(rel), &text)?;
-        let parsed = document::parse(rel, &text);
-        Ok((text, parsed))
+        let mut parsed = document::parse(rel, &text);
+        parsed.id = Some(id.clone());
+        Ok((text, parsed, id))
     }
 
     /// Create the Book / Chapter / Verse pages a set of Passages implies.
@@ -617,7 +807,8 @@ impl Vault {
     }
 
     pub fn forget(&mut self, rel: &str) -> Result<()> {
-        self.index.remove_path(rel)
+        self.index.remove_path(rel)?;
+        self.note_border_names()
     }
 
     /// A file the watcher saw disappear. Forgotten if it is really gone;
@@ -673,6 +864,9 @@ impl Vault {
         let text = document::with_frontmatter_fields(text, &[("id", id)]);
         write_atomic(&self.abs(&summary.path), &text)?;
         self.index_file_as(&summary.path, true)?;
+        if summary.doc_type == DocType::Place {
+            self.note_border_names()?;
+        }
         self.read(id)
     }
 
@@ -786,8 +980,6 @@ impl Vault {
         write_atomic(&abs, &board.to_json())?;
         Ok(())
     }
-
-    /// Compositions whose Board references this document.
 
     /// The Board excerpt for each `(path, subpath)` a Board references.
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
@@ -1072,6 +1264,19 @@ impl Vault {
         if cloud::is_evicted(&p) {
             return Err(cloud::downloading(&p));
         }
+        // A region's Border goes with it, as a Composition's Board does,
+        // unless another region names the file too (ADR 0023). Before the
+        // Place itself: while the Place is there, a delete that stopped
+        // halfway, or was refused for a Border still downloading, can be
+        // made again.
+        let border = self
+            .bordered_places()?
+            .into_iter()
+            .find(|(place, _, _)| place == id)
+            .and_then(|(_, path, value)| Self::border_path(&path, &value));
+        if let Some(rel) = border {
+            self.drop_border_file(&rel, id)?;
+        }
         if p.exists() {
             fs::remove_file(p)?;
         }
@@ -1085,7 +1290,9 @@ impl Vault {
         if let Some(sync) = self.sync.as_mut() {
             sync.record_delete(id)?;
         }
-        self.index.remove_id(id)
+        self.index.remove_id(id)?;
+        self.refresh_borders()?;
+        Ok(())
     }
 
     // ---- read-only queries -------------------------------------------------
@@ -1164,15 +1371,51 @@ impl Vault {
             Query::Timeline => Answer::Dates(self.index.timeline()?),
             Query::EventsNaming { id } => Answer::Docs(self.index.events_naming(&id)?),
             Query::EventLinks => Answer::EventLinks(self.index.event_links()?),
+            Query::PlaceTies { id } => Answer::PlaceTies(self.index.place_ties(id.as_deref())?),
             Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
             Query::KindSuggestions => Answer::KindSuggestions(self.kind_suggestions()?),
+            Query::Borders => Answer::Borders(self.borders()?),
+            Query::Regions => Answer::Regions(self.index.regions()?),
         })
     }
 
     pub fn list(&self, doc_type: Option<DocType>) -> Result<Vec<DocSummary>> {
         self.index.list(doc_type)
+    }
+
+    /// Every region that names a Border, with the Border read from its file
+    /// (ADR 0023). Read on every ask rather than indexed: the file can change
+    /// under the Place (Pairing, iCloud, another tool) without the Place
+    /// itself changing. A `border` that names anything but a `.geojson` file
+    /// in the Vault is reported, never read.
+    pub fn borders(&self) -> Result<Vec<crate::border::Border>> {
+        let mut out = Vec::new();
+        for (id, path, value) in self.bordered_places()? {
+            match Self::border_path(&path, &value) {
+                Some(rel) => out.push(crate::border::read(&self.root, &id, &rel)),
+                None => {
+                    let Some(target) = crate::border::link_target(&value) else { continue };
+                    out.push(crate::border::Border {
+                        doc: id,
+                        error: Some(crate::border::not_a_border(&target)),
+                        path: target,
+                        status: crate::border::BorderStatus::Malformed,
+                        polygons: vec![],
+                    });
+                }
+            }
+        }
+        Ok(out)
+    }
+
+    /// The vault-relative Border file a Place's `border` value names: a
+    /// `.geojson` file inside the Vault, or nothing. A `border` naming a note
+    /// or a path out of the Vault is never read, written or deleted.
+    pub fn border_path(place_path: &str, value: &Value) -> Option<String> {
+        let target = crate::border::link_target(value)?;
+        crate::border::path_for(place_path, &target).filter(|rel| crate::border::is_synced(rel))
     }
     pub fn get(&self, id: &str) -> Result<Option<DocSummary>> {
         self.index.get(id)
@@ -1356,7 +1599,7 @@ impl Vault {
             let current = self.read(&f.id).ok();
             let unset = current.as_ref().is_some_and(|v| {
                 v.summary.doc_type == DocType::Place
-                    && v.frontmatter.get("kind").and_then(Value::as_str).map_or(true, |k| k.trim().is_empty())
+                    && v.frontmatter.get("kind").and_then(Value::as_str).is_none_or(|k| k.trim().is_empty())
             });
             let written = unset
                 && current
@@ -1479,6 +1722,36 @@ mod tests {
         assert!(v.kind_suggestions().unwrap().is_empty());
     }
 
+    /// Frontmatter the engine cannot add an `id` to (broken YAML, or an `id`
+    /// that is not a usable value) must neither stop the Vault opening nor be
+    /// rewritten: the file is indexed under an id derived from its path.
+    #[test]
+    fn a_file_that_cannot_take_an_id_opens_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let files = [
+            ("Notes/broken.md", "---\ntitle: [unclosed\n---\nbody\n"),
+            ("Notes/templater.md", "---\ncreated: <% tp.date.now() %>\ntags: [a\n---\nbody\n"),
+            ("Notes/null.md", "---\nid:\ntype: note\n---\nbody\n"),
+            ("Notes/list.md", "---\nid: [a]\n---\nbody\n"),
+            ("Notes/empty.md", "---\nid: \"\"\n---\nbody\n"),
+        ];
+        for (rel, text) in files {
+            fs::write(dir.path().join(rel), text).unwrap();
+        }
+        let data = dir.path().join(".data");
+        for _ in 0..2 {
+            let v = Vault::open(dir.path(), &data, Lang::En).unwrap();
+            let listed = v.list(None).unwrap();
+            for (rel, text) in files {
+                assert_eq!(fs::read_to_string(dir.path().join(rel)).unwrap(), text, "{rel} was rewritten");
+                assert!(listed.iter().any(|d| d.path == rel), "{rel} is not indexed");
+            }
+            let ids: std::collections::HashSet<_> = listed.iter().map(|d| d.id.clone()).collect();
+            assert_eq!(ids.len(), listed.len(), "two documents share an id");
+        }
+    }
+
     #[test]
     fn a_place_made_from_the_template_is_offered_a_kind() {
         let (_dir, mut v) = vault();
@@ -1533,6 +1806,80 @@ mod tests {
         // Undo puts the words back.
         v.restore_texts(&[(m.doc.id.clone(), before)]).unwrap();
         assert_eq!(v.unlinked_mentions(&place.id).unwrap().total, 1);
+    }
+
+    #[test]
+    fn linking_after_a_french_elision_keeps_the_elision_outside_the_link() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        fs::create_dir_all(dir.path().join("Places")).unwrap();
+        fs::write(
+            dir.path().join("Places/israel.md"),
+            "---\ntype: place\ntitle: \"Israël\"\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Notes/fils.md"),
+            "# Les fils\n\nLes fils d'Israël sortirent.\n",
+        )
+        .unwrap();
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::Fr).unwrap();
+
+        let place = v.resolve("Israël").unwrap().unwrap();
+        let u = v.unlinked_mentions(&place.id).unwrap();
+        assert_eq!(u.total, 1, "the elided name is an Unlinked mention");
+        let m = &u.items[0];
+        assert_eq!(m.matched, "Israël");
+
+        v.link_mention(&m.doc.id, m.start, m.end, &m.matched, &place.id)
+            .unwrap();
+        let after = fs::read_to_string(dir.path().join("Notes/fils.md")).unwrap();
+        assert!(
+            after.contains("Les fils d'[[Israël]] sortirent."),
+            "only the name is linked: {after:?}"
+        );
+    }
+
+    #[test]
+    fn a_new_parser_version_reindexes_unchanged_files_once() {
+        // Files whose mtime has not moved are skipped on open, so a change to
+        // the parser would never reach them. The index records which parser
+        // wrote it; a different one re-parses everything once.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let note = dir.path().join("Notes/a.md");
+        fs::write(&note, "Romans 8:28.\n").unwrap();
+        let data = dir.path().join(".data");
+        let on_29 = |v: &Vault| {
+            v.index
+                .mentions_of(45, Some(8), Some(29), Lang::En, None)
+                .unwrap()
+                .len()
+        };
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0);
+        drop(v);
+
+        // Change the text behind the index's back, keeping the mtime: the
+        // index only learns of it through a full re-index.
+        let when = fs::metadata(&note).unwrap().modified().unwrap();
+        fs::write(&note, "Romans 8:28.\n\nv. 29\n").unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&note)
+            .unwrap()
+            .set_modified(when)
+            .unwrap();
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 0, "same parser, unchanged mtime: skipped");
+        v.index.set_parser_version(index::PARSER_VERSION - 1).unwrap();
+        drop(v);
+
+        let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+        assert_eq!(on_29(&v), 1, "an older parser's index is re-parsed");
+        assert!(!v.index.parser_stale().unwrap());
     }
 
     #[test]
@@ -1778,6 +2125,26 @@ Antioch is where they met.
         assert_eq!(b.summary.path, "Notes/ro 8 28 thoughts 2.md");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_symlinked_folder_is_not_scanned() {
+        // The Vault is the folder itself: a link to somewhere else would pull
+        // outside files in, and a link back up would walk forever.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::write(outside.path().join("Elsewhere.md"), "Not the vault's.\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Linked")).unwrap();
+        v.scan().unwrap();
+        let paths: Vec<_> = v.list(None).unwrap().into_iter().map(|d| d.path).collect();
+        assert!(paths.contains(&"Notes/First.md".to_string()), "{paths:?}");
+        assert!(!paths.iter().any(|p| p.starts_with("Linked/")), "{paths:?}");
+        assert_eq!(
+            fs::read_to_string(outside.path().join("Elsewhere.md")).unwrap(),
+            "Not the vault's.\n",
+            "a file outside the Vault is never touched"
+        );
+    }
+
     #[test]
     fn rescan_picks_up_external_changes() {
         let (dir, mut v) = vault();
@@ -1886,7 +2253,7 @@ Antioch is where they met.
             .create(DocType::Composition, "Short talk", &Map::new(), "Body.\n")
             .unwrap();
         let copy = v.duplicate(&made.summary.id, "Short talk (copy)").unwrap();
-        assert!(v.read_board(&copy.summary.id).unwrap().map_or(true, |b| b.is_empty()));
+        assert!(v.read_board(&copy.summary.id).unwrap().is_none_or(|b| b.is_empty()));
         assert!(!dir.path().join("Compositions/short talk (copy).canvas").exists());
     }
 
@@ -1921,7 +2288,7 @@ Antioch is where they met.
         // The app's own save is an echo, not news.
         v.write_board(&talk.id, &board).unwrap();
         assert!(v.fold_board_file(rel).unwrap().is_none());
-        assert_eq!(boards_holding(&v, &joy.id), [talk.id.clone()]);
+        assert_eq!(boards_holding(&v, &joy.id), std::slice::from_ref(&talk.id));
 
         // A canvas beside no Composition, or one that does not parse, is left alone.
         fs::write(dir.path().join("Notes/loose.canvas"), r#"{"nodes":[],"edges":[]}"#).unwrap();

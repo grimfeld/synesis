@@ -52,7 +52,7 @@ Files are named in English. UI is localised (English and French in alpha, built 
 
 - Detect only when a chapter number is present ("Ro 8:38", "Acts 20", "Rev. 15"). Bare book names need `[[Acts]]`.
 - Accept common English, Watchtower-standard, and French abbreviations and punctuation ("Jn 3,16"). Parser = language-neutral core + per-language tables.
-- Contextual "v. 17" only after a Passage in the same paragraph; shown with a distinct underline.
+- Contextual "v. 17" only after an explicit Passage in the same section (since the last heading, across blank lines); a heading ends the context, and an inferred Passage is never the context for another. Shown with a distinct underline.
 - Ranges, including cross-chapter, expand to every Verse. Whole-chapter and whole-book Mentions expand too.
 - Detection runs in Clippings as well as Notes and Compositions.
 - Display collapses a Mention to the coarsest covering unit ("via Romans 8"). Graph defaults to Chapter nodes with a toggle to Verse level.
@@ -366,7 +366,7 @@ The Map is the least-developed view: 83 lines, one query (`places()`), one layer
 3. **Journeys are off by default and opt in per Journey**, as a chip group in the same filter popover as the Place filters. One control surface, and multi-select falls out for free — the second and third missionary journeys overlap at Ephesus and are worth seeing together. Rejected: drawing all Journeys at once (spaghetti in a grown Vault), and a single-select "active Journey" dropdown (forecloses comparison, and invents a second way to mean "show this").
 4. **A Journey's Hub has "Show on map"**, which sets that Journey's chip and navigates — the entry point that makes (3) discoverable. Same pattern as §16.10's "Open in Timeline". The `show_on_map` string and the `hub-map` button already exist.
 5. **Four filter axes**, AND across them, OR within each: **Tag chips**, **title search**, **Book chips** ("Places mentioned in Acts"), and **mentioned-ness** ("only Places something mentions"). The Timeline's type axis is dead here — everything is a Place — and its viewport cull is meaningless, because the map *is* a viewport and panning already culls. Book is the axis that makes this a Bible-study map rather than a pin board, and it is the only one using Passage-to-Verse resolution (ADR 0002). Mentioned-ness is defensive: the bundled gazetteer holds ~1,300 Places, so the moment anyone bulk-imports, "only what I have written about" is the rescue.
-6. **Deferred: an era filter.** One of eleven demo Places carries a Date, so it would ship unexercised, and §16's `props` axis already covers filtering by Date Property where it belongs.
+6. **Deferred: an era filter.** One of eleven demo Places carries a Date, so it would ship unexercised, and §16's `props` axis already covers filtering by Date Property where it belongs. *Superseded (2026-10-29, issue #34):* the Map narrows to the **Period** (CONTEXT.md) it shares with the Timeline, set with a two-ended time slider; in a Period it shows the Places that overlap it, the Journeys whose Span overlaps it, and its Events as marks at their Place. The Places and Tags chosen with the Period are shared too (issue #44): several Places mean any of them, and keep themselves and the Characters and Events tied to them within the Period (a Character's `places` for its life, an Event naming both for the Event's time); a Tag keeps a Place that carries it or where something carrying it is tied within the Period, so "prophet" keeps Jerusalem while Jeremiah is there. Journeys answer to the Period alone. In a Period a click on a pin opens its card, which lists the **Characters here** in those years; without one it opens the Hub as before. A chosen region takes in every Place inside its Border (issue #46). The whole session is §30.
 7. **Filters govern ordinary Places; a Journey chip governs its own Stops.** A Journey that is on draws its complete route and shows every Stop's marker regardless of the other four filters, in the route's colour. The two controls answer different questions — "which Places am I browsing?" against "draw me this route" — and a route with holes is a lie about geography. The accepted cost: a Place outside your Book filter can stay on screen because a Journey put it there, which the route colouring makes legible rather than looking like a bug.
 8. **Undrawable Stops are skipped and reported, never silently dropped.** `journeys()` returns every Stop with a status — `ok`, `no_coords`, `unresolved`, `not_a_place` — and the polyline connects the survivors, because a journey is still a journey with one unlocatable Stop. The Hub lists what could not be drawn, with "Set location" as the fix for `no_coords`. Precedent: §17.13 keeps a Board node whose file was deleted rather than removing what the user placed by hand.
 9. **One new engine command, `journeys()`** -> `[{doc, stops: [{doc, status}]}]`, Stops ordered by `l.rowid` and carrying coordinates, mirroring how `places()` serves the Map in a single query. Wikilink resolution stays in the engine where `norm` matching lives (ADR 0004). The `rowid` ordering is load-bearing — a re-index that rewrote those rows in another order would silently reverse a Journey — so a test round-trips a Journey through a re-index.
@@ -413,7 +413,7 @@ Demo vault: Paul's second missionary journey (Antioch to Antioch, over ten Stops
 - **A list of objects per Stop**, and **a JSON sidecar or paired file** on the ADR 0009 model (a Journey is markdown and can hold its own ULID).
 - **All Journeys drawn at once**, and **a single-select active-Journey dropdown**.
 - **Breaking the polyline at an undrawable Stop.**
-- **An era filter**, **the type axis**, and **the viewport cull** on the Map.
+- ~~**An era filter**~~ (superseded by the shared Period, issue #34), **the type axis**, and **the viewport cull** on the Map.
 - **Click-the-Map-to-route**, and **the plain `list` widget** for Stops.
 - **A typed Event-to-Journey link**: they already meet at the Place and on the Timeline, and relational queries are the Graph's job.
 - **Great-circle legs**: rejected in the session in favour of Bézier curves, which separate outbound from return.
@@ -569,6 +569,8 @@ foreclosed; this section fills it in. No new vocabulary.
    needs per-pane history, a second current document for the side panel and the
    palette, and a rule for which pane Back acts on. The side panel and the
    HoverCard already cover reading a Note while writing.
+   **Superseded by §29:** two Panes now show any two documents side by side,
+   each with its own history; this split lives on inside a Pane.
 2. **A third state of the existing tab control: Talk | Split | Board.**
    `docTab` becomes `"talk" | "split" | "board"`, with a "Split Talk and Board"
    Command beside the existing toggle. One control, one piece of state, no
@@ -643,8 +645,8 @@ foreclosed; this section fills it in. No new vocabulary.
 - **Dragging a card from the Board into the talk to insert a `[[link]]`.**
   Turning a Board ref into a Mention deserves its own decision, not a side
   effect of a layout change.
-- **A general split pane** (decision 1), **a vertical stack on narrow screens**
-  (decision 5), **a persisted divider** (decision 4).
+- **A general split pane** (decision 1; superseded by §29, Panes), **a vertical
+  stack on narrow screens** (decision 5), **a persisted divider** (decision 4).
 
 ### Deferred
 
@@ -1167,3 +1169,63 @@ Four complaints from use: a Source's kind was a plain text field on its Hub; eve
 ### Open
 
 - Nothing from this session.
+
+## 29. Panes: two documents side by side (grilling session, 2026-10-29)
+
+Studying means reading one document while writing another: a Note beside the Clipping it answers, or a Character's Hub beside a meditation. §22.1 declined a general split pane because it needed per-pane history, a rule for which document the side panel and the Command Palette act on, and a rule for Back. This session gives those rules. Vocabulary in [CONTEXT.md](../CONTEXT.md): **Pane**, **Window**. Spec #35.
+
+### Decided
+
+1. **At most two Panes in a Window**, side by side, never stacked. Each has its own view, its own Back and Forward, and its own talk/Board split (§22), which keeps working inside it.
+2. **The last-used Pane** is the one a press or a key went to last. The side panel, the Command Palette, Back and the editor Commands follow it, and Commands that open something ("New Clipping") open it there. It is marked by a thin line along its top. Focus alone does not move it: a dialog closing hands focus back to the Pane it came from, which would take the side panel away from a Pane just opened.
+3. **Cmd/Ctrl-click on a link opens it in the other Pane**, opening the second Pane from one. The Command "Open in other Pane" (also a button in a document's header) does the same for the page in use; "Close Pane" closes the last-used one and "Swap Panes" swaps their sides, each keeping its width.
+4. **The side panel is drawn once, beside both Panes**, for the last-used one's document, rather than inside a Pane between them.
+5. **Width.** Two Panes show when each gets the split's minimum, `MIN_PANE` (320px). Below it, and always on a phone, only the last-used Pane shows; the other stays in state and returns with the room. Where two do not fit, a Cmd/Ctrl-click opens as a plain click. A divider resizes them, as in §22.4.
+6. **One pure reducer** (`src/lib/panes.ts`) owns every transition; the store renders each Pane through a scope that gives its views that Pane's view, history and split.
+7. **The layout is restored per Device and per Vault** (`localStorage`, keyed by the Vault's root): two Panes come back with their views, the last-used one and the divider, without their histories. A single Pane saves nothing, so the app opens on Home as it always has. A document gone since shows Home in its place.
+8. **One live document per id** (`src/lib/liveDocument.ts`). Every Pane showing a document shares one copy of its text, which alone saves it, so one Pane can never save over the other's typing. Each editor joins it: its typing goes in, and the other editors apply it at once as the smallest change, kept out of their own Undo, so their caret stays put. A load, a restored Version or a panel rewriting the text replaces it wholesale in every editor. The last Pane to close it saves what is pending (unless it is opened again in the same turn, a remount). It is looked up during render but registered (its flush, its Window session) only when an effect retains it. A desktop Window (#51) keeps its own, kept the same as the other Windows' as decision 9 says.
+9. **Windows (#51), desktop only.** The Command "Open in new Window" asks the engine (`open_window`) for a separate app Window on the document in the last-used Pane. Each Window has its own Panes and history; a secondary Window shares the Vault the main one opened rather than opening it again, and neither restores nor saves the Vault's Pane layout, which stays the main Window's. Every Window talks to the same engine process, so the engine is the one authority that orders their typing. A Window showing a document joins its session (`doc_join`, which hands a newcomer the text the others show, typing not saved yet included) and sends each change as a text operation on the revision it last saw (`doc_sync`); the engine takes it only if no other change came first, and otherwise hands back what the Window missed, over which the Window rebases its own typing (operational transformation: `src/lib/textOp.ts`, `src/lib/docSync.ts`) and sends it again. The engine never transforms, it orders (`engine::windows`), and tells the other Windows a document changed (`doc:poke`). So two Windows typing at the same instant both keep every keystroke and end on the same text. Every Window saves the merged text when it changes, whoever typed it, so whichever saves last the file holds what they all show; the engine remembers the Windows' saves, so the watcher's echo of one is not taken for an edit made outside the app, and an edit made outside is taken by every Window as a change (typing not yet sent survives it) unless typing is still unsaved, when it is shown as a change on disk. No typing is lost to a Window going away: a secondary Window saves (changes sent first) before it closes; closing the main Window, Quit in the tray, Cmd+Q or the app menu's Quit (`RunEvent::ExitRequested`, held once) has every Window save first (`windows:flush`, a few seconds at most), then quits, and so does installing an update before the installer runs (`flush_all_windows`); unless the main Window hides to the tray for background sync. Only the main Window opens, closes, leaves or moves a Vault: first every other Window saves and closes (`close_other_windows`), then every document there saves and is let go, and the engine ends every session, so no text of one Vault reaches a document of the next with the same id. Closing a secondary Window leaves the main one. Not on a phone, not in the web build, not through the dev bridge: none of them can make a Window. Checked by hand, since Cypress drives a single webview.
+
+### Declined
+
+- More than two Panes, Panes stacked vertically, tabs.
+- Dragging a Pane out into a Window.
+- Making a Pane last-used on focus (decision 2).
+- Testing Windows with Cypress, which drives a single webview: they are checked by hand, and their rules in unit tests (`engine::windows`, `docSync.test.ts`).
+
+## 30. Period: one time-and-place filter for the Timeline and the Map, with region Borders (grilling session, 2026-10-29)
+
+The Timeline knew *when* but not *where*, the Map *where* but not *when* (§19.6 had deferred its era filter), so "all prophets in Judah between 640 and 580 BCE" could be asked nowhere. Nothing tied a Character to a Place except an Event naming both, and a region was a name at one point, so "inside Judah" meant nothing. Issue #34, built in slices #41–#47. Vocabulary in [CONTEXT.md](../CONTEXT.md): **Period** and **Border** are new; **Place**, **Character** and **Map** are updated. Border storage is ADR 0023. This supersedes §19.6's deferred era filter.
+
+### Decided
+
+1. **One Period, shared.** A Period is a stretch of years, either end open. The Timeline and the Map share it, with the Places and Tags chosen beside it, as one `PeriodFilter` in app state: set it on one view and the other shows the same. It lasts until the app closes, like the Timeline's search. The Timeline's own filters (Kinds, Dates, search, the cull) and the Map's own (MapFilters) keep their view-specific parts.
+2. **The rules live in one pure module**, `src/lib/period.ts`, tested once by Vitest, used by both views (client-side, as §16.11):
+   - whatever overlaps the Period is in, whatever lies wholly outside it is out, the final year included;
+   - a Character or Event with no Date is out, and counted: the Period row says "14 undated not shown";
+   - a Place with no Span is always in;
+   - only a Place's Span missing one end runs on without limit that way ("founded 1000 BCE" still stands in 500 BCE). Anything else with a single Date counts at that Date alone: a Character with only `died` is in a Period only if it holds that year, and an Event with only `start` is a moment;
+   - several Places mean any of them; Tags combine with Places and the Period.
+3. **The Period reads as text** on both views ("640–580 BCE", the era named once when both ends share it) and clears in one click. The years are typed as positive numbers with a BCE/CE toggle each; ends typed the wrong way round are put in order.
+4. **Character↔Place ties** (#41). A Character is in a Place for life by naming it in `places` (the existing List, reused per ADR 0006); through an Event naming both, only for the Event's time. An Event is in the Place it names. The engine answers them as one query (`placeTies`), each with the Event's `start`/`end` or none. A Place's Hub lists the Characters tied to it, a Character's Hub its Places, from both sources, each with when.
+5. **Places in the filter** (#44) keep themselves, and the Characters and Events tied to one of them while the tie holds within the Period. A Tag keeps what carries it, and also a Place where something carrying it, and itself in the Period, is tied in the Period: "prophet" keeps Jerusalem while Jeremiah is there. The Period row has a searchable Places picker and a chip per chosen Place and Tag, each with ✕.
+6. **The Timeline** (#42) gains the Period row (from/to fields, the text, Clear, the undated count, the Places and Tag chips). Its zoom stays independent of the Period. The Tag chips moved out of the Timeline's own Filter state into the shared one.
+7. **The Map** (#43) gains the same row and a two-ended time slider under it, over every year the Vault's Dates name: its ends widen or narrow the Period, its middle moves it whole, by drag or keyboard. The view no longer refits while the slider moves. In a Period the Map shows the Places that overlap it, only the Journeys whose Span overlaps it (in the Journeys chips too; an undated Journey stays, like a Place), and each Event of those years as a small mark beside its Place's pin. Journeys answer to the Period alone, never to the shared Places or Tags: they are routes, not Places. With a Period set, a click on a pin opens its card listing the **Characters here** in those years; without one it opens the Hub as before. Characters are never marks of their own.
+8. **Borders** (#45, #47, ADR 0023). A region Place may have a Border: a `.geojson` file beside the Place, named in its built-in `border` Link Property, so the Place stays plain markdown. **Draw Border** (a Command, and a button in the Hub's Border section) is a drawing mode on the Map: click corners, drag one to move it, double-click to close; **Edit Border** brings the corners back, **Delete Border** removes the Property after a confirm, and the file unless another region names it; deleting a region deletes its Border file the same way, as a Composition's Board goes with it. Only a region has a Border: the engine refuses the commands for any other Place, and the Hub and the Commands offer them only on a region. A `border` that names anything but a `.geojson` file inside the Vault (a note, a path out of it) is reported on the Hub and never read, written or deleted. **Import Border** copies a picked `.geojson` whole, every piece kept (islands, separate parts); a file with no Polygon or MultiPolygon is refused with the reason and nothing is written. A missing, malformed or not-yet-downloaded file is a warning on the Place's Hub, and the region is shown by its name, as one without a Border is.
+9. **A Border is drawn** as a filled, outlined area in the region's pin colour, from Skin tokens, so it follows the Skin and dark mode. It has no dates of its own: it shows only while its region is in the Period, so Judah and Roman Judea never overlap on screen. A region with a Border and no coordinates goes through the Period module too.
+10. **Pairing and iCloud carry Borders whole.** A Border is edited in place, so unlike a picture (ADR 0020) the same name can hold different bytes: the file carries an `updated` stamp as a top-level foreign member (RFC 7946 §6.1) and the newest write wins, as config files do (ADR 0016), "newest" being the later of that stamp and the file's modification time, so an edit made in another tool counts. Only the files some region names travel. A deletion leaves a tombstone in a per-Device register beside the index, carried in the Border manifest: a peer holding an older copy deletes it, one holding a later edit keeps it (ADR 0023).
+11. **A region contains what lies within its Border, and nothing else** (#46). The engine computes containment at index time: point in polygon, over Polygons and MultiPolygons, holes respected, a Place on the line counting as inside. It keeps each region's polygons in the index beside the Places inside it, and recomputes when a Place is indexed, when a `.geojson` file changes on disk or arrives by Pairing, after every Border command, and on every scan (ADR 0023, Consequences). A region with no Border, or with one that cannot be read, contains nothing. The `regions` query answers every (Place, region) pair; both views expand a chosen region to its Places before the ties are weighed, and a region counts for a Tag where something tied to a Place inside it does. Containment follows the region's time (CONTEXT.md: Border, a changed rule is another Place with its own Span): with a Period set, a chosen region takes in its Places only if its own Span overlaps the Period, and a region with no Span always does. So choosing Judah in Paul's day takes in nothing, as the kingdom had ended. *Revised in review:* containment first had no time of its own, which kept Jerusalem chosen with Judah after 587 BCE. A region's pin card lists the Characters tied to the Places inside it as well as to the region.
+12. **The demo vault** gains Judah (a region, 997–607 BCE, with a Border taking in Jerusalem, Bethlehem, Gethsemane and Anathoth), Anathoth, and two dated prophets, Jeremiah and Isaiah, tagged `prophet` with their `places`, so the Tutorials and Cypress can ask "prophets in Judah, 640–580 BCE" for real.
+13. **Tutorials.** The Timeline Tutorial walks a Period, Places, and a region question; the Map Tutorial walks the slider, Event marks, the pin card, drawing and importing a Border, and a region question across the Period. Both in en and fr, with Cypress walks.
+
+### Declined
+
+- Several dated Borders on one Place (ADR 0023): a change of rule is a new Place.
+- A `region` link on a Place as a second way of saying "inside": two answers to "is Bethlehem in Judah?" would drift apart.
+- Per-Stop dates on Journeys.
+- Characters as marks of their own on the Map: the pin card lists them instead, so the Map does not fill with people.
+- A bundled dataset of historical borders.
+
+### Open
+
+- Containment is planar, in degrees. Fine at the scale of the Bible's regions; a Border crossing the antimeridian would need splitting.

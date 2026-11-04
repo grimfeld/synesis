@@ -60,6 +60,8 @@ impl PropertyType {
 /// Names every vault knows, whether or not the schema file mentions them.
 pub const BUILTIN: &[(&str, PropertyType)] = &[
     ("aliases", PropertyType::List),
+    // A region Place's Border: the `.geojson` file beside it (ADR 0023).
+    ("border", PropertyType::Link),
     ("born", PropertyType::Date),
     ("characters", PropertyType::List),
     // A URL, a vault-relative path, or empty for a Cover the app draws
