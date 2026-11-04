@@ -26,6 +26,20 @@ use std::time::UNIX_EPOCH;
 
 pub const HIDDEN_DIR: &str = ".bible-study";
 
+/// Whether a vault-relative path names a document `scan` would index: a
+/// `.md` file reached through plain, visible folder names. Rejects anything
+/// that could resolve outside the vault (`..`, an absolute path, a Windows
+/// drive or stream `:`, a backslash) or into hidden folders such as
+/// `.bible-study`.
+pub fn is_document_path(rel: &str) -> bool {
+    rel.ends_with(".md")
+        && !rel.contains('\\')
+        && !rel.contains(':')
+        && rel
+            .split('/')
+            .all(|seg| !seg.is_empty() && !seg.starts_with('.'))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DocumentView {
     pub summary: DocSummary,
@@ -348,6 +362,12 @@ impl Vault {
                 (None, Some(d)) => d.path.clone(),
                 (None, None) => continue,
             };
+            // The path comes from another Device's snapshot: write and move
+            // only to a place `scan` would index itself. The merged text stays
+            // in the CRDT; this Device's next save puts its own path back.
+            if !is_document_path(&rel) {
+                continue;
+            }
             // Never write over, or move, a file iCloud has evicted: the merged
             // text is in the CRDT, and `index_file` folds it in once the file
             // is back (a copy older than the snapshot is replaced there).
@@ -1385,6 +1405,32 @@ impl Vault {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_document_path_stays_inside_the_vault() {
+        for ok in ["note.md", "Notes/First.md", "Characters/david.md", "a b/c d.md"] {
+            assert!(is_document_path(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "../escaped.md",
+            "Notes/../../escaped.md",
+            "/etc/x.md",
+            "C:/Windows/x.md",
+            "C:x.md",
+            "Notes\\..\\..\\x.md",
+            "note.md:stream.md",
+            ".bible-study/vault.json",
+            ".bible-study/x.md",
+            "Notes/.hidden.md",
+            "Notes//x.md",
+            "./x.md",
+            "Notes/evil.sh",
+            "Notes",
+        ] {
+            assert!(!is_document_path(bad), "{bad}");
+        }
+    }
 
     fn vault() -> (tempfile::TempDir, Vault) {
         let dir = tempfile::tempdir().unwrap();
