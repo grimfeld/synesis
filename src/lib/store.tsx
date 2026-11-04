@@ -47,6 +47,7 @@ import {
   type View,
 } from "./panes";
 import { flushPending } from "./pending";
+import { createLatest } from "./latest";
 import { closeOtherWindows, isSecondaryWindow, windowStart } from "./windows";
 import { live } from "./live";
 import {
@@ -370,7 +371,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const [schema, setSchema] = useState<PropertySchema>(BUILTIN_SCHEMA);
   const [placeKinds, setPlaceKindsState] = useState<CustomKind[]>([]);
 
+  // Saves and watcher events refresh concurrently; an older answer landing
+  // last must not put stale lists back on screen (issue #72).
+  const refreshes = useRef(createLatest());
   const refresh = useCallback(async () => {
+    const current = refreshes.current.begin();
     const [d, t, i, sc, pk] = await Promise.all([
       api.listDocuments(),
       api.tags(),
@@ -378,6 +383,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       api.propertySchema(),
       api.placeKinds().catch(() => [] as CustomKind[]),
     ]);
+    // A caller awaiting this one still gets what it read.
+    if (!current()) return { docs: d, info: i };
     setDocs(d);
     setTags(t);
     setInfo(i);
@@ -439,6 +446,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const closeVault = useCallback(async () => {
     await releaseVault();
     await api.closeVault();
+    // A refresh still on its way belongs to the Vault just closed.
+    refreshes.current.cancel();
     setInfo(null);
     setDocs([]);
     setSettings(await api.getSettings());
