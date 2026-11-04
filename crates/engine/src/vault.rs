@@ -548,7 +548,12 @@ impl Vault {
 
     /// Parse each of `files` whose mtime moved since it was indexed, or
     /// every one when `all` is set.
-    fn reindex(&mut self, files: Vec<(String, i64)>, all: bool) -> Result<Vec<DocSummary>> {
+    fn reindex(&mut self, mut files: Vec<(String, i64)>, all: bool) -> Result<Vec<DocSummary>> {
+        // Oldest first, and of two files as old the shorter path, so that of a
+        // document and its copy ("a.md", "a copy.md", "a 2.md") the document
+        // is met first and keeps the id they share (`ensure_id`). A copy made
+        // in Finder keeps the original's mtime, hence the tie-break.
+        files.sort_by(|(a, ma), (b, mb)| ma.cmp(mb).then(a.len().cmp(&b.len())).then(a.cmp(b)));
         let mut changed = Vec::new();
         for (rel, mtime) in files {
             if !all && self.is_current(&rel, mtime)? {
@@ -819,9 +824,24 @@ impl Vault {
     /// frontmatter cannot take an `id` line safely (YAML that does not parse,
     /// or an `id` key holding nothing usable) is never written to: it is
     /// known by an id derived from its path until the user fixes it.
+    ///
+    /// A file whose id another file already holds is a copy (#63): duplicated
+    /// in Finder or Obsidian, the `id:` line came along. Two files on one id
+    /// would share one index row and one history, each save replacing the
+    /// other, so the copy gets an id of its own. The file the index already
+    /// knows is the original; a walk over a new index finds the original first
+    /// (`reindex` orders its files for that).
     fn ensure_id(&self, rel: &str, text: String) -> Result<(String, ParsedDoc, String)> {
         let mut parsed = document::parse(rel, &text);
         if let Some(id) = parsed.id.clone() {
+            if !self.held_elsewhere(&id, rel)? {
+                return Ok((text, parsed, id));
+            }
+            let id = new_id();
+            let text = document::set_frontmatter_field(&text, "id", Some(&id));
+            write_atomic(&self.abs(rel)?, &text)?;
+            let mut parsed = document::parse(rel, &text);
+            parsed.id = Some(id.clone());
             return Ok((text, parsed, id));
         }
         if !document::can_add_field(&text, "id") {
@@ -835,6 +855,18 @@ impl Vault {
         let mut parsed = document::parse(rel, &text);
         parsed.id = Some(id.clone());
         Ok((text, parsed, id))
+    }
+
+    /// Whether `id` belongs to a file other than `rel` that is still there.
+    /// One that is gone was renamed or moved, and `rel` is where it went.
+    /// Paths differing only in case are taken as one file: on a
+    /// case-insensitive disk they are.
+    fn held_elsewhere(&self, id: &str, rel: &str) -> Result<bool> {
+        let Some(other) = self.index.get(id)? else { return Ok(false) };
+        if other.path.to_lowercase() == rel.to_lowercase() {
+            return Ok(false);
+        }
+        Ok(self.abs(&other.path).is_ok_and(|p| cloud::occupied(&p)))
     }
 
     /// Create the Book / Chapter / Verse pages a set of Passages implies.
@@ -2285,6 +2317,50 @@ Antioch is where they met.
             .filter(|e| e.file_type().is_file())
             .any(|e| fs::read(e.path()).unwrap().windows(11).any(|w| w == b"PRIVATE KEY"));
         assert!(!published, "the target's text reached the sync folder");
+    }
+
+    #[test]
+    fn a_copied_note_gets_an_id_of_its_own() {
+        // #63: a Note duplicated in Finder or Obsidian keeps its `id:` line.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let text = "---\nid: X1\n---\nGrace.\n";
+        // The copy sorts first by name, and has the same mtime as a Finder copy.
+        fs::write(dir.path().join("Notes/grace copy.md"), text).unwrap();
+        fs::write(dir.path().join("Notes/grace.md"), text).unwrap();
+        let t = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        for f in ["Notes/grace.md", "Notes/grace copy.md"] {
+            fs::File::options().write(true).open(dir.path().join(f)).unwrap().set_modified(t).unwrap();
+        }
+        let data = dir.path().join(".data");
+        let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
+
+        let ids = |v: &Vault| {
+            let mut docs: Vec<(String, String)> =
+                v.list(None).unwrap().into_iter().map(|d| (d.path, d.id)).collect();
+            docs.sort();
+            docs
+        };
+        let first = ids(&v);
+        assert_eq!(first.len(), 2, "{first:?}");
+        assert_eq!(first[1], ("Notes/grace.md".into(), "X1".into()), "the original kept its id");
+        assert_ne!(first[0].1, "X1");
+        let copy = fs::read_to_string(dir.path().join("Notes/grace copy.md")).unwrap();
+        assert_eq!(copy, format!("---\nid: {}\n---\nGrace.\n", first[0].1), "only the id line changed");
+
+        v.scan().unwrap();
+        assert_eq!(ids(&v), first, "a rescan moved an id");
+
+        // A copy made while the Vault is open, as the watcher reports it.
+        fs::write(dir.path().join("Notes/grace 2.md"), text).unwrap();
+        let d = v.index_file("Notes/grace 2.md").unwrap().unwrap();
+        assert_ne!(d.id, "X1");
+        assert_eq!(v.get("X1").unwrap().unwrap().path, "Notes/grace.md");
+
+        // A file moved outside the app is the same document, not a copy.
+        fs::rename(dir.path().join("Notes/grace.md"), dir.path().join("Notes/moved.md")).unwrap();
+        let d = v.index_file("Notes/moved.md").unwrap().unwrap();
+        assert_eq!(d.id, "X1");
     }
 
     #[test]
