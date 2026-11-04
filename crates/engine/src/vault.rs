@@ -152,6 +152,14 @@ fn is_markdown(p: &Path) -> bool {
     p.extension().is_some_and(|x| x == "md")
 }
 
+/// A stable id for a file the engine must not write an `id` into: the same
+/// path gives the same id on every launch and every Device.
+fn path_id(rel: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(rel.as_bytes());
+    format!("path-{}", &hex::encode(digest)[..26])
+}
+
 fn mtime_of(p: &Path) -> i64 {
     fs::metadata(p)
         .and_then(|m| m.modified())
@@ -722,8 +730,7 @@ impl Vault {
                 return Ok(None);
             }
         };
-        let (mut text, mut parsed) = self.ensure_id(rel, text)?;
-        let id = parsed.id.clone().expect("id ensured");
+        let (mut text, mut parsed, id) = self.ensure_id(rel, text)?;
         let mut mtime = mtime_of(&abs);
         if let Some(sync) = self.sync.as_mut() {
             // A file older than another device's snapshot is a stale copy the
@@ -756,16 +763,26 @@ impl Vault {
         self.index.get(&id)
     }
 
-    fn ensure_id(&self, rel: &str, text: String) -> Result<(String, ParsedDoc)> {
-        let parsed = document::parse(rel, &text);
-        if parsed.id.is_some() {
-            return Ok((text, parsed));
+    /// The document's id, giving the file one when it has none. A file whose
+    /// frontmatter cannot take an `id` line safely (YAML that does not parse,
+    /// or an `id` key holding nothing usable) is never written to: it is
+    /// known by an id derived from its path until the user fixes it.
+    fn ensure_id(&self, rel: &str, text: String) -> Result<(String, ParsedDoc, String)> {
+        let mut parsed = document::parse(rel, &text);
+        if let Some(id) = parsed.id.clone() {
+            return Ok((text, parsed, id));
+        }
+        if !document::can_add_field(&text, "id") {
+            let id = path_id(rel);
+            parsed.id = Some(id.clone());
+            return Ok((text, parsed, id));
         }
         let id = new_id();
         let text = document::with_frontmatter_fields(&text, &[("id", &id)]);
         write_atomic(&self.abs(rel), &text)?;
-        let parsed = document::parse(rel, &text);
-        Ok((text, parsed))
+        let mut parsed = document::parse(rel, &text);
+        parsed.id = Some(id.clone());
+        Ok((text, parsed, id))
     }
 
     /// Create the Book / Chapter / Verse pages a set of Passages implies.
@@ -1703,6 +1720,36 @@ mod tests {
         assert!(sinai.contains("lat: 28.54\nlon: 33.97\n") && sinai.ends_with("Where the Law was given.\n"), "{sinai}");
         assert!(fs::read_to_string(dir.path().join("Places/egypt.md")).unwrap().contains("kind: land"));
         assert!(v.kind_suggestions().unwrap().is_empty());
+    }
+
+    /// Frontmatter the engine cannot add an `id` to (broken YAML, or an `id`
+    /// that is not a usable value) must neither stop the Vault opening nor be
+    /// rewritten: the file is indexed under an id derived from its path.
+    #[test]
+    fn a_file_that_cannot_take_an_id_opens_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes")).unwrap();
+        let files = [
+            ("Notes/broken.md", "---\ntitle: [unclosed\n---\nbody\n"),
+            ("Notes/templater.md", "---\ncreated: <% tp.date.now() %>\ntags: [a\n---\nbody\n"),
+            ("Notes/null.md", "---\nid:\ntype: note\n---\nbody\n"),
+            ("Notes/list.md", "---\nid: [a]\n---\nbody\n"),
+            ("Notes/empty.md", "---\nid: \"\"\n---\nbody\n"),
+        ];
+        for (rel, text) in files {
+            fs::write(dir.path().join(rel), text).unwrap();
+        }
+        let data = dir.path().join(".data");
+        for _ in 0..2 {
+            let v = Vault::open(dir.path(), &data, Lang::En).unwrap();
+            let listed = v.list(None).unwrap();
+            for (rel, text) in files {
+                assert_eq!(fs::read_to_string(dir.path().join(rel)).unwrap(), text, "{rel} was rewritten");
+                assert!(listed.iter().any(|d| d.path == rel), "{rel} is not indexed");
+            }
+            let ids: std::collections::HashSet<_> = listed.iter().map(|d| d.id.clone()).collect();
+            assert_eq!(ids.len(), listed.len(), "two documents share an id");
+        }
     }
 
     #[test]

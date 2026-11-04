@@ -263,6 +263,20 @@ fn yaml_to_json(v: serde_yaml::Value) -> Value {
     }
 }
 
+/// Whether `with_frontmatter_fields` can add `key` without breaking or
+/// duplicating anything: there is no frontmatter yet, or it parses as YAML
+/// (empty, or a mapping) and does not already hold `key`.
+pub fn can_add_field(text: &str, key: &str) -> bool {
+    match split_frontmatter(text).0 {
+        None => true,
+        Some(yaml) => match serde_yaml::from_str::<serde_yaml::Value>(yaml) {
+            Ok(serde_yaml::Value::Null) => true,
+            Ok(serde_yaml::Value::Mapping(m)) => !m.contains_key(key),
+            _ => false,
+        },
+    }
+}
+
 pub fn parse_frontmatter(yaml: &str) -> Map<String, Value> {
     match serde_yaml::from_str::<serde_yaml::Value>(yaml) {
         Ok(v) => match yaml_to_json(v) {
@@ -436,6 +450,8 @@ pub fn parse(path: &str, text: &str) -> ParsedDoc {
         .map(str::to_string)
         .unwrap_or_else(|| display_title(&title_from_path(path)));
     let id = frontmatter.get("id").and_then(|v| match v {
+        // An empty id would make every such file the same document.
+        Value::String(s) if s.trim().is_empty() => None,
         Value::String(s) => Some(s.clone()),
         Value::Number(n) => Some(n.to_string()),
         _ => None,
