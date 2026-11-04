@@ -314,7 +314,10 @@ mod tests {
         write(d.path(), "appearance.json", serde_json::json!({ "name": "mine" })).unwrap();
         let stamp = stamp_of(&read(d.path(), "appearance.json").unwrap()).unwrap();
         assert!(stamp <= now_ms() + MAX_SKEW_MS, "{stamp}");
-        // A peer's ordinary later edit gets through again.
+        // A peer's ordinary later edit gets through again. The local stamp sits
+        // at the very limit, so one past it is only plausible once the clock
+        // has moved on.
+        std::thread::sleep(Duration::from_millis(5));
         let later = serde_json::json!({ "name": "peer", "updated": stamp + 1 });
         assert!(accept(d.path(), "appearance.json", later.to_string().as_bytes()));
     }
