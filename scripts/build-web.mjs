@@ -11,6 +11,7 @@
 //   node scripts/build-web.mjs --engine   engine + vault only (for `vite --mode web`)
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -19,6 +20,13 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const out = path.join(root, "target", "web");
 const WASI_SDK = "25";
+// SHA-256 of each prebuilt wasi-sdk tarball; bump them with WASI_SDK.
+const WASI_SDK_SHA256 = {
+  "wasi-sdk-25.0-arm64-linux": "47fccad8b2498f2239e05e1115c3ffc652bf37e7de2f88fb64b2d663c976ce2d",
+  "wasi-sdk-25.0-arm64-macos": "e1e529ea226b1db0b430327809deae9246b580fa3cae32d31c82dfe770233587",
+  "wasi-sdk-25.0-x86_64-linux": "52640dde13599bf127a95499e61d6d640256119456d1af8897ab6725bcf3d89c",
+  "wasi-sdk-25.0-x86_64-macos": "55e3ff3fee1a15678a16eeccba0129276c9f6be481bc9c283e7f9f65bf055c11",
+};
 const TARGET = "wasm32-wasip1";
 
 const run = (cmd, env = {}) => execSync(cmd, { cwd: root, stdio: "inherit", env: { ...process.env, ...env } });
@@ -56,7 +64,17 @@ function ensureWasiSdk() {
     console.log(`[build-web] fetching ${name}`);
     const url = `https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-${WASI_SDK}/${name}.tar.gz`;
     fs.mkdirSync(path.dirname(dir), { recursive: true });
-    run(`curl -sSfL "${url}" | tar xz -C "${path.dirname(dir)}"`);
+    // Downloaded to a file and checked against the pinned digest before
+    // anything is unpacked: the compiler it holds builds what Vercel serves.
+    const tarball = `${dir}.tar.gz`;
+    run(`curl -sSfL -o "${tarball}" "${url}"`);
+    const digest = createHash("sha256").update(fs.readFileSync(tarball)).digest("hex");
+    if (digest !== WASI_SDK_SHA256[name]) {
+      fs.rmSync(tarball, { force: true });
+      throw new Error(`${name}.tar.gz has SHA-256 ${digest}, expected ${WASI_SDK_SHA256[name]}`);
+    }
+    run(`tar xzf "${tarball}" -C "${path.dirname(dir)}"`);
+    fs.rmSync(tarball, { force: true });
   }
   return dir;
 }

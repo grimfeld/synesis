@@ -1,0 +1,13 @@
+# `cargo audit` (CI's audit job) fails on any known vulnerability not listed
+# here. Each entry says why it is accepted and when to drop it.
+[advisories]
+ignore = [
+  # zip 4.x, only through tauri-plugin-updater 2.12, which extracts an update
+  # archive only after checking its signature against plugins.updater.pubkey,
+  # so the archive is ours. Fixed in zip >= 9; drop these once
+  # tauri-plugin-updater moves to it (#93).
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+  "RUSTSEC-2026-0429",
+]

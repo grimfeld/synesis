@@ -36,8 +36,12 @@ Pair devices with a QR code / pairing code (Settings → Sync): paired devices s
 [.github/workflows/release.yml](.github/workflows/release.yml) is started by `npm run release` (or the Actions tab) on the branch you are on, normally `main`, with a version: it tags the commit `vX.Y.Z`, creates the GitHub Release, builds macOS (Apple Silicon and Intel), Windows, Linux and Android (arm64), and attaches the installers. It is not triggered by a tag push because a run on a new tag cannot see the caches of earlier runs, which made every release a cold 15-minute build per platform; from `main` the previous release's `target/` is reused. The Windows installers are signed through SignPath once it is set up ([docs/release/signpath.md](docs/release/signpath.md)) and ship unsigned, with a warning in the run, until then; the Android job fails rather than publish an unsigned file. The iOS job runs only when the App Store Connect key is set.
 
 ```sh
-npm run release -- 0.2.0   # sets the version in package.json, tauri.conf.json, Cargo.toml; commits; pushes; starts the workflow
+npm run release -- 0.2.0   # sets the version in package.json, package-lock.json, tauri.conf.json, Cargo.toml; commits; pushes; starts the workflow
 ```
+
+`npm run release` refuses a dirty working tree, a branch other than `main` (a `X.Y.Z-pre` version may come from any branch), a `main` that differs from `origin/main`, and a version not greater than the current one. The workflow then waits for [ci.yml](.github/workflows/ci.yml) to pass on the commit before it tags anything, builds into a **draft** release, and publishes it only when every desktop platform and Android are attached and `latest.json` names all four desktop platforms; until then installed apps and the landing page do not see it. If a platform fails, the release stays a draft: re-run the failed jobs and the `publish` job follows. iOS does not hold a release back.
+
+Every third-party action in the workflows is pinned to a commit SHA, with its version in a comment; [Dependabot](.github/dependabot.yml) proposes the bumps for actions, cargo and npm.
 
 ### Auto-updater
 
@@ -58,7 +62,7 @@ Each desktop job signs its updater bundle with the updater key, and tauri-action
 
 A local `npm run tauri build` needs `TAURI_SIGNING_PRIVATE_KEY` set too, since `bundle.createUpdaterArtifacts` is on.
 
-The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, UI build, engine tests, Tauri check), and a Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
+The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, unit tests, UI build, `cargo fmt --check`, the engine and desktop-shell tests, clippy, licences, and a dependency audit: `cargo audit`, with accepted advisories in [.cargo/audit.toml](.cargo/audit.toml), and `npm audit --omit=dev --audit-level=high` for the app and the landing page), and a Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
 
 ## Licence
 
