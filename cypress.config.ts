@@ -1,9 +1,10 @@
 import { defineConfig } from "cypress";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isTestVault, makeTestVault, testVaultRoot } from "./scripts/test-vaults.mjs";
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 
@@ -44,9 +45,12 @@ export default defineConfig({
     env: { bridge: BRIDGE },
     setupNodeEvents(on) {
       on("task", {
-        /** Copy the demo vault to a temp folder and return its absolute path. */
+        /**
+         * Copy the demo vault to a marked temp folder (scripts/test-vaults.mjs)
+         * and return its absolute path.
+         */
         "vault:seed"(): string {
-          const dir = mkdtempSync(join(tmpdir(), "synesis-cy-"));
+          const dir = makeTestVault();
           cpSync(join(ROOT, "examples", "demo-vault"), dir, {
             recursive: true,
             filter: (src) =>
@@ -56,12 +60,21 @@ export default defineConfig({
           return dir;
         },
         /**
-         * Remove a seeded copy and the index the app built for it. Only paths
-         * under a `synesis-cy-` folder, so a real vault is never touched. The
-         * vault must be closed first (another one opened, or close_vault).
+         * Which of `paths` are test copies made by `vault:seed` (or lie inside
+         * one), deepest first, so a Vault made inside a copy is removed before
+         * the copy that marks it.
+         */
+        "vault:testVaults"(paths: string[]): string[] {
+          return paths.filter((p) => isTestVault(p)).sort((a, b) => b.length - a.length);
+        },
+        /**
+         * Remove a seeded copy (or a Vault inside one) and the index the app
+         * built for it. Only test copies (`isTestVault`), so a real vault is
+         * never touched, whatever its name. The vault must be closed first
+         * (another one opened, or close_vault).
          */
         "vault:remove"(dir: string): null {
-          if (!dir || !dir.includes("synesis-cy-")) return null;
+          if (!isTestVault(dir)) return null;
           const gone = { recursive: true, force: true, maxRetries: 5, retryDelay: 200 };
           if (existsSync(dir)) rmSync(dir, gone);
           rmSync(localDirFor(dir), gone);
@@ -73,7 +86,7 @@ export default defineConfig({
          * Confined to the temp copies, so a spec cannot touch a real vault.
          */
         "file:write"({ path, text }: { path: string; text: string }): null {
-          if (!path.includes("synesis-cy-")) throw new Error(`refusing to write outside a seeded vault: ${path}`);
+          if (!testVaultRoot(path)) throw new Error(`refusing to write outside a seeded vault: ${path}`);
           mkdirSync(dirname(path), { recursive: true });
           writeFileSync(path, text);
           return null;
