@@ -14,6 +14,7 @@
 //! (ADR 0016). The file's modification time counts too (`stamp_of_file`), so
 //! an edit made in another tool, which keeps the old member, is newer.
 
+use crate::config::{next_stamp, plausible};
 use crate::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -418,22 +419,6 @@ impl Register {
     }
 }
 
-/// How far ahead of this Device's clock a peer's stamp may run. Anything
-/// later is refused: it would win every round from then on, and a time that
-/// far out does not fit in a file's modification time everywhere.
-const MAX_SKEW_MS: i64 = 24 * 60 * 60 * 1000;
-
-fn plausible(stamp: i64) -> bool {
-    (0..=crate::config::now_ms().saturating_add(MAX_SKEW_MS)).contains(&stamp)
-}
-
-/// The stamp for a write here: after `previous`, but never past what a peer
-/// would accept.
-fn next_stamp(previous: i64) -> i64 {
-    let now = crate::config::now_ms();
-    now.max(previous.saturating_add(1)).min(now.saturating_add(MAX_SKEW_MS))
-}
-
 /// The Vault and the Pairing node both write the register, from different
 /// threads of one process.
 static REGISTER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -567,7 +552,7 @@ pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -
     }
     // The file's stamp here is the peer's, so the two agree and neither
     // pushes it back.
-    if let Some(t) = std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(stamp as u64)) {
+    if let Some(t) = crate::config::file_time(stamp) {
         let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
     }
     let _ = update(local, |r| {

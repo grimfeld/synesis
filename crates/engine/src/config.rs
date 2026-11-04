@@ -37,6 +37,39 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// How far ahead of this Device's clock a peer's stamp or snapshot time may
+/// run. Anything later would win every round from then on, and a time that
+/// far out does not fit in a file's modification time everywhere.
+pub(crate) const MAX_SKEW_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// The latest stamp a peer may bring here: a day past this clock.
+fn latest_ms() -> i64 {
+    now_ms().saturating_add(MAX_SKEW_MS)
+}
+
+/// Whether a peer's stamp lies between the epoch and a day past this clock.
+pub(crate) fn plausible(stamp: i64) -> bool {
+    (0..=latest_ms()).contains(&stamp)
+}
+
+/// A peer's stamp brought into range: a clock that runs fast still syncs,
+/// but never further ahead than a day.
+pub(crate) fn clamp_stamp(stamp: i64) -> i64 {
+    stamp.clamp(0, latest_ms())
+}
+
+/// The stamp for a write here: after `previous`, but never past what a peer
+/// would accept, so a file already stamped far ahead can still be edited.
+pub(crate) fn next_stamp(previous: i64) -> i64 {
+    let now = now_ms();
+    now.max(previous.saturating_add(1)).min(now.saturating_add(MAX_SKEW_MS))
+}
+
+/// `ms` after the epoch as a file time, or `None` where it does not fit.
+pub(crate) fn file_time(ms: i64) -> Option<SystemTime> {
+    UNIX_EPOCH.checked_add(Duration::from_millis(u64::try_from(ms).ok()?))
+}
+
 /// Whether `name` is a config file that syncs, and safe to join onto the
 /// hidden dir. Anything else a peer offers is ignored.
 pub fn is_synced(name: &str) -> bool {
@@ -117,6 +150,25 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
     if crate::cloud::is_evicted(&p) {
         return false;
     }
+    // A stamp from a clock far ahead would outrank every later edit here, for
+    // good if it is near `i64::MAX`. Such a file is still taken when there is
+    // none here (a new Skin from a Device whose clock runs fast), stamped a
+    // day past this clock, in the file too; it never replaces a file this
+    // Device holds, or it would win again on every round.
+    let clamped;
+    let bytes = match stamp_of(bytes) {
+        Some(stamp) if !plausible(stamp) => {
+            if p.exists() {
+                return false;
+            }
+            let Ok(Value::Object(mut map)) = serde_json::from_slice::<Value>(bytes) else { return false };
+            map.insert("updated".into(), Value::from(clamp_stamp(stamp)));
+            let Ok(text) = serde_json::to_string_pretty(&map) else { return false };
+            clamped = text + "\n";
+            clamped.as_bytes()
+        }
+        _ => bytes,
+    };
     let incoming = ConfigEntry { name: name.into(), stamp: stamp_at(&p, bytes), size: bytes.len() as u64 };
     let mine = fs::read(&p).ok().map(|b| ConfigEntry { name: name.into(), stamp: stamp_at(&p, &b), size: b.len() as u64 });
     if !is_newer(&incoming, mine.as_ref()) {
@@ -132,8 +184,9 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
     let ok = fs::rename(&tmp, &p).is_ok();
     if ok {
         // Keep the mtime in step with the stamp, for readers that fall back to it.
-        let t = UNIX_EPOCH + Duration::from_millis(incoming.stamp.max(0) as u64);
-        let _ = fs::File::open(&p).and_then(|f| f.set_modified(t));
+        if let Some(t) = file_time(incoming.stamp) {
+            let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+        }
     }
     ok
 }
@@ -147,7 +200,7 @@ pub fn write(hidden: &Path, name: &str, mut value: Value) -> Result<()> {
     }
     let previous = fs::read(&p).ok().map(|b| stamp_at(&p, &b)).unwrap_or(0);
     if let Value::Object(map) = &mut value {
-        map.insert("updated".into(), Value::from(now_ms().max(previous + 1)));
+        map.insert("updated".into(), Value::from(next_stamp(previous)));
     }
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -233,5 +286,36 @@ mod tests {
         assert!(!accept(d.path(), "skins/x.json", b"{nope"));
         assert!(!accept(d.path(), "vault.json", b"{}"));
         assert!(manifest(d.path()).is_empty());
+    }
+
+    #[test]
+    fn a_far_future_stamp_never_locks_a_file() {
+        let d = tempfile::tempdir().unwrap();
+        write(d.path(), "appearance.json", serde_json::json!({ "name": "mine" })).unwrap();
+        let poison = serde_json::json!({ "name": "peer", "updated": i64::MAX });
+        assert!(!accept(d.path(), "appearance.json", poison.to_string().as_bytes()));
+        assert!(fs::read_to_string(d.path().join("appearance.json")).unwrap().contains("mine"));
+        // A file this Device lacks still arrives, pulled back to a day ahead.
+        assert!(accept(d.path(), "skins/x.json", poison.to_string().as_bytes()));
+        let stamp = stamp_of(&read(d.path(), "skins/x.json").unwrap()).unwrap();
+        assert!(stamp <= now_ms() + MAX_SKEW_MS && stamp > now_ms(), "{stamp}");
+        // And is not taken again over the edit made after it.
+        write(d.path(), "skins/x.json", serde_json::json!({ "name": "edited" })).unwrap();
+        assert!(!accept(d.path(), "skins/x.json", poison.to_string().as_bytes()));
+        assert!(fs::read_to_string(d.path().join("skins/x.json")).unwrap().contains("edited"));
+    }
+
+    #[test]
+    fn a_file_stamped_at_the_limit_can_still_be_edited() {
+        let d = tempfile::tempdir().unwrap();
+        // Written before stamps were checked: the next edit must not overflow.
+        let poisoned = serde_json::json!({ "name": "poisoned", "updated": i64::MAX });
+        fs::write(d.path().join("appearance.json"), poisoned.to_string()).unwrap();
+        write(d.path(), "appearance.json", serde_json::json!({ "name": "mine" })).unwrap();
+        let stamp = stamp_of(&read(d.path(), "appearance.json").unwrap()).unwrap();
+        assert!(stamp <= now_ms() + MAX_SKEW_MS, "{stamp}");
+        // A peer's ordinary later edit gets through again.
+        let later = serde_json::json!({ "name": "peer", "updated": stamp + 1 });
+        assert!(accept(d.path(), "appearance.json", later.to_string().as_bytes()));
     }
 }
