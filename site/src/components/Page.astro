@@ -229,10 +229,21 @@ const container = "mx-auto w-full max-w-6xl px-4 sm:px-6";
                 <svg viewBox="0 0 24 24" class="size-7 text-muted-foreground" aria-hidden="true" fill={p.id === "android" || p.id === "ios" ? "none" : "currentColor"} stroke={p.id === "android" || p.id === "ios" ? "currentColor" : "none"} stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d={icons[p.id]} /></svg>
                 <span class="font-medium">{t.download.names[p.id]}</span>
                 <span class="hidden text-xs font-medium text-primary" data-yours>{t.download.yours}</span>
-                {p.file ? (
-                  <a href={p.file.url} class="inline-flex min-h-10 max-w-full items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition hover:opacity-90">
-                    {t.download.get}
-                  </a>
+                {p.files.length > 0 ? (
+                  p.files.map((f, i) => (
+                    <a
+                      href={f.url}
+                      data-testid="platform-file"
+                      data-variant={f.variant}
+                      class={
+                        i === 0
+                          ? "inline-flex min-h-10 max-w-full items-center justify-center rounded-full bg-primary px-4 py-2 text-center text-sm font-medium text-primary-foreground transition hover:opacity-90"
+                          : "inline-flex min-h-10 max-w-full items-center justify-center rounded-full border border-border px-4 py-2 text-center text-sm font-medium transition hover:bg-muted"
+                      }
+                    >
+                      {f.variant ? t.download.variants[f.variant] : t.download.get}
+                    </a>
+                  ))
                 ) : (
                   <span class="text-sm text-pretty text-muted-foreground">{release.open ? t.download.later : t.download.coming}</span>
                 )}

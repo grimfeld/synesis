@@ -6,10 +6,22 @@
 
 export type PlatformId = "windows" | "macos" | "linux" | "android" | "ios";
 
+/** Which Mac a macOS file is built for; the other platforms have one file. */
+export type Variant = "appleSilicon" | "intel";
+
+export interface PlatformFile {
+  name: string;
+  url: string;
+  variant?: Variant;
+}
+
 export interface Platform {
   id: PlatformId;
-  /** The file to offer, when downloads are open and it is attached. */
-  file?: { name: string; url: string };
+  /**
+   * The files to offer, the first one foremost, when downloads are open and
+   * they are attached. Empty means "not yet".
+   */
+  files: PlatformFile[];
 }
 
 export interface Release {
@@ -22,13 +34,19 @@ export interface Release {
 
 const REPO = "grimfeld/synesis";
 
-/** The file each platform's button points at, by name. */
-const PICK: Record<PlatformId, (name: string) => boolean> = {
-  windows: (n) => n.endsWith("-setup.exe"),
-  macos: (n) => n.endsWith("_aarch64.dmg"),
-  linux: (n) => n.endsWith(".AppImage"),
-  android: (n) => n.endsWith(".apk"),
-  ios: (n) => n.endsWith(".ipa"),
+/**
+ * The files each platform offers, by name, in the order shown. macOS has one
+ * build per processor (no universal build), Apple Silicon first.
+ */
+const PICK: Record<PlatformId, { match: (name: string) => boolean; variant?: Variant }[]> = {
+  windows: [{ match: (n) => n.endsWith("-setup.exe") }],
+  macos: [
+    { match: (n) => n.endsWith("_aarch64.dmg"), variant: "appleSilicon" },
+    { match: (n) => n.endsWith("_x64.dmg"), variant: "intel" },
+  ],
+  linux: [{ match: (n) => n.endsWith(".AppImage") }],
+  android: [{ match: (n) => n.endsWith(".apk") }],
+  ios: [{ match: (n) => n.endsWith(".ipa") }],
 };
 
 const ORDER: PlatformId[] = ["windows", "macos", "linux", "android", "ios"];
@@ -47,10 +65,15 @@ export function fromRelease(tag: string, assets: { name: string; browser_downloa
   return {
     version,
     open,
-    platforms: ORDER.map((id) => {
-      const a = open ? assets.find((x) => PICK[id](x.name)) : undefined;
-      return a ? { id, file: { name: a.name, url: a.browser_download_url } } : { id };
-    }),
+    platforms: ORDER.map((id) => ({
+      id,
+      files: open
+        ? PICK[id].flatMap(({ match, variant }) => {
+            const a = assets.find((x) => match(x.name));
+            return a ? [{ name: a.name, url: a.browser_download_url, ...(variant && { variant }) }] : [];
+          })
+        : [],
+    })),
   };
 }
 
