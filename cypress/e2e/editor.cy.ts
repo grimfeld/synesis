@@ -88,12 +88,19 @@ describe("Editor (Writing page)", () => {
     cy.get("body").type("{ctrl}e");
   });
 
-  // Issue #62: Mod+B in the title is the title's key, not the note's.
+  // Issue #62: Mod+I in the title is the title's key, not the note's.
+  // A keydown alone, as a browser sends it: `type()` would also insert the
+  // letter, which no real Ctrl/Cmd chord does.
+  const chord = (key: string) => ({ eventConstructor: "KeyboardEvent", key, code: `Key${key.toUpperCase()}`, ctrlKey: true, bubbles: true });
   it("editing shortcuts typed in another field leave the note alone", () => {
     cy.get(".cm-content")
       .invoke("text")
       .then((before) => {
-        cy.get("[data-testid=doc-title]").focus().type("{ctrl}b{ctrl}i{ctrl}l");
+        cy.get("[data-testid=doc-title]").focus();
+        for (const k of ["i", "l", "h"]) {
+          const opts = chord(k);
+          cy.get("[data-testid=doc-title]").trigger("keydown", k === "h" ? { ...opts, shiftKey: true } : opts);
+        }
         cy.get("[data-testid=doc-title]")
           .should("have.value", "Endurance in trials")
           .and("have.focus");
