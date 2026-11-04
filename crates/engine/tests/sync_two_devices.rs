@@ -67,6 +67,62 @@ fn concurrent_edits_merge_and_converge() {
     assert!(b.apply_remote().unwrap().is_empty());
 }
 
+/// Rewrite the path in every snapshot B published for `id`, as a hostile or
+/// broken peer would.
+fn forge_path(root: &std::path::Path, b: &Vault, id: &str, path: &str) {
+    let snap = root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(b.device_id().unwrap())
+        .join(format!("{id}.loro"));
+    let doc = loro::LoroDoc::new();
+    doc.import(&fs::read(&snap).unwrap()).unwrap();
+    doc.get_map("meta").insert("path", path).unwrap();
+    doc.get_text("body").insert(0, "Forged. ").unwrap();
+    doc.commit();
+    fs::write(&snap, doc.export(loro::ExportMode::Snapshot).unwrap()).unwrap();
+}
+
+#[test]
+fn a_peer_path_cannot_leave_the_vault() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let doc = a
+        .create(DocType::Note, "Kept", &Map::new(), "Mine.")
+        .unwrap();
+    let (id, file) = (doc.summary.id.clone(), root.join(&doc.summary.path));
+    let mut b = open(&root, &tmp.path().join("devB"));
+    let text = b.read(&id).unwrap().text;
+    b.write(&id, &text.replace("Mine.", "Mine, and B's.")).unwrap();
+
+    let outside = tmp.path().join("escaped.md");
+    for path in [
+        "../escaped.md".to_string(),
+        outside.to_string_lossy().to_string(),
+        format!("{}/vault.json", engine::vault::HIDDEN_DIR),
+        "Notes/evil.sh".to_string(),
+    ] {
+        forge_path(&root, &b, &id, &path);
+        a.apply_remote().unwrap();
+        assert!(!outside.exists(), "{path}: a file was written outside the vault");
+        assert!(
+            file.is_file(),
+            "{path}: the Note was moved away from {}",
+            file.display()
+        );
+        assert!(
+            !root.join("Notes/evil.sh").exists(),
+            "{path}: a non-markdown file was written"
+        );
+    }
+    let config = root.join(engine::vault::HIDDEN_DIR).join("vault.json");
+    if let Ok(c) = fs::read_to_string(&config) {
+        assert!(!c.contains("Forged."), "the vault config was overwritten");
+    }
+}
+
 #[test]
 fn rename_and_delete_propagate() {
     let tmp = tempfile::tempdir().unwrap();
