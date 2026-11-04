@@ -403,6 +403,35 @@ struct Register {
     named: std::collections::BTreeSet<String>,
     #[serde(default)]
     deleted: std::collections::BTreeMap<String, i64>,
+    /// Files a peer delivered here, which a later round may update or delete
+    /// before the Place that names them has arrived.
+    #[serde(default)]
+    received: std::collections::BTreeSet<String>,
+}
+
+impl Register {
+    /// Whether Pairing may write over or delete the file `name` here: one a
+    /// region names, one deleted here, or one a peer delivered. Any other
+    /// `.geojson` file in the Vault is the user's own and never touched.
+    fn owns(&self, name: &str) -> bool {
+        self.named.contains(name) || self.deleted.contains_key(name) || self.received.contains(name)
+    }
+}
+
+/// How far ahead of this Device's clock a peer's stamp may run. Anything
+/// later is refused: it would win every round from then on, and a time that
+/// far out does not fit in a file's modification time everywhere.
+const MAX_SKEW_MS: i64 = 24 * 60 * 60 * 1000;
+
+fn plausible(stamp: i64) -> bool {
+    (0..=crate::config::now_ms().saturating_add(MAX_SKEW_MS)).contains(&stamp)
+}
+
+/// The stamp for a write here: after `previous`, but never past what a peer
+/// would accept.
+fn next_stamp(previous: i64) -> i64 {
+    let now = crate::config::now_ms();
+    now.max(previous.saturating_add(1)).min(now.saturating_add(MAX_SKEW_MS))
 }
 
 /// The Vault and the Pairing node both write the register, from different
@@ -444,11 +473,12 @@ pub fn set_named(local: &Path, names: impl IntoIterator<Item = String>) -> Resul
 /// What this Device holds for `name`: the file, or its tombstone, whichever
 /// is newer. Named or not: it answers "is the peer's copy newer than mine?".
 fn local_entry(root: &Path, local: &Path, name: &str) -> Option<BorderEntry> {
-    let r = {
-        let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        load(local)
-    };
-    local_entry_in(root, &r, name)
+    local_entry_in(root, &register(local), name)
+}
+
+fn register(local: &Path) -> Register {
+    let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    load(local)
 }
 
 fn local_entry_in(root: &Path, r: &Register, name: &str) -> Option<BorderEntry> {
@@ -472,10 +502,7 @@ fn local_entry_in(root: &Path, r: &Register, name: &str) -> Option<BorderEntry> 
 /// Every Border this Device advertises: each named file it holds, and each
 /// tombstone that no later file has replaced.
 pub fn manifest(root: &Path, local: &Path) -> Vec<BorderEntry> {
-    let r = {
-        let _guard = REGISTER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        load(local)
-    };
+    let r = register(local);
     let mut names: std::collections::BTreeSet<&String> = r.named.iter().collect();
     names.extend(r.deleted.keys());
     names
@@ -489,6 +516,12 @@ pub fn manifest(root: &Path, local: &Path) -> Vec<BorderEntry> {
         .collect()
 }
 
+/// A Border file a peer asked for, served only when a region names it here:
+/// the rest of the Vault's `.geojson` files are not Pairing's to hand out.
+pub fn offered(root: &Path, local: &Path, name: &str) -> Option<Vec<u8>> {
+    register(local).named.contains(name).then(|| read_file(root, name)).flatten()
+}
+
 pub fn read_file(root: &Path, name: &str) -> Option<Vec<u8>> {
     if !is_synced(name) {
         return None;
@@ -499,18 +532,29 @@ pub fn read_file(root: &Path, name: &str) -> Option<Vec<u8>> {
 /// Take a Border file from a peer, which stamped it `stamp`, when that is
 /// newer than the file or tombstone here. Bytes that are not JSON are
 /// refused; a malformed Border that is JSON travels, so every Device shows
-/// the same warning. Returns whether it was written.
+/// the same warning. A stamp far in the future is refused, and so is a file
+/// here that is not Pairing's (`Register::owns`). Returns whether it was
+/// written.
 pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -> bool {
-    if !is_synced(name) || serde_json::from_slice::<Value>(bytes).is_err() {
+    if !is_synced(name) || !plausible(stamp) {
         return false;
+    }
+    match serde_json::from_slice::<Value>(bytes) {
+        Err(_) => return false,
+        Ok(v) if v.get("updated").and_then(Value::as_i64).is_some_and(|s| !plausible(s)) => return false,
+        Ok(_) => {}
     }
     let p = join(root, name);
     // Never written over while iCloud holds it (see `cloud`).
     if crate::cloud::is_evicted(&p) {
         return false;
     }
+    let r = register(local);
+    if p.exists() && !r.owns(name) {
+        return false;
+    }
     let incoming = BorderEntry { name: name.into(), stamp, size: bytes.len() as u64, deleted: false };
-    if !is_newer(&incoming, local_entry(root, local, name).as_ref()) {
+    if !is_newer(&incoming, local_entry_in(root, &r, name).as_ref()) {
         return false;
     }
     if let Some(parent) = p.parent() {
@@ -522,24 +566,33 @@ pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -
     }
     // The file's stamp here is the peer's, so the two agree and neither
     // pushes it back.
-    let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(stamp.max(0) as u64);
-    let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
-    let _ = revive(local, name);
+    if let Some(t) = std::time::UNIX_EPOCH.checked_add(std::time::Duration::from_millis(stamp as u64)) {
+        let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+    }
+    let _ = update(local, |r| {
+        r.deleted.remove(name);
+        r.received.insert(name.into());
+    });
     true
 }
 
 /// A peer deleted `name` at `stamp`: remove the file here unless it was
-/// edited later, and keep the tombstone. Returns whether anything changed.
+/// edited later, and keep the tombstone. A file here that is not Pairing's
+/// (`Register::owns`) stays. Returns whether anything changed.
 pub fn forget(root: &Path, local: &Path, name: &str, stamp: i64) -> bool {
-    if !is_synced(name) {
+    if !is_synced(name) || !plausible(stamp) {
         return false;
     }
     let p = join(root, name);
     if crate::cloud::is_evicted(&p) {
         return false;
     }
+    let r = register(local);
+    if p.exists() && !r.owns(name) {
+        return false;
+    }
     let tomb = BorderEntry { name: name.into(), stamp, size: 0, deleted: true };
-    if !is_newer(&tomb, local_entry(root, local, name).as_ref()) {
+    if !is_newer(&tomb, local_entry_in(root, &r, name).as_ref()) {
         return false;
     }
     if p.is_file() && fs::remove_file(&p).is_err() {
@@ -547,6 +600,7 @@ pub fn forget(root: &Path, local: &Path, name: &str, stamp: i64) -> bool {
     }
     update(local, |r| {
         r.deleted.insert(name.into(), stamp);
+        r.received.remove(name);
     })
     .is_ok()
 }
@@ -563,9 +617,10 @@ pub fn remove(root: &Path, local: &Path, rel: &str) -> Result<()> {
         fs::remove_file(&p)?;
     }
     if is_synced(rel) {
-        let stamp = crate::config::now_ms().max(previous + 1);
+        let stamp = next_stamp(previous);
         update(local, |r| {
             r.deleted.insert(rel.into(), stamp);
+            r.received.remove(rel);
         })?;
     }
     Ok(())
@@ -604,7 +659,7 @@ fn put(root: &Path, rel: &str, text: impl FnOnce(i64) -> Result<String>) -> Resu
         return Err(crate::cloud::downloading(&p));
     }
     let previous = fs::read(&p).ok().map(|b| stamp_of_file(&p, &b)).unwrap_or(0);
-    let text = text(crate::config::now_ms().max(previous + 1))?;
+    let text = text(next_stamp(previous))?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -1004,6 +1059,51 @@ mod tests {
         // …and B takes the edit.
         assert!(accept(&rb, &lb, rel, shrunk.as_bytes(), edited.stamp));
         assert_eq!(fs::read_to_string(rb.join(rel)).unwrap(), shrunk);
+    }
+
+    #[test]
+    fn a_peer_cannot_touch_a_geojson_file_no_region_names() {
+        let (_a, root, local) = device();
+        fs::create_dir_all(root.join("Maps")).unwrap();
+        let roads = "Maps/roads.geojson";
+        fs::write(root.join(roads), SQUARE).unwrap();
+        let now = crate::config::now_ms() + 1000;
+        assert!(!accept(&root, &local, roads, b"{}", now), "an unnamed file was overwritten");
+        assert_eq!(fs::read_to_string(root.join(roads)).unwrap(), SQUARE);
+        assert!(!forget(&root, &local, roads, now), "an unnamed file was deleted");
+        assert!(root.join(roads).exists());
+        assert_eq!(offered(&root, &local, roads), None, "an unnamed file was served");
+        // A named Border is served, and a Border a peer delivered can be
+        // updated again before its Place arrives and names it.
+        set_named(&local, [roads.to_string()]).unwrap();
+        assert!(offered(&root, &local, roads).is_some());
+        let rel = "Places/Judah.geojson";
+        assert!(accept(&root, &local, rel, SQUARE.as_bytes(), now));
+        assert!(accept(&root, &local, rel, b"{\"type\":\"Polygon\"}", now + 1));
+        assert!(forget(&root, &local, rel, now + 2));
+        assert!(!root.join(rel).exists());
+    }
+
+    #[test]
+    fn a_stamp_far_in_the_future_is_refused() {
+        let (_a, root, local) = device();
+        let rel = "Places/Judah.geojson";
+        assert!(!accept(&root, &local, rel, SQUARE.as_bytes(), i64::MAX));
+        assert!(!root.join(rel).exists());
+        let pinned = format!(r#"{{"type":"Polygon","updated":{},"coordinates":[]}}"#, i64::MAX);
+        assert!(!accept(&root, &local, rel, pinned.as_bytes(), crate::config::now_ms()));
+        assert!(!root.join(rel).exists());
+        assert!(!forget(&root, &local, rel, i64::MAX));
+        assert!(!held(&root, &local, rel), "a far-future tombstone was kept");
+        // A file another tool stamped that way can still be edited here.
+        fs::create_dir_all(root.join("Places")).unwrap();
+        fs::write(root.join(rel), &pinned).unwrap();
+        write(&root, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        remove(&root, &local, rel).unwrap();
+    }
+
+    fn held(root: &Path, local: &Path, rel: &str) -> bool {
+        local_entry(root, local, rel).is_some()
     }
 
     #[test]

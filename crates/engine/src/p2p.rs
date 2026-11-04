@@ -668,7 +668,7 @@ impl Node {
             Request::BorderManifest(_) => {
                 Response::BorderManifest(crate::border::manifest(&self.vault_root, &self.local_dir))
             }
-            Request::GetBorder(name) => Response::File(crate::border::read_file(&self.vault_root, &name)),
+            Request::GetBorder(name) => Response::File(crate::border::offered(&self.vault_root, &self.local_dir, &name)),
             Request::PutBorder { entry, bytes } => {
                 if crate::border::accept(&self.vault_root, &self.local_dir, &entry.name, &bytes, entry.stamp) {
                     self.emit(Event::Borders { names: vec![entry.name] }).await;

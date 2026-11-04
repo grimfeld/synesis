@@ -475,7 +475,7 @@ export function MapView() {
           opacity: 0.9,
           className: "map-route",
         })
-          .bindTooltip(r.title, { sticky: true })
+          .bindTooltip(esc(r.title), { sticky: true })
           .addTo(g);
         // An arrowhead near the end of the leg, for direction at a glance.
         const a = leg[Math.floor(leg.length * 0.6)];
@@ -558,7 +558,7 @@ export function MapView() {
         keyboard: true,
         zIndexOffset: 3000,
       })
-        .bindTooltip(mk.event.title, { direction: "top", offset: [-12, -14 - i * 11] })
+        .bindTooltip(esc(mk.event.title), { direction: "top", offset: [-12, -14 - i * 11] })
         .addTo(g);
       ev.on("click", () => openDoc.current(mk.event.id));
       ev.on("keypress", (e: L.LeafletKeyboardEvent) => {
@@ -618,7 +618,7 @@ export function MapView() {
         className: "map-border",
       }).addTo(g);
       const title = s.docsById.get(b.doc)?.title ?? b.doc;
-      poly.bindTooltip(title, { sticky: true });
+      poly.bindTooltip(esc(title), { sticky: true });
       poly.on("click", () => {
         if (!drawingRef.current) openDoc.current(b.doc);
       });
