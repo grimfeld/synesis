@@ -16,9 +16,10 @@ use std::fmt::Write as _;
 use std::path::Path;
 use std::time::Instant;
 
-/// The queries timed, as the UI sends them.
-/// `placeFacts` is left out until it stops taking minutes on this Vault (#59).
+/// The queries timed, as the UI sends them. `placeFacts` took minutes before
+/// #59: a base older than that fix runs it, 40 times, at that speed.
 const QUERIES: &[(&str, &str)] = &[
+    ("q_place_facts", r#"{"kind":"placeFacts"}"#),
     ("q_timeline", r#"{"kind":"timeline"}"#),
     ("q_event_links", r#"{"kind":"eventLinks"}"#),
     ("q_journeys", r#"{"kind":"journeys"}"#),

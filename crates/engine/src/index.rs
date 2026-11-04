@@ -1806,14 +1806,24 @@ impl Index {
 
         // Books reached through the documents that link to the Place, and how
         // many documents link to it. `norm` is how a link addresses a target,
-        // so the join goes through the Place's own norm and its aliases.
-        let mut st = self.conn.prepare(
-            "SELECT p.id, m.book FROM documents p \
-             JOIN links l ON l.kind = 'prose' AND l.norm IN ( \
-               SELECT p.title_norm UNION SELECT a.norm FROM aliases a WHERE a.doc_id = p.id) \
-             JOIN mentions m ON m.doc_id = l.from_id \
-             WHERE p.type = 'place' GROUP BY p.id, m.book ORDER BY p.id, m.book",
-        )?;
+        // so the join goes through the Place's own norm and its aliases. The
+        // names come first and the links are looked up by them, through
+        // `links_norm`: an `IN` over a subquery correlated with each Place made
+        // SQLite scan every link once per Place, minutes on a large Vault (#59).
+        // `+l.kind` keeps the planner off `links_kind`, which would walk every
+        // prose link instead.
+        const LINKERS: &str = "WITH names(place, norm) AS ( \
+               SELECT id, title_norm FROM documents WHERE type = 'place' \
+               UNION SELECT a.doc_id, a.norm FROM aliases a \
+                 JOIN documents d ON d.id = a.doc_id WHERE d.type = 'place'), \
+             linkers(place, doc) AS ( \
+               SELECT DISTINCT n.place, l.from_id FROM names n \
+               JOIN links l ON l.norm = n.norm AND +l.kind = 'prose') ";
+        let mut st = self.conn.prepare(&format!(
+            "{LINKERS}, books(doc, book) AS (SELECT DISTINCT doc_id, book FROM mentions) \
+             SELECT DISTINCT k.place, b.book FROM linkers k JOIN books b ON b.doc = k.doc \
+             ORDER BY k.place, b.book"
+        ))?;
         for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (doc, book) = row?;
             if let Some(&i) = at.get(&doc) {
@@ -1821,12 +1831,9 @@ impl Index {
             }
         }
 
-        let mut st = self.conn.prepare(
-            "SELECT p.id, COUNT(DISTINCT l.from_id) FROM documents p \
-             JOIN links l ON l.kind = 'prose' AND l.norm IN ( \
-               SELECT p.title_norm UNION SELECT a.norm FROM aliases a WHERE a.doc_id = p.id) \
-             WHERE p.type = 'place' GROUP BY p.id",
-        )?;
+        let mut st = self
+            .conn
+            .prepare(&format!("{LINKERS} SELECT place, COUNT(*) FROM linkers GROUP BY place"))?;
         for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (doc, n) = row?;
             if let Some(&i) = at.get(&doc) {
@@ -2938,6 +2945,38 @@ To the congregation in [[Ephesus]] (Re 2:1).
         assert!(b.books.is_empty());
         assert_eq!(b.mentions, 0);
         assert!(b.tags.is_empty());
+    }
+
+    #[test]
+    fn a_document_linking_a_place_by_name_and_alias_counts_once() {
+        let idx = idx_with(&[
+            ("j", "Places/jerusalem.md", "---\ntype: place\ntitle: Jerusalem\naliases: [Zion]\n---\n"),
+            ("n", "Notes/n.md", "---\ntype: note\n---\n[[Jerusalem]] and [[Zion]] (Ps 48:2, Ac 20:31).\n"),
+            ("m", "Notes/m.md", "---\ntype: note\n---\n[[zion]] again (Ps 48:2).\n"),
+        ]);
+        let facts = idx.place_facts().unwrap();
+        let j = facts.iter().find(|f| f.doc == "j").unwrap();
+        assert_eq!(j.mentions, 2, "two documents, however many names each uses");
+        assert_eq!(j.books, vec![19, 44]);
+    }
+
+    #[test]
+    fn place_facts_look_links_up_by_norm() {
+        // #59: the query once scanned every link for every Place.
+        let idx = Index::in_memory().unwrap();
+        let mut st = idx
+            .conn
+            .prepare(
+                "EXPLAIN QUERY PLAN WITH names(place, norm) AS (SELECT id, title_norm FROM documents WHERE type = 'place') \
+                 SELECT DISTINCT n.place, l.from_id FROM names n JOIN links l ON l.norm = n.norm AND +l.kind = 'prose'",
+            )
+            .unwrap();
+        let plan: Vec<String> = st
+            .query_map([], |r| r.get::<_, String>(3))
+            .unwrap()
+            .map(|r| r.unwrap())
+            .collect();
+        assert!(plan.iter().any(|l| l.contains("links_norm")), "{plan:#?}");
     }
 
     #[test]
