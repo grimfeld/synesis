@@ -245,10 +245,8 @@ export function BoardView({
     return deliverLatest(
       api.getBoard(id),
       (b) => setBoard(b ?? emptyBoard()),
-      (e) => {
-        console.error(e);
-        setLoadFailed(true);
-      },
+      // Reported in place, where the Board would be: not a console fault.
+      () => setLoadFailed(true),
     );
   }, [id, loadAttempt]);
 
@@ -303,10 +301,11 @@ export function BoardView({
         (status, e) => {
           setSaveStatus(status);
           if (status !== "error") return;
-          console.error(e);
           // One toast however many retries fail: the Board may be gone from
-          // screen by the time the write fails.
+          // screen by the time the write fails. Logged as a warning: the user
+          // has been told, and the edit is not lost.
           toast.error(saveFailed.current, { id: "board-save-failed" });
+          console.warn("Board save failed", e);
         },
       ),
     [],
