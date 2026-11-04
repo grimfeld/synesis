@@ -569,7 +569,7 @@ fn suggest_vault_path(app: AppHandle, name: String, method: Option<String>) -> C
 #[tauri::command]
 fn inspect_invite(code: String, path: String) -> CmdResult<InviteInfo> {
     let invite = engine::p2p::Invite::decode(&code).ok_or("not a pairing code")?;
-    let check = engine::meta::check_join(&std::path::Path::new(&path), &invite.vault_id);
+    let check = engine::meta::check_join(std::path::Path::new(&path), &invite.vault_id);
     Ok(InviteInfo {
         vault_name: invite.vault_name,
         vault_id: invite.vault_id,
@@ -627,12 +627,10 @@ fn save_document(
     id: String,
     text: String,
 ) -> CmdResult<DocumentPayload> {
-    let r = (|| {
-    state.with_vault_mut(|v| {
+    let r = state.with_vault_mut(|v| {
         let view = v.write(&id, &text)?;
         Ok(api::payload(v, view))
-    })
-    })();
+    });
     if let Ok(p) = &r {
         // The other Windows showing it will see this save on disk: it is theirs too.
         windows::saved(&windows, &id, &p.text);
@@ -649,8 +647,7 @@ fn create_document(
     fields: Option<Map<String, Value>>,
     body: Option<String>,
 ) -> CmdResult<DocumentPayload> {
-    let r = (|| {
-    state.with_vault_mut(|v| {
+    let r = state.with_vault_mut(|v| {
         let view = v.create(
             doc_type,
             &title,
@@ -658,8 +655,7 @@ fn create_document(
             body.as_deref().unwrap_or(""),
         )?;
         Ok(api::payload(v, view))
-    })
-    })();
+    });
     if r.is_ok() {
         pairing::after_write(&state);
     }
@@ -672,12 +668,10 @@ fn rename_document(
     id: String,
     title: String,
 ) -> CmdResult<DocumentPayload> {
-    let r = (|| {
-    state.with_vault_mut(|v| {
+    let r = state.with_vault_mut(|v| {
         let view = v.rename(&id, &title)?;
         Ok(api::payload(v, view))
-    })
-    })();
+    });
     if r.is_ok() {
         pairing::after_write(&state);
     }
@@ -704,9 +698,7 @@ fn duplicate_composition(
 
 #[tauri::command]
 fn delete_document(state: State<AppState>, id: String) -> CmdResult<()> {
-    let r = (|| {
-    state.with_vault_mut(|v| v.delete(&id))
-    })();
+    let r = state.with_vault_mut(|v| v.delete(&id));
     if r.is_ok() {
         pairing::after_write(&state);
     }

@@ -103,7 +103,7 @@ pub fn read(hidden: &Path, name: &str) -> Option<Vec<u8>> {
 
 /// Whether an entry a peer advertises should replace this Device's copy.
 pub fn is_newer(theirs: &ConfigEntry, mine: Option<&ConfigEntry>) -> bool {
-    mine.map_or(true, |m| theirs.stamp > m.stamp || (theirs.stamp == m.stamp && theirs.size > m.size))
+    mine.is_none_or(|m| theirs.stamp > m.stamp || (theirs.stamp == m.stamp && theirs.size > m.size))
 }
 
 /// Take a file from a peer when it is newer than what is here. Refuses names

@@ -472,6 +472,7 @@ pub fn set_named(local: &Path, names: impl IntoIterator<Item = String>) -> Resul
 
 /// What this Device holds for `name`: the file, or its tombstone, whichever
 /// is newer. Named or not: it answers "is the peer's copy newer than mine?".
+#[cfg(test)]
 fn local_entry(root: &Path, local: &Path, name: &str) -> Option<BorderEntry> {
     local_entry_in(root, &register(local), name)
 }

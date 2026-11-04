@@ -292,8 +292,11 @@ pub struct Node {
     /// Each attachment's hash, keyed by name and kept while its size and
     /// modification time stand, so a round every 30 seconds does not reread
     /// every picture in the Vault.
-    hashes: Mutex<HashMap<String, (u64, i64, [u8; 32])>>,
+    hashes: Mutex<HashMap<String, KnownHash>>,
 }
+
+/// An attachment's size, modification time and hash.
+type KnownHash = (u64, i64, [u8; 32]);
 
 pub fn node_id_hex(id: &NodeId) -> String {
     hex::encode(id)
@@ -898,7 +901,7 @@ impl Node {
             if e.device == self.me.device_id {
                 continue;
             }
-            let newer = mine_by.get(k).map_or(true, |m| e.mtime_ms > m.mtime_ms || (e.mtime_ms == m.mtime_ms && e.size != m.size));
+            let newer = mine_by.get(k).is_none_or(|m| e.mtime_ms > m.mtime_ms || (e.mtime_ms == m.mtime_ms && e.size != m.size));
             if newer {
                 if let Response::File(Some(bytes)) = request(conn, &Request::GetFile { device: e.device.clone(), name: e.name.clone() }).await? {
                     self.write_file(e, &bytes);
@@ -912,7 +915,7 @@ impl Node {
             if Some(&e.device) == their_device.as_ref() {
                 continue;
             }
-            let newer = theirs_by.get(k).map_or(true, |t| e.mtime_ms > t.mtime_ms || (e.mtime_ms == t.mtime_ms && e.size != t.size));
+            let newer = theirs_by.get(k).is_none_or(|t| e.mtime_ms > t.mtime_ms || (e.mtime_ms == t.mtime_ms && e.size != t.size));
             if newer {
                 if let Some(bytes) = self.read_file(&e.device, &e.name) {
                     request(conn, &Request::PutFile { entry: (*e).clone(), bytes }).await?;

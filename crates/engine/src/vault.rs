@@ -343,7 +343,7 @@ impl Vault {
         let docs = self.index.list(None)?;
         let mut n = 0;
         for d in docs {
-            let missing = self.sync.as_ref().map_or(false, |s| !s.is_published(&d.id));
+            let missing = self.sync.as_ref().is_some_and(|s| !s.is_published(&d.id));
             if !missing {
                 continue;
             }
@@ -422,7 +422,7 @@ impl Vault {
                         .sync
                         .as_ref()
                         .and_then(|s| s.remote_mtime(&c.id))
-                        .map_or(false, |m| mtime_of(&abs) > m);
+                        .is_some_and(|m| mtime_of(&abs) > m);
                 if file_newer {
                     if let Some(sync) = self.sync.as_mut() {
                         sync.record_local(&c.id, &on_disk, &rel)?;
@@ -727,7 +727,7 @@ impl Vault {
             if let Some(crdt) = sync.text_of(&id) {
                 if !own_write
                     && crdt != text
-                    && sync.remote_mtime(&id).map_or(false, |m| m > mtime)
+                    && sync.remote_mtime(&id).is_some_and(|m| m > mtime)
                 {
                     write_atomic(&abs, &crdt)?;
                     text = crdt;
@@ -959,8 +959,6 @@ impl Vault {
         write_atomic(&abs, &board.to_json())?;
         Ok(())
     }
-
-    /// Compositions whose Board references this document.
 
     /// The Board excerpt for each `(path, subpath)` a Board references.
     /// File name for a title: lowercase, filesystem-safe, unique within `folder`.
@@ -1580,7 +1578,7 @@ impl Vault {
             let current = self.read(&f.id).ok();
             let unset = current.as_ref().is_some_and(|v| {
                 v.summary.doc_type == DocType::Place
-                    && v.frontmatter.get("kind").and_then(Value::as_str).map_or(true, |k| k.trim().is_empty())
+                    && v.frontmatter.get("kind").and_then(Value::as_str).is_none_or(|k| k.trim().is_empty())
             });
             let written = unset
                 && current
@@ -2204,7 +2202,7 @@ Antioch is where they met.
             .create(DocType::Composition, "Short talk", &Map::new(), "Body.\n")
             .unwrap();
         let copy = v.duplicate(&made.summary.id, "Short talk (copy)").unwrap();
-        assert!(v.read_board(&copy.summary.id).unwrap().map_or(true, |b| b.is_empty()));
+        assert!(v.read_board(&copy.summary.id).unwrap().is_none_or(|b| b.is_empty()));
         assert!(!dir.path().join("Compositions/short talk (copy).canvas").exists());
     }
 
@@ -2239,7 +2237,7 @@ Antioch is where they met.
         // The app's own save is an echo, not news.
         v.write_board(&talk.id, &board).unwrap();
         assert!(v.fold_board_file(rel).unwrap().is_none());
-        assert_eq!(boards_holding(&v, &joy.id), [talk.id.clone()]);
+        assert_eq!(boards_holding(&v, &joy.id), std::slice::from_ref(&talk.id));
 
         // A canvas beside no Composition, or one that does not parse, is left alone.
         fs::write(dir.path().join("Notes/loose.canvas"), r#"{"nodes":[],"edges":[]}"#).unwrap();

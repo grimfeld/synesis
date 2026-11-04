@@ -333,7 +333,7 @@ fn era_suffix(tokens: &[&str]) -> Option<(bool, EraStyle, usize)> {
         let n = phrase.len();
         if tokens.len() > n
             && tokens[tokens.len() - n..] == **phrase
-            && best.map_or(true, |(_, _, b)| n > b)
+            && best.is_none_or(|(_, _, b)| n > b)
         {
             best = Some((*bce, *style, n));
         }
@@ -343,7 +343,7 @@ fn era_suffix(tokens: &[&str]) -> Option<(bool, EraStyle, usize)> {
 
 fn day_number(s: &str) -> Option<u8> {
     let s = s
-        .trim_end_matches(|c| c == 'e' || c == 'r')
+        .trim_end_matches(['e', 'r'])
         .trim_end_matches("st")
         .trim_end_matches("nd")
         .trim_end_matches("th");

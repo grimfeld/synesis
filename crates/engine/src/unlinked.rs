@@ -261,7 +261,7 @@ fn is_apostrophe(c: char) -> bool {
 /// Whether `c`, the character beside a match (`None` at either end of the
 /// text), keeps the match a word of its own.
 fn is_separator(c: Option<char>) -> bool {
-    c.map_or(true, |c| !(c.is_alphanumeric() || c == '_' || is_apostrophe(c)))
+    c.is_none_or(|c| !(c.is_alphanumeric() || c == '_' || is_apostrophe(c)))
 }
 
 /// The French words that elide before a vowel: `d'`, `l'`, `qu'`, `jusqu'`…

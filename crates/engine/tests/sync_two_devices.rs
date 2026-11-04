@@ -799,7 +799,7 @@ fn leaving_a_vault_keeps_the_documents_and_withdraws_the_snapshots() {
     assert!(!own.exists(), "the leaving Device kept publishing into the Vault");
     assert!(!local.exists(), "this Device's state for the Vault survived");
     assert!(file.is_file(), "leaving took the documents with it");
-    assert_eq!(fs::read_to_string(&file).unwrap().contains("Mine."), true);
+    assert!(fs::read_to_string(&file).unwrap().contains("Mine."));
 
     // B still has the Vault, and no longer sees A as a Device in it.
     let b = open(&root, &db);

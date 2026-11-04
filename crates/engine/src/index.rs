@@ -623,8 +623,7 @@ fn excerpt_at(text: &str, start: usize) -> String {
         let from = line
             .char_indices()
             .map(|(i, _)| i)
-            .filter(|&i| i <= rel.saturating_sub(80))
-            .last()
+            .rfind(|&i| i <= rel.saturating_sub(80))
             .unwrap_or(0);
         let to = line
             .char_indices()
@@ -1478,7 +1477,7 @@ impl Index {
     /// Title / alias prefix matches for link autocomplete.
     pub fn suggest(&self, prefix: &str, limit: usize) -> Result<Vec<DocSummary>> {
         let n = norm(prefix);
-        let like = format!("{}%", n.replace('%', "").replace('_', ""));
+        let like = format!("{}%", n.replace(['%', '_'], ""));
         let mut st = self.conn.prepare(&format!(
             "SELECT DISTINCT {SUMMARY_COLS} FROM documents d LEFT JOIN aliases a ON a.doc_id = d.id
              WHERE d.title_norm LIKE ?1 OR a.norm LIKE ?1 OR d.title_norm LIKE ?2 ORDER BY length(d.title) LIMIT ?3"
@@ -2512,7 +2511,7 @@ impl Index {
             .filter(|id| !linked.contains(id))
             .filter_map(|id| by_doc.remove(&id))
             .collect();
-        out.sort_by(|a, b| a.start.cmp(&b.start));
+        out.sort_by_key(|a| a.start);
         out.truncate(limit);
         // Only now, for the few rows that survive, ask whether the title is
         // shared: the app must never pick between two documents of the same
@@ -3159,7 +3158,10 @@ tags: [judgment]
         ])
     }
 
-    fn tie_rows(ties: &[PlaceTie]) -> Vec<(&str, &str, Option<&str>, Option<i32>, Option<i32>)> {
+    /// (Character, Place, Event, start year, end year).
+    type TieRow<'a> = (&'a str, &'a str, Option<&'a str>, Option<i32>, Option<i32>);
+
+    fn tie_rows(ties: &[PlaceTie]) -> Vec<TieRow<'_>> {
         ties.iter()
             .map(|t| {
                 (

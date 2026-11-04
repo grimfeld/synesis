@@ -330,7 +330,7 @@ fn number_prefixes(n: char, lang: Lang) -> Vec<String> {
         format!("{n} "),
         format!("{n}"),
         format!("{roman} "),
-        format!("{roman}"),
+        roman.to_string(),
     ];
     match lang {
         Lang::En => {

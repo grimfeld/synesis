@@ -187,7 +187,7 @@ fn parse_verse_list(cur: &mut Cursor, book: u8, mut chapter: u16) -> Vec<Passage
         let sep_pos = probe.pos;
         if probe.eat(|c| c == ',' || c == ';') {
             probe.skip_spaces();
-            if probe.peek().map_or(false, |c| c.is_ascii_digit()) {
+            if probe.peek().is_some_and(|c| c.is_ascii_digit()) {
                 cur.pos = probe.pos;
                 continue;
             }
@@ -208,7 +208,7 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     let single = is_single_chapter(book);
     let next = cur.peek();
     let comma_then_digit =
-        next == Some(',') && cur.peek_at(1).map_or(false, |c| c.is_ascii_digit());
+        next == Some(',') && cur.peek_at(1).is_some_and(|c| c.is_ascii_digit());
     if next == Some(':') || comma_then_digit {
         cur.pos += 1;
         // "John 3:99" or a dangling "John 3:" yield nothing: invalid
@@ -359,8 +359,7 @@ fn context_at<'a>(explicit: &'a [Detected], breaks: &[usize], pos: usize) -> Opt
     let section = section_of(breaks, pos);
     explicit
         .iter()
-        .filter(|d| d.end <= pos && section_of(breaks, d.start) == section)
-        .last()?
+        .rfind(|d| d.end <= pos && section_of(breaks, d.start) == section)?
         .passages
         .last()
 }

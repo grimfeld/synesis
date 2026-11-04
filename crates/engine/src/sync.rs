@@ -135,7 +135,7 @@ pub fn devices_in(vault_root: &Path, self_id: Option<&str>) -> Vec<DeviceInfo> {
         let mut last = 0;
         if let Ok(files) = fs::read_dir(e.path()) {
             for f in files.flatten() {
-                if f.path().extension().map_or(false, |x| x == "loro") {
+                if f.path().extension().is_some_and(|x| x == "loro") {
                     last = last.max(mtime_ms_of(&f.path()));
                 }
             }
@@ -151,7 +151,7 @@ pub fn devices_in(vault_root: &Path, self_id: Option<&str>) -> Vec<DeviceInfo> {
             last_snapshot: last,
         });
     }
-    out.sort_by(|a, b| b.last_snapshot.cmp(&a.last_snapshot));
+    out.sort_by_key(|d| std::cmp::Reverse(d.last_snapshot));
     out
 }
 
@@ -428,7 +428,7 @@ impl Sync {
     /// Whether a folder in `sync/` may be read from. Untrusted folders are
     /// left on disk untouched; removing them is a separate, deliberate act.
     fn trusts(&self, device: &str) -> bool {
-        self.roster.as_ref().map_or(true, |r| r.trusts(device))
+        self.roster.as_ref().is_none_or(|r| r.trusts(device))
     }
 
     fn local_snapshot_path(&self, id: &str) -> PathBuf {
