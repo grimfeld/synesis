@@ -3,7 +3,7 @@ import { LangContext } from "./i18n";
 import { StoreProvider, useStore } from "./lib/store";
 import { AppearanceProvider } from "./lib/appearance";
 import { useCommands } from "./lib/commands";
-import { matchShortcut } from "./lib/keys";
+import { matchShortcut, typingInField } from "./lib/keys";
 import { AppSidebar } from "./components/AppSidebar";
 import { Dialogs } from "./components/Dialogs";
 import { DocView } from "./views/DocView";
@@ -48,6 +48,9 @@ function Shortcuts() {
         (c) => c.shortcut && !c.overEditor && matchShortcut(e, c.shortcut),
       );
       if (!c) return;
+      // An editing shortcut typed in a title, a Property or a dialog is that
+      // field's own key: it must not change the note behind it (issue #62).
+      if (c.group === "editor" && typingInField(e.target)) return;
       e.preventDefault();
       c.run();
     };

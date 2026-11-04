@@ -46,3 +46,19 @@ export function formatShortcut(spec: string): string[] {
     return p.length === 1 ? p.toUpperCase() : p;
   });
 }
+
+/**
+ * Is a key going to a text field of its own — a title, a Property, a dialog,
+ * the palette's search — rather than the note's editor?
+ *
+ * An editing Command's shortcut (Mod+B, Mod+I, Mod+L) must then do nothing:
+ * run, it would change the note at its last cursor while the user is typing
+ * somewhere else (issue #62). The check is on the key event, not in the
+ * Command, so the palette can still run "Bold" on the editor by click.
+ */
+export function typingInField(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  if (target.closest(".cm-editor")) return false;
+  if (target.closest("input, textarea, select")) return true;
+  return target instanceof HTMLElement && target.isContentEditable === true;
+}
