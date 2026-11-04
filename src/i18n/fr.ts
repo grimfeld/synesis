@@ -822,6 +822,8 @@ export const fr: Dict = {
     waiting_on: (d: string) => `Touchez Autoriser sur ${d}.`,
     waiting_hint: "Touchez Autoriser sur l'appareil qui a montré le code. Il doit être en ligne.",
     denied: "L'autre appareil a refusé la demande.",
+    invite_expired: "Ce code a expiré ou a déjà servi. Demandez-en un nouveau à l'autre appareil.",
+    code_expired: "Le code a expiré. Affichez-en un nouveau pour associer un autre appareil.",
     background: "Continuer la synchronisation en arrière-plan",
     background_hint: "Fermer la fenêtre laisse Synesis dans la barre d'état pour que vos autres appareils puissent encore se synchroniser avec celui-ci.",
     relay: "Serveur relais (facultatif)",

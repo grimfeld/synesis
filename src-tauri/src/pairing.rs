@@ -20,7 +20,8 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
     }
     // Every document needs a snapshot before another Device can receive it.
     state.with_vault_mut(|v| v.publish_missing())?;
-    let (root, device_id) = state.with_vault(|v| Ok((v.root().to_path_buf(), v.device_id().unwrap_or("device").to_string())))?;
+    let (root, device_id) = state.with_vault(|v| Ok((v.root().to_path_buf(), v.device_id().map(str::to_string))))?;
+    let device_id = device_id.and_then(|d| engine::device_id::DeviceId::parse(&d)).ok_or("this Vault has no Device id to pair with")?;
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let local_dir = engine::vault::local_dir_for(&data_dir, &root);
     let (name, platform) = engine::sync::this_device();
@@ -79,7 +80,11 @@ pub fn autostart(app: AppHandle) {
         })()
         .unwrap_or(false);
         if paired {
-            let _ = ensure_started(&app, &state).await;
+            // Damaged pairing data leaves sync paused (#66); say so rather
+            // than failing quietly.
+            if let Err(message) = ensure_started(&app, &state).await {
+                let _ = app.emit("pairing:event", &Event::Error { message });
+            }
         }
     });
 }
@@ -121,6 +126,15 @@ pub fn notify(state: &AppState) {
 #[derive(Serialize)]
 pub struct InvitePayload {
     pub code: String,
+    /// How long the code stays open (#89); the panel hides it after.
+    pub expires_in_ms: u64,
+}
+
+impl InvitePayload {
+    fn of(node: &Node) -> InvitePayload {
+        let (invite, left) = node.invite();
+        InvitePayload { code: invite.encode(), expires_in_ms: left.as_millis() as u64 }
+    }
 }
 
 #[tauri::command]
@@ -131,14 +145,14 @@ pub async fn pairing_status(state: tauri::State<'_, AppState>) -> CmdResult<Opti
 #[tauri::command]
 pub async fn pairing_invite(app: AppHandle, state: tauri::State<'_, AppState>) -> CmdResult<InvitePayload> {
     let node = ensure_started(&app, &state).await?;
-    Ok(InvitePayload { code: node.invite().encode() })
+    Ok(InvitePayload::of(&node))
 }
 
 #[tauri::command]
 pub async fn pairing_revoke_invite(app: AppHandle, state: tauri::State<'_, AppState>) -> CmdResult<InvitePayload> {
     let node = ensure_started(&app, &state).await?;
     node.revoke_invite();
-    Ok(InvitePayload { code: node.invite().encode() })
+    Ok(InvitePayload::of(&node))
 }
 
 /// Join a vault from an Invite: create the vault folder at `path`, open it, and ask to join.

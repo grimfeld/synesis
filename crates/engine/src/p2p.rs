@@ -5,10 +5,15 @@
 //! the received snapshots up exactly as if a cloud folder had delivered them.
 //!
 //! One vault = one membership (members, removed nodes, vault key, invite
-//! secret), kept per Device in the vault's local data directory and merged
-//! between peers by version number. Joining: the newcomer connects to the
-//! node named in the Invite, sends the invite secret, and polls until a
-//! paired Device approves it and hands over the membership.
+//! secret), kept per Device in the vault's local data directory. Between
+//! peers the members and removals merge as sets: members grow, removals grow,
+//! and a removal always wins (#65, #85). `version` orders only a member's name
+//! and platform. The vault key and the invite secret are this Device's own and
+//! never travel in a merge.
+//!
+//! Joining: the newcomer connects to the node named in the Invite, sends the
+//! invite secret, and polls until a paired Device approves it and hands over
+//! the membership. An Invite is single use and lasts `INVITE_TTL` (#89).
 //!
 //! Protocol (ALPN `synesis/sync/1`): one bidirectional stream per request,
 //! postcard-encoded `Request` then `Response`. A "round" between two peers
@@ -33,7 +38,8 @@
 
 use crate::border::BorderEntry;
 use crate::config::{self, ConfigEntry};
-use crate::sync::SYNC_DIR;
+use crate::device_id::DeviceId;
+use crate::sync::{write_durable, ROSTER_DAMAGED, SYNC_DIR};
 use crate::vault::HIDDEN_DIR;
 use base64::Engine as _;
 use iroh::endpoint::{Connection, RecvStream, SendStream};
@@ -43,13 +49,28 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, UNIX_EPOCH};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 use tokio::sync::{mpsc, Notify};
 
 pub const ALPN: &[u8] = b"synesis/sync/1";
 const MEMBERSHIP_FILE: &str = "pairing.json";
 const KEY_FILE: &str = "pairing.key";
 const MAX_FILE: usize = 64 * 1024 * 1024;
+/// The most a node that is not a member may send in one request (#70): a
+/// `Join` or a `Membership` with capped strings, never a file.
+const MAX_STRANGER_REQUEST: usize = 16 * 1024;
+/// How long a non-member's connection may stay open for its one request.
+const STRANGER_TIMEOUT: Duration = Duration::from_secs(10);
+/// How long an Invite opens the door after it is shown (#89).
+pub const INVITE_TTL: Duration = Duration::from_secs(15 * 60);
+/// Join requests waiting for an answer at once; the oldest goes first (#89).
+const MAX_PENDING: usize = 8;
+/// The longest Device name or platform a peer may claim, in characters.
+const MAX_LABEL: usize = 64;
+/// How far a peer's membership version may run ahead of this one's and still
+/// order a member's name and platform (#85). A peer claiming more is not
+/// believed about them; its members and removals still merge.
+const MAX_VERSION_LEAD: u64 = 1_000;
 const PEERS_FILE: &str = "peers.json";
 const ROUND_EVERY: Duration = Duration::from_secs(30);
 const JOIN_POLL: Duration = Duration::from_secs(2);
@@ -65,17 +86,36 @@ pub type NodeId = [u8; 32];
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Member {
     pub node: NodeId,
-    /// The Device's sync folder name (`sync/<device>/`).
-    pub device_id: String,
+    /// The Device's sync folder name (`sync/<device>/`). A peer cannot name a
+    /// folder that is not a Device id (#90).
+    pub device_id: DeviceId,
     pub name: String,
     pub platform: String,
 }
 
-/// Everything a Device knows about who shares this vault. Merged by `version`.
+impl Member {
+    /// The card with its labels cut to `MAX_LABEL` characters, as a peer's
+    /// claim is kept (#89).
+    fn capped(mut self) -> Member {
+        for s in [&mut self.name, &mut self.platform] {
+            if let Some((i, _)) = s.char_indices().nth(MAX_LABEL) {
+                s.truncate(i);
+            }
+        }
+        self
+    }
+}
+
+/// Everything a Device knows about who shares this vault.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Membership {
+    /// Orders a member's name and platform between peers, nothing else.
     pub version: u64,
+    /// This Device's own; set from the approval that admitted it and never
+    /// taken from a merge (#85).
     pub vault_key: Option<[u8; 32]>,
+    /// This Device's own Invite secret. Never sent to a peer: each Device's
+    /// Invite carries its own (#85, #89).
     pub invite_secret: Option<[u8; 32]>,
     pub members: Vec<Member>,
     pub removed: Vec<NodeId>,
@@ -84,60 +124,107 @@ pub struct Membership {
     /// snapshots live under a device id. Never forgotten, for the same reason
     /// `removed` is not — a retired Device that reappears is not trusted again
     /// by virtue of reappearing. Read by `sync::Roster`.
-    #[serde(default)]
-    pub removed_devices: Vec<String>,
+    #[serde(default, deserialize_with = "crate::device_id::lenient_list")]
+    pub removed_devices: Vec<DeviceId>,
 }
 
 impl Membership {
-    fn load(dir: &Path) -> Membership {
-        fs::read_to_string(dir.join(MEMBERSHIP_FILE)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
-    }
-    fn save(&self, dir: &Path) {
-        let _ = fs::create_dir_all(dir);
-        if let Ok(json) = serde_json::to_string_pretty(self) {
-            let _ = fs::write(dir.join(MEMBERSHIP_FILE), json);
+    /// The membership saved for this Vault; empty when there is none. A file
+    /// that is there but unreadable is an error, never an empty membership
+    /// (#66): that would forget every removal, and the next save would make
+    /// the loss permanent.
+    fn load(dir: &Path) -> crate::Result<Membership> {
+        match fs::read_to_string(dir.join(MEMBERSHIP_FILE)) {
+            Ok(s) => serde_json::from_str(&s).map_err(|_| crate::Error::Invalid(ROSTER_DAMAGED.into())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Membership::default()),
+            Err(_) => Err(crate::Error::Invalid(ROSTER_DAMAGED.into())),
         }
+    }
+    fn save(&self, dir: &Path) -> crate::Result<()> {
+        write_durable(&dir.join(MEMBERSHIP_FILE), serde_json::to_string_pretty(self)?.as_bytes())
     }
     pub fn is_member(&self, node: &NodeId) -> bool {
         !self.removed.contains(node) && self.members.iter().any(|m| &m.node == node)
     }
-    /// Take whichever side is newer; removals are never forgotten.
-    fn merge(&mut self, other: &Membership) -> bool {
-        let mut changed = false;
-        if other.version > self.version {
-            let mut removed = self.removed.clone();
-            let mut removed_devices = self.removed_devices.clone();
-            *self = other.clone();
-            for r in removed.drain(..) {
-                if !self.removed.contains(&r) {
-                    self.removed.push(r);
-                }
-            }
-            for d in removed_devices.drain(..) {
-                if !self.removed_devices.contains(&d) {
-                    self.removed_devices.push(d);
-                }
-            }
-            changed = true;
-        } else {
-            for r in &other.removed {
-                if !self.removed.contains(r) {
-                    self.removed.push(*r);
-                    changed = true;
-                }
-            }
-            for d in &other.removed_devices {
-                if !self.removed_devices.contains(d) {
-                    self.removed_devices.push(d.clone());
-                    changed = true;
-                }
-            }
-        }
-        if changed {
-            self.members.retain(|m| !self.removed.contains(&m.node));
-        }
-        changed
+    fn bump(&mut self) {
+        self.version = self.version.saturating_add(1);
     }
+    /// What a member is told: everything but this Device's secrets.
+    fn public(&self) -> Membership {
+        Membership { vault_key: None, invite_secret: None, ..self.clone() }
+    }
+    /// What a newcomer is told when approved: the members and the vault key.
+    fn for_joiner(&self) -> Membership {
+        Membership { vault_key: self.vault_key, ..self.public() }
+    }
+    /// What a removed Device is told: that it, and who else, was removed (#89).
+    fn for_removed(&self) -> Membership {
+        Membership { version: self.version, removed: self.removed.clone(), removed_devices: self.removed_devices.clone(), ..Default::default() }
+    }
+    /// Why `m` may not become a member, if it may not: it was removed, its
+    /// folder was retired, or another member already holds that folder.
+    /// Re-pairing a retired Device means a fresh id (#89).
+    fn refuses(&self, m: &Member) -> Option<&'static str> {
+        if self.removed.contains(&m.node) {
+            Some("this Device was removed from the Vault")
+        } else if self.removed_devices.contains(&m.device_id) {
+            Some("this Device's id was retired from the Vault")
+        } else if self.members.iter().any(|x| x.device_id == m.device_id && x.node != m.node) {
+            Some("another Device already uses this Device's id")
+        } else {
+            None
+        }
+    }
+    /// Merge a peer's membership. Members and removals are sets that only
+    /// grow, and a removal wins over any member it names, so two Devices
+    /// that each approve a newcomer while apart both keep both (#65), and no
+    /// version number can drop a member or a removal (#85). A higher version,
+    /// within `MAX_VERSION_LEAD`, updates a member's name and platform.
+    /// Secrets are never taken. Returns whether anything changed.
+    fn merge(&mut self, other: &Membership) -> bool {
+        let before = self.clone();
+        for r in &other.removed {
+            if !self.removed.contains(r) {
+                self.removed.push(*r);
+            }
+        }
+        for d in &other.removed_devices {
+            if !self.removed_devices.contains(d) {
+                self.removed_devices.push(d.clone());
+            }
+        }
+        let believed = other.version <= self.version.saturating_add(MAX_VERSION_LEAD);
+        let newer = believed && other.version > self.version;
+        for m in &other.members {
+            let m = m.clone().capped();
+            match self.members.iter_mut().find(|x| x.node == m.node) {
+                // A member's folder is its own for good: only the card moves.
+                Some(x) => {
+                    if newer {
+                        x.name = m.name;
+                        x.platform = m.platform;
+                    }
+                }
+                None => {
+                    if self.refuses(&m).is_none() {
+                        self.members.push(m);
+                    }
+                }
+            }
+        }
+        let (removed, retired) = (&self.removed, &self.removed_devices);
+        self.members.retain(|m| !removed.contains(&m.node) && !retired.contains(&m.device_id));
+        if newer {
+            self.version = other.version;
+        }
+        *self != before
+    }
+}
+
+/// Compare two secrets in time that does not depend on where they differ.
+fn same_secret(a: &[u8; 32], b: &[u8; 32]) -> bool {
+    let diff = a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y));
+    std::hint::black_box(diff) == 0
 }
 
 /// What a QR code / pairing code carries.
@@ -217,6 +304,9 @@ enum Response {
     ConfigManifest(Vec<ConfigEntry>),
     AttachmentManifest(Vec<AttachmentEntry>),
     BorderManifest(Vec<BorderEntry>),
+    /// The Invite a newcomer used has expired, been used or been replaced
+    /// (#89). Last, so an older peer fails only this reply.
+    Expired,
 }
 
 /// One picture in `Attachments/`, as a peer advertises it (ADR 0020).
@@ -246,6 +336,9 @@ pub enum Event {
     Attachments { names: Vec<String> },
     /// Border files a peer delivered (ADR 0023), vault-relative paths.
     Borders { names: Vec<String> },
+    /// The Invite this Device is joining through has expired or was already
+    /// used (#89): a new one is needed.
+    InviteExpired,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -260,7 +353,11 @@ pub struct Status {
 
 struct State {
     membership: Membership,
-    pending: HashMap<NodeId, Member>,
+    /// Join requests waiting for an answer, oldest first, at most `MAX_PENDING`.
+    pending: Vec<Member>,
+    /// When this Device's current Invite secret was first shown. Kept in
+    /// memory only, so a restart closes every Invite shown before it.
+    invite_issued: Option<Instant>,
     /// The live connection to each member, whoever dialled it.
     conns: HashMap<NodeId, Connection>,
     /// Members a dial is in flight to, so a pass never starts a second one.
@@ -268,6 +365,45 @@ struct State {
     /// Each peer's last self-reported address (`peers.json`).
     addrs: HashMap<NodeId, EndpointAddr>,
     joining: Option<Invite>,
+}
+
+impl State {
+    /// Whether `secret` opens this Device's Invite now.
+    fn invite_open(&self, secret: &[u8; 32]) -> bool {
+        self.membership.invite_secret.is_some_and(|s| same_secret(&s, secret))
+            && self.invite_issued.is_some_and(|t| t.elapsed() < INVITE_TTL)
+    }
+    /// Hold a join request for an answer, dropping the oldest beyond
+    /// `MAX_PENDING` so a stream of strangers cannot grow the list (#89).
+    fn add_pending(&mut self, m: Member) {
+        if self.pending.len() >= MAX_PENDING {
+            self.pending.remove(0);
+        }
+        self.pending.push(m);
+    }
+    /// Close the current Invite: the next one shown has a new secret.
+    fn rotate_invite(&mut self) {
+        self.membership.invite_secret = Some(rand::random());
+        self.invite_issued = None;
+    }
+    /// After a removal: a removed Device may have seen the vault key and an
+    /// Invite, so both are replaced (#89).
+    fn rotate_secrets(&mut self) {
+        if self.membership.vault_key.is_some() {
+            self.membership.vault_key = Some(rand::random());
+        }
+        self.rotate_invite();
+    }
+    /// Merge a peer's membership, replacing this Device's secrets when the
+    /// merge brought a removal. Returns whether anything changed.
+    fn merge(&mut self, theirs: &Membership) -> bool {
+        let removals = (self.membership.removed.len(), self.membership.removed_devices.len());
+        let changed = self.membership.merge(theirs);
+        if (self.membership.removed.len(), self.membership.removed_devices.len()) != removals {
+            self.rotate_secrets();
+        }
+        changed
+    }
 }
 
 pub struct Node {
@@ -307,19 +443,26 @@ fn mtime_ms(p: &Path) -> i64 {
 }
 
 /// Load or create this Device's long-lived node key (one per app data dir).
-fn node_secret(device_dir: &Path) -> SecretKey {
+///
+/// A key file that is there but unreadable is an error, not a reason to make
+/// a new key (#66): a new key is a new identity, and every peer would stop
+/// recognising this Device.
+fn node_secret(device_dir: &Path) -> crate::Result<SecretKey> {
     let p = device_dir.join(KEY_FILE);
-    if let Ok(s) = fs::read_to_string(&p) {
-        if let Ok(bytes) = hex::decode(s.trim()) {
-            if let Ok(arr) = <[u8; 32]>::try_from(bytes) {
-                return SecretKey::from_bytes(&arr);
-            }
+    match fs::read_to_string(&p) {
+        Ok(s) => {
+            let arr = hex::decode(s.trim()).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| {
+                crate::Error::Invalid(format!("this Device's pairing key ({}) is damaged", p.display()))
+            })?;
+            Ok(SecretKey::from_bytes(&arr))
         }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let k = SecretKey::generate();
+            write_durable(&p, hex::encode(k.to_bytes()).as_bytes())?;
+            Ok(k)
+        }
+        Err(e) => Err(e.into()),
     }
-    let k = SecretKey::generate();
-    let _ = fs::create_dir_all(device_dir);
-    let _ = fs::write(&p, hex::encode(k.to_bytes()));
-    k
 }
 
 fn load_addrs(dir: &Path) -> HashMap<NodeId, EndpointAddr> {
@@ -329,9 +472,9 @@ fn load_addrs(dir: &Path) -> HashMap<NodeId, EndpointAddr> {
 
 fn save_addrs(dir: &Path, addrs: &HashMap<NodeId, EndpointAddr>) {
     let by_hex: HashMap<String, &EndpointAddr> = addrs.iter().map(|(k, v)| (node_id_hex(k), v)).collect();
+    // Only a hint for the next dial: losing it costs an address lookup.
     if let Ok(json) = serde_json::to_string_pretty(&by_hex) {
-        let _ = fs::create_dir_all(dir);
-        let _ = fs::write(dir.join(PEERS_FILE), json);
+        let _ = write_durable(&dir.join(PEERS_FILE), json.as_bytes());
     }
 }
 
@@ -350,7 +493,9 @@ impl Node {
     /// `relay`: custom relay URL, `None` for Iroh's public relays,
     /// `Some("")` to disable relays (tests).
     pub async fn start(vault_root: &Path, device_dir: &Path, local_dir: &Path, me: Member, relay: Option<String>, events: mpsc::Sender<Event>) -> crate::Result<Arc<Node>> {
-        let secret = node_secret(device_dir);
+        let secret = node_secret(device_dir)?;
+        // Damaged pairing data pauses pairing rather than starting it afresh (#66).
+        let mut membership = Membership::load(local_dir)?;
         let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret).alpns(vec![ALPN.to_vec()]);
         let mut relay_url = None;
         match relay.as_deref() {
@@ -363,7 +508,6 @@ impl Node {
             None => {}
         }
         let endpoint = builder.bind().await.map_err(|e| crate::Error::Invalid(format!("p2p bind: {e}")))?;
-        let mut membership = Membership::load(local_dir);
         // This Device's card may have changed since it was recorded (a better
         // name, an OS upgrade): refresh it so every peer shows the new one.
         let my_id = *endpoint.id().as_bytes();
@@ -371,8 +515,8 @@ impl Node {
             if mine.name != me.name || mine.platform != me.platform {
                 mine.name = me.name.clone();
                 mine.platform = me.platform.clone();
-                membership.version += 1;
-                membership.save(local_dir);
+                membership.bump();
+                membership.save(local_dir)?;
             }
         }
         let node = Arc::new(Node {
@@ -382,7 +526,15 @@ impl Node {
             hidden_dir: vault_root.join(HIDDEN_DIR),
             local_dir: local_dir.to_path_buf(),
             me,
-            state: Arc::new(Mutex::new(State { membership, pending: HashMap::new(), conns: HashMap::new(), dialing: HashSet::new(), addrs: load_addrs(local_dir), joining: None })),
+            state: Arc::new(Mutex::new(State {
+                membership,
+                pending: Vec::new(),
+                invite_issued: None,
+                conns: HashMap::new(),
+                dialing: HashSet::new(),
+                addrs: load_addrs(local_dir),
+                joining: None,
+            })),
             events,
             changed: Arc::new(Notify::new()),
             relay: relay_url,
@@ -415,44 +567,53 @@ impl Node {
         self.relay.as_ref().map(|r| r.to_string()).or_else(|| self.endpoint.addr().relay_urls().next().map(|r| r.to_string()))
     }
 
-    /// The Invite for this vault: creates the vault key and invite secret on first use.
-    pub fn invite(&self) -> Invite {
+    /// Save the membership; a failure is told to the UI rather than lost.
+    fn persist(&self, m: &Membership) {
+        if let Err(e) = m.save(&self.local_dir) {
+            let _ = self.events.try_send(Event::Error { message: format!("saving the pairing data: {e}") });
+        }
+    }
+
+    /// The Invite for this vault, and how long it stays open. Creates the
+    /// vault key on first use. The secret is kept while the Invite is open,
+    /// so showing the code twice shows the same code; once it has expired or
+    /// admitted a Device (#89), a new one is made.
+    pub fn invite(&self) -> (Invite, Duration) {
         let mut st = self.state.lock().unwrap();
+        let open = st.invite_issued.filter(|t| t.elapsed() < INVITE_TTL).filter(|_| st.membership.invite_secret.is_some());
+        let issued = match open {
+            Some(t) => t,
+            None => {
+                st.membership.invite_secret = Some(rand::random());
+                *st.invite_issued.insert(Instant::now())
+            }
+        };
         let m = &mut st.membership;
-        let mut changed = false;
         if m.vault_key.is_none() {
             m.vault_key = Some(rand::random());
-            changed = true;
-        }
-        if m.invite_secret.is_none() {
-            m.invite_secret = Some(rand::random());
-            changed = true;
         }
         if !m.members.iter().any(|x| x.node == self.id()) {
             let mut me = self.me.clone();
             me.node = self.id();
             m.members.push(me);
-            changed = true;
+            m.bump();
         }
-        if changed {
-            m.version += 1;
-            m.save(&self.local_dir);
-        }
-        Invite {
+        let invite = Invite {
             host: self.id(),
             relay: self.relay_hint(),
-            secret: m.invite_secret.unwrap(),
+            secret: m.invite_secret.expect("set above"),
             vault_id: self.vault.id.clone(),
             vault_name: self.vault.name.clone(),
-        }
+        };
+        self.persist(&st.membership);
+        (invite, INVITE_TTL.saturating_sub(issued.elapsed()))
     }
 
     /// Replace the invite secret; old codes stop working.
     pub fn revoke_invite(&self) {
         let mut st = self.state.lock().unwrap();
-        st.membership.invite_secret = Some(rand::random());
-        st.membership.version += 1;
-        st.membership.save(&self.local_dir);
+        st.rotate_invite();
+        self.persist(&st.membership);
     }
 
     pub fn status(&self) -> Status {
@@ -461,32 +622,31 @@ impl Node {
             node: node_id_hex(&self.id()),
             relay: self.relay_hint(),
             connected: st.conns.iter().filter(|(_, c)| c.close_reason().is_none()).map(|(n, _)| node_id_hex(n)).collect(),
-            pending: st.pending.values().cloned().collect(),
+            pending: st.pending.clone(),
             members: st.membership.members.clone(),
             joining: st.joining.is_some(),
         }
     }
 
-    /// Approve or deny a pending join. Approval adds the member and bumps the version.
+    /// Approve or deny a pending join. Either answer uses up the Invite
+    /// (#89). Approval adds the member, unless it was removed, its id was
+    /// retired, or another member holds that id: a removed Device stays
+    /// removed, and a wiped one comes back with a fresh id. Returns whether
+    /// the Device was admitted, or for a denial whether it was pending.
     pub fn approve(&self, node: &NodeId, allow: bool) -> bool {
         let mut st = self.state.lock().unwrap();
-        let Some(member) = st.pending.remove(node) else { return false };
-        if allow {
-            let m = &mut st.membership;
-            // Approving is the deliberate act that lifts a retirement, and the
-            // only one: a Device that was evicted, wiped and paired again is
-            // admitted here, and its folder has to be trusted from now on.
-            // Without this a Device could be removed but never re-paired.
-            m.removed.retain(|n| n != &member.node);
-            m.removed_devices.retain(|d| d != &member.device_id);
-            m.members.retain(|x| x.node != member.node);
-            m.members.push(member);
-            m.version += 1;
-            m.save(&self.local_dir);
+        let Some(i) = st.pending.iter().position(|m| &m.node == node) else { return false };
+        let member = st.pending.remove(i);
+        st.rotate_invite();
+        let admitted = allow && st.membership.refuses(&member).is_none();
+        if admitted {
+            st.membership.members.push(member);
+            st.membership.bump();
         }
+        self.persist(&st.membership);
         drop(st);
         self.changed.notify_one();
-        true
+        admitted || !allow
     }
 
     /// Remove a Device from the vault; every peer will refuse it from now on.
@@ -498,16 +658,16 @@ impl Node {
     /// whose folder arrived from a peer that had it — is known by its folder
     /// alone, and that is exactly the Device whose snapshots must stop being
     /// trusted.
-    pub fn forget_device(&self, device: &str) {
+    pub fn forget_device(&self, device: &DeviceId) {
         let mut st = self.state.lock().unwrap();
         let m = &mut st.membership;
-        if m.removed_devices.iter().any(|d| d == device) {
+        if m.removed_devices.contains(device) {
             return;
         }
-        m.removed_devices.push(device.to_string());
+        m.removed_devices.push(device.clone());
         // A member holding that folder goes too, so it is not re-admitted on
         // the next round.
-        if let Some(node) = m.members.iter().find(|x| x.device_id == device).map(|x| x.node) {
+        if let Some(node) = m.members.iter().find(|x| x.device_id == *device).map(|x| x.node) {
             m.members.retain(|x| x.node != node);
             if !m.removed.contains(&node) {
                 m.removed.push(node);
@@ -516,8 +676,9 @@ impl Node {
                 c.close(iroh::endpoint::VarInt::from_u32(0), b"removed");
             }
         }
-        st.membership.version += 1;
-        st.membership.save(&self.local_dir);
+        st.membership.bump();
+        st.rotate_secrets();
+        self.persist(&st.membership);
         drop(st);
         self.changed.notify_one();
     }
@@ -537,8 +698,9 @@ impl Node {
                 m.removed_devices.push(d);
             }
         }
-        m.version += 1;
-        m.save(&self.local_dir);
+        m.bump();
+        st.rotate_secrets();
+        self.persist(&st.membership);
         if let Some(c) = st.conns.remove(node) {
             c.close(iroh::endpoint::VarInt::from_u32(0), b"removed");
         }
@@ -569,8 +731,11 @@ impl Node {
                         Ok(Response::Approved(m)) => {
                             {
                                 let mut st = node.state.lock().unwrap();
-                                st.membership = m;
-                                st.membership.save(&node.local_dir);
+                                // The host's secret is its own (#85): this
+                                // Device makes its own when it shows an Invite.
+                                st.membership = Membership { invite_secret: None, ..m };
+                                st.invite_issued = None;
+                                node.persist(&st.membership);
                                 st.joining = None;
                             }
                             node.emit(Event::Approved).await;
@@ -580,6 +745,11 @@ impl Node {
                         Ok(Response::Denied) => {
                             node.state.lock().unwrap().joining = None;
                             node.emit(Event::Denied).await;
+                            return;
+                        }
+                        Ok(Response::Expired) => {
+                            node.state.lock().unwrap().joining = None;
+                            node.emit(Event::InviteExpired).await;
                             return;
                         }
                         Ok(_) => {}
@@ -599,24 +769,32 @@ impl Node {
     // ---------------------------------------------------------------- server
 
     async fn serve(&self, remote: NodeId, mut send: SendStream, mut recv: RecvStream) -> Result<(), String> {
-        let bytes = recv.read_to_end(MAX_FILE + 4096).await.map_err(|e| e.to_string())?;
-        let req: Request = postcard::from_bytes(&bytes).map_err(|e| e.to_string())?;
+        // Who is asking decides how much is read (#70): a stranger is never
+        // buffered more than a join request's worth.
         let is_member = self.state.lock().unwrap().membership.is_member(&remote);
+        let limit = if is_member { MAX_FILE + 4096 } else { MAX_STRANGER_REQUEST };
+        let bytes = recv.read_to_end(limit).await.map_err(|e| e.to_string())?;
+        let req: Request = postcard::from_bytes(&bytes).map_err(|e| e.to_string())?;
         let resp = match req {
             Request::Join { secret, member } => {
                 // Decide under the lock, announce after it (guards must not live across awaits).
                 let (resp, announce) = {
                     let mut st = self.state.lock().unwrap();
-                    if st.membership.removed.contains(&remote) || st.membership.invite_secret != Some(secret) {
+                    let member = Member { node: remote, ..member }.capped();
+                    if st.membership.removed.contains(&remote) {
                         (Response::Denied, None)
                     } else if st.membership.is_member(&remote) {
-                        (Response::Approved(st.membership.clone()), None)
+                        (Response::Approved(st.membership.for_joiner()), None)
+                    } else if st.pending.iter().any(|m| m.node == remote) {
+                        // Its Invite was checked when it first asked.
+                        (Response::Pending, None)
+                    } else if !st.invite_open(&secret) {
+                        (Response::Expired, None)
+                    } else if st.membership.refuses(&member).is_some() {
+                        (Response::Denied, None)
                     } else {
-                        let first = !st.pending.contains_key(&remote);
-                        let mut member = member;
-                        member.node = remote;
-                        st.pending.insert(remote, member.clone());
-                        (Response::Pending, first.then_some(member))
+                        st.add_pending(member.clone());
+                        (Response::Pending, Some(member))
                     }
                 };
                 if let Some(member) = announce {
@@ -624,21 +802,27 @@ impl Node {
                 }
                 resp
             }
-            // A removed Device may still ask for the membership: that is how it learns it was removed.
+            // A removed Device may still ask for the membership: that is how
+            // it learns it was removed. It learns nothing else (#89).
             Request::Membership(theirs) => {
-                let removed = self.state.lock().unwrap().membership.removed.contains(&remote);
-                if !is_member && !removed {
-                    Response::Denied
-                } else {
-                    let mine = {
-                        let mut st = self.state.lock().unwrap();
-                        if is_member && st.membership.merge(&theirs) {
-                            st.membership.save(&self.local_dir);
+                let (resp, changed) = {
+                    let mut st = self.state.lock().unwrap();
+                    if is_member {
+                        let changed = st.merge(&theirs);
+                        if changed {
+                            self.persist(&st.membership);
                         }
-                        st.membership.clone()
-                    };
-                    Response::Membership(mine)
+                        (Response::Membership(st.membership.public()), changed)
+                    } else if st.membership.removed.contains(&remote) {
+                        (Response::Membership(st.membership.for_removed()), false)
+                    } else {
+                        (Response::Denied, false)
+                    }
+                };
+                if changed {
+                    self.emit(Event::Membership).await;
                 }
+                resp
             }
             _ if !is_member => Response::Denied,
             Request::Hello(addr) => {
@@ -705,8 +889,9 @@ impl Node {
                     // rather than on our next timer.
                     node.changed.notify_one();
                 } else {
-                    // A joining or removed Device: answered, never kept.
-                    node.serve_conn(remote_id, &conn).await;
+                    // A joining or removed Device, or a member this one has
+                    // not heard of yet: answered, never kept (#70).
+                    node.serve_stranger(remote_id, &conn).await;
                 }
             });
         }
@@ -744,6 +929,19 @@ impl Node {
                 node.changed.notify_one();
             }
         });
+    }
+
+    /// Serve a node that is not a member: one request at a time, each read
+    /// capped by `serve` and bounded in time, and the connection closed once
+    /// it falls idle. A stranger can then hold at most one small request in
+    /// memory per connection, however many streams it opens (#70).
+    async fn serve_stranger(&self, remote: NodeId, conn: &Connection) {
+        while let Ok(Ok((send, recv))) = tokio::time::timeout(STRANGER_TIMEOUT, conn.accept_bi()).await {
+            if tokio::time::timeout(STRANGER_TIMEOUT, self.serve(remote, send, recv)).await.is_err() {
+                break;
+            }
+        }
+        conn.close(iroh::endpoint::VarInt::from_u32(0), b"not a member");
     }
 
     async fn serve_conn(self: &Arc<Self>, remote: NodeId, conn: &Connection) {
@@ -874,12 +1072,12 @@ impl Node {
     /// One sync round with a peer: memberships, manifests, then files both ways.
     async fn round(&self, conn: &Connection) -> Result<(), String> {
         let mine_m = self.membership();
-        if let Response::Membership(theirs) = request(conn, &Request::Membership(mine_m)).await? {
+        if let Response::Membership(theirs) = request(conn, &Request::Membership(mine_m.public())).await? {
             let changed = {
                 let mut st = self.state.lock().unwrap();
-                let c = st.membership.merge(&theirs);
+                let c = st.merge(&theirs);
                 if c {
-                    st.membership.save(&self.local_dir);
+                    self.persist(&st.membership);
                 }
                 c
             };
@@ -898,7 +1096,7 @@ impl Node {
         let mut pulled = 0;
         // Pull what they have newer, except my own device folder.
         for (k, e) in &theirs_by {
-            if e.device == self.me.device_id {
+            if self.me.device_id == e.device.as_str() {
                 continue;
             }
             let newer = mine_by.get(k).is_none_or(|m| e.mtime_ms > m.mtime_ms || (e.mtime_ms == m.mtime_ms && e.size != m.size));
@@ -912,7 +1110,7 @@ impl Node {
         // Push what I have newer, except their own device folder.
         let their_device = self.state.lock().unwrap().membership.members.iter().find(|m| m.node == *conn.remote_id().as_bytes()).map(|m| m.device_id.clone());
         for (k, e) in &mine_by {
-            if Some(&e.device) == their_device.as_ref() {
+            if their_device.as_ref().is_some_and(|d| *d == e.device.as_str()) {
                 continue;
             }
             let newer = theirs_by.get(k).is_none_or(|t| e.mtime_ms > t.mtime_ms || (e.mtime_ms == t.mtime_ms && e.size != t.size));
@@ -1065,13 +1263,15 @@ impl Node {
             if !d.path().is_dir() {
                 continue;
             }
-            let device = d.file_name().to_string_lossy().to_string();
+            // Only a folder named by a Device id is a Device's (#90).
+            let Some(device) = DeviceId::parse(&d.file_name().to_string_lossy()) else { continue };
             // A retired Device's folder is not advertised, so a peer that
             // still holds it does not learn of it from here and mirroring
             // stops spreading it.
             if removed.contains(&device) {
                 continue;
             }
+            let device = String::from(device);
             if let Ok(files) = fs::read_dir(d.path()) {
                 for f in files.flatten() {
                     let p = f.path();
@@ -1111,23 +1311,28 @@ impl Node {
     }
 
     fn read_file(&self, device: &str, name: &str) -> Option<Vec<u8>> {
-        if !Self::safe(device) || !Self::safe(name) {
+        let device = DeviceId::parse(device)?;
+        if !Self::safe(name) {
             return None;
         }
-        fs::read(self.sync_dir.join(device).join(name)).ok()
+        fs::read(self.sync_dir.join(&device).join(name)).ok()
     }
 
+    /// Store a snapshot a peer sent. The folder is named by a Device id,
+    /// compared case-blind with this Device's own and the retired ones, since
+    /// the disk may not tell `01abc` from `01ABC` (#90).
     fn write_file(&self, e: &Entry, bytes: &[u8]) {
-        if !Self::safe(&e.device) || !Self::safe(&e.name) || e.device == self.me.device_id {
+        let Some(device) = DeviceId::parse(&e.device) else { return };
+        if !Self::safe(&e.name) || device == self.me.device_id {
             return;
         }
         // A peer that has not yet merged the removal will still offer the
         // retired Device's snapshots; refusing them here is what keeps the
         // folder from coming back.
-        if self.state.lock().unwrap().membership.removed_devices.contains(&e.device) {
+        if self.state.lock().unwrap().membership.removed_devices.contains(&device) {
             return;
         }
-        let dir = self.sync_dir.join(&e.device);
+        let dir = self.sync_dir.join(&device);
         let _ = fs::create_dir_all(&dir);
         let tmp = dir.join(format!("{}.part", e.name));
         if fs::write(&tmp, bytes).is_ok() {
@@ -1270,8 +1475,21 @@ mod tests {
         }
     }
 
-    fn member(device: &str, name: &str) -> Member {
-        Member { node: [0; 32], device_id: device.into(), name: name.into(), platform: "test".into() }
+    fn member(device: &DeviceId, name: &str) -> Member {
+        Member { node: [0; 32], device_id: device.clone(), name: name.into(), platform: "test".into() }
+    }
+
+    fn id() -> DeviceId {
+        DeviceId::generate()
+    }
+
+    fn with_node(node: u8, device: &DeviceId, name: &str) -> Member {
+        Member { node: [node; 32], ..member(device, name) }
+    }
+
+    async fn start(dir: &Path, me: Member) -> Arc<Node> {
+        let (tx, _rx) = mpsc::channel(64);
+        Node::start(dir, &dir.join("device"), &dir.join("local"), me, Some(String::new()), tx).await.unwrap()
     }
 
     #[test]
@@ -1288,8 +1506,9 @@ mod tests {
         assert_eq!(Invite::decode(&code), Some(inv));
         assert_eq!(Invite::decode("nope"), None);
 
-        let mut a = Membership { version: 1, members: vec![member("a", "A")], ..Default::default() };
-        let b = Membership { version: 2, members: vec![member("a", "A"), member("b", "B")], removed: vec![[3; 32]], ..Default::default() };
+        let (da, db) = (id(), id());
+        let mut a = Membership { version: 1, members: vec![with_node(1, &da, "A")], ..Default::default() };
+        let b = Membership { version: 2, members: vec![with_node(1, &da, "A"), with_node(2, &db, "B")], removed: vec![[3; 32]], ..Default::default() };
         assert!(a.merge(&b));
         assert_eq!(a.version, 2);
         assert_eq!(a.members.len(), 2);
@@ -1298,23 +1517,130 @@ mod tests {
         assert!(a.removed.contains(&[4; 32]) && a.removed.contains(&[3; 32]));
     }
 
+    /// #65: two Devices each approve a different newcomer while apart. When
+    /// they meet, both keep both, whatever their versions.
+    #[test]
+    fn members_approved_apart_are_both_kept() {
+        let (dx, dy, dp, dq) = (id(), id(), id(), id());
+        let base = vec![with_node(1, &dx, "X"), with_node(2, &dy, "Y")];
+        let mut x = Membership { version: 5, members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(), ..Default::default() };
+        let mut y = Membership { version: 5, members: [base.clone(), vec![with_node(4, &dq, "Tablet")]].concat(), ..Default::default() };
+        let (x0, y0) = (x.clone(), y.clone());
+        assert!(x.merge(&y0));
+        assert!(y.merge(&x0));
+        for m in [&x, &y] {
+            assert!(m.is_member(&[3; 32]) && m.is_member(&[4; 32]), "an approved Device was dropped: {m:?}");
+        }
+        // And with one side ahead: the higher version no longer replaces the list.
+        let mut behind = Membership { version: 1, members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(), ..Default::default() };
+        let ahead = Membership { version: 9, members: base, ..Default::default() };
+        behind.merge(&ahead);
+        assert!(behind.is_member(&[3; 32]), "a newer membership dropped a member");
+    }
+
+    /// #65: a removal and an approval of the same Device made apart: the
+    /// removal wins, on both sides.
+    #[test]
+    fn a_removal_wins_over_an_approval_made_apart() {
+        let dp = id();
+        let mut approving = Membership { version: 7, members: vec![with_node(3, &dp, "Phone")], ..Default::default() };
+        let mut removing = Membership { version: 2, removed: vec![[3; 32]], removed_devices: vec![dp.clone()], ..Default::default() };
+        let (a0, r0) = (approving.clone(), removing.clone());
+        approving.merge(&r0);
+        removing.merge(&a0);
+        assert!(!approving.is_member(&[3; 32]) && !removing.is_member(&[3; 32]));
+        assert!(approving.members.is_empty() && removing.members.is_empty());
+    }
+
+    /// #85: a peer claiming a huge version neither takes the list over nor
+    /// stops this Device from changing anything afterwards, and the secrets
+    /// never move in a merge.
+    #[test]
+    fn a_huge_version_takes_nothing_over() {
+        let (dx, dm) = (id(), id());
+        let mut mine = Membership { version: 3, vault_key: Some([1; 32]), invite_secret: Some([2; 32]), members: vec![with_node(1, &dx, "X")], ..Default::default() };
+        let hostile = Membership {
+            version: u64::MAX,
+            vault_key: Some([9; 32]),
+            invite_secret: Some([9; 32]),
+            members: vec![with_node(1, &dx, "Renamed"), with_node(8, &dm, "Mallory")],
+            ..Default::default()
+        };
+        mine.merge(&hostile);
+        assert_eq!(mine.vault_key, Some([1; 32]), "the vault key came from a merge");
+        assert_eq!(mine.invite_secret, Some([2; 32]), "the invite secret came from a merge");
+        assert_eq!(mine.version, 3, "an absurd version was adopted");
+        assert_eq!(mine.members[0].name, "X", "an absurd version renamed a member");
+        assert!(mine.is_member(&[1; 32]));
+        // Mallory is a member now (a member admitted it), and can be removed for good.
+        mine.removed.push([8; 32]);
+        mine.bump();
+        mine.merge(&hostile);
+        assert!(!mine.is_member(&[8; 32]), "a removal was undone by a huge version");
+        // Bumping at the top saturates rather than panicking under the lock.
+        let mut top = Membership { version: u64::MAX, ..Default::default() };
+        top.bump();
+        assert_eq!(top.version, u64::MAX);
+    }
+
+    /// A member another Device sends cannot claim a retired id, or a folder
+    /// a member already holds, and keeps its labels short (#89, #90).
+    #[test]
+    fn a_merged_member_cannot_claim_a_folder() {
+        let (dx, retired) = (id(), id());
+        let mut mine = Membership { members: vec![with_node(1, &dx, "X")], removed_devices: vec![retired.clone()], ..Default::default() };
+        let long = "n".repeat(10_000);
+        let theirs = Membership {
+            members: vec![with_node(2, &dx, "Thief"), with_node(3, &retired, "Ghost"), with_node(4, &id(), &long)],
+            ..Default::default()
+        };
+        mine.merge(&theirs);
+        assert!(!mine.is_member(&[2; 32]), "a second node took a member's folder");
+        assert!(!mine.is_member(&[3; 32]), "a retired id came back through a merge");
+        let kept = mine.members.iter().find(|m| m.node == [4; 32]).unwrap();
+        assert_eq!(kept.name.chars().count(), MAX_LABEL);
+    }
+
+    /// #89: what each kind of peer is told about the membership.
+    #[test]
+    fn secrets_stay_on_this_device() {
+        let m = Membership {
+            version: 4,
+            vault_key: Some([1; 32]),
+            invite_secret: Some([2; 32]),
+            members: vec![with_node(1, &id(), "X")],
+            removed: vec![[5; 32]],
+            removed_devices: vec![id()],
+        };
+        let public = m.public();
+        assert!(public.vault_key.is_none() && public.invite_secret.is_none());
+        assert_eq!(public.members, m.members);
+        let joiner = m.for_joiner();
+        assert_eq!(joiner.vault_key, m.vault_key);
+        assert!(joiner.invite_secret.is_none());
+        let removed = m.for_removed();
+        assert!(removed.vault_key.is_none() && removed.invite_secret.is_none() && removed.members.is_empty());
+        assert_eq!((removed.version, &removed.removed, &removed.removed_devices), (4, &m.removed, &m.removed_devices));
+    }
+
     /// A retired Device's folder is named by its device id, and that travels
     /// between peers the way the node removal does: a newer membership never
     /// drops what this one already knew, so the folder cannot come back by
     /// meeting a peer that has not heard of the removal yet.
     #[test]
     fn a_removed_device_is_never_forgotten_by_a_merge() {
-        let mut a = Membership { version: 1, removed_devices: vec!["01PHONE".into()], ..Default::default() };
-        let newer = Membership { version: 9, removed_devices: vec!["01TABLET".into()], ..Default::default() };
+        let (phone, tablet, laptop) = (id(), id(), id());
+        let mut a = Membership { version: 1, removed_devices: vec![phone.clone()], ..Default::default() };
+        let newer = Membership { version: 9, removed_devices: vec![tablet.clone()], ..Default::default() };
         assert!(a.merge(&newer));
-        assert!(a.removed_devices.contains(&"01PHONE".to_string()), "a newer membership dropped a removal");
-        assert!(a.removed_devices.contains(&"01TABLET".to_string()));
+        assert!(a.removed_devices.contains(&phone), "a newer membership dropped a removal");
+        assert!(a.removed_devices.contains(&tablet));
 
         // An older peer's removal is still taken, and taken only once.
-        let older = Membership { version: 1, removed_devices: vec!["01LAPTOP".into(), "01PHONE".into()], ..Default::default() };
+        let older = Membership { version: 1, removed_devices: vec![laptop.clone(), phone.clone()], ..Default::default() };
         assert!(a.merge(&older));
-        assert_eq!(a.removed_devices.iter().filter(|d| *d == "01PHONE").count(), 1);
-        assert!(a.removed_devices.contains(&"01LAPTOP".to_string()));
+        assert_eq!(a.removed_devices.iter().filter(|d| **d == phone).count(), 1);
+        assert!(a.removed_devices.contains(&laptop));
 
         // Nothing new to learn.
         assert!(!a.merge(&older));
@@ -1326,59 +1652,224 @@ mod tests {
     #[tokio::test]
     async fn a_device_can_be_retired_by_its_folder_alone() {
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = mpsc::channel(16);
-        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member("self", "Self"), Some(String::new()), tx).await.unwrap();
+        let node = start(dir.path(), member(&id(), "Self")).await;
 
         // A Device that is still a member: the folder and the peer both go.
         let paired = [7u8; 32];
+        let tablet = id();
         {
             let mut st = node.state.lock().unwrap();
-            st.membership.members.push(Member { node: paired, ..member("tablet", "Tablet") });
+            st.membership.members.push(Member { node: paired, ..member(&tablet, "Tablet") });
         }
-        node.forget_device("tablet");
+        node.forget_device(&tablet);
         let m = node.membership();
-        assert!(m.removed_devices.contains(&"tablet".to_string()));
+        assert!(m.removed_devices.contains(&tablet));
         assert!(!m.is_member(&paired), "the retired Device is still a member");
 
         // A Device that never paired through this roster, which is how the
         // phone whose folder outlived it looks. No node id to go by.
-        node.forget_device("ghost");
+        let ghost = id();
+        node.forget_device(&ghost);
         let m = node.membership();
-        assert!(m.removed_devices.contains(&"ghost".to_string()), "a folder-only Device could not be retired");
+        assert!(m.removed_devices.contains(&ghost), "a folder-only Device could not be retired");
 
         // Idempotent, and it persists for the next Sync to read.
         let before = node.membership().version;
-        node.forget_device("ghost");
+        node.forget_device(&ghost);
         assert_eq!(node.membership().version, before, "retiring twice bumped the version");
         let saved = fs::read_to_string(dir.path().join("local").join(MEMBERSHIP_FILE)).unwrap();
-        assert!(saved.contains("ghost"), "the retirement was not written for sync to read");
+        assert!(saved.contains(ghost.as_str()), "the retirement was not written for sync to read");
         node.shutdown().await;
     }
 
-    /// Approving is what lifts a retirement, and the only thing that does: a
-    /// Device evicted, wiped and paired again must be trustable, or it could be
-    /// removed and never come back.
+    /// #89: a retired id is never re-admitted, even by approval: a removal
+    /// that one Device lifted would come back from every peer that still has
+    /// it, and the retired folder's old snapshots with it. A wiped Device comes
+    /// back with a fresh id, and that one is admitted.
     #[tokio::test]
-    async fn approving_a_device_again_lifts_its_retirement() {
+    async fn approving_a_retired_device_id_is_refused() {
         let dir = tempfile::tempdir().unwrap();
-        let (tx, _rx) = mpsc::channel(16);
-        let me = member("self", "Self");
-        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), me, Some(String::new()), tx).await.unwrap();
+        let node = start(dir.path(), member(&id(), "Self")).await;
 
-        let returning = member("phone", "Phone");
+        let phone = id();
         let their_node = [42u8; 32];
-        let returning = Member { node: their_node, ..returning };
+        node.forget_device(&phone);
 
-        node.forget_device("phone");
-        assert!(node.membership().removed_devices.contains(&"phone".to_string()));
-
-        // It comes back and is approved.
-        node.state.lock().unwrap().pending.insert(their_node, returning);
-        assert!(node.approve(&their_node, true));
+        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&phone, "Phone") });
+        assert!(!node.approve(&their_node, true), "a retired id was admitted");
         let m = node.membership();
-        assert!(!m.removed_devices.contains(&"phone".to_string()), "an approved Device is still retired");
-        assert!(!m.removed.contains(&their_node), "an approved Device's node is still removed");
-        assert!(m.is_member(&their_node));
+        assert!(m.removed_devices.contains(&phone), "approval lifted a retirement");
+        assert!(!m.is_member(&their_node));
+
+        // A lowercase spelling of the same id is the same id (#90).
+        let sneaky = DeviceId::parse(&phone.as_str().to_lowercase()).unwrap();
+        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&sneaky, "Phone") });
+        assert!(!node.approve(&their_node, true), "a lowercased retired id was admitted");
+
+        // Wiped and paired again under a fresh id: admitted.
+        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&id(), "Phone") });
+        assert!(node.approve(&their_node, true));
+        assert!(node.membership().is_member(&their_node));
+
+        // A removed node stays removed whatever id it brings.
+        node.remove(&their_node);
+        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&id(), "Phone") });
+        assert!(!node.approve(&their_node, true), "a removed node was admitted again");
+        node.shutdown().await;
+    }
+
+    /// #89: an Invite is single use and expires; removing a Device replaces
+    /// the vault key and the Invite.
+    #[tokio::test]
+    async fn an_invite_is_single_use_and_expires() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = start(dir.path(), member(&id(), "Self")).await;
+
+        let (first, left) = node.invite();
+        assert!(left <= INVITE_TTL && left > INVITE_TTL - Duration::from_secs(5));
+        assert_eq!(node.invite().0.secret, first.secret, "showing the code again changed it");
+        assert!(node.state.lock().unwrap().invite_open(&first.secret));
+        assert!(!node.state.lock().unwrap().invite_open(&[0; 32]));
+
+        // Used: an approval closes it.
+        node.state.lock().unwrap().pending.push(Member { node: [5; 32], ..member(&id(), "Phone") });
+        assert!(node.approve(&[5; 32], true));
+        assert!(!node.state.lock().unwrap().invite_open(&first.secret), "an Invite admitted a second Device");
+        let (second, _) = node.invite();
+        assert_ne!(second.secret, first.secret);
+
+        // Expired: the window has passed.
+        node.state.lock().unwrap().invite_issued = Some(Instant::now() - INVITE_TTL);
+        assert!(!node.state.lock().unwrap().invite_open(&second.secret), "an expired Invite still opened");
+        let (third, _) = node.invite();
+        assert_ne!(third.secret, second.secret, "an expired Invite was shown again");
+
+        // Removing a Device replaces the key and closes the Invite.
+        let key = node.membership().vault_key;
+        node.remove(&[5; 32]);
+        assert_ne!(node.membership().vault_key, key, "the vault key survived a removal");
+        assert!(!node.state.lock().unwrap().invite_open(&third.secret), "an Invite survived a removal");
+
+        // A removal learnt from a peer does the same.
+        let (fourth, _) = node.invite();
+        let key = node.membership().vault_key;
+        let theirs = Membership { removed: vec![[6; 32]], ..Default::default() };
+        assert!(node.state.lock().unwrap().merge(&theirs));
+        assert_ne!(node.membership().vault_key, key);
+        assert!(!node.state.lock().unwrap().invite_open(&fourth.secret));
+        node.shutdown().await;
+    }
+
+    /// #66: damaged pairing data is an error, not a fresh start: an empty
+    /// membership would forget every removal, a new key a new identity.
+    #[tokio::test]
+    async fn damaged_pairing_data_does_not_start_afresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("local");
+        fs::create_dir_all(&local).unwrap();
+        fs::write(local.join(MEMBERSHIP_FILE), "{\"version\": 3, \"removed_dev").unwrap();
+        let (tx, _rx) = mpsc::channel(4);
+        let err = Node::start(dir.path(), &dir.path().join("device"), &local, member(&id(), "Self"), Some(String::new()), tx).await.err().expect("a torn pairing.json was read as empty");
+        assert!(err.to_string().contains("damaged"), "{err}");
+        assert!(fs::read_to_string(local.join(MEMBERSHIP_FILE)).unwrap().contains("removed_dev"), "the damaged file was overwritten");
+
+        let other = tempfile::tempdir().unwrap();
+        fs::create_dir_all(other.path().join("device")).unwrap();
+        fs::write(other.path().join("device").join(KEY_FILE), "abc").unwrap();
+        assert!(node_secret(&other.path().join("device")).is_err(), "a torn node key was replaced");
+
+        // A good save is whole, with no temporary file left beside it.
+        let m = Membership { version: 2, removed_devices: vec![id()], ..Default::default() };
+        let fresh = other.path().join("fresh");
+        m.save(&fresh).unwrap();
+        assert_eq!(Membership::load(&fresh).unwrap(), m);
+        assert_eq!(fs::read_dir(&fresh).unwrap().count(), 1);
+    }
+
+    /// #89, #70: a stranger with a used, expired or wrong Invite is told so;
+    /// a removed Device gets no secrets; join requests are capped.
+    #[tokio::test]
+    async fn strangers_get_little() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault_a = dir.path().join("a");
+        let vault_s = dir.path().join("s");
+        let a = start(&vault_a, member(&id(), "A")).await;
+        let s = start(&vault_s, member(&id(), "Stranger")).await;
+        let addr = a.addr();
+        let ask = |req: Request| {
+            let (s, addr) = (s.clone(), addr.clone());
+            async move {
+                let conn = s.endpoint.connect(addr, ALPN).await.unwrap();
+                request(&conn, &req).await
+            }
+        };
+        let me = Member { node: [0; 32], ..member(&id(), "Stranger") };
+
+        // A wrong secret, and then a stale one.
+        let (invite, _) = a.invite();
+        assert!(matches!(ask(Request::Join { secret: [0; 32], member: me.clone() }).await, Ok(Response::Expired)));
+        a.revoke_invite();
+        assert!(matches!(ask(Request::Join { secret: invite.secret, member: me.clone() }).await, Ok(Response::Expired)));
+
+        // A good one: pending, with its labels capped.
+        let (invite, _) = a.invite();
+        let long = Member { name: "x".repeat(5_000), ..me.clone() };
+        assert!(matches!(ask(Request::Join { secret: invite.secret, member: long }).await, Ok(Response::Pending)));
+        assert_eq!(a.status().pending[0].name.chars().count(), MAX_LABEL);
+
+        // A request bigger than a join is refused before it is read whole.
+        let big = Request::PutFile { entry: Entry { device: id().into(), name: "x.loro".into(), size: 0, mtime_ms: 0 }, bytes: vec![0; 64 * 1024] };
+        assert!(ask(big).await.is_err(), "a stranger's large request was read");
+
+        // A removed Device learns of its removal and nothing else.
+        let node_s = s.id();
+        {
+            let mut st = a.state.lock().unwrap();
+            st.pending.clear();
+            st.membership.members.push(Member { node: node_s, ..member(&id(), "Stranger") });
+        }
+        a.remove(&node_s);
+        match ask(Request::Membership(Membership::default())).await {
+            Ok(Response::Membership(m)) => {
+                assert!(m.removed.contains(&node_s));
+                assert!(m.vault_key.is_none() && m.invite_secret.is_none() && m.members.is_empty(), "a removed Device was told the secrets: {m:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(ask(Request::Join { secret: a.invite().0.secret, member: me.clone() }).await, Ok(Response::Denied)));
+
+        // At most MAX_PENDING requests wait; the oldest goes.
+        for i in 0..(MAX_PENDING as u8 + 3) {
+            a.state.lock().unwrap().add_pending(Member { node: [100 + i; 32], ..member(&id(), "N") });
+        }
+        let pending = a.status().pending;
+        assert_eq!(pending.len(), MAX_PENDING);
+        assert_eq!(pending[0].node, [103; 32], "the oldest requests were not the ones dropped");
+        a.shutdown().await;
+        s.shutdown().await;
+    }
+
+    /// #90: a peer cannot write into this Device's own folder or a retired
+    /// one by spelling its id in lower case, nor anywhere that is not a
+    /// Device id.
+    #[tokio::test]
+    async fn a_peer_cannot_spell_a_folder_differently() {
+        let dir = tempfile::tempdir().unwrap();
+        let mine = id();
+        let node = start(dir.path(), member(&mine, "Self")).await;
+        let retired = id();
+        node.forget_device(&retired);
+        let entry = |device: String| Entry { device, name: "DOC.loro".into(), size: 3, mtime_ms: 0 };
+        for device in [mine.as_str().to_lowercase(), retired.as_str().to_lowercase(), "..".into(), "phone".into()] {
+            node.write_file(&entry(device.clone()), b"bad");
+            assert!(node.read_file(&device, "DOC.loro").is_none(), "{device} was written");
+        }
+        let sync = dir.path().join(HIDDEN_DIR).join(SYNC_DIR);
+        assert!(!sync.exists() || fs::read_dir(&sync).unwrap().count() == 0, "a folder was made");
+        // A good id in lower case lands in its canonical folder.
+        let other = id();
+        node.write_file(&entry(other.as_str().to_lowercase()), b"ok!");
+        assert_eq!(fs::read(sync.join(other.as_str()).join("DOC.loro")).unwrap(), b"ok!");
         node.shutdown().await;
     }
 
@@ -1395,11 +1886,12 @@ mod tests {
         }
         let (tx_a, mut rx_a) = mpsc::channel(64);
         let (tx_b, mut rx_b) = mpsc::channel(64);
-        let a = Node::start(&vault_a, &dir.path().join("dev-a"), &dir.path().join("local-a"), member("dev-a", "A"), Some(String::new()), tx_a).await.unwrap();
-        let b = Node::start(&vault_b, &dir.path().join("dev-b"), &dir.path().join("local-b"), member("dev-b", "B"), Some(String::new()), tx_b).await.unwrap();
+        let dev_a = id();
+        let a = Node::start(&vault_a, &dir.path().join("dev-a"), &dir.path().join("local-a"), member(&dev_a, "A"), Some(String::new()), tx_a).await.unwrap();
+        let b = Node::start(&vault_b, &dir.path().join("dev-b"), &dir.path().join("local-b"), member(&id(), "B"), Some(String::new()), tx_b).await.unwrap();
 
         // Without relays the invite carries no address; give B A's direct addresses.
-        let mut invite = a.invite();
+        let mut invite = a.invite().0;
         invite.relay = None;
         let addr = a.addr();
         // Seed B's address book by connecting once through the explicit addr.
@@ -1420,7 +1912,7 @@ mod tests {
         {
             let gone = *SecretKey::generate().public().as_bytes();
             let mut st = a.state.lock().unwrap();
-            st.membership.members.push(Member { node: gone, ..member("dev-gone", "Gone") });
+            st.membership.members.push(Member { node: gone, ..member(&id(), "Gone") });
         }
         assert!(a.approve(&node_b, true));
         tokio::time::timeout(Duration::from_secs(20), async {
@@ -1433,6 +1925,9 @@ mod tests {
         .await
         .expect("B is approved");
         assert!(b.membership().is_member(&a.id()));
+        // The joiner has the vault key, and not the host's Invite secret.
+        assert_eq!(b.membership().vault_key, a.membership().vault_key);
+        assert!(b.membership().invite_secret.is_none(), "the host's Invite secret travelled");
 
         // One connection, online on both sides, not only the side that accepted it.
         let (hex_a, hex_b) = (node_id_hex(&a.id()), node_id_hex(&node_b));
@@ -1445,11 +1940,11 @@ mod tests {
         .expect("A and B both see the other online");
 
         // A publishes a snapshot; B receives it in A's device folder.
-        let snap = vault_a.join(HIDDEN_DIR).join(SYNC_DIR).join("dev-a");
+        let snap = vault_a.join(HIDDEN_DIR).join(SYNC_DIR).join(&dev_a);
         fs::create_dir_all(&snap).unwrap();
         fs::write(snap.join("DOC1.loro"), b"snapshot bytes").unwrap();
         a.notify_changed();
-        let target = vault_b.join(HIDDEN_DIR).join(SYNC_DIR).join("dev-a").join("DOC1.loro");
+        let target = vault_b.join(HIDDEN_DIR).join(SYNC_DIR).join(&dev_a).join("DOC1.loro");
         tokio::time::timeout(Duration::from_secs(3), async {
             while fs::read(&target).ok().as_deref() != Some(b"snapshot bytes") {
                 tokio::time::sleep(Duration::from_millis(200)).await;

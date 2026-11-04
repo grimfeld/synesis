@@ -31,6 +31,27 @@ export function PairingPanel({ className, compact }: { className?: string; compa
   const s = useStore();
   const { status, refresh, lastEvent } = usePairing();
   const [code, setCode] = useState<string | null>(null);
+  // An Invite is single use and expires (#89): the code is hidden once it
+  // can no longer admit anyone, so nobody scans a dead one.
+  const [expiresAt, setExpiresAt] = useState<number | null>(null);
+  const [expired, setExpired] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const showCode = (r: { code: string; expires_in_ms: number }) => {
+    setCode(r.code);
+    setExpiresAt(Date.now() + r.expires_in_ms);
+    setExpired(false);
+    setError(null);
+  };
+  const hideCode = () => {
+    setCode(null);
+    setExpiresAt(null);
+    setExpired(true);
+  };
+  useEffect(() => {
+    if (expiresAt === null) return;
+    const timer = window.setTimeout(hideCode, Math.max(0, expiresAt - Date.now()));
+    return () => window.clearTimeout(timer);
+  }, [expiresAt]);
   const [syncing, setSyncing] = useState(false);
   const syncNow = async () => {
     setSyncing(true);
@@ -48,17 +69,21 @@ export function PairingPanel({ className, compact }: { className?: string; compa
   const showInvite = async () => {
     setBusy(true);
     try {
-      const r = await api.pairingInvite();
-      setCode(r.code);
+      showCode(await api.pairingInvite());
       if (s.settings?.sync_method !== "pairing") await s.setSyncMethod("pairing");
       refresh();
+    } catch (e) {
+      setError(String(e));
     } finally {
       setBusy(false);
     }
   };
   const revoke = async () => {
-    const r = await api.pairingRevokeInvite();
-    setCode(r.code);
+    try {
+      showCode(await api.pairingRevokeInvite());
+    } catch (e) {
+      setError(String(e));
+    }
   };
   const copy = async () => {
     if (!code) return;
@@ -79,7 +104,9 @@ export function PairingPanel({ className, compact }: { className?: string; compa
             {busy ? <Loader2 className="animate-spin" /> : <QrCode />}
             {t.pairing.show_code}
           </Button>
-          <span className="text-xs text-muted-foreground">{t.pairing.show_hint}</span>
+          <span className="min-w-0 text-xs text-muted-foreground" data-testid={expired ? "pairing-code-expired" : undefined}>
+            {expired ? t.pairing.code_expired : t.pairing.show_hint}
+          </span>
         </div>
       ) : (
         <div className={cn("grid gap-4", compact ? "" : "sm:grid-cols-[auto_1fr]")}>
@@ -101,7 +128,21 @@ export function PairingPanel({ className, compact }: { className?: string; compa
           </div>
         </div>
       )}
-      {status && <PendingRequests status={status} onDone={refresh} />}
+      {(error || (!status && lastEvent?.kind === "error")) && (
+        <p className="text-sm text-destructive" data-testid="pairing-error">
+          {error ?? (lastEvent?.kind === "error" ? lastEvent.message : null)}
+        </p>
+      )}
+      {status && (
+        <PendingRequests
+          status={status}
+          onDone={() => {
+            // Answering a request uses the Invite up.
+            if (code) hideCode();
+            refresh();
+          }}
+        />
+      )}
       {status && status.members.length > 0 && <Members status={status} onDone={refresh} />}
       {status && status.members.length > 1 && (
         <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground" data-testid="pairing-activity">

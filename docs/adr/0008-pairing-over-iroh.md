@@ -15,7 +15,7 @@ ADR 0001 made the sync core a per-device CRDT snapshot folder inside the vault a
 
 ## Consequences
 
-- Pairing is per vault: an Invite (QR or text) shown by a paired device, valid until revoked, plus an approval tap on any paired online device. Membership and removals are gossiped; a removed device's node id is refused, its history stays.
+- Pairing is per vault: an Invite (QR or text) shown by a paired device, single use and valid for 15 minutes (amended for #89; originally valid until revoked), plus an approval tap on the device that showed it. Members and removals are gossiped as grow-only sets in which a removal wins (#65, #85); the vault key and invite secret never travel in that gossip. A removed device's node id and device id are refused for good, its history stays; a reset device rejoins under a fresh id.
 - Changes flow only while two paired devices are online. A desktop keeps syncing from the tray after its window closes so that it becomes the always-on peer; the hosted store can later join as one more peer without changing pairing.
 - The engine gains a network component (Iroh endpoint, a small protocol: manifest exchange, snapshot streaming, membership gossip) and a per-vault member list stored in the app data directory. Mobile builds need a camera (barcode) plugin.
 - Public relays are a third party in the path; they see encrypted traffic only. Self-hosters can set their own relay.
