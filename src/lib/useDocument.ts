@@ -11,6 +11,7 @@ import { api, namesApi } from "@/lib/api";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { live } from "@/lib/live";
+import { deliverLatest } from "@/lib/latest";
 import type { LiveBody, LiveDocument } from "@/lib/liveDocument";
 
 export type { SaveStatus } from "@/lib/liveDocument";
@@ -40,12 +41,10 @@ export function useDocument(id: string) {
     d.load({ once: true }).catch(console.error);
   }, [d]);
 
-  useEffect(() => {
-    namesApi
-      .names()
-      .then((n) => setNames(new NameIndex(n)))
-      .catch(console.error);
-  }, [s.changeTick, s.docs]);
+  useEffect(
+    () => deliverLatest(namesApi.names(), (n) => setNames(new NameIndex(n))),
+    [s.changeTick, s.docs],
+  );
 
   const load = useCallback(() => d.load(), [d]);
 

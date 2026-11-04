@@ -9,6 +9,7 @@ import { canAsk, destination, looksLikeInvite, visible } from "@/lib/onboarding"
 import { LandsIn } from "@/components/LandsIn";
 import { canScan, memberNode, scanCode, usePairing } from "@/lib/pairing";
 import { useStore } from "@/lib/store";
+import { deliverLatest } from "@/lib/latest";
 import { useT } from "@/i18n";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,9 +19,11 @@ function useQr(text: string | null) {
   const [svg, setSvg] = useState<string>("");
   useEffect(() => {
     if (!text) return setSvg("");
-    QRCode.toString(text, { type: "svg", margin: 1, errorCorrectionLevel: "M" })
-      .then(setSvg)
-      .catch(() => setSvg(""));
+    return deliverLatest(
+      QRCode.toString(text, { type: "svg", margin: 1, errorCorrectionLevel: "M" }),
+      setSvg,
+      () => setSvg(""),
+    );
   }, [text]);
   return svg;
 }
