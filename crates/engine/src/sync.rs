@@ -381,6 +381,26 @@ fn mtime_ms(p: &Path) -> i64 {
         .unwrap_or(0)
 }
 
+/// A received snapshot's mtime, or when it reached this Device if that is
+/// earlier. Pairing stamps a snapshot with the sender's clock, which may run
+/// up to a day ahead (`config::clamp_stamp`); a file the user edits after the
+/// snapshot arrived must still count as newer than it. The arrival is the
+/// inode change time (set by the write and by setting the mtime), or the
+/// creation time where there is none.
+fn arrived_ms(p: &Path) -> i64 {
+    let Ok(meta) = fs::metadata(p) else { return 0 };
+    let since_epoch = |t: std::time::SystemTime| t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_millis() as i64);
+    let modified = meta.modified().ok().and_then(since_epoch).unwrap_or(0);
+    #[cfg(unix)]
+    let arrived = {
+        use std::os::unix::fs::MetadataExt;
+        Some(meta.ctime().saturating_mul(1000).saturating_add(meta.ctime_nsec() / 1_000_000))
+    };
+    #[cfg(not(unix))]
+    let arrived = meta.created().ok().and_then(since_epoch);
+    arrived.filter(|&a| a > 0).map_or(modified, |a| modified.min(a))
+}
+
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -910,7 +930,9 @@ impl Sync {
         self.persist(id, true)
     }
 
-    /// Newest mtime among other devices' published snapshots for `id`.
+    /// Newest time among other devices' published snapshots for `id`, for
+    /// telling a stale copy of the file from one edited since: the snapshot's
+    /// mtime, but never later than when it reached this Device.
     pub fn remote_mtime(&self, id: &str) -> Option<i64> {
         let mut best = None;
         for (dev, dir) in self.other_device_dirs() {
@@ -919,7 +941,7 @@ impl Sync {
             }
             let p = dir.join(format!("{id}.loro"));
             if p.is_file() {
-                let m = mtime_ms(&p);
+                let m = arrived_ms(&p);
                 best = Some(best.map_or(m, |b: i64| b.max(m)));
             }
         }

@@ -1081,3 +1081,38 @@ fn a_save_survives_a_snapshot_from_a_clock_that_runs_ahead() {
     b.write(&id, &more).unwrap();
     assert!(fs::read_to_string(&file).unwrap().contains("and more."));
 }
+
+/// Pairing stamps a received snapshot with the sender's clock, which may run
+/// up to a day ahead of this one. An edit made in Obsidian after the snapshot
+/// arrived is the user's newest text all the same: it must be folded in, not
+/// mistaken for a stale copy and overwritten (#83).
+#[test]
+fn an_obsidian_edit_survives_a_snapshot_stamped_a_day_ahead() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let summary = {
+        let mut a = open(&root, &tmp.path().join("devA"));
+        a.create(DocType::Note, "Skew", &Map::new(), "First.").unwrap().summary
+    };
+    let (id, file) = (summary.id, root.join(&summary.path));
+    let mut b = open(&root, &tmp.path().join("devB"));
+    b.apply_remote().unwrap();
+
+    // A's snapshot arrives stamped as far ahead as Pairing lets it.
+    let ahead = std::time::SystemTime::now() + std::time::Duration::from_secs(24 * 60 * 60);
+    let sync_dir = root.join(engine::vault::HIDDEN_DIR).join("sync");
+    for dev in fs::read_dir(&sync_dir).unwrap().flatten() {
+        let snap = dev.path().join(format!("{id}.loro"));
+        if dev.file_name().to_string_lossy() != b.device_id().unwrap() && snap.is_file() {
+            fs::File::options().write(true).open(&snap).unwrap().set_modified(ahead).unwrap();
+        }
+    }
+    std::thread::sleep(std::time::Duration::from_millis(20));
+
+    let edited = fs::read_to_string(&file).unwrap().replace("First.", "First. Edited in Obsidian.");
+    fs::write(&file, &edited).unwrap();
+    b.index_file(&summary.path).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), edited, "the Obsidian edit was overwritten");
+    assert!(b.read(&id).unwrap().text.contains("Edited in Obsidian."));
+}
