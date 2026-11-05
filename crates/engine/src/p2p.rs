@@ -2083,10 +2083,11 @@ mod tests {
     async fn a_far_future_snapshot_time_is_pulled_back() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = mpsc::channel(16);
-        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member("self", "Self"), Some(String::new()), tx).await.unwrap();
-        let entry = Entry { device: "phone".into(), name: "DOC.loro".into(), size: 3, mtime_ms: i64::MAX };
+        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member(&id(), "Self"), Some(String::new()), tx).await.unwrap();
+        let phone = id();
+        let entry = Entry { device: phone.as_str().into(), name: "DOC.loro".into(), size: 3, mtime_ms: i64::MAX };
         node.write_file(&entry, b"abc");
-        let path = node.sync_dir.join("phone").join("DOC.loro");
+        let path = node.sync_dir.join(phone.as_str()).join("DOC.loro");
         assert_eq!(fs::read(&path).unwrap(), b"abc");
         let stamped = mtime_ms(&path);
         assert!(stamped > config::now_ms() && stamped <= config::now_ms() + config::MAX_SKEW_MS, "{stamped}");
