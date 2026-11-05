@@ -249,18 +249,14 @@ pub fn store_picture(
 /// not resolve. Only a plain relative path inside the vault is accepted.
 pub fn safe_relative(root: &Path, rel: &str) -> Result<PathBuf> {
     let rel = rel.replace('\\', "/");
-    if rel.is_empty()
-        || rel.starts_with('/')
-        || rel.contains("..")
-        || Path::new(&rel).is_absolute()
-        || rel.chars().nth(1) == Some(':')
-    {
+    if rel.contains("..") || Path::new(&rel).is_absolute() {
         return Err(Error::Invalid(format!("not a vault path: {rel}")));
     }
+    let path = crate::vault_path::VaultPath::parse(&rel)?;
     if !is_supported(&rel) {
         return Err(Error::Invalid(format!("not an image: {rel}")));
     }
-    Ok(root.join(rel))
+    path.under(root)
 }
 
 /// Shrink so the longest edge is at most `MAX_EDGE`, keeping the aspect ratio.
@@ -295,7 +291,8 @@ mod tests {
 
     #[test]
     fn a_cover_path_cannot_climb_out_of_the_vault() {
-        let root = Path::new("/vault");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         // The value is hand-editable and arrives from sync, so it is checked
         // rather than trusted.
         assert!(safe_relative(root, "../secrets.png").is_err());
@@ -308,9 +305,22 @@ mod tests {
         assert!(safe_relative(root, "Attachments/ok.png").is_ok());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_cover_that_links_out_of_the_vault_is_refused() {
+        // #86: the shape is fine, but the file is a link to one elsewhere.
+        let dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        std::fs::write(outside.path().join("private.png"), b"x").unwrap();
+        std::os::unix::fs::symlink(outside.path().join("private.png"), dir.path().join("cover.png")).unwrap();
+        assert!(safe_relative(dir.path(), "cover.png").is_err());
+        assert_eq!(locate_picture(dir.path(), "cover.png"), None);
+    }
+
     #[test]
     fn a_windows_separator_is_still_a_vault_path() {
-        let root = Path::new("/vault");
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
         assert!(safe_relative(root, "Attachments\\cover.png").is_ok());
         assert!(safe_relative(root, "..\\secrets.png").is_err());
     }

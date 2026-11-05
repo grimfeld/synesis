@@ -972,7 +972,7 @@ export const en = {
   leave_vault_keep: "Leave, keep the documents",
   leave_vault_keep_hint: "The folder stays as it is. Obsidian still opens it; only syncing stops.",
   leave_vault_delete: "Leave and delete the documents",
-  leave_vault_delete_hint: "Removes the folder from this device. This cannot be undone, and takes any work no other device has seen.",
+  leave_vault_delete_hint: "Removes the Vault's documents, Boards and pictures from this device; other files in its folder stay. This cannot be undone, and takes any work no other device has seen.",
   leave_vault_confirm: (name: string) => `Type ${name} to confirm`,
   vault_occupied: (folder: string, name: string) =>
     `${folder} already holds the vault “${name}”. Joining here would merge the two permanently.`,

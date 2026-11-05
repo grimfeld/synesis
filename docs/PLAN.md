@@ -31,7 +31,7 @@ A local-first, Obsidian-style note-taking app for Bible study. The user reads Sc
 
 Links: a **Mention** is any link between documents. Scripture Mentions are auto-detected and resolve a Passage to its Verse set (ADR 0002). All other Mentions are explicit, either inline `[[Paul]]` or as a Tag `#Paul`; both are the same link. Any document is taggable; any Tag names a document.
 
-Every file carries a ULID `id` in frontmatter; the CRDT and index key on it. `type` in frontmatter is the truth; folders are only a default.
+Every file carries a ULID `id` in frontmatter; the CRDT and index key on it. Two files never share one: a copy that brought its original's `id` along (duplicated in Finder or Obsidian) gets a fresh one written in its place, the original being the file the index already knew (#63). `type` in frontmatter is the truth; folders are only a default.
 
 ## 4. Vault layout
 

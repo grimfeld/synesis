@@ -863,7 +863,8 @@ export const api = {
    * Take this Device out of a Vault: its snapshots are withdrawn so the other
    * Devices stop mirroring them, and this Device's history for it is dropped.
    *
-   * `deleteDocuments` also removes the folder and cannot be undone. Without
+   * `deleteDocuments` also removes what the Vault owns (its documents,
+   * Boards, Borders, pictures and `.bible-study/`) and cannot be undone. Without
    * it the folder is left as plain markdown that Obsidian still opens. The
    * Vault must be open: leaving runs the engine, which holds only the open one.
    */

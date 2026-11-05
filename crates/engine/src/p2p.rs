@@ -1379,7 +1379,8 @@ impl Node {
             if !Self::attachment_name_ok(&name) {
                 continue;
             }
-            let Ok(meta) = fs::metadata(&p) else { continue };
+            // A link is never served: it may point anywhere on the disk (#86).
+            let Ok(meta) = fs::symlink_metadata(&p) else { continue };
             if !meta.is_file() || meta.len() as usize > MAX_FILE {
                 continue;
             }
@@ -1404,7 +1405,11 @@ impl Node {
         if !Self::attachment_name_ok(name) {
             return None;
         }
-        fs::read(self.attachments_dir.join(name)).ok().filter(|b| b.len() <= MAX_FILE)
+        let p = self.attachments_dir.join(name);
+        if crate::vault_path::is_link(&p) || !crate::vault_path::confined(&self.vault_root, &p) {
+            return None;
+        }
+        fs::read(p).ok().filter(|b| b.len() <= MAX_FILE)
     }
 
     /// Store a picture a peer sent, and return the vault-relative path it was

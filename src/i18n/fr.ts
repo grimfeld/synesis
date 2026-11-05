@@ -963,7 +963,7 @@ export const fr: Dict = {
   leave_vault_keep: "Quitter en gardant les documents",
   leave_vault_keep_hint: "Le dossier reste tel quel. Obsidian l'ouvre toujours ; seule la synchronisation s'arrête.",
   leave_vault_delete: "Quitter et supprimer les documents",
-  leave_vault_delete_hint: "Supprime le dossier de cet appareil. Cette action est irréversible et emporte tout travail qu'aucun autre appareil n'a vu.",
+  leave_vault_delete_hint: "Supprime de cet appareil les documents, tableaux et images du coffre ; les autres fichiers de son dossier restent. Cette action est irréversible et emporte tout travail qu'aucun autre appareil n'a vu.",
   leave_vault_confirm: (name: string) => `Tapez ${name} pour confirmer`,
   vault_occupied: (folder: string, name: string) =>
     `${folder} contient déjà le coffre « ${name} ». Rejoindre ici fusionnerait les deux définitivement.`,
