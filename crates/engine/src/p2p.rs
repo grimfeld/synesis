@@ -1334,11 +1334,29 @@ impl Node {
         }
         let dir = self.sync_dir.join(&device);
         let _ = fs::create_dir_all(&dir);
+        let path = dir.join(&e.name);
+        // The file keeps the peer's time so every Device agrees on which copy
+        // is newer, but a clock far ahead is pulled back to a day past this
+        // one: a time near `i64::MAX` would win every round and does not fit
+        // in a file time everywhere.
+        let mtime = config::clamp_stamp(e.mtime_ms);
+        if fs::read(&path).is_ok_and(|mine| mine == bytes) {
+            // Nothing new. A fast clock offers the same file every round;
+            // touching it would make it look freshly arrived each time.
+            if config::plausible(e.mtime_ms) && e.mtime_ms > mtime_ms(&path) {
+                Self::set_mtime(&path, mtime);
+            }
+            return;
+        }
         let tmp = dir.join(format!("{}.part", e.name));
-        if fs::write(&tmp, bytes).is_ok() {
-            let _ = fs::rename(&tmp, dir.join(&e.name));
-            let t = UNIX_EPOCH + Duration::from_millis(e.mtime_ms.max(0) as u64);
-            let _ = fs::File::open(dir.join(&e.name)).and_then(|f| f.set_modified(t));
+        if fs::write(&tmp, bytes).is_ok() && fs::rename(&tmp, &path).is_ok() {
+            Self::set_mtime(&path, mtime);
+        }
+    }
+
+    fn set_mtime(path: &Path, ms: i64) {
+        if let Some(t) = config::file_time(ms) {
+            let _ = fs::File::options().write(true).open(path).and_then(|f| f.set_modified(t));
         }
     }
 
@@ -2055,5 +2073,33 @@ mod tests {
         .expect("B sees its removal");
         a.shutdown().await;
         b.shutdown().await;
+    }
+
+    /// A snapshot stamped near `i64::MAX` by a peer is kept, but its time is
+    /// pulled back to a day past this clock, so it neither wins every round
+    /// nor overflows a file time (#83). Offered again unchanged, it is left
+    /// alone rather than touched as if freshly arrived.
+    #[tokio::test]
+    async fn a_far_future_snapshot_time_is_pulled_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let (tx, _rx) = mpsc::channel(16);
+        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member(&id(), "Self"), Some(String::new()), tx).await.unwrap();
+        let phone = id();
+        let entry = Entry { device: phone.as_str().into(), name: "DOC.loro".into(), size: 3, mtime_ms: i64::MAX };
+        node.write_file(&entry, b"abc");
+        let path = node.sync_dir.join(phone.as_str()).join("DOC.loro");
+        assert_eq!(fs::read(&path).unwrap(), b"abc");
+        let stamped = mtime_ms(&path);
+        assert!(stamped > config::now_ms() && stamped <= config::now_ms() + config::MAX_SKEW_MS, "{stamped}");
+
+        std::thread::sleep(Duration::from_millis(20));
+        node.write_file(&entry, b"abc");
+        assert_eq!(mtime_ms(&path), stamped, "an unchanged snapshot was touched again");
+
+        // A real update from that Device still lands.
+        let update = Entry { size: 4, mtime_ms: config::now_ms(), ..entry };
+        node.write_file(&update, b"abcd");
+        assert_eq!(fs::read(&path).unwrap(), b"abcd");
+        node.shutdown().await;
     }
 }

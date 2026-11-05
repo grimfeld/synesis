@@ -37,6 +37,45 @@ pub fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
+/// How far ahead of this Device's clock a peer's stamp or snapshot time may
+/// run. Anything later would win every round from then on, and a time that
+/// far out does not fit in a file's modification time everywhere.
+pub(crate) const MAX_SKEW_MS: i64 = 24 * 60 * 60 * 1000;
+
+/// Whether a peer's stamp lies between the epoch and a day past this clock.
+pub(crate) fn plausible(stamp: i64) -> bool {
+    plausible_at(stamp, now_ms())
+}
+
+fn plausible_at(stamp: i64, now: i64) -> bool {
+    (0..=now.saturating_add(MAX_SKEW_MS)).contains(&stamp)
+}
+
+/// A peer's stamp brought into range: a clock that runs fast still syncs,
+/// but never further ahead than a day.
+pub(crate) fn clamp_stamp(stamp: i64) -> i64 {
+    clamp_stamp_at(stamp, now_ms())
+}
+
+fn clamp_stamp_at(stamp: i64, now: i64) -> i64 {
+    stamp.clamp(0, now.saturating_add(MAX_SKEW_MS))
+}
+
+/// The stamp for a write here: after `previous`, but never past what a peer
+/// would accept, so a file already stamped far ahead can still be edited.
+pub(crate) fn next_stamp(previous: i64) -> i64 {
+    next_stamp_at(previous, now_ms())
+}
+
+fn next_stamp_at(previous: i64, now: i64) -> i64 {
+    now.max(previous.saturating_add(1)).min(now.saturating_add(MAX_SKEW_MS))
+}
+
+/// `ms` after the epoch as a file time, or `None` where it does not fit.
+pub(crate) fn file_time(ms: i64) -> Option<SystemTime> {
+    UNIX_EPOCH.checked_add(Duration::from_millis(u64::try_from(ms).ok()?))
+}
+
 /// Whether `name` is a config file that syncs, and safe to join onto the
 /// hidden dir. Anything else a peer offers is ignored.
 pub fn is_synced(name: &str) -> bool {
@@ -109,6 +148,11 @@ pub fn is_newer(theirs: &ConfigEntry, mine: Option<&ConfigEntry>) -> bool {
 /// Take a file from a peer when it is newer than what is here. Refuses names
 /// that do not sync and bytes that are not JSON. Returns whether it was written.
 pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
+    accept_at(hidden, name, bytes, now_ms())
+}
+
+/// `accept` with this Device's clock reading `now`.
+fn accept_at(hidden: &Path, name: &str, bytes: &[u8], now: i64) -> bool {
     if !is_synced(name) || serde_json::from_slice::<Value>(bytes).is_err() {
         return false;
     }
@@ -117,6 +161,25 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
     if crate::cloud::is_evicted(&p) {
         return false;
     }
+    // A stamp from a clock far ahead would outrank every later edit here, for
+    // good if it is near `i64::MAX`. Such a file is still taken when there is
+    // none here (a new Skin from a Device whose clock runs fast), stamped a
+    // day past this clock, in the file too; it never replaces a file this
+    // Device holds, or it would win again on every round.
+    let clamped;
+    let bytes = match stamp_of(bytes) {
+        Some(stamp) if !plausible_at(stamp, now) => {
+            if p.exists() {
+                return false;
+            }
+            let Ok(Value::Object(mut map)) = serde_json::from_slice::<Value>(bytes) else { return false };
+            map.insert("updated".into(), Value::from(clamp_stamp_at(stamp, now)));
+            let Ok(text) = serde_json::to_string_pretty(&map) else { return false };
+            clamped = text + "\n";
+            clamped.as_bytes()
+        }
+        _ => bytes,
+    };
     let incoming = ConfigEntry { name: name.into(), stamp: stamp_at(&p, bytes), size: bytes.len() as u64 };
     let mine = fs::read(&p).ok().map(|b| ConfigEntry { name: name.into(), stamp: stamp_at(&p, &b), size: b.len() as u64 });
     if !is_newer(&incoming, mine.as_ref()) {
@@ -132,22 +195,28 @@ pub fn accept(hidden: &Path, name: &str, bytes: &[u8]) -> bool {
     let ok = fs::rename(&tmp, &p).is_ok();
     if ok {
         // Keep the mtime in step with the stamp, for readers that fall back to it.
-        let t = UNIX_EPOCH + Duration::from_millis(incoming.stamp.max(0) as u64);
-        let _ = fs::File::open(&p).and_then(|f| f.set_modified(t));
+        if let Some(t) = file_time(incoming.stamp) {
+            let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+        }
     }
     ok
 }
 
 /// Write a config object, stamping it newer than whatever is on disk so a
 /// clock that lags a peer's still wins for a deliberate local edit.
-pub fn write(hidden: &Path, name: &str, mut value: Value) -> Result<()> {
+pub fn write(hidden: &Path, name: &str, value: Value) -> Result<()> {
+    write_at(hidden, name, value, now_ms())
+}
+
+/// `write` with this Device's clock reading `now`.
+fn write_at(hidden: &Path, name: &str, mut value: Value, now: i64) -> Result<()> {
     let p = path(hidden, name);
     if crate::cloud::is_evicted(&p) {
         return Err(crate::cloud::downloading(&p));
     }
     let previous = fs::read(&p).ok().map(|b| stamp_at(&p, &b)).unwrap_or(0);
     if let Value::Object(map) = &mut value {
-        map.insert("updated".into(), Value::from(now_ms().max(previous + 1)));
+        map.insert("updated".into(), Value::from(next_stamp_at(previous, now)));
     }
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -233,5 +302,39 @@ mod tests {
         assert!(!accept(d.path(), "skins/x.json", b"{nope"));
         assert!(!accept(d.path(), "vault.json", b"{}"));
         assert!(manifest(d.path()).is_empty());
+    }
+
+    /// An arbitrary clock reading, so the tests never depend on the real one.
+    const NOW: i64 = 1_800_000_000_000;
+
+    #[test]
+    fn a_far_future_stamp_never_locks_a_file() {
+        let d = tempfile::tempdir().unwrap();
+        write_at(d.path(), "appearance.json", serde_json::json!({ "name": "mine" }), NOW).unwrap();
+        let poison = serde_json::json!({ "name": "peer", "updated": i64::MAX });
+        assert!(!accept_at(d.path(), "appearance.json", poison.to_string().as_bytes(), NOW));
+        assert!(fs::read_to_string(d.path().join("appearance.json")).unwrap().contains("mine"));
+        // A file this Device lacks still arrives, pulled back to a day ahead.
+        assert!(accept_at(d.path(), "skins/x.json", poison.to_string().as_bytes(), NOW));
+        let stamp = stamp_of(&read(d.path(), "skins/x.json").unwrap()).unwrap();
+        assert_eq!(stamp, NOW + MAX_SKEW_MS);
+        // And is not taken again over the edit made after it, a minute later.
+        write_at(d.path(), "skins/x.json", serde_json::json!({ "name": "edited" }), NOW + 60_000).unwrap();
+        assert!(!accept_at(d.path(), "skins/x.json", poison.to_string().as_bytes(), NOW + 60_000));
+        assert!(fs::read_to_string(d.path().join("skins/x.json")).unwrap().contains("edited"));
+    }
+
+    #[test]
+    fn a_file_stamped_at_the_limit_can_still_be_edited() {
+        let d = tempfile::tempdir().unwrap();
+        // Written before stamps were checked: the next edit must not overflow.
+        let poisoned = serde_json::json!({ "name": "poisoned", "updated": i64::MAX });
+        fs::write(d.path().join("appearance.json"), poisoned.to_string()).unwrap();
+        write_at(d.path(), "appearance.json", serde_json::json!({ "name": "mine" }), NOW).unwrap();
+        let stamp = stamp_of(&read(d.path(), "appearance.json").unwrap()).unwrap();
+        assert_eq!(stamp, NOW + MAX_SKEW_MS);
+        // A peer's ordinary edit a second later gets through again.
+        let later = serde_json::json!({ "name": "peer", "updated": NOW + 1_000 + MAX_SKEW_MS });
+        assert!(accept_at(d.path(), "appearance.json", later.to_string().as_bytes(), NOW + 1_000));
     }
 }
