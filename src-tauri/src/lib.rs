@@ -132,16 +132,13 @@ impl AppState {
         let v = guard.as_mut().ok_or("no vault open")?;
         f(v).map_err(err)
     }
+    /// Written to a temporary file and renamed over the old one (#66), so a
+    /// crash or a full disk leaves the old settings, never a torn file that
+    /// would forget every Known Vault.
     fn save_settings(&self) -> CmdResult<()> {
         let s = self.settings.lock().map_err(err)?;
-        if let Some(p) = self.settings_path.parent() {
-            std::fs::create_dir_all(p).map_err(err)?;
-        }
-        std::fs::write(
-            &self.settings_path,
-            serde_json::to_string_pretty(&*s).map_err(err)?,
-        )
-        .map_err(err)
+        let json = serde_json::to_string_pretty(&*s).map_err(err)?;
+        write_replacing(&self.settings_path, json.as_bytes()).map_err(err)
     }
 }
 
@@ -465,12 +462,15 @@ fn leave_vault(app: AppHandle, state: State<AppState>, id: String, delete_docume
 /// not the work (ADR 0001).
 #[tauri::command]
 fn forget_device(state: State<AppState>, device: String) -> CmdResult<Vec<engine::sync::DeviceInfo>> {
+    // Only a Device id names a Device's folder (#82): anything else is refused
+    // before a roster or a folder is touched.
+    let id = engine::device_id::DeviceId::parse(&device).ok_or_else(|| format!("not a device id: {device:?}"))?;
     // The roster first: it is what stops the folder being trusted, and it must
     // outlive a crash between the two steps. `pairing_remove` covers a Device
     // that is still a member; this also reaches one that never was, which is
     // how a Device retired before removals were recorded looks.
     if let Some(node) = state.p2p.lock().map_err(err)?.clone() {
-        node.forget_device(&device);
+        node.forget_device(&id);
     }
     state.with_vault_mut(|v| {
         v.forget_device(&device)?;
@@ -1255,6 +1255,26 @@ fn settings_path(app: &AppHandle) -> PathBuf {
         .app_config_dir()
         .unwrap_or_else(|_| PathBuf::from("."))
         .join("settings.json")
+}
+
+/// Replace `path` with `bytes` through a temporary file beside it, flushed
+/// before the rename.
+fn write_replacing(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if let Some(p) = path.parent() {
+        std::fs::create_dir_all(p)?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let written = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        std::fs::rename(&tmp, path)
+    })();
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    written
 }
 
 fn load_settings(p: &Path) -> Settings {

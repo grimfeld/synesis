@@ -71,6 +71,10 @@ export function Welcome() {
       setJoinStatus(null);
       setError(t.pairing.denied);
     }
+    if (joining && pairing.lastEvent?.kind === "invite_expired") {
+      setJoinStatus(null);
+      setError(t.pairing.invite_expired);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pairing.lastEvent, joining]);
 

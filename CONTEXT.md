@@ -172,7 +172,7 @@ Making two Devices trust each other for one Vault by scanning or pasting an Invi
 _Avoid_: Linking, connecting, registering
 
 **Invite**:
-The QR code or short text code a paired Device shows so another Device can request to join a Vault. Valid until revoked; joining still needs approval.
+The QR code or short text code a paired Device shows so another Device can request to join a Vault. Single use and short-lived: it lapses after 15 minutes, once a request it brought has been answered, or when revoked. Joining still needs approval.
 _Avoid_: Ticket, token, key
 
 ### Things the user does in the app

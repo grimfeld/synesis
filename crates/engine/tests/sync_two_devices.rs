@@ -815,6 +815,107 @@ fn a_device_cannot_forget_itself() {
     assert!(root.join(engine::vault::HIDDEN_DIR).join("sync").join(&me).is_dir());
 }
 
+/// #82: forgetting a Device takes a Device id and nothing else. A name that
+/// climbs out of `sync/`, is absolute, or is not an id deletes nothing and
+/// writes nothing to the roster.
+#[test]
+fn forgetting_refuses_anything_but_a_device_id() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let da = tmp.path().join("devA");
+    let mut a = open(&root, &da);
+    let precious = tmp.path().join("precious");
+    fs::create_dir_all(&precious).unwrap();
+    fs::write(precious.join("keep.txt"), "keep").unwrap();
+    let sync = root.join(engine::vault::HIDDEN_DIR).join("sync");
+    fs::create_dir_all(sync.join("phone")).unwrap();
+    for bad in ["../../precious", precious.to_str().unwrap(), "a/b", "phone", "..", ""] {
+        assert!(a.forget_device(bad).is_err(), "{bad:?} was accepted");
+    }
+    assert!(precious.join("keep.txt").is_file(), "a folder outside sync/ was deleted");
+    assert!(sync.join("phone").is_dir(), "a folder that is not a Device's was deleted");
+    assert!(!engine::vault::local_dir_for(&da, &root).join("pairing.json").exists(), "a refused name reached the roster");
+}
+
+/// #82: a Device's folder that is a symlink is unlinked, never followed.
+#[cfg(unix)]
+#[test]
+fn forgetting_a_symlinked_folder_does_not_follow_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let elsewhere = tmp.path().join("elsewhere");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join("keep.txt"), "keep").unwrap();
+    let id = engine::device_id::DeviceId::generate();
+    let link = root.join(engine::vault::HIDDEN_DIR).join("sync").join(id.as_str());
+    std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+    a.forget_device(id.as_str()).unwrap();
+    assert!(fs::symlink_metadata(&link).is_err(), "the link survived");
+    assert!(elsewhere.join("keep.txt").is_file(), "the link was followed");
+}
+
+/// #90: a retired Device's folder spelled in lower case is the same Device,
+/// and is not trusted; a folder that is no Device's id is not read at all.
+#[test]
+fn a_retired_device_cannot_return_in_lower_case() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let (id, path) = (doc.summary.id.clone(), doc.summary.path.clone());
+    let retired = b.device_id().unwrap().to_string();
+    drop(b);
+    let sync = root.join(engine::vault::HIDDEN_DIR).join("sync");
+    let snapshot = fs::read(sync.join(&retired).join(format!("{id}.loro"))).unwrap();
+    fs::remove_dir_all(sync.join(&retired)).unwrap();
+    fs::remove_file(root.join(&path)).unwrap();
+
+    retire(&da, &root, &[&retired]);
+    let mut a = open(&root, &da);
+    for name in [retired.to_lowercase(), "not-a-device".to_string()] {
+        fs::create_dir_all(sync.join(&name)).unwrap();
+        fs::write(sync.join(&name).join(format!("{id}.loro")), &snapshot).unwrap();
+        assert!(a.apply_remote().unwrap().is_empty(), "{name} was imported");
+        assert!(!root.join(&path).exists(), "{name}'s document was materialised");
+        fs::remove_dir_all(sync.join(&name)).unwrap();
+    }
+    assert!(!a.devices().iter().any(|d| d.id == "not-a-device"), "a folder that is no Device's was listed");
+}
+
+/// #66: a damaged roster pauses sync from other Devices rather than reading
+/// as "not paired" and trusting every folder, retired ones included, and it
+/// is not overwritten by the next retirement.
+#[test]
+fn a_damaged_roster_trusts_no_one() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
+
+    let mut b = open(&root, &db);
+    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let path = doc.summary.path.clone();
+    let device = b.device_id().unwrap().to_string();
+    drop(b);
+    fs::remove_file(root.join(&path)).unwrap();
+
+    let local = engine::vault::local_dir_for(&da, &root);
+    fs::create_dir_all(&local).unwrap();
+    let torn = "{\"version\": 4, \"removed_devi";
+    fs::write(local.join("pairing.json"), torn).unwrap();
+    let mut a = open(&root, &da);
+    assert!(a.apply_remote().unwrap().is_empty(), "a damaged roster trusted a folder");
+    assert!(!root.join(&path).exists(), "a document came back through a damaged roster");
+    assert!(a.forget_device(&device).is_err(), "a damaged roster was written over");
+    assert_eq!(fs::read_to_string(local.join("pairing.json")).unwrap(), torn);
+}
+
 // ---- leaving a Vault (step 3) ----------------------------------------------
 
 /// Leaving without deleting: sync stops, the folder is left as Obsidian would

@@ -831,6 +831,8 @@ export const en = {
     waiting_on: (d: string) => `Tap Allow on ${d}.`,
     waiting_hint: "Tap Allow on the device that showed the code. It must be online.",
     denied: "The other device denied the request.",
+    invite_expired: "This code has expired or was already used. Ask the other device for a new one.",
+    code_expired: "The code expired. Show a new one to pair another device.",
     background: "Keep syncing in the background",
     background_hint: "Closing the window leaves Synesis in the tray so your other devices can still sync with this one.",
     relay: "Relay server (optional)",

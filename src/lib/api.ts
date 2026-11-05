@@ -621,6 +621,8 @@ export type PairingEvent =
   | { kind: "join_request"; node: string; member: PairingMember }
   | { kind: "approved" }
   | { kind: "denied" }
+  /** The Invite used to join has expired or was already used. */
+  | { kind: "invite_expired" }
   | { kind: "peer"; node: string; connected: boolean }
   | { kind: "synced"; files: number }
   | { kind: "membership" }
@@ -811,8 +813,9 @@ export const api = {
   /** Phone only: status and navigation bars in `color` (#rrggbb), light icons when `dark`. */
   setSystemBars: (color: string, dark: boolean) => invoke<void>("set_system_bars", { color, dark }),
   pairingStatus: () => invoke<PairingStatus | null>("pairing_status"),
-  pairingInvite: () => invoke<{ code: string }>("pairing_invite"),
-  pairingRevokeInvite: () => invoke<{ code: string }>("pairing_revoke_invite"),
+  /** The Invite, and how long it stays open: it is single use and expires. */
+  pairingInvite: () => invoke<{ code: string; expires_in_ms: number }>("pairing_invite"),
+  pairingRevokeInvite: () => invoke<{ code: string; expires_in_ms: number }>("pairing_revoke_invite"),
   pairingJoin: (code: string, path: string) =>
     invoke<PairingStatus>("pairing_join", { code, path }),
   pairingApprove: (node: string, allow: boolean) =>

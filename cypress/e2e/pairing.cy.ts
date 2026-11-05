@@ -30,6 +30,26 @@ describe("Pairing", () => {
       });
   });
 
+  it("an Invite is short-lived: showing it again keeps the same code and says when it lapses (#89)", () => {
+    cy.bridge<{ code: string; expires_in_ms: number }>("pairing_invite").then((first) => {
+      expect(first.expires_in_ms).to.be.within(14 * 60_000, 15 * 60_000);
+      cy.bridge<{ code: string; expires_in_ms: number }>("pairing_invite").its("code").should("equal", first.code);
+    });
+  });
+
+  it("forgetting a Device refuses a name that is not a Device id (#82)", () => {
+    cy.request({
+      method: "POST",
+      url: `${Cypress.env("bridge")}/invoke/forget_device`,
+      body: { device: "../.." },
+      headers: { "content-type": "application/json" },
+      failOnStatusCode: false,
+    }).then((r) => {
+      expect(r.status).to.eq(500);
+      expect(r.body.error).to.contain("not a device id");
+    });
+  });
+
   it("the Set up sync dialog leads with pairing and keeps the folder methods behind a toggle", () => {
     cy.runCommand("Set up sync");
     cy.get("[data-testid=sync-dialog] [data-testid=sync-pairing]").should("contain", "Pair your devices");
