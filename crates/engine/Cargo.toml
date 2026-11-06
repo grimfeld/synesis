@@ -15,7 +15,7 @@ serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 regex = "1"
 aho-corasick = "1"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 ulid = "1"
 walkdir = "2"
 thiserror = "2"
