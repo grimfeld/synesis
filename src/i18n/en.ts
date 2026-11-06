@@ -344,6 +344,11 @@ export const en = {
   add_to_board: "Add to the Board",
   board_export: "Export the Board",
   board_export_failed: "The Board could not be shown to export it.",
+  board_not_saved: "Not saved",
+  board_save_failed:
+    "The Board could not be saved. Your change is kept here and will be saved with your next edit.",
+  board_load_failed: "The Board could not be read from the Vault.",
+  board_load_retry: "Try again",
   reading_trail: "Reading trail",
   no_trail: "Nothing cited from this Source yet.",
   child_sources: "Contains",

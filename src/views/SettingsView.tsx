@@ -7,6 +7,7 @@ import { useQuery } from "@/lib/useQuery";
 import { useCommands } from "@/lib/commands";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
+import { deliverLatest } from "@/lib/latest";
 import { checkForUpdate, installUpdate, isDesktopApp, useUpdater } from "@/lib/updater";
 import { LICENCE_URL, SOURCE_URL, openExternal } from "@/lib/links";
 import { useFormat, useT } from "@/i18n";
@@ -471,9 +472,10 @@ function VaultsCard() {
     }
   };
   useEffect(() => setName(s.info?.meta.name ?? ""), [s.info?.meta.name]);
-  useEffect(() => {
-    api.hiddenVaults().then(setHidden).catch(() => setHidden([]));
-  }, [s.settings?.vaults]);
+  useEffect(
+    () => deliverLatest(api.hiddenVaults(), setHidden, () => setHidden([])),
+    [s.settings?.vaults],
+  );
   const move = async (id: string) => {
     setMoving(id);
     setMoveError(null);

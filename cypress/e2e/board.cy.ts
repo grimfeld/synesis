@@ -102,6 +102,48 @@ describe("Board", () => {
     });
   });
 
+  // Issue #64: a write that fails keeps the edit, says so, and goes with the next one.
+  it("keeps an edit whose save failed and saves it with the next edit", () => {
+    let failing = true;
+    cy.intercept("POST", "**/invoke/save_board", (req) => {
+      if (failing) req.reply({ statusCode: 500, body: { error: "disk full" } });
+      else req.continue();
+    });
+    openBoard("Talk on endurance");
+    cy.get("[aria-label='Add note']").click();
+    cy.focused().type("Kept through a failure");
+    cy.get("[data-testid=board-canvas]").click("bottom");
+    cy.get("[data-testid=board-save-status]").should("have.attr", "data-status", "error");
+    cy.get("[data-testid=board-canvas]").should("contain", "Kept through a failure");
+
+    cy.then(() => (failing = false));
+    cy.get("[aria-label='Add note']").click();
+    cy.focused().type("And the next one");
+    cy.get("[data-testid=board-canvas]").click("bottom");
+    cy.get("[data-testid=board-save-status]").should("not.exist");
+    cy.docByTitle("Talk on endurance").then((d) => {
+      cy.bridge<{ nodes: { text?: string }[] }>("get_board", { id: d.id }).should((b) => {
+        const texts = b.nodes.map((n) => n.text);
+        expect(texts).to.include("Kept through a failure");
+        expect(texts).to.include("And the next one");
+      });
+    });
+  });
+
+  it("says when the Board cannot be read, and reads it again on request", () => {
+    let failing = true;
+    cy.intercept("POST", "**/invoke/get_board", (req) => {
+      if (failing) req.reply({ statusCode: 500, body: { error: "unreadable" } });
+      else req.continue();
+    });
+    openBoard("Talk on endurance");
+    cy.get("[data-testid=board-load-failed]").should("be.visible");
+    cy.then(() => (failing = false));
+    cy.get("[data-testid=board-load-retry]").click();
+    cy.get("[data-testid=board-load-failed]").should("not.exist");
+    cy.get("[data-testid=board-canvas]").should("be.visible");
+  });
+
   it("places material from the drawer and marks it on the Board", () => {
     openBoard("Talk on endurance");
     // A Candidate that is not on the Board yet.

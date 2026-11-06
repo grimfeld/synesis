@@ -63,6 +63,7 @@ import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } fro
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
 import { useStore, usePane } from "@/lib/store";
+import { deliverLatest } from "@/lib/latest";
 import { editableCorners, isRegion } from "@/lib/border";
 import { useBorders, useDeleteBorder, useDrawBorder, useImportBorder } from "@/lib/useBorders";
 import { useDocument } from "@/lib/useDocument";
@@ -1169,12 +1170,13 @@ function JourneySection({
   const [journey, setJourney] = useState<Journey | null>(null);
   const id = doc.summary.id;
 
-  useEffect(() => {
-    api
-      .journeys()
-      .then((js) => setJourney(js.find((j) => j.doc.id === id) ?? null))
-      .catch(console.error);
-  }, [id, s.changeTick, doc.summary.mtime]);
+  useEffect(
+    () =>
+      deliverLatest(api.journeys(), (js) =>
+        setJourney(js.find((j) => j.doc.id === id) ?? null),
+      ),
+    [id, s.changeTick, doc.summary.mtime],
+  );
 
   const stops = journey?.stops ?? [];
   const cannot = stops.filter((x) => x.status !== "ok").length;

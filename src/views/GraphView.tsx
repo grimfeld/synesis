@@ -20,6 +20,7 @@ import {
   type GraphNode,
 } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { deliverLatest } from "@/lib/latest";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { ViewHeader } from "@/components/ViewHeader";
@@ -138,17 +139,18 @@ export function GraphView({ focus }: { focus?: string } = {}) {
     moved: boolean;
   }>({ node: null, panning: false, lx: 0, ly: 0, moved: false });
 
-  useEffect(() => {
-    api
-      .graph(level)
-      .then((g) =>
+  // Only the newest answer lands: switching the level twice quickly must not
+  // leave the slower first answer on screen (issue #71).
+  useEffect(
+    () =>
+      deliverLatest(api.graph(level), (g) =>
         // Every save in the vault refetches the graph. Keep the object the render
         // already has when nothing about the shape changed, so the layout is not
         // thrown away and replayed on each keystroke that reaches disk.
         setGraph((prev) => (prev && sameGraph(prev, g) ? prev : g)),
-      )
-      .catch(console.error);
-  }, [level, s.changeTick, s.docs]);
+      ),
+    [level, s.changeTick, s.docs],
+  );
   // The level is a preference of the whole graph: a local graph forced to a
   // Scripture page's level must not change it.
   useEffect(() => {

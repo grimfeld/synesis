@@ -89,6 +89,16 @@ export interface LiveOptions {
 
 const toLf = (s: string) => s.replace(/\r\n?/g, "\n");
 
+/**
+ * The line break a file was written with. A file whose first line break is
+ * "\r\n" (written on Windows) is saved with "\r\n" again, so typing in it
+ * does not rewrite every line of the user's text (issue #61).
+ */
+function eolOf(text: string): "\n" | "\r\n" {
+  const i = text.indexOf("\n");
+  return i > 0 && text[i - 1] === "\r" ? "\r\n" : "\n";
+}
+
 /** A file's text as the editors hold it: "\n" line breaks in the body. */
 function normalise(text: string) {
   const sp = splitFrontmatter(text);
@@ -118,6 +128,8 @@ export class LiveDocument implements LiveBody {
   /** The text as this Window last read or wrote it, to tell an echo of its own save from an edit made elsewhere. */
   private known: string | null = null;
   private loaded: Promise<void> | null = null;
+  /** The file's line break, which the body regains when saved. */
+  private eol: "\n" | "\r\n" = "\n";
   private lastNotice: unknown = null;
   private refs = 0;
   private sync: DocSync | null = null;
@@ -156,11 +168,19 @@ export class LiveDocument implements LiveBody {
     return joinFrontmatter(this.state.fm, this.state.body);
   }
 
+  /** The text as it goes to disk: the body with the file's own line breaks. */
+  private fileText() {
+    const body =
+      this.eol === "\r\n" ? this.state.body.replace(/\n/g, "\r\n") : this.state.body;
+    return joinFrontmatter(this.state.fm, body);
+  }
+
   // ------------------------------------------------------------- loading
 
   /** Show `d` as the document, replacing the text in every editor. */
   private apply(d: DocumentPayload) {
     this.known = d.text;
+    this.eol = eolOf(d.text);
     const sp = splitFrontmatter(d.text);
     // Editors hold "\n" line breaks whatever the file has; the body is kept
     // the same way, so a CRLF file opened is not a CRLF file edited, and the
@@ -194,6 +214,7 @@ export class LiveDocument implements LiveBody {
         const text = normalise(d.text);
         await sync.disk(text, true);
         this.known = d.text;
+        this.eol = eolOf(d.text);
         if (this.text() === text) this.dirty = false;
         this.set({ doc: d, external: false });
         return;
@@ -312,7 +333,7 @@ export class LiveDocument implements LiveBody {
     this.set({ status: "saving" });
     const text = this.text();
     try {
-      const d = await this.engine.saveDocument(this.id, text);
+      const d = await this.engine.saveDocument(this.id, this.fileText());
       this.known = d.text;
       this.dirty = this.text() !== text;
       const patch: Partial<LiveSnapshot> = { doc: d, status: "saved" };
@@ -358,7 +379,7 @@ export class LiveDocument implements LiveBody {
       .getDocument(this.id)
       .then(async (d) => {
         if (this.dead) return;
-        if (d.text === this.known || d.text === this.text()) {
+        if (d.text === this.known || d.text === this.fileText()) {
           // Our own save, or already what the editors show.
           if (!this.saving) this.set({ doc: d });
           return;
@@ -420,7 +441,7 @@ export class LiveDocument implements LiveBody {
       if (this.saving) await this.saving;
       if (this.dirty && !this.dead) {
         this.dirty = false;
-        await this.engine.saveDocument(this.id, this.text()).then(
+        await this.engine.saveDocument(this.id, this.fileText()).then(
           () => this.registry.saved(this.id),
           console.error,
         );

@@ -12,6 +12,7 @@
 // the change is none of its business. Before this, one counter meant a Note
 // saved in the editor refetched the Library, the Map and the Graph.
 import type { ChangedPayload, DocType } from "./api";
+import { createLatest, type Ticket } from "./latest";
 
 /**
  * What a vault change has to touch for a query to care.
@@ -101,8 +102,8 @@ export function createQuery<T>(options: QueryOptions<T>): Query<T> {
   const { fetch, equal, debounce, onError } = options;
   let state: QueryState<T> = { data: null, status: "loading", error: null };
   const subscribers = new Set<(s: QueryState<T>) => void>();
-  // Monotonic: the newest run wins, whatever order the promises settle in.
-  let generation = 0;
+  // The newest run wins, whatever order the promises settle in.
+  const latest = createLatest();
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function emit(next: QueryState<T>): void {
@@ -110,16 +111,16 @@ export function createQuery<T>(options: QueryOptions<T>): Query<T> {
     for (const cb of subscribers) cb(state);
   }
 
-  async function ask(mine: number): Promise<void> {
+  async function ask(current: Ticket): Promise<void> {
     try {
       const value = await fetch();
-      if (mine !== generation) return;
+      if (!current()) return;
       // A fresh answer that means the old thing keeps the old object.
       const data =
         state.data !== null && equal?.(state.data, value) ? state.data : value;
       emit({ data, status: "ready", error: null });
     } catch (e) {
-      if (mine !== generation) return;
+      if (!current()) return;
       // The last good answer stays on screen; an error is not an empty list.
       emit({ data: state.data, status: "error", error: e });
       onError?.(e);
@@ -129,7 +130,7 @@ export function createQuery<T>(options: QueryOptions<T>): Query<T> {
   return {
     state: () => state,
     run() {
-      const mine = ++generation;
+      const mine = latest.begin();
       if (timer !== undefined) clearTimeout(timer);
       if (state.status !== "loading")
         emit({ ...state, status: "loading", error: null });
@@ -143,7 +144,7 @@ export function createQuery<T>(options: QueryOptions<T>): Query<T> {
       }, debounce);
     },
     cancel() {
-      generation++;
+      latest.cancel();
       if (timer !== undefined) {
         clearTimeout(timer);
         timer = undefined;

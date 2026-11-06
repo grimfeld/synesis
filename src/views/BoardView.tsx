@@ -12,7 +12,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import {
+  CircleAlert,
   Download,
   Eye,
   Group,
@@ -59,6 +61,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { IconButton } from "@/components/IconButton";
 import { boardToSvg, svgToPng } from "@/lib/boardExport";
 import { registerFlush } from "@/lib/pending";
+import { createBoardSaver, type BoardSaveStatus } from "@/lib/boardSave";
+import { deliverLatest } from "@/lib/latest";
 import { registerBoard } from "@/lib/activeBoard";
 import { BoardDrawer } from "@/components/BoardDrawer";
 import { Button } from "@/components/ui/button";
@@ -229,18 +233,22 @@ export function BoardView({
     };
   }, [refsKey]);
 
+  // A Board that cannot be read says so, with a way to try again, rather
+  // than a blank placeholder forever (issue #64).
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   useEffect(() => {
-    let live = true;
     setBoard(null);
+    setLoadFailed(false);
     setSelected(new Set());
     fitted.current = null;
-    api.getBoard(id).then((b) => {
-      if (live) setBoard(b ?? emptyBoard());
-    });
-    return () => {
-      live = false;
-    };
-  }, [id]);
+    return deliverLatest(
+      api.getBoard(id),
+      (b) => setBoard(b ?? emptyBoard()),
+      // Reported in place, where the Board would be: not a console fault.
+      () => setLoadFailed(true),
+    );
+  }, [id, loadAttempt]);
 
   // Track the host's size so fit-all and hit-testing use real pixels.
   //
@@ -279,38 +287,61 @@ export function BoardView({
 
   // What a pending save would write, held so unmounting can flush it rather
   // than drop it. A debounce that cancels on unmount loses the last edit
-  // whenever the user leaves straight after making one.
-  const pending = useRef<{ id: string; board: Board } | null>(null);
+  // whenever the user leaves straight after making one. A write that fails
+  // keeps it pending for the next edit or flush, and says so (issue #64).
+  const [saveStatus, setSaveStatus] = useState<BoardSaveStatus>("idle");
+  const saveFailed = useRef(t.board_save_failed);
+  saveFailed.current = t.board_save_failed;
+  const announced = useRef(announceBoardSaved);
+  announced.current = announceBoardSaved;
+  const saver = useMemo(
+    () =>
+      createBoardSaver<{ id: string; board: Board }>(
+        (p) => api.saveBoard(p.id, p.board).then(() => announced.current()),
+        (status, e) => {
+          setSaveStatus(status);
+          if (status !== "error") return;
+          // One toast however many retries fail: the Board may be gone from
+          // screen by the time the write fails. Logged as a warning: the user
+          // has been told, and the edit is not lost.
+          toast.error(saveFailed.current, { id: "board-save-failed" });
+          console.warn("Board save failed", e);
+        },
+      ),
+    [],
+  );
 
+  /** Write what is pending now. Rejects when the write failed. */
   const flush = useCallback(async () => {
     if (saveTimer.current) {
       window.clearTimeout(saveTimer.current);
       saveTimer.current = null;
     }
-    const p = pending.current;
-    pending.current = null;
-    if (p) await api.saveBoard(p.id, p.board).then(announceBoardSaved);
-  }, [announceBoardSaved]);
+    await saver.flush();
+  }, [saver]);
+
+  /** Flush, for callers with nowhere to send a failure: the saver reported it. */
+  const flushQuietly = useCallback(() => flush().catch(() => {}), [flush]);
 
   const save = useCallback(
     (next: Board) => {
       setBoard(next);
-      pending.current = { id, board: next };
+      saver.set({ id, board: next });
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       // Debounced: a drag produces a change per frame, and each save writes
       // the file and records a CRDT operation.
-      saveTimer.current = window.setTimeout(flush, 400);
+      saveTimer.current = window.setTimeout(flushQuietly, 400);
     },
-    [id, flush],
+    [id, saver, flushQuietly],
   );
 
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
   useEffect(
     () => () => {
-      void flush();
+      void flushQuietly();
     },
-    [flush, id],
+    [flushQuietly, id],
   );
 
   // The Board edited outside the app while it is open — Obsidian writing the
@@ -325,6 +356,8 @@ export function BoardView({
     if (!lastChange?.boards?.includes(id)) return;
     let live = true;
     (async () => {
+      // A write that failed leaves the edit pending; reading the file now
+      // would put the old Board on screen over it, so the reload waits.
       await flush();
       const next = await api.getBoard(id);
       if (!live) return;
@@ -339,7 +372,7 @@ export function BoardView({
     };
   }, [lastChange, id, flush]);
   // And a Command that copies the Board from disk lands it first.
-  useEffect(() => registerFlush(`board:${id}`, flush), [flush, id]);
+  useEffect(() => registerFlush(`board:${id}`, flushQuietly), [flushQuietly, id]);
 
   const pointerBoard = useCallback(
     (e: { clientX: number; clientY: number }): [number, number] => {
@@ -713,6 +746,27 @@ export function BoardView({
   );
 
   if (!board) {
+    if (loadFailed)
+      return (
+        <div
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+          role="alert"
+          data-testid="board-load-failed"
+        >
+          <CircleAlert className="size-5 shrink-0 text-destructive" />
+          <p className="max-w-sm text-sm text-muted-foreground">{t.board_load_failed}</p>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="min-h-8"
+            data-testid="board-load-retry"
+            onClick={() => setLoadAttempt((n) => n + 1)}
+          >
+            {t.board_load_retry}
+          </Button>
+        </div>
+      );
     return <div className="flex-1" aria-busy="true" />;
   }
 
@@ -1021,6 +1075,18 @@ export function BoardView({
           <span className="px-1 text-xs tabular-nums text-muted-foreground">
             {Math.round(view.zoom * 100)}%
           </span>
+          {saveStatus === "error" && (
+            <span
+              className="flex min-w-0 items-center gap-1 px-1 text-xs text-destructive"
+              role="status"
+              data-testid="board-save-status"
+              data-status={saveStatus}
+              title={t.board_save_failed}
+            >
+              <CircleAlert className="size-3.5 shrink-0" />
+              {t.board_not_saved}
+            </span>
+          )}
         </div>
 
         {selected.size > 0 && !isMobile && !reading && (

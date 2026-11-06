@@ -339,6 +339,11 @@ export const fr: Dict = {
   add_to_board: "Ajouter au tableau",
   board_export: "Exporter le tableau",
   board_export_failed: "Le tableau n'a pas pu être affiché pour l'exporter.",
+  board_not_saved: "Non enregistré",
+  board_save_failed:
+    "Le tableau n’a pas pu être enregistré. Votre modification est gardée ici et sera enregistrée à votre prochaine modification.",
+  board_load_failed: "Le tableau n’a pas pu être lu dans le coffre.",
+  board_load_retry: "Réessayer",
   reading_trail: "Parcours de lecture",
   no_trail: "Rien de cité depuis cette Source pour l’instant.",
   child_sources: "Contient",
