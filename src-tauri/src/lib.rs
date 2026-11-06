@@ -25,6 +25,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 mod devbridge;
 mod icloud;
 mod pairing;
+mod remote;
 mod storage;
 mod system_bars;
 mod watch;
@@ -1055,12 +1056,10 @@ async fn save_remote_cover(
     if title.trim().is_empty() {
         return Err("a Cover needs the Source's title to be named after".into());
     }
-    let client = reqwest::Client::builder()
-        .user_agent("Synesis/0.1 (+https://github.com/grimfeld/synesis)")
-        .timeout(std::time::Duration::from_secs(20))
-        .build()
-        .map_err(err)?;
-    let res = client.get(&url).send().await.map_err(err)?;
+    let client = remote::client(std::time::Duration::from_secs(20))?;
+    let res = remote::get(&client, &url).await?;
+    // Where the redirects ended, for the extension fallback below.
+    let landed = res.url().to_string();
     let ext = res
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
@@ -1074,14 +1073,14 @@ async fn save_remote_cover(
         })
         // Fall back to the URL's own extension when the server is unhelpful.
         .or_else(|| {
-            let path = url.split(['?', '#']).next()?;
+            let path = landed.split(['?', '#']).next()?;
             ["jpg", "jpeg", "png", "gif", "webp"]
                 .into_iter()
                 .find(|e| path.to_ascii_lowercase().ends_with(&format!(".{e}")))
         })
         .ok_or_else(|| format!("not a picture: {url}"))?
         .to_string();
-    let bytes = res.bytes().await.map_err(err)?;
+    let bytes = remote::body(res, remote::COVER_LIMIT).await?;
     let (bytes, ext) = to_cover(&bytes, &ext)?;
     let state = app.state::<AppState>();
     state.with_vault(|v| {
@@ -1193,19 +1192,9 @@ fn html_unescape(s: &str) -> String {
 
 #[tauri::command]
 async fn fetch_url_metadata(url: String) -> CmdResult<UrlMeta> {
-    let client = reqwest::Client::builder()
-        .user_agent("Synesis/0.1 (+https://github.com/grimfeld/synesis)")
-        .timeout(std::time::Duration::from_secs(12))
-        .build()
-        .map_err(err)?;
-    let html = client
-        .get(&url)
-        .send()
-        .await
-        .map_err(err)?
-        .text()
-        .await
-        .map_err(err)?;
+    let client = remote::client(std::time::Duration::from_secs(12))?;
+    let res = remote::get(&client, &url).await?;
+    let html = String::from_utf8_lossy(&remote::body(res, remote::PAGE_LIMIT).await?).into_owned();
     let title_tag = regex::Regex::new(r"(?is)<title[^>]*>(.*?)</title>")
         .ok()
         .and_then(|re| re.captures(&html).map(|c| html_unescape(c[1].trim())));

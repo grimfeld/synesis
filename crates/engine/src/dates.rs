@@ -85,7 +85,7 @@ impl BibleDate {
     fn parse_parts(text: &str) -> Result<Parsed, DateError> {
         let text = without_notes(text);
         let cleaned = clean(&text);
-        let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+        let tokens = join_adar(cleaned.split_whitespace().collect());
         let read = match era_suffix(&tokens) {
             Some((bce, era, n)) => {
                 read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, month_name)| Parsed {
@@ -113,6 +113,28 @@ struct Parsed {
     /// The Hebrew month's one name, when the text named one.
     month_name: Option<&'static str>,
     era: EraStyle,
+}
+
+/// "Adar I" and "Adar II" as one month token each. Only after "adar": a bare
+/// numeral is not a month.
+fn join_adar(tokens: Vec<&str>) -> Vec<&str> {
+    let mut joined = Vec::with_capacity(tokens.len());
+    let mut rest = tokens.into_iter().peekable();
+    while let Some(t) = rest.next() {
+        let leap = match (t, rest.peek().copied()) {
+            ("adar", Some("i")) => Some("adar i"),
+            ("adar", Some("ii")) => Some("adar ii"),
+            _ => None,
+        };
+        match leap {
+            Some(month) => {
+                rest.next();
+                joined.push(month);
+            }
+            None => joined.push(t),
+        }
+    }
+    joined
 }
 
 /// The Date in what comes before the era marker: an optional "c.", an
@@ -377,7 +399,7 @@ fn hebrew_month(s: &str) -> Option<(u8, &'static str)> {
         "chislev" | "kislev" | "kislew" => (12, "chislev"),
         "tebeth" | "tevet" | "tébeth" => (1, "tebeth"),
         "shebat" | "shevat" | "schebat" => (2, "shebat"),
-        "adar" | "veadar" | "adar ii" => (3, "adar"),
+        "adar" | "veadar" | "adar i" | "adar ii" => (3, "adar"),
         _ => return None,
     })
 }
@@ -470,6 +492,22 @@ mod tests {
         let d = p("1er avril 33 de n. è.").unwrap();
         assert_eq!((d.day, d.month), (Some(1), Some(4)));
         assert_eq!(p("1513 BCE").unwrap().precision(), Precision::Year);
+    }
+
+    #[test]
+    fn adar_i_and_adar_ii_are_months() {
+        let d = p("Adar II 33 CE").unwrap();
+        assert_eq!((d.month, d.day), (Some(3), None));
+        let d = p("14 Adar II 33 CE").unwrap();
+        assert_eq!((d.month, d.day), (Some(3), Some(14)));
+        let d = p("Adar II 14, 33 CE").unwrap();
+        assert_eq!((d.month, d.day), (Some(3), Some(14)));
+        let d = p("Adar I 33 CE").unwrap();
+        assert_eq!((d.month, d.day), (Some(3), None));
+        assert_eq!(read("14 Adar II 33 CE").unwrap().month_name, Some("adar"));
+        // A bare numeral is not a month.
+        assert_eq!(p("II 33 CE"), None);
+        assert_eq!(read("14 Adar II 33"), Err(DateError::NoEra));
     }
 
     #[test]

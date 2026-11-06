@@ -7,6 +7,8 @@ import type { DetectedRange, PassageInfo } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
 import { api } from "@/lib/api";
 import { PICTURE_SKIP_SOURCE, findPictures, isPictureTarget } from "./pictures";
+import { codeZones } from "./codeZones";
+import { syntaxTree } from "@codemirror/language";
 
 export const WIKILINK_RE = /(!?)\[\[([^\[\]|#]+?)(?:#[^\[\]|]*)?(?:\|([^\[\]]*))?\]\]/g;
 export const TAG_RE = /(^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/-]+)/gu;
@@ -23,10 +25,13 @@ export interface EditorEnv {
 
 export const envFacet = Facet.define<EditorEnv, EditorEnv>({ combine: (v) => v[0] });
 
-function skipZones(text: string): [number, number][] {
-  const out: [number, number][] = [];
-  // A Picture is not a link, and its file name is not a Tag (ADR 0019).
-  const re = new RegExp(/```[\s\S]*?(?:```|$)|`[^`\n]*`|https?:\/\/[^\s)>\]]+|/.source + PICTURE_SKIP_SOURCE, "gi");
+/** Where neither a link nor a Tag is read, in `text` coordinates offset by `at`. */
+function skipZones(view: EditorView, at: number, to: number, text: string): [number, number][] {
+  // Code comes from the syntax tree, which knows a fence opened above `at`.
+  const out = codeZones(view.state, at, to).map(([a, b]): [number, number] => [a - at, b - at]);
+  // A URL is not a link, a Picture is not a link, and its file name is not a
+  // Tag (ADR 0019).
+  const re = new RegExp(/https?:\/\/[^\s)>\]]+|/.source + PICTURE_SKIP_SOURCE, "gi");
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) out.push([m.index, m.index + m[0].length]);
   return out;
@@ -43,7 +48,7 @@ export const linkDecorations = ViewPlugin.fromClass(
       this.decorations = this.build(view);
     }
     update(u: ViewUpdate) {
-      if (u.docChanged || u.viewportChanged || u.transactions.some((t) => t.effects.some((e) => e.is(namesChanged)))) this.decorations = this.build(u.view);
+      if (u.docChanged || u.viewportChanged || syntaxTree(u.startState) !== syntaxTree(u.state) || u.transactions.some((t) => t.effects.some((e) => e.is(namesChanged)))) this.decorations = this.build(u.view);
     }
     build(view: EditorView): DecorationSet {
       const env = view.state.facet(envFacet);
@@ -51,7 +56,7 @@ export const linkDecorations = ViewPlugin.fromClass(
       const marks: { from: number; to: number; deco: Decoration }[] = [];
       for (const { from, to } of view.visibleRanges) {
         const text = view.state.doc.sliceString(from, to);
-        const zones = skipZones(text);
+        const zones = skipZones(view, from, to, text);
         WIKILINK_RE.lastIndex = 0;
         let m: RegExpExecArray | null;
         while ((m = WIKILINK_RE.exec(text))) {

@@ -1,7 +1,7 @@
 // Every word on the landing page, in each language the app speaks. The
 // French dictionary is typed against the English one, so a missing string
 // fails the build. Terms are the app's own (CONTEXT.md, src/i18n).
-import type { PlatformId } from "../lib/release";
+import type { PlatformId, Variant } from "../lib/release";
 
 export const en = {
   lang: "en",
@@ -76,6 +76,7 @@ export const en = {
     coming: "Coming with 0.1",
     later: "Coming later",
     get: "Download",
+    variants: { appleSilicon: "Download for Apple Silicon", intel: "Download for Intel" } satisfies Record<Variant, string>,
     yours: "For this device",
     names: { windows: "Windows", macos: "macOS", linux: "Linux", android: "Android", ios: "iPhone and iPad" } satisfies Record<PlatformId, string>,
   },
@@ -188,6 +189,7 @@ export const fr: Strings = {
     coming: "Avec la version 0.1",
     later: "Plus tard",
     get: "Télécharger",
+    variants: { appleSilicon: "Télécharger pour Apple Silicon", intel: "Télécharger pour Intel" },
     yours: "Pour cet appareil",
     names: { windows: "Windows", macos: "macOS", linux: "Linux", android: "Android", ios: "iPhone et iPad" },
   },

@@ -176,6 +176,8 @@ pub enum GraphLevel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
     pub doc: DocSummary,
+    /// A few words around the match, each matched term between U+0002 and
+    /// U+0003: control characters no Note contains, unlike brackets.
     pub snippet: String,
 }
 
@@ -1459,7 +1461,7 @@ impl Index {
             format!(" AND d.type IN ({})", list.join(", "))
         };
         let mut st = self.conn.prepare(&format!(
-            "SELECT {SUMMARY_COLS}, snippet(docs_fts, 2, '[', ']', '…', 14) AS snip FROM docs_fts f JOIN documents d ON d.id = f.id WHERE docs_fts MATCH ?1{only} ORDER BY bm25(docs_fts, 0, 5.0, 1.0) LIMIT ?2"
+            "SELECT {SUMMARY_COLS}, snippet(docs_fts, 2, char(2), char(3), '…', 14) AS snip FROM docs_fts f JOIN documents d ON d.id = f.id WHERE docs_fts MATCH ?1{only} ORDER BY bm25(docs_fts, 0, 5.0, 1.0) LIMIT ?2"
         ))?;
         let rows = st.query_map(params![q, limit as i64], |r| {
             Ok(SearchHit {
@@ -3310,7 +3312,18 @@ tags: [judgment]
         assert_eq!(g.edges.len(), 4);
         let hits = idx.search("endur", &[], 10).unwrap();
         assert_eq!(hits[0].doc.id, "n2");
-        assert!(hits[0].snippet.contains("[Endurance]"));
+        assert!(hits[0].snippet.contains("\u{2}Endurance\u{3}"));
+    }
+
+    /// Brackets in the text stay text: only the control markers mark a match.
+    #[test]
+    fn search_snippet_marks_with_control_characters() {
+        let idx = idx_with(&[("n1", "Notes/One.md", "See [[Grace]] & [note] on grace")]);
+        let hits = idx.search("grace", &[], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        let s = &hits[0].snippet;
+        assert!(s.contains("[[\u{2}Grace\u{3}]]"), "{s:?}");
+        assert!(s.contains("[note]"), "{s:?}");
     }
 
     /// PLAN §10: search is filterable by type, and the filter is an OR over

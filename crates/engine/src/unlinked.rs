@@ -315,10 +315,8 @@ pub fn splice(
     expect: &str,
     replacement: &str,
 ) -> Option<String> {
-    if end > text.len() || !text.is_char_boundary(start) || !text.is_char_boundary(end) {
-        return None;
-    }
-    if &text[start..end] != expect {
+    // `get` refuses reversed, out-of-range and mid-character offsets alike.
+    if text.get(start..end) != Some(expect) {
         return None;
     }
     let mut out = String::with_capacity(text.len() + replacement.len());
@@ -502,6 +500,9 @@ mod tests {
         // The file changed under us: the same offset now holds other words.
         assert_eq!(splice("we went to Antioch", 8, 15, "Antioch", "[[Antioch]]"), None);
         assert_eq!(splice(text, 8, 999, "Antioch", "[[Antioch]]"), None);
+        // Reversed offsets refuse rather than panic.
+        assert_eq!(splice("hello world", 6, 3, "", "x"), None);
+        assert_eq!(splice("hello world", 6, 3, "lo ", "x"), None);
     }
 }
 

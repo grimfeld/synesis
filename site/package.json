@@ -8,6 +8,7 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "node scripts/check-layout.mjs",
+    "test": "node --test src/lib/release.test.ts",
     "og": "node scripts/og.mjs"
   },
   "dependencies": {
