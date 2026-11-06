@@ -161,7 +161,9 @@ jobs:
       # published release, and must not see this one until the `publish` job
       # has checked every platform is attached. A re-run finds the release
       # already there and leaves it alone. Its id goes to the build jobs,
-      # since a draft cannot be looked up by its tag.
+      # since a draft cannot be looked up by its tag. A new release's id is
+      # taken from the create response: the list behind `find_id` can lag
+      # behind a just-created draft, so it only answers "does it exist yet?".
       - name: Create the GitHub Release (draft)
         id: release
         env:
@@ -175,13 +177,19 @@ jobs:
           if [ -n "$id" ]; then
             echo "Release $TAG already exists."
           else
-            prerelease=""
-            case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-              --draft --verify-tag $prerelease \
-              --title "Synesis $TAG" \
-              --notes "Installers for macOS, Windows, Linux and Android. See the assets below."
-            id=$(find_id)
+            # The previous step pushed the tag; refuse to let the API create
+            # one from the default branch if it is somehow missing.
+            gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --silent \
+              || { echo "::error::Tag $TAG does not exist on GitHub."; exit 1; }
+            prerelease=false
+            case "$VERSION" in *-*) prerelease=true ;; esac
+            id=$(gh api -X POST "repos/$GITHUB_REPOSITORY/releases" \
+              -f tag_name="$TAG" \
+              -f name="Synesis $TAG" \
+              -f body="Installers for macOS, Windows, Linux and Android. See the assets below." \
+              -F draft=true \
+              -F prerelease="$prerelease" \
+              --jq .id)
           fi
           [ -n "$id" ] || { echo "::error::Could not find the release for $TAG."; exit 1; }
           echo "id=$id" >> "$GITHUB_OUTPUT"
