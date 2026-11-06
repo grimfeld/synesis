@@ -201,8 +201,13 @@ static WIKILINK_RE: Lazy<Regex> = Lazy::new(|| {
 });
 static TAG_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"(?:^|[^\p{L}\p{N}_/#&])#([\p{L}\p{N}_/\-]+)").unwrap());
-static SKIP_RE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(&format!(r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}", crate::attachments::PICTURE_SYNTAX)).unwrap());
+static SKIP_RE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(&format!(
+        r"(?s)```.*?(?:```|\z)|`[^`\n]*`|https?://[^\s)>\]]+|{}",
+        crate::attachments::PICTURE_SYNTAX
+    ))
+    .unwrap()
+});
 static FM_KEY_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^([A-Za-z0-9_\-]+)\s*:").unwrap());
 
 /// Split a file into its YAML frontmatter (raw) and the byte offset of the body.
@@ -797,7 +802,10 @@ mod heading_tests {
     fn an_atx_heading_follows_commonmark() {
         assert_eq!(atx_heading("# Title"), Some((1, "Title")));
         assert_eq!(atx_heading("###### Six\n"), Some((6, "Six")));
-        assert_eq!(atx_heading("   ## Indented three\r\n"), Some((2, "Indented three")));
+        assert_eq!(
+            atx_heading("   ## Indented three\r\n"),
+            Some((2, "Indented three"))
+        );
         // A tab separates the hashes as well as a space does.
         assert_eq!(atx_heading("#\tx"), Some((1, "x")));
         // A bare run of hashes is an empty heading.

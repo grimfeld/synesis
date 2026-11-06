@@ -85,8 +85,8 @@ fn main() -> engine::Result<()> {
                 _ => unreachable!(),
             }
             .iter()
-                .map(|t| (t.doc.title.clone(), t.locator.clone()))
-                .collect::<Vec<_>>()
+            .map(|t| (t.doc.title.clone(), t.locator.clone()))
+            .collect::<Vec<_>>()
         );
     }
     Ok(())

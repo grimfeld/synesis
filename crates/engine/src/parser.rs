@@ -207,8 +207,7 @@ fn parse_tail(cur: &mut Cursor, book: u8) -> Vec<Passage> {
     };
     let single = is_single_chapter(book);
     let next = cur.peek();
-    let comma_then_digit =
-        next == Some(',') && cur.peek_at(1).is_some_and(|c| c.is_ascii_digit());
+    let comma_then_digit = next == Some(',') && cur.peek_at(1).is_some_and(|c| c.is_ascii_digit());
     if next == Some(':') || comma_then_digit {
         cur.pos += 1;
         // "John 3:99" or a dangling "John 3:" yield nothing: invalid

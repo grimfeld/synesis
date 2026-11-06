@@ -134,7 +134,11 @@ impl PropertySchema {
             .filter(|(k, t)| builtin.types.get(*k) != Some(*t))
             .collect();
         // Stamped, so Pairing can tell the newest copy (ADR 0016).
-        crate::config::write(hidden_dir, FILE_NAME, serde_json::json!({ "types": custom }))
+        crate::config::write(
+            hidden_dir,
+            FILE_NAME,
+            serde_json::json!({ "types": custom }),
+        )
     }
 
     pub fn type_of(&self, name: &str) -> PropertyType {

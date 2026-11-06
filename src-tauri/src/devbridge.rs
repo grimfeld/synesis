@@ -66,7 +66,8 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 fn admit(method: &str, head: &str) -> Admission {
     let host_ok = header(head, "host")
         .map(|h| {
-            h.eq_ignore_ascii_case(&format!("127.0.0.1:{PORT}")) || h.eq_ignore_ascii_case(&format!("localhost:{PORT}"))
+            h.eq_ignore_ascii_case(&format!("127.0.0.1:{PORT}"))
+                || h.eq_ignore_ascii_case(&format!("localhost:{PORT}"))
         })
         .unwrap_or(false);
     if !host_ok {
@@ -81,7 +82,13 @@ fn admit(method: &str, head: &str) -> Admission {
         "OPTIONS" => Admission::Allow { origin },
         "POST" => {
             let json = header(head, "content-type")
-                .map(|c| c.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("application/json"))
+                .map(|c| {
+                    c.split(';')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .eq_ignore_ascii_case("application/json")
+                })
                 .unwrap_or(false);
             if json {
                 Admission::Allow { origin }
@@ -189,23 +196,64 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
     match cmd {
         "get_settings" => ok(get_settings(state)?),
         "set_language" => ok(set_language(state, arg(&a, "lang")?)?),
-        "set_device_appearance" => ok(set_device_appearance(state, arg(&a, "mode")?, arg(&a, "textScale")?)?),
+        "set_device_appearance" => ok(set_device_appearance(
+            state,
+            arg(&a, "mode")?,
+            arg(&a, "textScale")?,
+        )?),
         "set_graph_level" => ok(set_graph_level(state, arg(&a, "level")?)?),
-        "set_timeline_filters" => ok(set_timeline_filters(state, arg(&a, "hiddenTypes")?, arg(&a, "inView")?)?),
-        "set_map_filters" => ok(set_map_filters(state, arg(&a, "books")?, arg(&a, "mentionedOnly")?, arg(&a, "colorBy")?)?),
+        "set_timeline_filters" => ok(set_timeline_filters(
+            state,
+            arg(&a, "hiddenTypes")?,
+            arg(&a, "inView")?,
+        )?),
+        "set_map_filters" => ok(set_map_filters(
+            state,
+            arg(&a, "books")?,
+            arg(&a, "mentionedOnly")?,
+            arg(&a, "colorBy")?,
+        )?),
         "set_sync_method" => ok(set_sync_method(state, arg(&a, "method")?)?),
-        "leave_vault" => ok(leave_vault(app.clone(), state, arg(&a, "id")?, arg(&a, "deleteDocuments")?)?),
+        "leave_vault" => ok(leave_vault(
+            app.clone(),
+            state,
+            arg(&a, "id")?,
+            arg(&a, "deleteDocuments")?,
+        )?),
         "forget_device" => ok(forget_device(state, arg(&a, "device")?)?),
-        "pairing_status" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_status(state))?),
-        "pairing_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_invite(app.clone(), state))?),
-        "pairing_revoke_invite" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_revoke_invite(app.clone(), state))?),
-        "pairing_join" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_join(app.clone(), state, arg(&a, "code")?, arg(&a, "path")?))?),
-        "pairing_approve" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_approve(state, arg(&a, "node")?, arg(&a, "allow")?))?),
-        "pairing_remove" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_remove(state, arg(&a, "node")?))?),
-        "pairing_stop" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_stop(state))?),
-        "pairing_sync_now" => ok(tauri::async_runtime::block_on(crate::pairing::pairing_sync_now(state))?),
-        "set_relay" => ok(tauri::async_runtime::block_on(crate::pairing::set_relay(app.clone(), state, arg(&a, "url")?))?),
-        "set_background_sync" => ok(crate::pairing::set_background_sync(state, arg(&a, "enabled")?)?),
+        "pairing_status" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_status(state),
+        )?),
+        "pairing_invite" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_invite(app.clone(), state),
+        )?),
+        "pairing_revoke_invite" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_revoke_invite(app.clone(), state),
+        )?),
+        "pairing_join" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_join(app.clone(), state, arg(&a, "code")?, arg(&a, "path")?),
+        )?),
+        "pairing_approve" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_approve(state, arg(&a, "node")?, arg(&a, "allow")?),
+        )?),
+        "pairing_remove" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_remove(state, arg(&a, "node")?),
+        )?),
+        "pairing_stop" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_stop(state),
+        )?),
+        "pairing_sync_now" => ok(tauri::async_runtime::block_on(
+            crate::pairing::pairing_sync_now(state),
+        )?),
+        "set_relay" => ok(tauri::async_runtime::block_on(crate::pairing::set_relay(
+            app.clone(),
+            state,
+            arg(&a, "url")?,
+        ))?),
+        "set_background_sync" => ok(crate::pairing::set_background_sync(
+            state,
+            arg(&a, "enabled")?,
+        )?),
         "set_check_updates" => ok(set_check_updates(state, arg(&a, "enabled")?)?),
         // Phone system bars: nothing to colour behind a desktop browser.
         "set_system_bars" => ok(()),
@@ -219,7 +267,11 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "move_vault" => ok(move_vault(app.clone(), state, arg(&a, "id")?)?),
         "hidden_vaults" => ok(hidden_vaults(app.clone(), state)?),
         "rename_vault" => ok(rename_vault(state, arg(&a, "name")?)?),
-        "suggest_vault_path" => ok(suggest_vault_path(app.clone(), arg(&a, "name")?, arg(&a, "method")?)?),
+        "suggest_vault_path" => ok(suggest_vault_path(
+            app.clone(),
+            arg(&a, "name")?,
+            arg(&a, "method")?,
+        )?),
         "inspect_invite" => ok(inspect_invite(arg(&a, "code")?, arg(&a, "path")?)?),
         "vault_info" => ok(vault_info(state)?),
         "rescan" => ok(rescan(state)?),
@@ -227,7 +279,12 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         // `Query` variant, not another line here that someone forgets.
         "query" => ok(query(state, arg(&a, "query")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
-        "save_document" => ok(save_document(state, app.state::<crate::windows::WindowState>(), arg(&a, "id")?, arg(&a, "text")?)?),
+        "save_document" => ok(save_document(
+            state,
+            app.state::<crate::windows::WindowState>(),
+            arg(&a, "id")?,
+            arg(&a, "text")?,
+        )?),
         "create_document" => ok(create_document(
             state,
             arg(&a, "docType")?,
@@ -236,7 +293,11 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             arg(&a, "body")?,
         )?),
         "rename_document" => ok(rename_document(state, arg(&a, "id")?, arg(&a, "title")?)?),
-        "duplicate_composition" => ok(duplicate_composition(state, arg(&a, "id")?, arg(&a, "title")?)?),
+        "duplicate_composition" => ok(duplicate_composition(
+            state,
+            arg(&a, "id")?,
+            arg(&a, "title")?,
+        )?),
         "delete_document" => ok(delete_document(state, arg(&a, "id")?)?),
         "resolve_link" => ok(resolve_link(state, arg(&a, "target")?)?),
         "resolve_many" => ok(resolve_many(state, arg(&a, "targets")?)?),
@@ -286,12 +347,21 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         "history" => ok(history(state, arg(&a, "id")?)?),
         "get_board" => ok(get_board(state, arg(&a, "id")?)?),
         "save_board" => ok(save_board(state, arg(&a, "id")?, arg(&a, "board")?)?),
-        "export_board" => ok(export_board(arg(&a, "path")?, arg(&a, "data")?, arg(&a, "base64")?)?),
+        "export_board" => ok(export_board(
+            arg(&a, "path")?,
+            arg(&a, "data")?,
+            arg(&a, "base64")?,
+        )?),
         "board_at" => ok(board_at(state, arg(&a, "id")?, arg(&a, "frontier")?)?),
         // `sourceId` is optional: absent means every Clipping in the vault.
         "attach_image" => ok(attach_image(state, arg(&a, "title")?, arg(&a, "path")?)?),
         "read_attachment" => ok(read_attachment(state, arg(&a, "path")?)?),
-        "attach_picture" => ok(attach_picture(state, arg(&a, "title")?, arg(&a, "name")?, arg(&a, "data")?)?),
+        "attach_picture" => ok(attach_picture(
+            state,
+            arg(&a, "title")?,
+            arg(&a, "name")?,
+            arg(&a, "data")?,
+        )?),
         "read_picture" => ok(read_picture(state, arg(&a, "target")?)?),
         "save_remote_cover" => ok(tauri::async_runtime::block_on(save_remote_cover(
             app.clone(),
@@ -306,7 +376,9 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             &a, "url",
         )?))?),
         "skin_gallery" => ok(tauri::async_runtime::block_on(skin_gallery())?),
-        "gallery_skin" => ok(tauri::async_runtime::block_on(gallery_skin(arg(&a, "file")?))?),
+        "gallery_skin" => ok(tauri::async_runtime::block_on(gallery_skin(arg(
+            &a, "file",
+        )?))?),
         "hidden_dir" => ok(hidden_dir()),
         "ui_log" => {
             ui_log(arg(&a, "level")?, arg(&a, "message")?);
@@ -341,12 +413,18 @@ mod tests {
     }
 
     fn allowed(origin: Option<&str>) -> Admission {
-        Admission::Allow { origin: origin.map(str::to_string) }
+        Admission::Allow {
+            origin: origin.map(str::to_string),
+        }
     }
 
     #[test]
     fn the_dev_server_and_node_scripts_are_let_in() {
-        let page = head(&["Host: 127.0.0.1:4321", "Origin: http://localhost:1420", "Content-Type: application/json"]);
+        let page = head(&[
+            "Host: 127.0.0.1:4321",
+            "Origin: http://localhost:1420",
+            "Content-Type: application/json",
+        ]);
         assert_eq!(admit("POST", &page), allowed(Some("http://localhost:1420")));
         let page = head(&[
             "host: localhost:4321",
@@ -357,17 +435,32 @@ mod tests {
         let node = head(&["Host: 127.0.0.1:4321", "Content-Type: application/json"]);
         assert_eq!(admit("POST", &node), allowed(None));
         let preflight = head(&["Host: 127.0.0.1:4321", "Origin: http://localhost:1420"]);
-        assert_eq!(admit("OPTIONS", &preflight), allowed(Some("http://localhost:1420")));
+        assert_eq!(
+            admit("OPTIONS", &preflight),
+            allowed(Some("http://localhost:1420"))
+        );
     }
 
     /// #60: any website open in the browser could drive the engine.
     #[test]
     fn another_website_is_refused() {
-        for origin in ["https://evil.example", "http://localhost:1421", "null", "http://localhost:1420.evil.example"] {
+        for origin in [
+            "https://evil.example",
+            "http://localhost:1421",
+            "null",
+            "http://localhost:1420.evil.example",
+        ] {
             let origin_line = format!("Origin: {origin}");
-            let h = head(&["Host: 127.0.0.1:4321", &origin_line, "Content-Type: application/json"]);
+            let h = head(&[
+                "Host: 127.0.0.1:4321",
+                &origin_line,
+                "Content-Type: application/json",
+            ]);
             assert!(matches!(admit("POST", &h), Admission::Deny(_)), "{origin}");
-            assert!(matches!(admit("OPTIONS", &h), Admission::Deny(_)), "{origin} preflight");
+            assert!(
+                matches!(admit("OPTIONS", &h), Admission::Deny(_)),
+                "{origin} preflight"
+            );
         }
     }
 
@@ -399,7 +492,8 @@ mod tests {
     fn every_command_has_a_bridge_arm() {
         let lib = include_str!("lib.rs");
         let bridge = include_str!("devbridge.rs");
-        let start = lib.find("generate_handler![").expect("handler list") + "generate_handler![".len();
+        let start =
+            lib.find("generate_handler![").expect("handler list") + "generate_handler![".len();
         let end = start + lib[start..].find(']').expect("end of handler list");
         let missing: Vec<&str> = lib[start..end]
             .split(',')

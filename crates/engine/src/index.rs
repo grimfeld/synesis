@@ -510,7 +510,13 @@ impl KeyedTie {
             from_event: false,
             order: n as f64,
             event: String::new(),
-            tie: PlaceTie { character, place, event: None, start: None, end: None },
+            tie: PlaceTie {
+                character,
+                place,
+                event: None,
+                start: None,
+                end: None,
+            },
         }
     }
 
@@ -523,18 +529,32 @@ impl KeyedTie {
             from_event: true,
             order: start.map(|d| d.sort_key()).unwrap_or(f64::INFINITY),
             event: event.title.to_lowercase(),
-            tie: PlaceTie { character, place, event: Some(event.clone()), start, end },
+            tie: PlaceTie {
+                character,
+                place,
+                event: Some(event.clone()),
+                start,
+                end,
+            },
         }
     }
 }
 
 /// Record a region's Border (or its lack) and the Places inside it, in place
 /// of what was recorded.
-fn replace_region(tx: &rusqlite::Transaction, region: &str, json: Option<&str>, inside: &[String]) -> rusqlite::Result<()> {
+fn replace_region(
+    tx: &rusqlite::Transaction,
+    region: &str,
+    json: Option<&str>,
+    inside: &[String],
+) -> rusqlite::Result<()> {
     tx.execute("DELETE FROM in_region WHERE region = ?1", [region])?;
     tx.execute("DELETE FROM region_borders WHERE region = ?1", [region])?;
     if let Some(json) = json {
-        tx.execute("INSERT INTO region_borders(region, polygons) VALUES(?1, ?2)", params![region, json])?;
+        tx.execute(
+            "INSERT INTO region_borders(region, polygons) VALUES(?1, ?2)",
+            params![region, json],
+        )?;
     }
     for place in inside {
         insert_member(tx, place, region)?;
@@ -543,7 +563,11 @@ fn replace_region(tx: &rusqlite::Transaction, region: &str, json: Option<&str>, 
 }
 
 /// Record the regions one Place lies inside, in place of what was recorded.
-fn replace_place(tx: &rusqlite::Transaction, place: &str, regions: &[String]) -> rusqlite::Result<()> {
+fn replace_place(
+    tx: &rusqlite::Transaction,
+    place: &str,
+    regions: &[String],
+) -> rusqlite::Result<()> {
     tx.execute("DELETE FROM in_region WHERE place = ?1", [place])?;
     for region in regions {
         insert_member(tx, place, region)?;
@@ -552,10 +576,12 @@ fn replace_place(tx: &rusqlite::Transaction, place: &str, regions: &[String]) ->
 }
 
 fn insert_member(tx: &rusqlite::Transaction, place: &str, region: &str) -> rusqlite::Result<()> {
-    tx.execute("INSERT INTO in_region(place, region) VALUES(?1, ?2)", params![place, region])?;
+    tx.execute(
+        "INSERT INTO in_region(place, region) VALUES(?1, ?2)",
+        params![place, region],
+    )?;
     Ok(())
 }
-
 
 fn label_for(doc_type: DocType, title: &str, body: &str) -> String {
     if doc_type != DocType::Clipping {
@@ -735,7 +761,10 @@ impl Index {
             }
             // Board refs come from the `.canvas`, not this file, so they are
             // not this re-index's to clear (PLAN §17.6).
-            tx.execute("DELETE FROM links WHERE from_id = ?1 AND kind = 'prose'", [&victim])?;
+            tx.execute(
+                "DELETE FROM links WHERE from_id = ?1 AND kind = 'prose'",
+                [&victim],
+            )?;
             tx.execute("DELETE FROM docs_fts WHERE id = ?1", [&victim])?;
             tx.execute("DELETE FROM documents WHERE id = ?1", [&victim])?;
             // Where it lies is recomputed from its new coordinates by the
@@ -862,7 +891,10 @@ impl Index {
             tx.execute(&format!("DELETE FROM {t} WHERE doc_id = ?1"), [id])?;
         }
         tx.execute("DELETE FROM links WHERE from_id = ?1", [id])?;
-        tx.execute("DELETE FROM in_region WHERE place = ?1 OR region = ?1", [id])?;
+        tx.execute(
+            "DELETE FROM in_region WHERE place = ?1 OR region = ?1",
+            [id],
+        )?;
         tx.execute("DELETE FROM region_borders WHERE region = ?1", [id])?;
         tx.execute("DELETE FROM docs_fts WHERE id = ?1", [id])?;
         tx.execute("DELETE FROM documents WHERE id = ?1", [id])?;
@@ -1097,9 +1129,7 @@ impl Index {
         let mut args: Vec<&dyn rusqlite::ToSql> =
             names.iter().map(|n| n as &dyn rusqlite::ToSql).collect();
         args.push(&id);
-        let n: i64 = self
-            .conn
-            .query_row(&sql, args.as_slice(), |r| r.get(0))?;
+        let n: i64 = self.conn.query_row(&sql, args.as_slice(), |r| r.get(0))?;
         Ok(n as usize)
     }
 
@@ -1675,7 +1705,9 @@ impl Index {
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for (n, (character, target)) in rows.into_iter().enumerate() {
-            let Some(place) = self.resolve_as(&target, DocType::Place, memo)? else { continue };
+            let Some(place) = self.resolve_as(&target, DocType::Place, memo)? else {
+                continue;
+            };
             if seen.insert((character.id.clone(), place.id.clone())) {
                 out.push(KeyedTie::lifelong(character, place, n));
             }
@@ -1687,14 +1719,21 @@ impl Index {
     /// to the first of its `place` links that is a Place. None without one.
     fn event_ties(&self, event: DocSummary, memo: &Memo) -> Result<Vec<KeyedTie>> {
         let links = self.tie_links(&event.id)?;
-        let named = |property: &'static str| links.iter().filter(move |(p, _)| p == property).map(|(_, t)| t);
+        let named = |property: &'static str| {
+            links
+                .iter()
+                .filter(move |(p, _)| p == property)
+                .map(|(_, t)| t)
+        };
         let Some(place) = self.first_as(named("place"), DocType::Place, memo)? else {
             return Ok(Vec::new());
         };
         let mut seen = HashSet::new();
         let mut out = Vec::new();
         for target in named("characters") {
-            let Some(character) = self.resolve_as(target, DocType::Character, memo)? else { continue };
+            let Some(character) = self.resolve_as(target, DocType::Character, memo)? else {
+                continue;
+            };
             if seen.insert(character.id.clone()) {
                 out.push(KeyedTie::through(character, place.clone(), &event));
             }
@@ -1713,7 +1752,12 @@ impl Index {
     }
 
     /// The first of `targets` that resolves to a document of type `t`.
-    fn first_as<'a>(&self, targets: impl Iterator<Item = &'a String>, t: DocType, memo: &Memo) -> Result<Option<DocSummary>> {
+    fn first_as<'a>(
+        &self,
+        targets: impl Iterator<Item = &'a String>,
+        t: DocType,
+        memo: &Memo,
+    ) -> Result<Option<DocSummary>> {
         for target in targets {
             if let Some(d) = self.resolve_as(target, t, memo)? {
                 return Ok(Some(d));
@@ -1778,9 +1822,9 @@ impl Index {
     pub fn place_facts(&self) -> Result<Vec<PlaceFact>> {
         let mut facts: Vec<PlaceFact> = Vec::new();
         let mut at: HashMap<String, usize> = HashMap::new();
-        let mut st = self
-            .conn
-            .prepare("SELECT d.id, d.frontmatter FROM documents d WHERE d.type = 'place' ORDER BY d.title")?;
+        let mut st = self.conn.prepare(
+            "SELECT d.id, d.frontmatter FROM documents d WHERE d.type = 'place' ORDER BY d.title",
+        )?;
         for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))? {
             let (id, fm) = row?;
             at.insert(id.clone(), facts.len());
@@ -1833,9 +1877,9 @@ impl Index {
             }
         }
 
-        let mut st = self
-            .conn
-            .prepare(&format!("{LINKERS} SELECT place, COUNT(*) FROM linkers GROUP BY place"))?;
+        let mut st = self.conn.prepare(&format!(
+            "{LINKERS} SELECT place, COUNT(*) FROM linkers GROUP BY place"
+        ))?;
         for row in st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))? {
             let (doc, n) = row?;
             if let Some(&i) = at.get(&doc) {
@@ -1938,7 +1982,9 @@ impl Index {
         )?;
         for t in targets {
             let doc: Option<String> = tx
-                .query_row("SELECT id FROM documents WHERE path = ?1", [t], |r| r.get(0))
+                .query_row("SELECT id FROM documents WHERE path = ?1", [t], |r| {
+                    r.get(0)
+                })
                 .optional()?;
             let Some(doc_id) = doc else { continue };
             tx.execute(
@@ -2046,8 +2092,7 @@ impl Index {
             .into_iter()
             .map(|(id, title, fm)| {
                 let fm: Value = serde_json::from_str(&fm).unwrap_or(Value::Null);
-                let text =
-                    |k: &str| fm.get(k).and_then(scalar_text).unwrap_or_default();
+                let text = |k: &str| fm.get(k).and_then(scalar_text).unwrap_or_default();
                 LibraryEntry {
                     child_count: child_count.get(&id).copied().unwrap_or(0),
                     parent_id: parent_of.get(&id).cloned(),
@@ -2211,12 +2256,19 @@ impl Index {
     /// Record a region's Border as just read (`None`: it has none, or none
     /// that can be read) and, when that changed it, recompute which Places
     /// lie inside. Returns whether it changed.
-    pub fn set_region_border(&mut self, region: &str, polygons: Option<&[crate::border::Polygon]>) -> Result<bool> {
+    pub fn set_region_border(
+        &mut self,
+        region: &str,
+        polygons: Option<&[crate::border::Polygon]>,
+    ) -> Result<bool> {
         let json = polygons.map(serde_json::to_string).transpose()?;
         if self.recorded_border(region)? == json {
             return Ok(false);
         }
-        let inside = polygons.map(|p| self.places_inside(region, p)).transpose()?.unwrap_or_default();
+        let inside = polygons
+            .map(|p| self.places_inside(region, p))
+            .transpose()?
+            .unwrap_or_default();
         let tx = self.conn.transaction()?;
         replace_region(&tx, region, json.as_deref(), &inside)?;
         tx.commit()?;
@@ -2227,16 +2279,26 @@ impl Index {
     fn recorded_border(&self, region: &str) -> Result<Option<String>> {
         Ok(self
             .conn
-            .query_row("SELECT polygons FROM region_borders WHERE region = ?1", [region], |r| r.get(0))
+            .query_row(
+                "SELECT polygons FROM region_borders WHERE region = ?1",
+                [region],
+                |r| r.get(0),
+            )
             .optional()?)
     }
 
     /// The Places with coordinates inside a Border, the region itself aside.
-    fn places_inside(&self, region: &str, polygons: &[crate::border::Polygon]) -> Result<Vec<String>> {
+    fn places_inside(
+        &self,
+        region: &str,
+        polygons: &[crate::border::Polygon],
+    ) -> Result<Vec<String>> {
         Ok(self
             .place_points()?
             .into_iter()
-            .filter(|(place, lat, lon)| place != region && crate::border::contains(polygons, *lat, *lon))
+            .filter(|(place, lat, lon)| {
+                place != region && crate::border::contains(polygons, *lat, *lon)
+            })
             .map(|(place, _, _)| place)
             .collect())
     }
@@ -2248,7 +2310,9 @@ impl Index {
             Some((lat, lon)) => self
                 .region_borders()?
                 .into_iter()
-                .filter(|(region, polygons)| region != place && crate::border::contains(polygons, lat, lon))
+                .filter(|(region, polygons)| {
+                    region != place && crate::border::contains(polygons, lat, lon)
+                })
                 .map(|(region, _)| region)
                 .collect(),
             None => Vec::new(),
@@ -2284,7 +2348,9 @@ impl Index {
     }
 
     fn region_borders(&self) -> Result<Vec<(String, Vec<crate::border::Polygon>)>> {
-        let mut st = self.conn.prepare("SELECT region, polygons FROM region_borders")?;
+        let mut st = self
+            .conn
+            .prepare("SELECT region, polygons FROM region_borders")?;
         let rows: Vec<(String, String)> = st
             .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
             .collect::<rusqlite::Result<_>>()?;
@@ -2310,17 +2376,28 @@ impl Index {
              JOIN documents p ON p.id = i.place JOIN documents r ON r.id = i.region
              ORDER BY r.title_norm, p.title_norm",
         )?;
-        let rows = st.query_map([], |r| Ok(RegionMember { place: r.get(0)?, region: r.get(1)? }))?;
+        let rows = st.query_map([], |r| {
+            Ok(RegionMember {
+                place: r.get(0)?,
+                region: r.get(1)?,
+            })
+        })?;
         Ok(rows.collect::<rusqlite::Result<_>>()?)
     }
 
     /// `(id, path, value)` for every document of a type that sets `name`.
-    pub fn property_on(&self, doc_type: DocType, name: &str) -> Result<Vec<(String, String, Value)>> {
+    pub fn property_on(
+        &self,
+        doc_type: DocType,
+        name: &str,
+    ) -> Result<Vec<(String, String, Value)>> {
         let mut st = self.conn.prepare(
             "SELECT id, path, frontmatter FROM documents WHERE type = ?1 ORDER BY title_norm",
         )?;
         let rows: Vec<(String, String, String)> = st
-            .query_map([doc_type.as_str()], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .query_map([doc_type.as_str()], |r| {
+                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         Ok(rows
             .into_iter()
@@ -2572,9 +2649,9 @@ impl Index {
     /// offers to insert. Surfaced beside unresolved links so the user can fix
     /// the collision rather than discover it through a wrong link.
     pub fn ambiguous_titles(&self) -> Result<Vec<AmbiguousTitle>> {
-        let mut st = self.conn.prepare(
-            "SELECT title_norm FROM documents GROUP BY title_norm HAVING COUNT(*) > 1",
-        )?;
+        let mut st = self
+            .conn
+            .prepare("SELECT title_norm FROM documents GROUP BY title_norm HAVING COUNT(*) > 1")?;
         let norms: Vec<String> = st
             .query_map([], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<_>>()?;
@@ -2605,7 +2682,10 @@ fn fts_any_phrase(names: &[String]) -> String {
                 .chars()
                 .map(|c| if c.is_alphanumeric() { c } else { ' ' })
                 .collect();
-            format!("\"{}\"", cleaned.split_whitespace().collect::<Vec<_>>().join(" "))
+            format!(
+                "\"{}\"",
+                cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
+            )
         })
         .filter(|q| q.len() > 2)
         .collect::<Vec<_>>()
@@ -2741,7 +2821,11 @@ mod tests {
         // reading trail does: "s2" is the periodical "s1" is an article in.
         let rolled = idx.clippings(Some("s2")).unwrap();
         let ids: HashSet<&str> = rolled.iter().map(|e| e.doc.id.as_str()).collect();
-        assert_eq!(ids, HashSet::from(["c1", "c2"]), "the article's Clipping rolls up");
+        assert_eq!(
+            ids,
+            HashSet::from(["c1", "c2"]),
+            "the article's Clipping rolls up"
+        );
     }
 
     fn idx_with(docs: &[(&str, &str, &str)]) -> Index {
@@ -2952,9 +3036,21 @@ To the congregation in [[Ephesus]] (Re 2:1).
     #[test]
     fn a_document_linking_a_place_by_name_and_alias_counts_once() {
         let idx = idx_with(&[
-            ("j", "Places/jerusalem.md", "---\ntype: place\ntitle: Jerusalem\naliases: [Zion]\n---\n"),
-            ("n", "Notes/n.md", "---\ntype: note\n---\n[[Jerusalem]] and [[Zion]] (Ps 48:2, Ac 20:31).\n"),
-            ("m", "Notes/m.md", "---\ntype: note\n---\n[[zion]] again (Ps 48:2).\n"),
+            (
+                "j",
+                "Places/jerusalem.md",
+                "---\ntype: place\ntitle: Jerusalem\naliases: [Zion]\n---\n",
+            ),
+            (
+                "n",
+                "Notes/n.md",
+                "---\ntype: note\n---\n[[Jerusalem]] and [[Zion]] (Ps 48:2, Ac 20:31).\n",
+            ),
+            (
+                "m",
+                "Notes/m.md",
+                "---\ntype: note\n---\n[[zion]] again (Ps 48:2).\n",
+            ),
         ]);
         let facts = idx.place_facts().unwrap();
         let j = facts.iter().find(|f| f.doc == "j").unwrap();
@@ -2984,11 +3080,23 @@ To the congregation in [[Ephesus]] (Re 2:1).
     #[test]
     fn place_facts_carry_the_kind_as_written() {
         let idx = idx_with(&[
-            ("s", "Places/sinai.md", "---\ntype: place\ntitle: Sinai\nkind: mountain\n---\n"),
+            (
+                "s",
+                "Places/sinai.md",
+                "---\ntype: place\ntitle: Sinai\nkind: mountain\n---\n",
+            ),
             // A kind the app has never heard of is carried, not dropped: the
             // Map draws it with the plain pin or a custom kind's glyph.
-            ("o", "Places/oasis.md", "---\ntype: place\ntitle: Elim\nkind: oasis\n---\n"),
-            ("n", "Places/none.md", "---\ntype: place\ntitle: Troas\nkind: \"\"\n---\n"),
+            (
+                "o",
+                "Places/oasis.md",
+                "---\ntype: place\ntitle: Elim\nkind: oasis\n---\n",
+            ),
+            (
+                "n",
+                "Places/none.md",
+                "---\ntype: place\ntitle: Troas\nkind: \"\"\n---\n",
+            ),
         ]);
         let facts = idx.place_facts().unwrap();
         let kind = |id: &str| facts.iter().find(|f| f.doc == id).unwrap().kind.clone();
@@ -3331,13 +3439,21 @@ tags: [judgment]
     #[test]
     fn search_narrows_to_the_types_asked_for() {
         let idx = idx_with(&[
-            ("n1", "Notes/endurance.md", "---\ntype: note\n---\nEndurance under trial."),
+            (
+                "n1",
+                "Notes/endurance.md",
+                "---\ntype: note\n---\nEndurance under trial.",
+            ),
             (
                 "c1",
                 "Compositions/talk.md",
                 "---\ntype: composition\n---\nOn endurance, for the congregation.",
             ),
-            ("k1", "Concepts/endurance.md", "---\ntype: concept\n---\nEndurance as a theme."),
+            (
+                "k1",
+                "Concepts/endurance.md",
+                "---\ntype: concept\n---\nEndurance as a theme.",
+            ),
         ]);
         let ids = |types: &[DocType]| {
             let mut v: Vec<String> = idx
@@ -3399,7 +3515,11 @@ tags: [judgment]
         // bare occurrence in a document that already links is not offered.
         let idx = idx_with(&[
             ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
-            ("n", "Notes/A.md", "[[Antioch]] grew, and Antioch sent them."),
+            (
+                "n",
+                "Notes/A.md",
+                "[[Antioch]] grew, and Antioch sent them.",
+            ),
         ]);
         assert_eq!(idx.unlinked_mentions("p", 50).unwrap().total, 0);
     }
@@ -3408,7 +3528,11 @@ tags: [judgment]
     fn a_tag_counts_as_linking_too() {
         let idx = idx_with(&[
             ("c", "Concepts/Endurance.md", "---\ntype: concept\n---\n"),
-            ("n", "Notes/A.md", "---\ntags: [endurance]\n---\nOn endurance."),
+            (
+                "n",
+                "Notes/A.md",
+                "---\ntags: [endurance]\n---\nOn endurance.",
+            ),
         ]);
         assert_eq!(idx.unlinked_mentions("c", 50).unwrap().total, 0);
     }
@@ -3447,7 +3571,9 @@ tags: [judgment]
         // Story 18: "v. 29" in the next paragraph of the same section reads
         // as Romans 8:29, so the Note is a backlink on that Verse.
         let idx = idx_with(&[("n", "Notes/A.md", "Romans 8:28.\n\nv. 29")]);
-        let on_29 = idx.mentions_of(45, Some(8), Some(29), Lang::En, None).unwrap();
+        let on_29 = idx
+            .mentions_of(45, Some(8), Some(29), Lang::En, None)
+            .unwrap();
         assert_eq!(on_29.len(), 1);
         assert_eq!(on_29[0].doc.id, "n");
         assert!(on_29[0].inferred);
@@ -3497,7 +3623,10 @@ tags: [judgment]
             ("c", "Concepts/Verset.md", "---\ntype: concept\n---\n"),
             ("n", "Notes/A.md", ""),
         ]);
-        assert!(idx.linkables("n", "Relire Jérémie 48:2.", 50).unwrap().is_empty());
+        assert!(idx
+            .linkables("n", "Relire Jérémie 48:2.", 50)
+            .unwrap()
+            .is_empty());
         // A name inside the inferred "verset 12" is skipped as well.
         assert!(idx
             .linkables("n", "Jérémie 48:2, puis verset 12.", 50)
@@ -3542,8 +3671,14 @@ tags: [judgment]
             ("p", "Places/Antioch.md", "---\ntype: place\n---\n"),
             ("n", "Notes/A.md", ""),
         ]);
-        assert!(idx.linkables("n", "Left [[Antioch]] today.", 50).unwrap().is_empty());
-        assert!(idx.linkables("n", "Left #Antioch today.", 50).unwrap().is_empty());
+        assert!(idx
+            .linkables("n", "Left [[Antioch]] today.", 50)
+            .unwrap()
+            .is_empty());
+        assert!(idx
+            .linkables("n", "Left #Antioch today.", 50)
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -3563,7 +3698,11 @@ tags: [judgment]
     #[test]
     fn an_alias_link_retires_the_target_it_names() {
         let idx = idx_with(&[
-            ("ch", "Characters/Paul.md", "---\ntype: character\naliases: [Saul]\n---\n"),
+            (
+                "ch",
+                "Characters/Paul.md",
+                "---\ntype: character\naliases: [Saul]\n---\n",
+            ),
             ("n", "Notes/A.md", ""),
         ]);
         // Linked by its alias, then written by its title: still the same
@@ -3611,7 +3750,8 @@ type: composition
 Body",
             ),
         ]);
-        idx.set_board_refs("comp", &["Notes/Steadfast.md".into()]).unwrap();
+        idx.set_board_refs("comp", &["Notes/Steadfast.md".into()])
+            .unwrap();
         let unresolved = idx.unresolved().unwrap();
         assert!(
             unresolved.is_empty(),
@@ -3624,14 +3764,22 @@ Body",
         // Placing material on a Board marks it as on the Board, and leaves it
         // a Candidate: the Board is where nothing is committed (PLAN §17.6).
         let mut idx = idx_with(&[
-            ("n1", "Notes/Steadfast.md", "---
+            (
+                "n1",
+                "Notes/Steadfast.md",
+                "---
 tags: [endurance]
 ---
-On endurance"),
-            ("n2", "Notes/Patience.md", "---
+On endurance",
+            ),
+            (
+                "n2",
+                "Notes/Patience.md",
+                "---
 tags: [endurance]
 ---
-On patience"),
+On patience",
+            ),
             (
                 "comp",
                 "Compositions/Talk.md",
@@ -3689,7 +3837,9 @@ Body",
         // already there counts as prose rather than being lost or reclassified.
         let kind: String = idx
             .conn
-            .query_row("SELECT kind FROM links WHERE from_id = 'a'", [], |r| r.get(0))
+            .query_row("SELECT kind FROM links WHERE from_id = 'a'", [], |r| {
+                r.get(0)
+            })
             .unwrap();
         assert_eq!(kind, "prose");
         let has_index: bool = idx
@@ -3710,10 +3860,14 @@ Body",
         let mut idx = idx_with(&[
             ("n1", "Notes/A.md", "A"),
             ("n2", "Notes/B.md", "B"),
-            ("comp", "Compositions/Talk.md", "---
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---
 type: composition
 ---
-Body"),
+Body",
+            ),
         ]);
         idx.set_board_refs("comp", &["Notes/A.md".into()]).unwrap();
 
@@ -3733,7 +3887,8 @@ Body edited";
         assert_eq!(idx.board_targets("comp").unwrap(), vec!["n2".to_string()]);
 
         // A path naming no document is skipped, never a phantom backlink.
-        idx.set_board_refs("comp", &["Notes/gone.md".into()]).unwrap();
+        idx.set_board_refs("comp", &["Notes/gone.md".into()])
+            .unwrap();
         assert!(idx.board_targets("comp").unwrap().is_empty());
     }
 
@@ -3955,11 +4110,18 @@ Written by [[Paul]] from prison.",
         let got = idx
             .board_excerpts(&[
                 ("Clippings/steadfast.md".to_string(), None),
-                ("Notes/trials.md".to_string(), Some("#Cross-references".into())),
+                (
+                    "Notes/trials.md".to_string(),
+                    Some("#Cross-references".into()),
+                ),
                 ("Notes/gone.md".to_string(), None),
             ])
             .unwrap();
-        assert_eq!(got.len(), 2, "the missing path is skipped, the rest answered");
+        assert_eq!(
+            got.len(),
+            2,
+            "the missing path is skipped, the rest answered"
+        );
     }
 
     /// The demo vault's nesting: a periodical holding an issue holding an

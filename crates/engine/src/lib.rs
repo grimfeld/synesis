@@ -16,6 +16,8 @@ pub mod gazetteer;
 pub mod index;
 pub mod meta;
 pub mod names;
+#[cfg(feature = "p2p")]
+pub mod p2p;
 pub mod parser;
 pub mod place_kinds;
 pub mod properties;
@@ -23,8 +25,6 @@ pub mod query;
 pub mod scripture;
 pub mod skin;
 pub mod sync;
-#[cfg(feature = "p2p")]
-pub mod p2p;
 pub mod templates;
 pub mod unlinked;
 pub mod vault;

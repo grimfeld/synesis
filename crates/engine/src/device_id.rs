@@ -123,7 +123,11 @@ mod tests {
         assert_eq!(parsed.as_str(), id);
         let lower = DeviceId::parse(&id.to_lowercase()).unwrap();
         assert_eq!(lower, parsed, "a lowercase spelling is a different id");
-        assert_eq!(lower.as_str(), id, "the lowercase spelling was not normalised");
+        assert_eq!(
+            lower.as_str(),
+            id,
+            "the lowercase spelling was not normalised"
+        );
         assert!(parsed == id.to_lowercase().as_str());
     }
 
@@ -154,14 +158,20 @@ mod tests {
     fn serde_refuses_a_bad_id_and_a_list_drops_it() {
         assert!(serde_json::from_str::<DeviceId>("\"../etc\"").is_err());
         let ok: DeviceId = serde_json::from_str("\"01arz3ndektsv4rrffq69g5fav\"").unwrap();
-        assert_eq!(serde_json::to_string(&ok).unwrap(), "\"01ARZ3NDEKTSV4RRFFQ69G5FAV\"");
+        assert_eq!(
+            serde_json::to_string(&ok).unwrap(),
+            "\"01ARZ3NDEKTSV4RRFFQ69G5FAV\""
+        );
 
         #[derive(Deserialize)]
         struct L {
             #[serde(deserialize_with = "lenient_list")]
             ids: Vec<DeviceId>,
         }
-        let l: L = serde_json::from_str(r#"{"ids":["ghost","01ARZ3NDEKTSV4RRFFQ69G5FAV","01arz3ndektsv4rrffq69g5fav"]}"#).unwrap();
+        let l: L = serde_json::from_str(
+            r#"{"ids":["ghost","01ARZ3NDEKTSV4RRFFQ69G5FAV","01arz3ndektsv4rrffq69g5fav"]}"#,
+        )
+        .unwrap();
         assert_eq!(l.ids.len(), 1);
     }
 }

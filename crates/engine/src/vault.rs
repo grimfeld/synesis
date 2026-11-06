@@ -8,8 +8,8 @@ use crate::index::{
     self, Backlink, Candidate, CoverageCell, DocSummary, Graph, GraphLevel, Index, Linkable,
     SearchHit, UnlinkedMentions, UnresolvedLink,
 };
-use crate::parser::Detected;
 use crate::meta::VaultMeta;
+use crate::parser::Detected;
 use crate::properties::{PropertySchema, PropertyType};
 use crate::query::{Answer, Query};
 use crate::scripture::{Lang, Passage};
@@ -200,7 +200,10 @@ fn remove_owned(root: &Path, files: &[PathBuf]) -> Result<()> {
     for f in files {
         // Removing a link removes the link, never its target; but a folder on
         // the way that links out of the Vault is not walked through.
-        if !f.parent().is_some_and(|p| crate::vault_path::confined(root, p)) {
+        if !f
+            .parent()
+            .is_some_and(|p| crate::vault_path::confined(root, p))
+        {
             continue;
         }
         match fs::remove_file(f) {
@@ -394,7 +397,9 @@ impl Vault {
                 continue;
             }
             let Ok(abs) = self.abs(&d.path) else { continue };
-            let Ok(text) = fs::read_to_string(abs) else { continue };
+            let Ok(text) = fs::read_to_string(abs) else {
+                continue;
+            };
             if let Some(sync) = self.sync.as_mut() {
                 sync.republish(&d.id, &text, &d.path)?;
                 n += 1;
@@ -539,7 +544,8 @@ impl Vault {
     fn scan_files(&mut self, all: bool) -> Result<Vec<DocSummary>> {
         let mut changed = self.apply_remote()?;
         let files = self.markdown_files();
-        let walked: std::collections::HashSet<String> = files.iter().map(|(rel, _)| rel.clone()).collect();
+        let walked: std::collections::HashSet<String> =
+            files.iter().map(|(rel, _)| rel.clone()).collect();
         changed.extend(self.reindex(files, all)?);
         self.forget_vanished(&walked)?;
         self.index_boards()?;
@@ -615,7 +621,9 @@ impl Vault {
     /// Places inside it recomputed when it changed), and the regions it lies
     /// inside, from its coordinates. Only a region has a Border.
     fn index_containment(&mut self, id: &str, rel: &str, fm: &Map<String, Value>) -> Result<()> {
-        let border = fm.get(crate::border::PROPERTY).filter(|_| crate::border::is_region(fm.get("kind")));
+        let border = fm
+            .get(crate::border::PROPERTY)
+            .filter(|_| crate::border::is_region(fm.get("kind")));
         self.record_border(id, rel, border)?;
         self.index.locate_place(id)
     }
@@ -663,7 +671,11 @@ impl Vault {
     /// still names it, leaving a tombstone so a paired Device drops its copy
     /// rather than pushing it back. `except` is the Place letting it go.
     pub fn drop_border_file(&mut self, rel: &str, except: &str) -> Result<bool> {
-        if self.places_naming_border(rel)?.iter().any(|id| id != except) {
+        if self
+            .places_naming_border(rel)?
+            .iter()
+            .any(|id| id != except)
+        {
             return Ok(false);
         }
         crate::border::remove(&self.root, &self.local_dir, rel)?;
@@ -673,7 +685,12 @@ impl Vault {
     /// Read one region's Border file into the index. A file iCloud has not
     /// downloaded yet keeps what was recorded before; one that is missing or
     /// malformed contains nothing, as a region without a Border does.
-    fn record_border(&mut self, id: &str, place_path: &str, border: Option<&Value>) -> Result<bool> {
+    fn record_border(
+        &mut self,
+        id: &str,
+        place_path: &str,
+        border: Option<&Value>,
+    ) -> Result<bool> {
         let Some(rel) = border.and_then(|b| Self::border_path(place_path, b)) else {
             return self.index.set_region_border(id, None);
         };
@@ -690,7 +707,8 @@ impl Vault {
     fn refresh_borders(&mut self) -> Result<Vec<String>> {
         let mut changed = Vec::new();
         let named = self.bordered_places()?;
-        let seen: std::collections::HashSet<String> = named.iter().map(|(id, _, _)| id.clone()).collect();
+        let seen: std::collections::HashSet<String> =
+            named.iter().map(|(id, _, _)| id.clone()).collect();
         for (id, path, value) in named {
             if self.record_border(&id, &path, Some(&value))? {
                 changed.push(id);
@@ -703,7 +721,10 @@ impl Vault {
 
     /// Forget each Border on record whose Place no longer names one. Returns
     /// those regions.
-    fn forget_unnamed_borders(&mut self, named: &std::collections::HashSet<String>) -> Result<Vec<String>> {
+    fn forget_unnamed_borders(
+        &mut self,
+        named: &std::collections::HashSet<String>,
+    ) -> Result<Vec<String>> {
         let mut gone = Vec::new();
         for id in self.index.bordered_regions()? {
             if !named.contains(&id) && self.index.set_region_border(&id, None)? {
@@ -743,10 +764,14 @@ impl Vault {
             if !abs.exists() {
                 continue;
             }
-            let Ok(text) = fs::read_to_string(&abs) else { continue };
+            let Ok(text) = fs::read_to_string(&abs) else {
+                continue;
+            };
             // A canvas this app cannot parse is left alone rather than
             // reported: it is the user's file, and the Board view will say so.
-            let Ok(board) = Canvas::parse(&text) else { continue };
+            let Ok(board) = Canvas::parse(&text) else {
+                continue;
+            };
             if let Some(sync) = self.sync.as_mut() {
                 sync.record_canvas(&comp.id, &board)?;
             }
@@ -796,10 +821,7 @@ impl Vault {
             // A file older than another device's snapshot is a stale copy the
             // cloud has not finished replacing: prefer the merged CRDT text.
             if let Some(crdt) = sync.text_of(&id) {
-                if !own_write
-                    && crdt != text
-                    && sync.remote_mtime(&id).is_some_and(|m| m > mtime)
-                {
+                if !own_write && crdt != text && sync.remote_mtime(&id).is_some_and(|m| m > mtime) {
                     write_atomic(&abs, &crdt)?;
                     text = crdt;
                     parsed = document::parse(rel, &text);
@@ -865,7 +887,9 @@ impl Vault {
     /// Paths differing only in case are taken as one file: on a
     /// case-insensitive disk they are.
     fn held_elsewhere(&self, id: &str, rel: &str) -> Result<bool> {
-        let Some(other) = self.index.get(id)? else { return Ok(false) };
+        let Some(other) = self.index.get(id)? else {
+            return Ok(false);
+        };
         if other.path.to_lowercase() == rel.to_lowercase() {
             return Ok(false);
         }
@@ -1011,17 +1035,27 @@ impl Vault {
     /// app's own `write_board` — which recorded the same Board already, so
     /// announcing it would only make the open Board reload what it just saved.
     pub fn fold_board_file(&mut self, rel: &str) -> Result<Option<DocSummary>> {
-        let Some(md) = canvas::composition_path(rel) else { return Ok(None) };
-        let Some(comp) = self.index.get_by_path(&md)? else { return Ok(None) };
+        let Some(md) = canvas::composition_path(rel) else {
+            return Ok(None);
+        };
+        let Some(comp) = self.index.get_by_path(&md)? else {
+            return Ok(None);
+        };
         if comp.doc_type != DocType::Composition {
             return Ok(None);
         }
-        let Ok(abs) = self.abs(rel) else { return Ok(None) };
+        let Ok(abs) = self.abs(rel) else {
+            return Ok(None);
+        };
         if crate::vault_path::is_link(&abs) {
             return Ok(None);
         }
-        let Ok(text) = fs::read_to_string(&abs) else { return Ok(None) };
-        let Ok(parsed) = Canvas::parse(&text) else { return Ok(None) };
+        let Ok(text) = fs::read_to_string(&abs) else {
+            return Ok(None);
+        };
+        let Ok(parsed) = Canvas::parse(&text) else {
+            return Ok(None);
+        };
         let (changed, board) = match self.sync.as_mut() {
             Some(sync) => {
                 let changed = sync.record_canvas(&comp.id, &parsed)?;
@@ -1206,7 +1240,9 @@ impl Vault {
             .get(id)?
             .ok_or_else(|| Error::NotFound(id.into()))?;
         if summary.doc_type != DocType::Composition {
-            return Err(Error::Invalid("Only a Composition can be duplicated".into()));
+            return Err(Error::Invalid(
+                "Only a Composition can be duplicated".into(),
+            ));
         }
         let title = document::display_title(&sanitize_title(title));
         let folder = summary
@@ -1333,7 +1369,9 @@ impl Vault {
     /// than by scanning the vault, so this costs one query.
     fn rewrite_boards(&mut self, id: &str, from: &str, to: &str) -> Result<()> {
         for comp in self.index.boards_referencing(id)? {
-            let Some(mut board) = self.read_board(&comp.id)? else { continue };
+            let Some(mut board) = self.read_board(&comp.id)? else {
+                continue;
+            };
             if board.rewrite_path(from, to) {
                 self.write_board(&comp.id, &board)?;
             }
@@ -1404,9 +1442,7 @@ impl Vault {
             Query::SourceChildren { id } => Answer::Docs(self.index.source_descendants(&id)?),
             Query::TagsOf { ids } => Answer::TagsOf(self.index.tags_of(&ids)?),
             Query::UnresolvedLinks => Answer::UnresolvedLinks(self.index.unresolved()?),
-            Query::BoardsReferencing { id } => {
-                Answer::Docs(self.index.boards_referencing(&id)?)
-            }
+            Query::BoardsReferencing { id } => Answer::Docs(self.index.boards_referencing(&id)?),
             Query::BoardExcerpts { refs } => {
                 let pairs: Vec<(String, Option<String>)> =
                     refs.into_iter().map(|r| (r.path, r.subpath)).collect();
@@ -1423,9 +1459,7 @@ impl Vault {
             Query::Search { text, types, limit } => {
                 Answer::Search(self.index.search(&text, &types, limit)?)
             }
-            Query::Suggest { prefix, limit } => {
-                Answer::Docs(self.index.suggest(&prefix, limit)?)
-            }
+            Query::Suggest { prefix, limit } => Answer::Docs(self.index.suggest(&prefix, limit)?),
             Query::Tags => Answer::Tags(
                 self.index
                     .tags()?
@@ -1484,7 +1518,9 @@ impl Vault {
             match Self::border_path(&path, &value) {
                 Some(rel) => out.push(crate::border::read(&self.root, &id, &rel)),
                 None => {
-                    let Some(target) = crate::border::link_target(&value) else { continue };
+                    let Some(target) = crate::border::link_target(&value) else {
+                        continue;
+                    };
                     out.push(crate::border::Border {
                         doc: id,
                         error: Some(crate::border::not_a_border(&target)),
@@ -1565,7 +1601,11 @@ impl Vault {
         if let Some(sync) = self.sync.as_mut() {
             sync.withdraw()?;
         }
-        let owned = if delete_documents { self.owned_files()? } else { vec![] };
+        let owned = if delete_documents {
+            self.owned_files()?
+        } else {
+            vec![]
+        };
         let root = self.root.clone();
         let local_dir = self.local_dir.clone();
         // Drop the index and the CRDT before removing what holds them.
@@ -1681,9 +1721,12 @@ impl Vault {
             .ok_or_else(|| Error::NotFound(target_id.into()))?;
         // The target is known here — the user is standing on its Hub — so an
         // ambiguous title is qualified by path rather than left to resolve().
-        let path = if self.index.ambiguous_titles()?.iter().any(|a| {
-            a.docs.iter().any(|d| d.id == target_id)
-        }) {
+        let path = if self
+            .index
+            .ambiguous_titles()?
+            .iter()
+            .any(|a| a.docs.iter().any(|d| d.id == target_id))
+        {
             Some(target.path.as_str())
         } else {
             None
@@ -1710,9 +1753,15 @@ impl Vault {
             if fact.kind.is_some() {
                 continue;
             }
-            let Some(doc) = self.index.get(&fact.doc)? else { continue };
+            let Some(doc) = self.index.get(&fact.doc)? else {
+                continue;
+            };
             if let Some(kind) = crate::gazetteer::kind_for(&doc.title, doc.lat.zip(doc.lon)) {
-                out.push(KindSuggestion { id: doc.id, title: doc.title, kind });
+                out.push(KindSuggestion {
+                    id: doc.id,
+                    title: doc.title,
+                    kind,
+                });
             }
         }
         Ok(out)
@@ -1727,7 +1776,10 @@ impl Vault {
             let current = self.read(&f.id).ok();
             let unset = current.as_ref().is_some_and(|v| {
                 v.summary.doc_type == DocType::Place
-                    && v.frontmatter.get("kind").and_then(Value::as_str).is_none_or(|k| k.trim().is_empty())
+                    && v.frontmatter
+                        .get("kind")
+                        .and_then(Value::as_str)
+                        .is_none_or(|k| k.trim().is_empty())
             });
             let written = unset
                 && current
@@ -1779,7 +1831,12 @@ mod tests {
 
     #[test]
     fn a_document_path_stays_inside_the_vault() {
-        for ok in ["note.md", "Notes/First.md", "Characters/david.md", "a b/c d.md"] {
+        for ok in [
+            "note.md",
+            "Notes/First.md",
+            "Characters/david.md",
+            "a b/c d.md",
+        ] {
             assert!(is_document_path(ok), "{ok}");
         }
         for bad in [
@@ -1813,7 +1870,11 @@ mod tests {
             let mut fields = Map::new();
             fields.insert("folder".into(), Value::String(folder.into()));
             let doc = v.create(DocType::Note, "Escape", &fields, "").unwrap();
-            assert!(doc.summary.path.starts_with("Notes/"), "{folder}: {}", doc.summary.path);
+            assert!(
+                doc.summary.path.starts_with("Notes/"),
+                "{folder}: {}",
+                doc.summary.path
+            );
         }
         assert!(!dir.path().parent().unwrap().join("escaped").exists());
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
@@ -1839,33 +1900,50 @@ mod tests {
     fn fill_kinds_adds_only_missing_kinds_from_the_gazetteer() {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("Places")).unwrap();
-        let write = |name: &str, text: &str| fs::write(dir.path().join("Places").join(name), text).unwrap();
+        let write =
+            |name: &str, text: &str| fs::write(dir.path().join("Places").join(name), text).unwrap();
         write("sinai.md", "---\ntype: place\ntitle: \"Mount Sinai\"\nlat: 28.54\nlon: 33.97\n---\nWhere the Law was given.\n");
         // Already has a kind: never suggested, never touched.
-        write("jerusalem.md", "---\ntype: place\ntitle: Jerusalem\nkind: site\n---\n");
+        write(
+            "jerusalem.md",
+            "---\ntype: place\ntitle: Jerusalem\nkind: site\n---\n",
+        );
         // A kind left empty by the template counts as missing.
-        write("egypt.md", "---\ntype: place\ntitle: Egypt\nkind: \"\"\n---\n");
+        write(
+            "egypt.md",
+            "---\ntype: place\ntitle: Egypt\nkind: \"\"\n---\n",
+        );
         write("atlantis.md", "---\ntype: place\ntitle: Atlantis\n---\n");
         let data = dir.path().join(".data");
         let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
 
         let mut s = v.kind_suggestions().unwrap();
         s.sort_by(|a, b| a.title.cmp(&b.title));
-        let pairs: Vec<(&str, &str)> = s.iter().map(|k| (k.title.as_str(), k.kind.as_str())).collect();
+        let pairs: Vec<(&str, &str)> = s
+            .iter()
+            .map(|k| (k.title.as_str(), k.kind.as_str()))
+            .collect();
         assert_eq!(pairs, [("Egypt", "region"), ("Mount Sinai", "mountain")]);
 
         // Egypt gains a kind by hand between the suggestion and the write.
         let egypt = s.iter().find(|k| k.title == "Egypt").unwrap().id.clone();
         let text = fs::read_to_string(dir.path().join("Places/egypt.md")).unwrap();
-        v.write(&egypt, &text.replace("kind: \"\"", "kind: land")).unwrap();
+        v.write(&egypt, &text.replace("kind: \"\"", "kind: land"))
+            .unwrap();
 
         let r = v.fill_kinds(&s);
         assert_eq!(r.filled.len(), 1);
         assert_eq!(r.skipped, vec![egypt]);
         let sinai = fs::read_to_string(dir.path().join("Places/sinai.md")).unwrap();
         assert!(sinai.contains("\nkind: mountain\n"), "{sinai}");
-        assert!(sinai.contains("lat: 28.54\nlon: 33.97\n") && sinai.ends_with("Where the Law was given.\n"), "{sinai}");
-        assert!(fs::read_to_string(dir.path().join("Places/egypt.md")).unwrap().contains("kind: land"));
+        assert!(
+            sinai.contains("lat: 28.54\nlon: 33.97\n")
+                && sinai.ends_with("Where the Law was given.\n"),
+            "{sinai}"
+        );
+        assert!(fs::read_to_string(dir.path().join("Places/egypt.md"))
+            .unwrap()
+            .contains("kind: land"));
         assert!(v.kind_suggestions().unwrap().is_empty());
     }
 
@@ -1878,7 +1956,10 @@ mod tests {
         fs::create_dir_all(dir.path().join("Notes")).unwrap();
         let files = [
             ("Notes/broken.md", "---\ntitle: [unclosed\n---\nbody\n"),
-            ("Notes/templater.md", "---\ncreated: <% tp.date.now() %>\ntags: [a\n---\nbody\n"),
+            (
+                "Notes/templater.md",
+                "---\ncreated: <% tp.date.now() %>\ntags: [a\n---\nbody\n",
+            ),
             ("Notes/null.md", "---\nid:\ntype: note\n---\nbody\n"),
             ("Notes/list.md", "---\nid: [a]\n---\nbody\n"),
             ("Notes/empty.md", "---\nid: \"\"\n---\nbody\n"),
@@ -1891,7 +1972,11 @@ mod tests {
             let v = Vault::open(dir.path(), &data, Lang::En).unwrap();
             let listed = v.list(None).unwrap();
             for (rel, text) in files {
-                assert_eq!(fs::read_to_string(dir.path().join(rel)).unwrap(), text, "{rel} was rewritten");
+                assert_eq!(
+                    fs::read_to_string(dir.path().join(rel)).unwrap(),
+                    text,
+                    "{rel} was rewritten"
+                );
                 assert!(listed.iter().any(|d| d.path == rel), "{rel} is not indexed");
             }
             let ids: std::collections::HashSet<_> = listed.iter().map(|d| d.id.clone()).collect();
@@ -2021,7 +2106,9 @@ mod tests {
 
         let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
         assert_eq!(on_29(&v), 0, "same parser, unchanged mtime: skipped");
-        v.index.set_parser_version(index::PARSER_VERSION - 1).unwrap();
+        v.index
+            .set_parser_version(index::PARSER_VERSION - 1)
+            .unwrap();
         drop(v);
 
         let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
@@ -2071,8 +2158,13 @@ Antioch is where they met.
             after.contains("[[Antioch]] is where they met."),
             "spliced at the right offset in a CRLF file: {after:?}"
         );
-        assert!(after.contains("One line.
-"), "line endings are untouched");
+        assert!(
+            after.contains(
+                "One line.
+"
+            ),
+            "line endings are untouched"
+        );
     }
 
     #[test]
@@ -2160,7 +2252,10 @@ Antioch is where they met.
             .unwrap();
         assert_ne!(a.summary.path, b.summary.path);
         for c in [&a, &b] {
-            assert!(c.summary.path.starts_with("Clippings/the watchtower par. 3 "));
+            assert!(c
+                .summary
+                .path
+                .starts_with("Clippings/the watchtower par. 3 "));
         }
     }
 
@@ -2180,7 +2275,10 @@ Antioch is where they met.
             "got {}",
             c.summary.path
         );
-        assert!(!c.summary.path.contains("  "), "no gap where the Locator was");
+        assert!(
+            !c.summary.path.contains("  "),
+            "no gap where the Locator was"
+        );
     }
 
     #[test]
@@ -2243,19 +2341,36 @@ Antioch is where they met.
         let (dir, mut v) = vault();
         // A file that arrived outside the app (Obsidian, a cloud folder) gets its snapshot at scan time;
         // a lost snapshot (older app data, wiped folder) is what publish_missing repairs.
-        fs::write(dir.path().join("Notes/External.md"), "Written elsewhere.
-").unwrap();
+        fs::write(
+            dir.path().join("Notes/External.md"),
+            "Written elsewhere.
+",
+        )
+        .unwrap();
         v.scan().unwrap();
         let ext = v.get_by_path("Notes/External.md").unwrap().unwrap().id;
         let dev = v.device_id().unwrap().to_string();
-        let snap = dir.path().join(HIDDEN_DIR).join("sync").join(&dev).join(format!("{ext}.loro"));
+        let snap = dir
+            .path()
+            .join(HIDDEN_DIR)
+            .join("sync")
+            .join(&dev)
+            .join(format!("{ext}.loro"));
         assert!(snap.exists(), "scan snapshots new files");
-        assert_eq!(v.publish_missing().unwrap(), 0, "nothing missing after a scan");
+        assert_eq!(
+            v.publish_missing().unwrap(),
+            0,
+            "nothing missing after a scan"
+        );
         fs::remove_file(&snap).unwrap();
         let n = v.publish_missing().unwrap();
         assert!(n >= 1, "the missing snapshot is republished");
         assert!(snap.exists());
-        assert_eq!(v.publish_missing().unwrap(), 0, "second call publishes nothing new");
+        assert_eq!(
+            v.publish_missing().unwrap(),
+            0,
+            "second call publishes nothing new"
+        );
     }
 
     #[test]
@@ -2278,7 +2393,9 @@ Antioch is where they met.
         assert_eq!(sanitize_title("[[x]]"), "x");
         assert_eq!(sanitize_title("a^b"), "a b");
         let (_dir, mut v) = vault();
-        let a = v.create(DocType::Note, "Acts #2 [draft]", &Map::new(), "").unwrap();
+        let a = v
+            .create(DocType::Note, "Acts #2 [draft]", &Map::new(), "")
+            .unwrap();
         assert_eq!(a.summary.title, "Acts 2 draft");
         assert_eq!(a.summary.path, "Notes/acts 2 draft.md");
         // The link Synesis writes to it reads back as a link to that title.
@@ -2321,20 +2438,37 @@ Antioch is where they met.
         let link = dir.path().join("Notes/key.md");
         std::os::unix::fs::symlink(&secret, &link).unwrap();
         // One inside the Vault is not followed either: it is the same Note twice.
-        std::os::unix::fs::symlink(dir.path().join("Notes/First.md"), dir.path().join("Notes/again.md")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join("Notes/First.md"),
+            dir.path().join("Notes/again.md"),
+        )
+        .unwrap();
 
         assert!(v.index_file("Notes/key.md").unwrap().is_none());
         assert!(v.index_file("Notes/again.md").unwrap().is_none());
         v.scan().unwrap();
         let paths: Vec<_> = v.list(None).unwrap().into_iter().map(|d| d.path).collect();
-        assert!(!paths.iter().any(|p| p == "Notes/key.md" || p == "Notes/again.md"), "{paths:?}");
+        assert!(
+            !paths
+                .iter()
+                .any(|p| p == "Notes/key.md" || p == "Notes/again.md"),
+            "{paths:?}"
+        );
         assert_eq!(fs::read_to_string(&secret).unwrap(), "PRIVATE KEY\n");
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink());
         let published = walkdir::WalkDir::new(dir.path().join(HIDDEN_DIR))
             .into_iter()
             .flatten()
             .filter(|e| e.file_type().is_file())
-            .any(|e| fs::read(e.path()).unwrap().windows(11).any(|w| w == b"PRIVATE KEY"));
+            .any(|e| {
+                fs::read(e.path())
+                    .unwrap()
+                    .windows(11)
+                    .any(|w| w == b"PRIVATE KEY")
+            });
         assert!(!published, "the target's text reached the sync folder");
     }
 
@@ -2349,23 +2483,40 @@ Antioch is where they met.
         fs::write(dir.path().join("Notes/grace.md"), text).unwrap();
         let t = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
         for f in ["Notes/grace.md", "Notes/grace copy.md"] {
-            fs::File::options().write(true).open(dir.path().join(f)).unwrap().set_modified(t).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(dir.path().join(f))
+                .unwrap()
+                .set_modified(t)
+                .unwrap();
         }
         let data = dir.path().join(".data");
         let mut v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
 
         let ids = |v: &Vault| {
-            let mut docs: Vec<(String, String)> =
-                v.list(None).unwrap().into_iter().map(|d| (d.path, d.id)).collect();
+            let mut docs: Vec<(String, String)> = v
+                .list(None)
+                .unwrap()
+                .into_iter()
+                .map(|d| (d.path, d.id))
+                .collect();
             docs.sort();
             docs
         };
         let first = ids(&v);
         assert_eq!(first.len(), 2, "{first:?}");
-        assert_eq!(first[1], ("Notes/grace.md".into(), "X1".into()), "the original kept its id");
+        assert_eq!(
+            first[1],
+            ("Notes/grace.md".into(), "X1".into()),
+            "the original kept its id"
+        );
         assert_ne!(first[0].1, "X1");
         let copy = fs::read_to_string(dir.path().join("Notes/grace copy.md")).unwrap();
-        assert_eq!(copy, format!("---\nid: {}\n---\nGrace.\n", first[0].1), "only the id line changed");
+        assert_eq!(
+            copy,
+            format!("---\nid: {}\n---\nGrace.\n", first[0].1),
+            "only the id line changed"
+        );
 
         v.scan().unwrap();
         assert_eq!(ids(&v), first, "a rescan moved an id");
@@ -2377,7 +2528,11 @@ Antioch is where they met.
         assert_eq!(v.get("X1").unwrap().unwrap().path, "Notes/grace.md");
 
         // A file moved outside the app is the same document, not a copy.
-        fs::rename(dir.path().join("Notes/grace.md"), dir.path().join("Notes/moved.md")).unwrap();
+        fs::rename(
+            dir.path().join("Notes/grace.md"),
+            dir.path().join("Notes/moved.md"),
+        )
+        .unwrap();
         let d = v.index_file("Notes/moved.md").unwrap().unwrap();
         assert_eq!(d.id, "X1");
     }
@@ -2440,13 +2595,17 @@ Antioch is where they met.
         let (dir, mut v) = talk_vault();
         let talk = v.resolve("Talk on endurance").unwrap().unwrap();
         let joy = v.resolve("joy").unwrap().unwrap();
-        let before = fs::read_to_string(dir.path().join("Compositions/talk on endurance.md")).unwrap();
+        let before =
+            fs::read_to_string(dir.path().join("Compositions/talk on endurance.md")).unwrap();
 
         let copy = v.duplicate(&talk.id, "Talk on endurance (copy)").unwrap();
         assert_ne!(copy.summary.id, talk.id);
         assert_eq!(copy.summary.doc_type, DocType::Composition);
         assert_eq!(copy.summary.title, "Talk on endurance (copy)");
-        assert_eq!(copy.summary.path, "Compositions/talk on endurance (copy).md");
+        assert_eq!(
+            copy.summary.path,
+            "Compositions/talk on endurance (copy).md"
+        );
         // The same body, byte for byte.
         let original = v.read(&talk.id).unwrap();
         assert_eq!(
@@ -2457,7 +2616,11 @@ Antioch is where they met.
         assert_eq!(copy.frontmatter["duration"], Value::from(30));
         assert_eq!(copy.frontmatter["occasion"], Value::from(""));
         assert_eq!(copy.frontmatter["date"], Value::from(""));
-        assert!(copy.tags.iter().any(|t| t.name == "endurance"), "{}", copy.text);
+        assert!(
+            copy.tags.iter().any(|t| t.name == "endurance"),
+            "{}",
+            copy.text
+        );
         assert_eq!(copy.frontmatter["id"], Value::from(copy.summary.id.clone()));
         // The original is untouched.
         assert_eq!(
@@ -2466,17 +2629,26 @@ Antioch is where they met.
         );
 
         // The Board is copied beside it, and the Note is on both Boards.
-        let board = v.read_board(&copy.summary.id).unwrap().expect("board copied");
+        let board = v
+            .read_board(&copy.summary.id)
+            .unwrap()
+            .expect("board copied");
         assert_eq!(board.nodes.len(), 2);
         assert_eq!(board.edges.len(), 1);
-        assert!(dir.path().join("Compositions/talk on endurance (copy).canvas").is_file());
+        assert!(dir
+            .path()
+            .join("Compositions/talk on endurance (copy).canvas")
+            .is_file());
         let mut both = vec![talk.id.clone(), copy.summary.id.clone()];
         both.sort();
         assert_eq!(boards_holding(&v, &joy.id), both);
 
         // A second copy with the same title does not overwrite the first.
         let again = v.duplicate(&talk.id, "Talk on endurance (copy)").unwrap();
-        assert_eq!(again.summary.path, "Compositions/talk on endurance (copy) 2.md");
+        assert_eq!(
+            again.summary.path,
+            "Compositions/talk on endurance (copy) 2.md"
+        );
 
         // Only a Composition is duplicated.
         assert!(v.duplicate(&joy.id, "Joy (copy)").is_err());
@@ -2490,8 +2662,14 @@ Antioch is where they met.
             .create(DocType::Composition, "Short talk", &Map::new(), "Body.\n")
             .unwrap();
         let copy = v.duplicate(&made.summary.id, "Short talk (copy)").unwrap();
-        assert!(v.read_board(&copy.summary.id).unwrap().is_none_or(|b| b.is_empty()));
-        assert!(!dir.path().join("Compositions/short talk (copy).canvas").exists());
+        assert!(v
+            .read_board(&copy.summary.id)
+            .unwrap()
+            .is_none_or(|b| b.is_empty()));
+        assert!(!dir
+            .path()
+            .join("Compositions/short talk (copy).canvas")
+            .exists());
     }
 
     /// PLAN §17.14: a Board edited outside the app (Obsidian) is folded in
@@ -2504,7 +2682,10 @@ Antioch is where they met.
         let rel = "Compositions/talk on endurance.canvas";
         // Opening reads the Board in; nothing has changed since.
         let board = v.read_board(&talk.id).unwrap().unwrap();
-        assert!(v.fold_board_file(rel).unwrap().is_none(), "nothing new on disk");
+        assert!(
+            v.fold_board_file(rel).unwrap().is_none(),
+            "nothing new on disk"
+        );
 
         // Obsidian removes the card for the Note and adds a bubble.
         fs::write(
@@ -2528,7 +2709,11 @@ Antioch is where they met.
         assert_eq!(boards_holding(&v, &joy.id), std::slice::from_ref(&talk.id));
 
         // A canvas beside no Composition, or one that does not parse, is left alone.
-        fs::write(dir.path().join("Notes/loose.canvas"), r#"{"nodes":[],"edges":[]}"#).unwrap();
+        fs::write(
+            dir.path().join("Notes/loose.canvas"),
+            r#"{"nodes":[],"edges":[]}"#,
+        )
+        .unwrap();
         assert!(v.fold_board_file("Notes/loose.canvas").unwrap().is_none());
         fs::write(dir.path().join(rel), "not json").unwrap();
         assert!(v.fold_board_file(rel).unwrap().is_none());

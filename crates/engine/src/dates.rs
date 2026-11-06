@@ -139,10 +139,7 @@ fn join_adar(tokens: Vec<&str>) -> Vec<&str> {
 
 /// The Date in what comes before the era marker: an optional "c.", an
 /// optional day and month in either order, then the year.
-fn read_tokens(
-    tokens: &[&str],
-    bce: bool,
-) -> Result<(BibleDate, Option<&'static str>), DateError> {
+fn read_tokens(tokens: &[&str], bce: bool) -> Result<(BibleDate, Option<&'static str>), DateError> {
     let mut tokens = tokens.to_vec();
     let approx = take_approx(&mut tokens);
     // The year is the last token: digits only.
@@ -198,11 +195,13 @@ fn month_and_day(tokens: &[&str]) -> Result<(Month, Option<u8>), DateError> {
             Some(m) => Ok((m, Some(day(b)?))),
             None => Ok((month(b)?, Some(day(a)?))),
         },
-        words => Err(if words.iter().any(|w| is_word(w) && month_of(w).is_none()) {
-            UnknownMonth
-        } else {
-            Unreadable
-        }),
+        words => Err(
+            if words.iter().any(|w| is_word(w) && month_of(w).is_none()) {
+                UnknownMonth
+            } else {
+                Unreadable
+            },
+        ),
     }
 }
 
@@ -599,7 +598,10 @@ mod tests {
         assert_eq!(ok["month_name"], "nisan");
         assert_eq!(ok["era"], "common");
         assert!(ok.get("year").is_none());
-        assert_eq!(serde_json::to_value(DateError::SpanInOneValue).unwrap(), "span_in_one_value");
+        assert_eq!(
+            serde_json::to_value(DateError::SpanInOneValue).unwrap(),
+            "span_in_one_value"
+        );
     }
 
     #[test]

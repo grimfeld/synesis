@@ -43,11 +43,7 @@ pub fn client(timeout: Duration) -> Result<Client, String> {
 pub async fn get(client: &Client, url: &str) -> Result<Response, String> {
     let parsed = Url::parse(url).map_err(|e| format!("not a web address: {e}"))?;
     check_hop(&parsed)?;
-    client
-        .get(parsed)
-        .send()
-        .await
-        .map_err(|e| describe(&e))
+    client.get(parsed).send().await.map_err(|e| describe(&e))
 }
 
 /// The error with its causes, so a refused address says why rather than
@@ -97,7 +93,11 @@ pub fn check_hop(url: &Url) -> Result<(), String> {
         .host_str()
         .ok_or_else(|| format!("not a web address: {url}"))?;
     // An IPv6 literal comes bracketed; a name does not parse as an address.
-    let Ok(ip) = host.trim_start_matches('[').trim_end_matches(']').parse::<IpAddr>() else {
+    let Ok(ip) = host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .parse::<IpAddr>()
+    else {
         return Ok(());
     };
     if is_public(ip) {
@@ -211,7 +211,12 @@ mod tests {
         ] {
             assert!(!is_public(ip(s)), "{s}");
         }
-        for s in ["93.184.216.34", "8.8.8.8", "2606:4700::1111", "::ffff:8.8.8.8"] {
+        for s in [
+            "93.184.216.34",
+            "8.8.8.8",
+            "2606:4700::1111",
+            "::ffff:8.8.8.8",
+        ] {
             assert!(is_public(ip(s)), "{s}");
         }
     }
@@ -248,6 +253,9 @@ mod tests {
     async fn the_first_hop_is_checked_before_connecting() {
         let c = client(Duration::from_secs(5)).unwrap();
         assert!(get(&c, "http://127.0.0.1:9/").await.is_err());
-        assert!(get(&c, "http://localhost:9/").await.unwrap_err().contains("private network"));
+        assert!(get(&c, "http://localhost:9/")
+            .await
+            .unwrap_err()
+            .contains("private network"));
     }
 }

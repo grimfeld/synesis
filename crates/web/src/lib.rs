@@ -129,7 +129,10 @@ impl State {
                 ok(())
             }
             "set_graph_level" => {
-                self.set("graph_level", a.get("level").cloned().unwrap_or(Value::Null));
+                self.set(
+                    "graph_level",
+                    a.get("level").cloned().unwrap_or(Value::Null),
+                );
                 ok(())
             }
             "set_timeline_filters" => {
@@ -140,11 +143,17 @@ impl State {
             "set_map_filters" => {
                 self.set("map_books", arg(&a, "books")?);
                 self.set("map_mentioned_only", arg(&a, "mentionedOnly")?);
-                self.set("map_color_by", a.get("colorBy").cloned().unwrap_or(Value::Null));
+                self.set(
+                    "map_color_by",
+                    a.get("colorBy").cloned().unwrap_or(Value::Null),
+                );
                 ok(())
             }
             "set_sync_method" => {
-                self.set("sync_method", a.get("method").cloned().unwrap_or(Value::Null));
+                self.set(
+                    "sync_method",
+                    a.get("method").cloned().unwrap_or(Value::Null),
+                );
                 ok(())
             }
             "set_background_sync" => ok(()),
@@ -237,12 +246,14 @@ impl State {
                 let view = v.duplicate(&id, &title).map_err(err)?;
                 ok(api::payload(v, view))
             }
-            "delete_document" => {
-                ok(self.vault_mut()?.delete(&arg::<String>(&a, "id")?).map_err(err)?)
-            }
-            "resolve_link" => {
-                ok(self.vault()?.resolve(&arg::<String>(&a, "target")?).map_err(err)?)
-            }
+            "delete_document" => ok(self
+                .vault_mut()?
+                .delete(&arg::<String>(&a, "id")?)
+                .map_err(err)?),
+            "resolve_link" => ok(self
+                .vault()?
+                .resolve(&arg::<String>(&a, "target")?)
+                .map_err(err)?),
             "resolve_many" => {
                 let targets: Vec<String> = arg(&a, "targets")?;
                 let v = self.vault()?;
@@ -319,7 +330,10 @@ impl State {
                 let (q, limit): (String, Option<usize>) = (arg(&a, "query")?, arg(&a, "limit")?);
                 ok(engine::gazetteer::search(&q, limit.unwrap_or(8)))
             }
-            "versions" => ok(self.vault_mut()?.versions(&arg::<String>(&a, "id")?).map_err(err)?),
+            "versions" => ok(self
+                .vault_mut()?
+                .versions(&arg::<String>(&a, "id")?)
+                .map_err(err)?),
             "save_version" => {
                 let (id, label): (String, String) = (arg(&a, "id")?, arg(&a, "label")?);
                 ok(self.vault_mut()?.save_version(&id, &label).map_err(err)?)
@@ -332,8 +346,14 @@ impl State {
                 let (id, f): (String, String) = (arg(&a, "id")?, arg(&a, "frontier")?);
                 ok(self.vault_mut()?.text_at(&id, &f).map_err(err)?)
             }
-            "history" => ok(self.vault_mut()?.history(&arg::<String>(&a, "id")?).map_err(err)?),
-            "get_board" => ok(self.vault_mut()?.read_board(&arg::<String>(&a, "id")?).map_err(err)?),
+            "history" => ok(self
+                .vault_mut()?
+                .history(&arg::<String>(&a, "id")?)
+                .map_err(err)?),
+            "get_board" => ok(self
+                .vault_mut()?
+                .read_board(&arg::<String>(&a, "id")?)
+                .map_err(err)?),
             "save_board" => {
                 let (id, board): (String, engine::canvas::Canvas) =
                     (arg(&a, "id")?, arg(&a, "board")?);
@@ -348,8 +368,8 @@ impl State {
                 let path: String = arg(&a, "path")?;
                 let media = engine::attachments::media_type(&path)
                     .ok_or_else(|| format!("not an image: {path}"))?;
-                let abs = engine::attachments::safe_relative(self.vault()?.root(), &path)
-                    .map_err(err)?;
+                let abs =
+                    engine::attachments::safe_relative(self.vault()?.root(), &path).map_err(err)?;
                 let bytes = std::fs::read(abs).map_err(err)?;
                 let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
                 ok(format!("data:{media};base64,{b64}"))
@@ -359,15 +379,19 @@ impl State {
                     (arg(&a, "title")?, arg(&a, "name")?, arg(&a, "data")?);
                 ok(api::attach_picture(self.vault()?.root(), &title, &name, &data).map_err(err)?)
             }
-            "read_picture" => {
-                ok(api::read_picture(self.vault()?.root(), &arg::<String>(&a, "target")?).map_err(err)?)
-            }
-            "find_source_by_url" => {
-                ok(self.vault()?.find_by_url(&arg::<String>(&a, "url")?).map_err(err)?)
-            }
-            "detect_passages" => {
-                ok(api::detect_passages(&arg::<String>(&a, "text")?, self.lang()))
-            }
+            "read_picture" => ok(api::read_picture(
+                self.vault()?.root(),
+                &arg::<String>(&a, "target")?,
+            )
+            .map_err(err)?),
+            "find_source_by_url" => ok(self
+                .vault()?
+                .find_by_url(&arg::<String>(&a, "url")?)
+                .map_err(err)?),
+            "detect_passages" => ok(api::detect_passages(
+                &arg::<String>(&a, "text")?,
+                self.lang(),
+            )),
             "read_date" => ok(api::read_date(&arg::<String>(&a, "text")?)),
             "books" => ok(api::books(self.lang())),
             "hidden_dir" => ok(engine::vault::HIDDEN_DIR),

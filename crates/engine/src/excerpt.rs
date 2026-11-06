@@ -207,7 +207,11 @@ fn inline(s: &str) -> String {
                     .map(|(_, a)| a.to_string())
                     .unwrap_or_else(|| {
                         inner.split_once('#').map_or(inner.clone(), |(t, sec)| {
-                            if t.is_empty() { sec.to_string() } else { t.to_string() }
+                            if t.is_empty() {
+                                sec.to_string()
+                            } else {
+                                t.to_string()
+                            }
                         })
                     });
                 out.push_str(shown.trim());
@@ -295,25 +299,40 @@ mod tests {
 
     #[test]
     fn wikilinks_show_what_a_reader_would_see() {
-        assert_eq!(text("Written by [[Paul]] in prison.", "t"), "Written by Paul in prison.");
-        assert_eq!(text("See [[Notes/joy|joy]] for more.", "t"), "See joy for more.");
+        assert_eq!(
+            text("Written by [[Paul]] in prison.", "t"),
+            "Written by Paul in prison."
+        );
+        assert_eq!(
+            text("See [[Notes/joy|joy]] for more.", "t"),
+            "See joy for more."
+        );
         assert_eq!(text("See [[joy#Section]].", "t"), "See joy.");
     }
 
     #[test]
     fn emphasis_and_code_markers_are_dropped() {
-        assert_eq!(text("**Bold** and *em* and `code`.", "t"), "Bold and em and code.");
+        assert_eq!(
+            text("**Bold** and *em* and `code`.", "t"),
+            "Bold and em and code."
+        );
         assert_eq!(text("==Highlighted== text.", "t"), "Highlighted text.");
     }
 
     #[test]
     fn markdown_links_keep_their_text() {
-        assert_eq!(text("Read [the article](https://x.test/a).", "t"), "Read the article.");
+        assert_eq!(
+            text("Read [the article](https://x.test/a).", "t"),
+            "Read the article."
+        );
     }
 
     #[test]
     fn list_bullets_are_structure_not_content() {
-        assert_eq!(text("- First point\n- Second point", "t"), "First point Second point");
+        assert_eq!(
+            text("- First point\n- Second point", "t"),
+            "First point Second point"
+        );
     }
 
     #[test]
@@ -328,7 +347,11 @@ mod tests {
     fn long_text_is_capped_on_a_word_boundary() {
         let body = "word ".repeat(100);
         let got = text(&body, "t");
-        assert!(got.chars().count() <= MAX_CHARS, "over budget: {}", got.chars().count());
+        assert!(
+            got.chars().count() <= MAX_CHARS,
+            "over budget: {}",
+            got.chars().count()
+        );
         assert!(!got.ends_with(' '));
         // Cut between words, never through one.
         assert!(got.ends_with("word"), "cut mid-word: {got:?}");
@@ -386,7 +409,10 @@ mod tests {
     #[test]
     fn a_heading_subpath_matches_regardless_of_case() {
         let body = "## Cross-references\n\nThe text.";
-        assert_eq!(excerpt(body, "t", Some("#cross-references")).text, "The text.");
+        assert_eq!(
+            excerpt(body, "t", Some("#cross-references")).text,
+            "The text."
+        );
     }
 
     #[test]
@@ -407,7 +433,10 @@ mod tests {
     #[test]
     fn a_tag_is_not_a_heading() {
         // `#endurance` has no space, so it is a Tag and stays in the text.
-        assert_eq!(text("#endurance is the theme.", "t"), "#endurance is the theme.");
+        assert_eq!(
+            text("#endurance is the theme.", "t"),
+            "#endurance is the theme."
+        );
     }
 
     #[test]

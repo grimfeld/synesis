@@ -91,7 +91,14 @@ pub struct Node {
 
 impl Node {
     /// A node with the required fields set and nothing else.
-    pub fn new(id: impl Into<String>, kind: NodeKind, x: i64, y: i64, width: i64, height: i64) -> Node {
+    pub fn new(
+        id: impl Into<String>,
+        kind: NodeKind,
+        x: i64,
+        y: i64,
+        width: i64,
+        height: i64,
+    ) -> Node {
         Node {
             id: id.into(),
             kind,
@@ -147,7 +154,11 @@ pub struct Edge {
 }
 
 impl Edge {
-    pub fn new(id: impl Into<String>, from_node: impl Into<String>, to_node: impl Into<String>) -> Edge {
+    pub fn new(
+        id: impl Into<String>,
+        from_node: impl Into<String>,
+        to_node: impl Into<String>,
+    ) -> Edge {
         Edge {
             id: id.into(),
             from_node: from_node.into(),
@@ -296,7 +307,11 @@ impl Canvas {
             Some(Value::Null) | None => Vec::new(),
             Some(_) => return Err(Error::Invalid("canvas: edges is not an array".into())),
         };
-        Ok(Canvas { nodes, edges, extra: root })
+        Ok(Canvas {
+            nodes,
+            edges,
+            extra: root,
+        })
     }
 
     pub fn to_json(&self) -> String {
@@ -314,7 +329,8 @@ impl Canvas {
         }
         // Obsidian writes canvases pretty-printed; matching it keeps diffs and
         // external edits readable.
-        let mut s = serde_json::to_string_pretty(&Value::Object(root)).unwrap_or_else(|_| "{}".into());
+        let mut s =
+            serde_json::to_string_pretty(&Value::Object(root)).unwrap_or_else(|_| "{}".into());
         s.push('\n');
         s
     }
@@ -482,7 +498,9 @@ pub fn board_path(composition_path: &str) -> String {
 
 /// The Composition a Board file belongs to, the inverse of [`board_path`].
 pub fn composition_path(board_path: &str) -> Option<String> {
-    board_path.strip_suffix(".canvas").map(|s| format!("{s}.md"))
+    board_path
+        .strip_suffix(".canvas")
+        .map(|s| format!("{s}.md"))
 }
 
 #[cfg(test)]
@@ -521,7 +539,10 @@ mod tests {
         assert_eq!(b.subpath.as_deref(), Some("#Quote"));
 
         assert_eq!(c.node("c").unwrap().label.as_deref(), Some("Point 1"));
-        assert_eq!(c.node("d").unwrap().url.as_deref(), Some("https://example.org"));
+        assert_eq!(
+            c.node("d").unwrap().url.as_deref(),
+            Some("https://example.org")
+        );
 
         let e = &c.edges[0];
         assert_eq!((e.from_node.as_str(), e.to_node.as_str()), ("a", "b"));
@@ -565,7 +586,8 @@ mod tests {
 
     #[test]
     fn an_optional_field_of_the_wrong_type_is_kept_not_dropped() {
-        let src = r#"{"nodes":[{"id":"a","type":"text","x":0,"y":0,"width":10,"height":10,"color":7}]}"#;
+        let src =
+            r#"{"nodes":[{"id":"a","type":"text","x":0,"y":0,"width":10,"height":10,"color":7}]}"#;
         let c = Canvas::parse(src).unwrap();
         assert_eq!(c.nodes[0].color, None);
         assert_eq!(c.nodes[0].extra["color"], 7);
@@ -605,7 +627,8 @@ mod tests {
 
     #[test]
     fn float_coordinates_are_rounded_rather_than_rejected() {
-        let src = r#"{"nodes":[{"id":"a","type":"text","x":0.4,"y":-10.6,"width":10.0,"height":10}]}"#;
+        let src =
+            r#"{"nodes":[{"id":"a","type":"text","x":0.4,"y":-10.6,"width":10.0,"height":10}]}"#;
         let c = Canvas::parse(src).unwrap();
         assert_eq!((c.nodes[0].x, c.nodes[0].y, c.nodes[0].width), (0, -11, 10));
     }
