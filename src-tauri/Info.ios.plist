@@ -16,6 +16,10 @@
 -->
 <plist version="1.0">
   <dict>
+    <!-- Required by App Store Connect (ITMS-90683): the barcode-scanner plugin
+         reads Pairing QR codes with the camera. Shown in the iOS permission prompt. -->
+    <key>NSCameraUsageDescription</key>
+    <string>Synesis uses the camera to scan the QR code that pairs this device with your others.</string>
     <key>NSUbiquitousContainers</key>
     <dict>
       <key>iCloud.tech.grimfeld.synesis</key>
