@@ -42,7 +42,7 @@ export default defineConfig({
     video: false,
     screenshotOnRunFailure: true,
     defaultCommandTimeout: 8000,
-    env: { bridge: BRIDGE },
+    expose: { bridge: BRIDGE },
     setupNodeEvents(on) {
       on("task", {
         /**

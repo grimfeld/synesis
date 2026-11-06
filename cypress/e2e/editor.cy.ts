@@ -67,7 +67,7 @@ describe("Editor (Writing page)", () => {
     cy.get(".cm-md-task").eq(1).should("be.checked");
     cy.wait(1000);
     cy.docByTitle("Endurance in trials").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => {
           expect(text).to.contain("- [x] Reread Jas 1");
         },
@@ -159,7 +159,7 @@ describe("Editor (Writing page)", () => {
     );
     cy.docByTitle("Endurance In Trials Renamed").then((d) => {
       expect(d.path).to.equal("Notes/endurance in trials renamed.md");
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => expect(text).to.contain("title: Endurance In Trials Renamed"),
       );
     });

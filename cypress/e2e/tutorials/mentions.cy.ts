@@ -49,7 +49,7 @@ describe("Tutorial: Mentions & Tags", () => {
     cy.focused().type("{enter}");
     saved();
     cy.docByTitle("Mention practice").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.contain("Jesus prayed in [[Gethsemane]]");
       });
     });

@@ -40,7 +40,7 @@ describe("Pairing", () => {
   it("forgetting a Device refuses a name that is not a Device id (#82)", () => {
     cy.request({
       method: "POST",
-      url: `${Cypress.env("bridge")}/invoke/forget_device`,
+      url: `${Cypress.expose("bridge")}/invoke/forget_device`,
       body: { device: "../.." },
       headers: { "content-type": "application/json" },
       failOnStatusCode: false,
@@ -105,7 +105,7 @@ describe("Vault identity", () => {
         });
         cy.request({
           method: "POST",
-          url: `${Cypress.env("bridge")}/invoke/pairing_join`,
+          url: `${Cypress.expose("bridge")}/invoke/pairing_join`,
           body: { code, path: occupied },
           headers: { "content-type": "application/json" },
           failOnStatusCode: false,

@@ -189,7 +189,7 @@ describe("Hub pages", () => {
     cy.get("[data-testid=hub-about] .cm-passage").should("contain", "1Ti 1:3");
     cy.wait(1000);
     cy.docByTitle("Timothy").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => expect(text).to.contain("Left in Ephesus"),
       );
     });

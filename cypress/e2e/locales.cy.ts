@@ -185,12 +185,12 @@ describe("Locale layout", () => {
       // The seeded vault has no other Device, so one is planted: the dialog's
       // label is long in French and it is the only place it is seen.
       it("keeps the evict-device dialog inside the screen", () => {
-        const dir = `${Cypress.env("vault")}/.bible-study/sync/01LOCALESGHOSTDEVICE00000`;
+        const dir = `${Cypress.expose("vault")}/.bible-study/sync/01LOCALESGHOSTDEVICE00000`;
         cy.task("file:write", {
           path: `${dir}/device.json`,
           text: JSON.stringify({ name: "Ancien téléphone", platform: "android" }),
         });
-        cy.bridge("open_vault", { path: Cypress.env("vault") });
+        cy.bridge("open_vault", { path: Cypress.expose("vault") });
         cy.visit("/");
         cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
         cy.get("[data-sidebar=trigger]").first().click();
@@ -462,7 +462,7 @@ describe("Locale layout", () => {
         cy.get("[data-testid=route-screen-local]").should("be.visible");
         expectNoOverflow();
         // The spec opens the seeded vault once, in before(); put it back.
-        cy.bridge("open_vault", { path: Cypress.env("vault") });
+        cy.bridge("open_vault", { path: Cypress.expose("vault") });
       });
     });
   }

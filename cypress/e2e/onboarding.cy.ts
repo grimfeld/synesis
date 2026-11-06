@@ -1,5 +1,5 @@
 describe("Onboarding wizard", () => {
-  const newVault = () => `${Cypress.env("vault")}${Cypress.platform === "win32" ? "\\" : "/"}wizard-vault`;
+  const newVault = () => `${Cypress.expose("vault")}${Cypress.platform === "win32" ? "\\" : "/"}wizard-vault`;
 
   beforeEach(() => {
     cy.bridge("close_vault");

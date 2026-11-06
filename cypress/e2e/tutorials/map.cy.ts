@@ -280,7 +280,7 @@ describe("Tutorial: Map & Journeys", () => {
     cy.get("[data-testid=map] .map-name").should("contain", "Philippi");
     pin("Philippi").should("have.attr", "data-kind", "settlement");
     cy.docByTitle("Paul's first journey").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.contain('places: ["[[Antioch]]", "[[Philippi]]", "[[Corinth]]"]');
       });
     });

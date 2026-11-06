@@ -40,7 +40,7 @@ describe("Tutorial: Versions", () => {
     cy.get(".cm-content").should("not.contain", "Added for the Tutorial.");
     cy.wait(1000);
     cy.docByTitle("Talk on endurance").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).not.to.contain("Added for the Tutorial.");
       });
     });

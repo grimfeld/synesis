@@ -34,7 +34,7 @@ describe("Reading mode", () => {
     // focus, and locking moves focus, so the screen changes either way.
     cy.openDoc("Talk on endurance");
     cy.docByTitle("Talk on endurance").then((d) => {
-      const file = `${Cypress.env("vault")}/${d.path}`;
+      const file = `${Cypress.expose("vault")}/${d.path}`;
       cy.task<string>("file:read", file).then((before) => {
         lock();
         cy.palette(">Bold");
