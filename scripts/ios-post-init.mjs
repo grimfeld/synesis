@@ -10,7 +10,8 @@
 //    `bundle.iOS.frameworks` adds them at `init`; this checks that the
 //    generated project really links them, and adds them if not, so the IPA
 //    fails here with a sentence rather than at link time with a symbol list.
-// 2. Entitlements: iCloud Documents in Synesis's container (ADR 0022). Tauri
+// 2. Deployment target: raised to bundle.iOS.minimumSystemVersion.
+// 3. Entitlements: iCloud Documents in Synesis's container (ADR 0022). Tauri
 //    has no config key for iOS entitlements; its template generates an empty
 //    `<app>_iOS/<app>_iOS.entitlements` and points CODE_SIGN_ENTITLEMENTS at
 //    it. The keys come from src-tauri/ios/Synesis_iOS.entitlements.
@@ -64,7 +65,27 @@ if (missing.length === 0) {
   console.log(`ios-post-init: added ${missing.join(", ")} to project.yml and regenerated the project`);
 }
 
-// --- 2. Entitlements -------------------------------------------------------
+// --- 2. Deployment target --------------------------------------------------
+// `bundle.iOS.minimumSystemVersion` sets the app target's deployment target,
+// but Tauri's template hard-codes 14.0 at the project level. Raise every
+// lower IPHONEOS_DEPLOYMENT_TARGET so nothing in the IPA targets below the
+// configured version (App Store Connect requires 15.0 from April 2027).
+
+const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+const minIos = conf.bundle?.iOS?.minimumSystemVersion;
+if (!minIos) fail("tauri.conf.json has no bundle.iOS.minimumSystemVersion");
+const below = (v) => {
+  const [a, b] = [v, minIos].map((x) => x.split(".").map(Number));
+  return a[0] < b[0] || (a[0] === b[0] && (a[1] ?? 0) < (b[1] ?? 0));
+};
+for (const p of pbxprojs) {
+  const src = readFileSync(p, "utf8");
+  const next = src.replace(/IPHONEOS_DEPLOYMENT_TARGET = ([\d.]+);/g, (m, v) => (below(v) ? `IPHONEOS_DEPLOYMENT_TARGET = ${minIos};` : m));
+  if (next !== src) writeFileSync(p, next);
+}
+console.log(`ios-post-init: deployment target iOS ${minIos}`);
+
+// --- 3. Entitlements -------------------------------------------------------
 
 const ours = readFileSync(join(root, "src-tauri", "ios", "Synesis_iOS.entitlements"), "utf8");
 /** The inside of a plist's top-level <dict>, comments dropped. */

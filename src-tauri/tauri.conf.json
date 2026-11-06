@@ -40,7 +40,8 @@
       "icons/icon.ico"
     ],
     "iOS": {
-      "frameworks": ["SystemConfiguration", "Network", "CoreFoundation"]
+      "frameworks": ["SystemConfiguration", "Network", "CoreFoundation"],
+      "minimumSystemVersion": "15.0"
     }
   },
   "plugins": {

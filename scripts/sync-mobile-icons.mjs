@@ -5,6 +5,7 @@
 // `src-tauri/icons/android` and `src-tauri/icons/ios` (where `tauri icon`
 // writes the mobile variants when `gen/` does not exist yet), so the APK and
 // IPA would carry the wrong icon. Run this after every `init`.
+import { execFileSync } from "node:child_process";
 import { cpSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +35,11 @@ for (const { name, from, to } of targets) {
   if (!existsSync(to)) {
     console.log(`${name}: project not generated (${to}), skipping`);
     continue;
+  }
+  if (name === "iOS") {
+    // App Store Connect rejects an icon with an alpha channel; fail here
+    // rather than after a 15-minute build.
+    execFileSync(process.execPath, [join(root, "scripts", "flatten-ios-icons.mjs"), "--check", from], { stdio: "inherit" });
   }
   cpSync(from, to, { recursive: true, force: true });
   console.log(`${name}: icons copied to ${to}`);
