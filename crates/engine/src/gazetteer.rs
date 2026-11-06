@@ -41,8 +41,15 @@ static ENTRIES: Lazy<Vec<Entry>> = Lazy::new(|| {
             let modern_name = f.next()?.to_string();
             let verses = f.next()?.parse().ok()?;
             // Slug and score, then the kind (`scripts/gazetteer-kinds.mjs`).
-            let kind = f.nth(2).map(str::trim).filter(|k| !k.is_empty()).map(String::from);
-            let base = normalize(name.trim_end_matches(|c: char| c.is_ascii_digit()).trim_end());
+            let kind = f
+                .nth(2)
+                .map(str::trim)
+                .filter(|k| !k.is_empty())
+                .map(String::from);
+            let base = normalize(
+                name.trim_end_matches(|c: char| c.is_ascii_digit())
+                    .trim_end(),
+            );
             Some(Entry {
                 base,
                 norm: normalize(&name),
@@ -166,7 +173,10 @@ mod tests {
         // A valley is not one of the five: blank, so it draws the plain pin.
         assert_eq!(kind("Jordan Valley"), None);
         let kinds = ["settlement", "mountain", "water", "region", "site"];
-        assert!(ENTRIES.iter().filter_map(|e| e.hit.kind.as_deref()).all(|k| kinds.contains(&k)));
+        assert!(ENTRIES
+            .iter()
+            .filter_map(|e| e.hit.kind.as_deref())
+            .all(|k| kinds.contains(&k)));
         let with = ENTRIES.iter().filter(|e| e.hit.kind.is_some()).count();
         assert!(with * 10 > len() * 9, "{with} of {} have a kind", len());
     }
@@ -174,10 +184,19 @@ mod tests {
     #[test]
     fn kind_for_a_title_picks_the_entry_nearest_the_place() {
         assert_eq!(kind_for("Mount Sinai", None).as_deref(), Some("mountain"));
-        assert_eq!(kind_for("jerusalem", Some((31.78, 35.23))).as_deref(), Some("settlement"));
+        assert_eq!(
+            kind_for("jerusalem", Some((31.78, 35.23))).as_deref(),
+            Some("settlement")
+        );
         // Tabor names a mountain and, near Bethel, a site: coordinates decide.
-        assert_eq!(kind_for("Tabor", Some((32.68, 35.33))).as_deref(), Some("mountain"));
-        assert_eq!(kind_for("Tabor", Some((31.92, 35.24))).as_deref(), Some("site"));
+        assert_eq!(
+            kind_for("Tabor", Some((32.68, 35.33))).as_deref(),
+            Some("mountain")
+        );
+        assert_eq!(
+            kind_for("Tabor", Some((31.92, 35.24))).as_deref(),
+            Some("site")
+        );
         // Without coordinates, entries that disagree give no answer.
         assert_eq!(kind_for("Tabor", None), None);
         // Far from every entry of that name: not this gazetteer's place.

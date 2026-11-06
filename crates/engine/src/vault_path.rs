@@ -36,7 +36,9 @@ impl VaultPath {
         if ok {
             Ok(VaultPath(rel.to_string()))
         } else {
-            Err(Error::Invalid(format!("not a path inside the Vault: {rel}")))
+            Err(Error::Invalid(format!(
+                "not a path inside the Vault: {rel}"
+            )))
         }
     }
 
@@ -47,11 +49,17 @@ impl VaultPath {
     /// The filesystem path under `root`. Refused when a symbolic link on the
     /// way leads out of `root`.
     pub fn under(&self, root: &Path) -> Result<PathBuf> {
-        let abs = self.0.split('/').fold(root.to_path_buf(), |p, seg| p.join(seg));
+        let abs = self
+            .0
+            .split('/')
+            .fold(root.to_path_buf(), |p, seg| p.join(seg));
         if confined(root, &abs) {
             Ok(abs)
         } else {
-            Err(Error::Invalid(format!("{} leads outside the Vault", self.0)))
+            Err(Error::Invalid(format!(
+                "{} leads outside the Vault",
+                self.0
+            )))
         }
     }
 }
@@ -66,7 +74,9 @@ impl fmt::Display for VaultPath {
 /// are followed. A path that does not exist yet is judged by the nearest folder
 /// above it that does, since that is where a write would land.
 pub fn confined(root: &Path, abs: &Path) -> bool {
-    let Ok(root) = root.canonicalize() else { return false };
+    let Ok(root) = root.canonicalize() else {
+        return false;
+    };
     let mut at = abs;
     loop {
         // `symlink_metadata` sees a dangling link, which `canonicalize` cannot
@@ -85,7 +95,8 @@ pub fn confined(root: &Path, abs: &Path) -> bool {
 /// not follow links (a linked Note would be the same file twice), so neither
 /// does anything that looks at one file.
 pub fn is_link(abs: &Path) -> bool {
-    abs.symlink_metadata().is_ok_and(|m| m.file_type().is_symlink())
+    abs.symlink_metadata()
+        .is_ok_and(|m| m.file_type().is_symlink())
 }
 
 #[cfg(test)]
@@ -95,12 +106,26 @@ mod tests {
     #[test]
     fn a_path_that_leaves_the_vault_cannot_be_parsed() {
         for bad in [
-            "", "/etc/passwd", "../x.md", "Notes/../../x.md", "Notes/./a.md", "Notes//a.md",
-            "Notes/", "C:/Windows/a.md", "Notes\\a.md", "a.md:stream", "a\0.md",
+            "",
+            "/etc/passwd",
+            "../x.md",
+            "Notes/../../x.md",
+            "Notes/./a.md",
+            "Notes//a.md",
+            "Notes/",
+            "C:/Windows/a.md",
+            "Notes\\a.md",
+            "a.md:stream",
+            "a\0.md",
         ] {
             assert!(VaultPath::parse(bad).is_err(), "{bad:?} parsed");
         }
-        for good in ["a.md", "Notes/a b.md", ".bible-study/x.json", "Notes/..a.md"] {
+        for good in [
+            "a.md",
+            "Notes/a b.md",
+            ".bible-study/x.json",
+            "Notes/..a.md",
+        ] {
             assert!(VaultPath::parse(good).is_ok(), "{good:?} refused");
         }
     }
@@ -114,15 +139,21 @@ mod tests {
         std::fs::create_dir_all(root.join("Notes")).unwrap();
         std::fs::write(root.join("Notes/real.md"), "x").unwrap();
         std::fs::write(outside.path().join("id_rsa"), "secret").unwrap();
-        std::os::unix::fs::symlink(outside.path().join("id_rsa"), root.join("Notes/key.md")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("id_rsa"), root.join("Notes/key.md"))
+            .unwrap();
         std::os::unix::fs::symlink(outside.path(), root.join("Elsewhere")).unwrap();
-        std::os::unix::fs::symlink(root.join("Notes/real.md"), root.join("Notes/alias.md")).unwrap();
+        std::os::unix::fs::symlink(root.join("Notes/real.md"), root.join("Notes/alias.md"))
+            .unwrap();
         std::os::unix::fs::symlink(root.join("Notes"), root.join("Linked")).unwrap();
-        std::os::unix::fs::symlink(outside.path().join("gone"), root.join("Notes/dangling.md")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("gone"), root.join("Notes/dangling.md"))
+            .unwrap();
 
         let under = |rel: &str| VaultPath::parse(rel).unwrap().under(root);
         assert!(under("Notes/key.md").is_err());
-        assert!(under("Elsewhere/new.md").is_err(), "a write through a linked folder");
+        assert!(
+            under("Elsewhere/new.md").is_err(),
+            "a write through a linked folder"
+        );
         assert!(under("Notes/dangling.md").is_err());
         assert!(under("Notes/alias.md").is_ok());
         assert!(under("Linked/real.md").is_ok());

@@ -33,7 +33,8 @@ pub const REGION: &str = "region";
 /// Whether a Place's `kind` value names a region, ignoring case and accents
 /// as the Map does (a hand-typed `Region` or `Région` is still one).
 pub fn is_region(kind: Option<&Value>) -> bool {
-    kind.and_then(Value::as_str).is_some_and(|k| crate::names::normalize(k) == REGION)
+    kind.and_then(Value::as_str)
+        .is_some_and(|k| crate::names::normalize(k) == REGION)
 }
 
 /// Why a `border` value is not read as a Border: it names something other
@@ -94,15 +95,25 @@ fn collect(v: &Value, out: &mut Vec<Polygon>) -> std::result::Result<(), String>
     let kind = v.get("type").and_then(Value::as_str).unwrap_or("");
     let children: Vec<&Value> = match kind {
         "FeatureCollection" => members(v, "features", "a FeatureCollection without `features`")?,
-        "GeometryCollection" => members(v, "geometries", "a GeometryCollection without `geometries`")?,
-        "Feature" => v.get("geometry").filter(|g| !g.is_null()).into_iter().collect(),
+        "GeometryCollection" => {
+            members(v, "geometries", "a GeometryCollection without `geometries`")?
+        }
+        "Feature" => v
+            .get("geometry")
+            .filter(|g| !g.is_null())
+            .into_iter()
+            .collect(),
         _ => return geometry(kind, v, out),
     };
     children.into_iter().try_for_each(|c| collect(c, out))
 }
 
 /// The list under `key`, or `missing` as the reason it cannot be read.
-fn members<'a>(v: &'a Value, key: &str, missing: &str) -> std::result::Result<Vec<&'a Value>, String> {
+fn members<'a>(
+    v: &'a Value,
+    key: &str,
+    missing: &str,
+) -> std::result::Result<Vec<&'a Value>, String> {
     let list = v.get(key).and_then(Value::as_array).ok_or(missing)?;
     Ok(list.iter().collect())
 }
@@ -136,8 +147,13 @@ fn polygon(coords: Option<&Value>) -> std::result::Result<Polygon, String> {
 }
 
 fn ring(v: &Value) -> std::result::Result<Vec<LatLon>, String> {
-    let positions = v.as_array().ok_or("a ring that is not a list of positions")?;
-    let mut out = positions.iter().map(position).collect::<std::result::Result<Vec<_>, _>>()?;
+    let positions = v
+        .as_array()
+        .ok_or("a ring that is not a list of positions")?;
+    let mut out = positions
+        .iter()
+        .map(position)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
     // RFC 7946 asks for closed rings; a hand-written file that forgot is
     // still plainly an area, so it is closed here rather than refused.
     if let (Some(&first), Some(&last)) = (out.first(), out.last()) {
@@ -170,7 +186,9 @@ fn position(p: &Value) -> std::result::Result<LatLon, String> {
 /// difference from a great-circle test is far below how well it was drawn.
 pub fn contains(polygons: &[Polygon], lat: f64, lon: f64) -> bool {
     polygons.iter().any(|rings| {
-        let Some((outer, holes)) = rings.split_first() else { return false };
+        let Some((outer, holes)) = rings.split_first() else {
+            return false;
+        };
         match in_ring(outer, lat, lon) {
             Where::Outside => false,
             Where::Edge => true,
@@ -198,7 +216,11 @@ fn in_ring(ring: &[LatLon], lat: f64, lon: f64) -> Where {
             inside = !inside;
         }
     }
-    if inside { Where::Inside } else { Where::Outside }
+    if inside {
+        Where::Inside
+    } else {
+        Where::Outside
+    }
 }
 
 const EPS: f64 = 1e-9;
@@ -228,11 +250,15 @@ pub fn drawn(corners: &[LatLon], updated: i64) -> Result<String> {
     }
     ring.dedup();
     if ring.len() < 3 {
-        return Err(crate::Error::Invalid("a Border needs at least three corners".into()));
+        return Err(crate::Error::Invalid(
+            "a Border needs at least three corners".into(),
+        ));
     }
     for [lat, lon] in &ring {
         if !lat.is_finite() || !lon.is_finite() || lat.abs() > 90.0 || lon.abs() > 180.0 {
-            return Err(crate::Error::Invalid(format!("a corner off the globe: {lat}, {lon}")));
+            return Err(crate::Error::Invalid(format!(
+                "a corner off the globe: {lat}, {lon}"
+            )));
         }
     }
     let first = ring[0];
@@ -294,7 +320,11 @@ pub fn free_name(root: &Path, place_path: &str, title: &str) -> String {
     let base = crate::vault::sanitize_title(title);
     let mut n = 1;
     loop {
-        let name = if n == 1 { format!("{base}.{EXT}") } else { format!("{base} {n}.{EXT}") };
+        let name = if n == 1 {
+            format!("{base}.{EXT}")
+        } else {
+            format!("{base} {n}.{EXT}")
+        };
         let rel = path_for(place_path, &name).unwrap_or_else(|| name.clone());
         if !crate::cloud::occupied(&root.join(&rel)) {
             return name;
@@ -307,7 +337,10 @@ pub fn free_name(root: &Path, place_path: &str, title: &str) -> String {
 pub fn read(root: &Path, doc: &str, rel: &str) -> Border {
     // The name comes from a Place's frontmatter: it is read only inside the
     // Vault, never through a link that leads out of it (#86).
-    let Some(abs) = crate::vault_path::VaultPath::parse(rel).and_then(|p| p.under(root)).ok() else {
+    let Some(abs) = crate::vault_path::VaultPath::parse(rel)
+        .and_then(|p| p.under(root))
+        .ok()
+    else {
         return Border {
             doc: doc.into(),
             path: rel.into(),
@@ -320,14 +353,24 @@ pub fn read(root: &Path, doc: &str, rel: &str) -> Border {
         (BorderStatus::Downloading, None, vec![])
     } else {
         match fs::read_to_string(&abs) {
-            Err(_) => (BorderStatus::Missing, Some(format!("{rel} is not in the Vault")), vec![]),
+            Err(_) => (
+                BorderStatus::Missing,
+                Some(format!("{rel} is not in the Vault")),
+                vec![],
+            ),
             Ok(text) => match parse(&text) {
                 Ok(p) => (BorderStatus::Ok, None, p),
                 Err(e) => (BorderStatus::Malformed, Some(e), vec![]),
             },
         }
     };
-    Border { doc: doc.into(), path: rel.into(), status, error, polygons }
+    Border {
+        doc: doc.into(),
+        path: rel.into(),
+        status,
+        error,
+        polygons,
+    }
 }
 
 // ---- Pairing (ADR 0023: carried whole, newest write wins) -------------------
@@ -357,7 +400,8 @@ pub fn is_synced(name: &str) -> bool {
 }
 
 fn join(root: &Path, name: &str) -> PathBuf {
-    name.split('/').fold(root.to_path_buf(), |p, part| p.join(part))
+    name.split('/')
+        .fold(root.to_path_buf(), |p, part| p.join(part))
 }
 
 /// One Border as Pairing advertises it: a file, or the tombstone of one
@@ -392,8 +436,13 @@ pub fn exchange<'a>(
     mine: &'a [BorderEntry],
     theirs: &'a [BorderEntry],
 ) -> (Vec<&'a BorderEntry>, Vec<&'a BorderEntry>) {
-    let newer = |e: &BorderEntry, other: &'a [BorderEntry]| is_newer(e, other.iter().find(|o| o.name == e.name));
-    let take = theirs.iter().filter(|e| is_synced(&e.name) && newer(e, mine)).collect();
+    let newer = |e: &BorderEntry, other: &'a [BorderEntry]| {
+        is_newer(e, other.iter().find(|o| o.name == e.name))
+    };
+    let take = theirs
+        .iter()
+        .filter(|e| is_synced(&e.name) && newer(e, mine))
+        .collect();
     let give = mine.iter().filter(|e| newer(e, theirs)).collect();
     (take, give)
 }
@@ -402,7 +451,9 @@ pub fn exchange<'a>(
 /// its modification time. The member outranks a peer's clock running fast;
 /// the time catches an edit made in another tool, which keeps the old member.
 pub fn stamp_of_file(p: &Path, bytes: &[u8]) -> i64 {
-    crate::config::stamp_of(bytes).unwrap_or(0).max(crate::config::mtime_ms(p))
+    crate::config::stamp_of(bytes)
+        .unwrap_or(0)
+        .max(crate::config::mtime_ms(p))
 }
 
 const REGISTER: &str = "borders.json";
@@ -461,7 +512,8 @@ fn update(local: &Path, f: impl FnOnce(&mut Register)) -> Result<()> {
 
 /// Record which Border files the Vault's regions name. Only these travel.
 pub fn set_named(local: &Path, names: impl IntoIterator<Item = String>) -> Result<()> {
-    let names: std::collections::BTreeSet<String> = names.into_iter().filter(|n| is_synced(n)).collect();
+    let names: std::collections::BTreeSet<String> =
+        names.into_iter().filter(|n| is_synced(n)).collect();
     update(local, |r| r.named = names)
 }
 
@@ -485,10 +537,12 @@ fn local_entry_in(root: &Path, r: &Register, name: &str) -> Option<BorderEntry> 
         size: bytes.len() as u64,
         deleted: false,
     });
-    let tomb = r
-        .deleted
-        .get(name)
-        .map(|&stamp| BorderEntry { name: name.into(), stamp, size: 0, deleted: true });
+    let tomb = r.deleted.get(name).map(|&stamp| BorderEntry {
+        name: name.into(),
+        stamp,
+        size: 0,
+        deleted: true,
+    });
     match (file, tomb) {
         (Some(f), Some(t)) => Some(if is_newer(&t, Some(&f)) { t } else { f }),
         (f, t) => f.or(t),
@@ -515,7 +569,11 @@ pub fn manifest(root: &Path, local: &Path) -> Vec<BorderEntry> {
 /// A Border file a peer asked for, served only when a region names it here:
 /// the rest of the Vault's `.geojson` files are not Pairing's to hand out.
 pub fn offered(root: &Path, local: &Path, name: &str) -> Option<Vec<u8>> {
-    register(local).named.contains(name).then(|| read_file(root, name)).flatten()
+    register(local)
+        .named
+        .contains(name)
+        .then(|| read_file(root, name))
+        .flatten()
 }
 
 pub fn read_file(root: &Path, name: &str) -> Option<Vec<u8>> {
@@ -541,7 +599,13 @@ pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -
     }
     match serde_json::from_slice::<Value>(bytes) {
         Err(_) => return false,
-        Ok(v) if v.get("updated").and_then(Value::as_i64).is_some_and(|s| !plausible(s)) => return false,
+        Ok(v)
+            if v.get("updated")
+                .and_then(Value::as_i64)
+                .is_some_and(|s| !plausible(s)) =>
+        {
+            return false
+        }
         Ok(_) => {}
     }
     let p = join(root, name);
@@ -553,7 +617,12 @@ pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -
     if p.exists() && !r.owns(name) {
         return false;
     }
-    let incoming = BorderEntry { name: name.into(), stamp, size: bytes.len() as u64, deleted: false };
+    let incoming = BorderEntry {
+        name: name.into(),
+        stamp,
+        size: bytes.len() as u64,
+        deleted: false,
+    };
     if !is_newer(&incoming, local_entry_in(root, &r, name).as_ref()) {
         return false;
     }
@@ -567,7 +636,10 @@ pub fn accept(root: &Path, local: &Path, name: &str, bytes: &[u8], stamp: i64) -
     // The file's stamp here is the peer's, so the two agree and neither
     // pushes it back.
     if let Some(t) = crate::config::file_time(stamp) {
-        let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+        let _ = fs::File::options()
+            .write(true)
+            .open(&p)
+            .and_then(|f| f.set_modified(t));
     }
     let _ = update(local, |r| {
         r.deleted.remove(name);
@@ -591,7 +663,12 @@ pub fn forget(root: &Path, local: &Path, name: &str, stamp: i64) -> bool {
     if p.exists() && !r.owns(name) {
         return false;
     }
-    let tomb = BorderEntry { name: name.into(), stamp, size: 0, deleted: true };
+    let tomb = BorderEntry {
+        name: name.into(),
+        stamp,
+        size: 0,
+        deleted: true,
+    };
     if !is_newer(&tomb, local_entry_in(root, &r, name).as_ref()) {
         return false;
     }
@@ -612,7 +689,10 @@ pub fn remove(root: &Path, local: &Path, rel: &str) -> Result<()> {
     if crate::cloud::is_evicted(&p) {
         return Err(crate::cloud::downloading(&p));
     }
-    let previous = fs::read(&p).ok().map(|b| stamp_of_file(&p, &b)).unwrap_or(0);
+    let previous = fs::read(&p)
+        .ok()
+        .map(|b| stamp_of_file(&p, &b))
+        .unwrap_or(0);
     if p.is_file() {
         fs::remove_file(&p)?;
     }
@@ -658,7 +738,10 @@ fn put(root: &Path, rel: &str, text: impl FnOnce(i64) -> Result<String>) -> Resu
     if crate::cloud::is_evicted(&p) {
         return Err(crate::cloud::downloading(&p));
     }
-    let previous = fs::read(&p).ok().map(|b| stamp_of_file(&p, &b)).unwrap_or(0);
+    let previous = fs::read(&p)
+        .ok()
+        .map(|b| stamp_of_file(&p, &b))
+        .unwrap_or(0);
     let text = text(next_stamp(previous))?;
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
@@ -691,7 +774,8 @@ mod tests {
     #[test]
     fn slanted_edges_and_corners_level_with_a_point_are_told_apart() {
         // A diamond, corners at lat/lon (0,2) (2,4) (4,2) (2,0): every edge slants.
-        let diamond = parse(r#"{"type":"Polygon","coordinates":[[[2,0],[4,2],[2,4],[0,2],[2,0]]]}"#).unwrap();
+        let diamond =
+            parse(r#"{"type":"Polygon","coordinates":[[[2,0],[4,2],[2,4],[0,2],[2,0]]]}"#).unwrap();
         let at = |lat: f64, lon: f64| contains(&diamond, lat, lon);
         assert!(at(2.0, 2.0), "the middle");
         // Level with the east and west corners: the ray passes through a corner.
@@ -714,8 +798,14 @@ mod tests {
     #[test]
     fn a_point_in_line_with_an_edge_but_past_its_end_is_outside() {
         let square = parse(SQUARE).unwrap(); // lon 35–36, lat 31–32
-        assert!(!contains(&square, 31.0, 37.0), "east along the southern edge");
-        assert!(!contains(&square, 33.0, 35.0), "north along the western edge");
+        assert!(
+            !contains(&square, 31.0, 37.0),
+            "east along the southern edge"
+        );
+        assert!(
+            !contains(&square, 33.0, 35.0),
+            "north along the western edge"
+        );
     }
 
     #[test]
@@ -732,7 +822,10 @@ mod tests {
         let p = parse(text).unwrap();
         assert!(contains(&p, 0.5, 0.5), "the first piece, outside its hole");
         assert!(!contains(&p, 2.0, 2.0), "inside the hole");
-        assert!(contains(&p, 1.0, 2.0), "on the hole's edge still borders the land");
+        assert!(
+            contains(&p, 1.0, 2.0),
+            "on the hole's edge still borders the land"
+        );
         assert!(contains(&p, 10.5, 10.5), "the second piece");
         assert!(!contains(&p, 7.0, 7.0), "between the pieces");
         assert!(!contains(&[], 0.5, 0.5), "no Border contains nothing");
@@ -764,7 +857,10 @@ mod tests {
                 {"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,0]]]},
                 {"type":"MultiPoint","coordinates":[[0,0]]},
                 {"type":"MultiLineString","coordinates":[[[0,0],[1,1]]]}]}}]}"#;
-        assert_eq!(parse(text).unwrap(), vec![vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 0.0]]]]);
+        assert_eq!(
+            parse(text).unwrap(),
+            vec![vec![vec![[0.0, 0.0], [0.0, 1.0], [1.0, 1.0], [0.0, 0.0]]]]
+        );
     }
 
     #[test]
@@ -775,18 +871,48 @@ mod tests {
             (r#"{"type":"Circle"}"#, "unknown type `Circle`"),
             (r#"{"type":"FeatureCollection"}"#, "without `features`"),
             (r#"{"type":"GeometryCollection"}"#, "without `geometries`"),
-            (r#"{"type":"MultiPolygon"}"#, "MultiPolygon without coordinates"),
+            (
+                r#"{"type":"MultiPolygon"}"#,
+                "MultiPolygon without coordinates",
+            ),
             (r#"{"type":"Polygon"}"#, "Polygon without coordinates"),
             (r#"{"type":"Polygon","coordinates":[]}"#, "no ring"),
-            (r#"{"type":"Polygon","coordinates":[7]}"#, "not a list of positions"),
-            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,0]]]}"#, "fewer than three corners"),
-            (r#"{"type":"Polygon","coordinates":[[[0],[1,0],[1,1]]]}"#, "not [longitude, latitude]"),
-            (r#"{"type":"Polygon","coordinates":[[["a","b"],[1,0],[1,1]]]}"#, "not [longitude, latitude]"),
-            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,100]]]}"#, "off the globe"),
-            (r#"{"type":"Polygon","coordinates":[[[0,0],[181,0],[1,1]]]}"#, "off the globe"),
-            (r#"{"type":"Polygon","coordinates":[[[0,0],[-181,0],[1,1]]]}"#, "off the globe"),
-            (r#"{"type":"Polygon","coordinates":[[[0,0],[1,-91],[1,1]]]}"#, "off the globe"),
-            (r#"{"type":"Point","coordinates":[0,0]}"#, "no Polygon or MultiPolygon"),
+            (
+                r#"{"type":"Polygon","coordinates":[7]}"#,
+                "not a list of positions",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[1,0]]]}"#,
+                "fewer than three corners",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0],[1,0],[1,1]]]}"#,
+                "not [longitude, latitude]",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[["a","b"],[1,0],[1,1]]]}"#,
+                "not [longitude, latitude]",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,100]]]}"#,
+                "off the globe",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[181,0],[1,1]]]}"#,
+                "off the globe",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[-181,0],[1,1]]]}"#,
+                "off the globe",
+            ),
+            (
+                r#"{"type":"Polygon","coordinates":[[[0,0],[1,-91],[1,1]]]}"#,
+                "off the globe",
+            ),
+            (
+                r#"{"type":"Point","coordinates":[0,0]}"#,
+                "no Polygon or MultiPolygon",
+            ),
         ] {
             let e = parse(bad).unwrap_err();
             assert!(e.contains(why), "{bad}: {e}");
@@ -795,7 +921,8 @@ mod tests {
 
     #[test]
     fn positions_on_the_edge_of_the_globe_are_on_it() {
-        let text = r#"{"type":"Polygon","coordinates":[[[-180,-90],[180,-90],[180,90],[-180,-90]]]}"#;
+        let text =
+            r#"{"type":"Polygon","coordinates":[[[-180,-90],[180,-90],[180,90],[-180,-90]]]}"#;
         assert_eq!(parse(text).unwrap()[0][0][1], [-90.0, 180.0]);
     }
 
@@ -828,7 +955,10 @@ mod tests {
         let v: Value = serde_json::from_str(&text).unwrap();
         assert_eq!(v["updated"], 7);
         let p = parse(&text).unwrap();
-        assert_eq!(p[0][0], vec![[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [31.0, 35.0]]);
+        assert_eq!(
+            p[0][0],
+            vec![[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [31.0, 35.0]]
+        );
     }
 
     #[test]
@@ -840,7 +970,14 @@ mod tests {
 
     #[test]
     fn a_drawn_corner_must_be_on_the_globe() {
-        for bad in [[f64::NAN, 1.0], [1.0, f64::NAN], [-90.5, 1.0], [1.0, 180.5], [1.0, -181.0], [f64::INFINITY, 1.0]] {
+        for bad in [
+            [f64::NAN, 1.0],
+            [1.0, f64::NAN],
+            [-90.5, 1.0],
+            [1.0, 180.5],
+            [1.0, -181.0],
+            [f64::INFINITY, 1.0],
+        ] {
             assert!(drawn(&[[1.0, 1.0], [2.0, 2.0], bad], 0).is_err(), "{bad:?}");
         }
         // The poles and the antimeridian are on it.
@@ -849,21 +986,45 @@ mod tests {
 
     #[test]
     fn a_link_names_a_file_beside_the_place() {
-        assert_eq!(link_target(&json!("[[Judah.geojson]]")).as_deref(), Some("Judah.geojson"));
-        assert_eq!(link_target(&json!("[[Judah.geojson|outline]]")).as_deref(), Some("Judah.geojson"));
+        assert_eq!(
+            link_target(&json!("[[Judah.geojson]]")).as_deref(),
+            Some("Judah.geojson")
+        );
+        assert_eq!(
+            link_target(&json!("[[Judah.geojson|outline]]")).as_deref(),
+            Some("Judah.geojson")
+        );
         assert_eq!(link_target(&json!("")), None);
-        assert_eq!(path_for("Places/Judah.md", "Judah.geojson").as_deref(), Some("Places/Judah.geojson"));
-        assert_eq!(path_for("Judah.md", "Judah.geojson").as_deref(), Some("Judah.geojson"));
-        assert_eq!(path_for("Places/Judah.md", "Maps/J.geojson").as_deref(), Some("Maps/J.geojson"));
+        assert_eq!(
+            path_for("Places/Judah.md", "Judah.geojson").as_deref(),
+            Some("Places/Judah.geojson")
+        );
+        assert_eq!(
+            path_for("Judah.md", "Judah.geojson").as_deref(),
+            Some("Judah.geojson")
+        );
+        assert_eq!(
+            path_for("Places/Judah.md", "Maps/J.geojson").as_deref(),
+            Some("Maps/J.geojson")
+        );
         assert_eq!(path_for("Places/Judah.md", "../x.geojson"), None);
     }
 
     #[test]
     fn a_link_spells_a_file_beside_the_place_by_name_and_any_other_from_the_root() {
-        assert_eq!(link_to("Places/Judah.md", "Places/Judah.geojson"), "[[Judah.geojson]]");
-        assert_eq!(link_to("Places/Judah.md", "Maps/Judah.geojson"), "[[Maps/Judah.geojson]]");
+        assert_eq!(
+            link_to("Places/Judah.md", "Places/Judah.geojson"),
+            "[[Judah.geojson]]"
+        );
+        assert_eq!(
+            link_to("Places/Judah.md", "Maps/Judah.geojson"),
+            "[[Maps/Judah.geojson]]"
+        );
         assert_eq!(link_to("Judah.md", "Judah.geojson"), "[[Judah.geojson]]");
-        assert_eq!(link_to("Places/Judah.md", "Judah.geojson"), "[[Judah.geojson]]");
+        assert_eq!(
+            link_to("Places/Judah.md", "Judah.geojson"),
+            "[[Judah.geojson]]"
+        );
     }
 
     #[test]
@@ -892,16 +1053,29 @@ mod tests {
     }
 
     fn entry(root: &Path, local: &Path, name: &str) -> BorderEntry {
-        manifest(root, local).into_iter().find(|e| e.name == name).unwrap()
+        manifest(root, local)
+            .into_iter()
+            .find(|e| e.name == name)
+            .unwrap()
     }
 
     fn set_mtime(p: &Path, ms: i64) {
         let t = std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms as u64);
-        fs::File::options().write(true).open(p).unwrap().set_modified(t).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(p)
+            .unwrap()
+            .set_modified(t)
+            .unwrap();
     }
 
     fn e(name: &str, stamp: i64, size: u64, deleted: bool) -> BorderEntry {
-        BorderEntry { name: name.into(), stamp, size, deleted }
+        BorderEntry {
+            name: name.into(),
+            stamp,
+            size,
+            deleted,
+        }
     }
 
     #[test]
@@ -921,16 +1095,27 @@ mod tests {
             e("Places/note.md", 99, 10, false),
         ];
         let (take, give) = exchange(&mine, &theirs);
-        let names = |v: Vec<&BorderEntry>| v.into_iter().map(|e| e.name.clone()).collect::<Vec<_>>();
+        let names =
+            |v: Vec<&BorderEntry>| v.into_iter().map(|e| e.name.clone()).collect::<Vec<_>>();
         // A is newer there; C's file beats a tombstone of the same stamp;
         // a tombstone for a file never seen here still travels.
-        assert_eq!(names(take), ["Places/A.geojson", "Places/C.geojson", "Places/Theirs.geojson"]);
+        assert_eq!(
+            names(take),
+            [
+                "Places/A.geojson",
+                "Places/C.geojson",
+                "Places/Theirs.geojson"
+            ]
+        );
         assert_eq!(names(give), ["Places/B.geojson", "Places/Mine.geojson"]);
     }
 
     #[test]
     fn identical_manifests_exchange_nothing() {
-        let both = [e("Places/A.geojson", 5, 10, false), e("Places/B.geojson", 6, 0, true)];
+        let both = [
+            e("Places/A.geojson", 5, 10, false),
+            e("Places/B.geojson", 6, 0, true),
+        ];
         let (take, give) = exchange(&both, &both);
         assert!(take.is_empty() && give.is_empty());
     }
@@ -946,7 +1131,10 @@ mod tests {
         assert_eq!(m.len(), 1);
         assert_eq!(m[0].name, rel);
         let first = read_file(&ra, rel).unwrap();
-        assert!(accept(&rb, &lb, rel, &first, m[0].stamp), "a missing Border was not taken");
+        assert!(
+            accept(&rb, &lb, rel, &first, m[0].stamp),
+            "a missing Border was not taken"
+        );
         assert_eq!(fs::read(rb.join(rel)).unwrap(), first);
         // B now holds the same copy, at the same stamp: neither is newer.
         set_named(&lb, [rel.to_string()]).unwrap();
@@ -958,7 +1146,10 @@ mod tests {
         let edited = read_file(&rb, rel).unwrap();
         let eb = entry(&rb, &lb, rel);
         assert!(accept(&ra, &la, rel, &edited, eb.stamp));
-        assert!(!accept(&rb, &lb, rel, &first, m[0].stamp), "an older Border replaced a newer one");
+        assert!(
+            !accept(&rb, &lb, rel, &first, m[0].stamp),
+            "an older Border replaced a newer one"
+        );
         assert_eq!(fs::read(ra.join(rel)).unwrap(), edited);
         // Junk and unsafe names are refused.
         assert!(!accept(&ra, &la, rel, b"{nope", i64::MAX));
@@ -978,10 +1169,17 @@ mod tests {
         assert!(manifest(&root, &local).is_empty(), "nothing is named yet");
         set_named(
             &local,
-            ["Maps/judah.geojson".to_string(), ".bible-study/x.geojson".into(), "Note.md".into()],
+            [
+                "Maps/judah.geojson".to_string(),
+                ".bible-study/x.geojson".into(),
+                "Note.md".into(),
+            ],
         )
         .unwrap();
-        let names: Vec<String> = manifest(&root, &local).into_iter().map(|e| e.name).collect();
+        let names: Vec<String> = manifest(&root, &local)
+            .into_iter()
+            .map(|e| e.name)
+            .collect();
         assert_eq!(names, ["Maps/judah.geojson"]);
     }
 
@@ -1004,7 +1202,10 @@ mod tests {
         // B's older copy does not come back to A…
         assert!(is_newer(&tomb, Some(&old)));
         assert!(!is_newer(&old, Some(&tomb)));
-        assert!(!accept(&ra, &la, rel, &bytes, old.stamp), "a deleted Border came back");
+        assert!(
+            !accept(&ra, &la, rel, &bytes, old.stamp),
+            "a deleted Border came back"
+        );
         assert!(!ra.join(rel).exists());
         // …and B drops it when told.
         assert!(forget(&rb, &lb, rel, tomb.stamp));
@@ -1016,7 +1217,13 @@ mod tests {
         set_named(&lb, [rel.to_string()]).unwrap();
         let again = entry(&rb, &lb, rel);
         assert!(!again.deleted && again.stamp > tomb.stamp);
-        assert!(accept(&ra, &la, rel, &read_file(&rb, rel).unwrap(), again.stamp));
+        assert!(accept(
+            &ra,
+            &la,
+            rel,
+            &read_file(&rb, rel).unwrap(),
+            again.stamp
+        ));
         assert!(ra.join(rel).exists());
     }
 
@@ -1037,7 +1244,12 @@ mod tests {
         let (_a, ra, la) = device();
         let (_b, rb, lb) = device();
         let rel = "Places/Judah.geojson";
-        write(&ra, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [32.0, 35.0]]).unwrap();
+        write(
+            &ra,
+            rel,
+            &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0], [32.0, 35.0]],
+        )
+        .unwrap();
         set_named(&la, [rel.to_string()]).unwrap();
         let shared = entry(&ra, &la, rel);
         let bytes = read_file(&ra, rel).unwrap();
@@ -1068,18 +1280,34 @@ mod tests {
         let roads = "Maps/roads.geojson";
         fs::write(root.join(roads), SQUARE).unwrap();
         let now = crate::config::now_ms() + 1000;
-        assert!(!accept(&root, &local, roads, b"{}", now), "an unnamed file was overwritten");
+        assert!(
+            !accept(&root, &local, roads, b"{}", now),
+            "an unnamed file was overwritten"
+        );
         assert_eq!(fs::read_to_string(root.join(roads)).unwrap(), SQUARE);
-        assert!(!forget(&root, &local, roads, now), "an unnamed file was deleted");
+        assert!(
+            !forget(&root, &local, roads, now),
+            "an unnamed file was deleted"
+        );
         assert!(root.join(roads).exists());
-        assert_eq!(offered(&root, &local, roads), None, "an unnamed file was served");
+        assert_eq!(
+            offered(&root, &local, roads),
+            None,
+            "an unnamed file was served"
+        );
         // A named Border is served, and a Border a peer delivered can be
         // updated again before its Place arrives and names it.
         set_named(&local, [roads.to_string()]).unwrap();
         assert!(offered(&root, &local, roads).is_some());
         let rel = "Places/Judah.geojson";
         assert!(accept(&root, &local, rel, SQUARE.as_bytes(), now));
-        assert!(accept(&root, &local, rel, b"{\"type\":\"Polygon\"}", now + 1));
+        assert!(accept(
+            &root,
+            &local,
+            rel,
+            b"{\"type\":\"Polygon\"}",
+            now + 1
+        ));
         assert!(forget(&root, &local, rel, now + 2));
         assert!(!root.join(rel).exists());
     }
@@ -1090,8 +1318,17 @@ mod tests {
         let rel = "Places/Judah.geojson";
         assert!(!accept(&root, &local, rel, SQUARE.as_bytes(), i64::MAX));
         assert!(!root.join(rel).exists());
-        let pinned = format!(r#"{{"type":"Polygon","updated":{},"coordinates":[]}}"#, i64::MAX);
-        assert!(!accept(&root, &local, rel, pinned.as_bytes(), crate::config::now_ms()));
+        let pinned = format!(
+            r#"{{"type":"Polygon","updated":{},"coordinates":[]}}"#,
+            i64::MAX
+        );
+        assert!(!accept(
+            &root,
+            &local,
+            rel,
+            pinned.as_bytes(),
+            crate::config::now_ms()
+        ));
         assert!(!root.join(rel).exists());
         assert!(!forget(&root, &local, rel, i64::MAX));
         assert!(!held(&root, &local, rel), "a far-future tombstone was kept");
@@ -1110,13 +1347,19 @@ mod tests {
     fn reading_reports_missing_malformed_and_evicted_files() {
         let d = tempfile::tempdir().unwrap();
         fs::create_dir_all(d.path().join("Places")).unwrap();
-        assert_eq!(read(d.path(), "x", "Places/A.geojson").status, BorderStatus::Missing);
+        assert_eq!(
+            read(d.path(), "x", "Places/A.geojson").status,
+            BorderStatus::Missing
+        );
         fs::write(d.path().join("Places/B.geojson"), "{nope").unwrap();
         let b = read(d.path(), "x", "Places/B.geojson");
         assert_eq!(b.status, BorderStatus::Malformed);
         assert!(b.error.is_some());
         fs::write(d.path().join("Places/.C.geojson.icloud"), "").unwrap();
-        assert_eq!(read(d.path(), "x", "Places/C.geojson").status, BorderStatus::Downloading);
+        assert_eq!(
+            read(d.path(), "x", "Places/C.geojson").status,
+            BorderStatus::Downloading
+        );
         // iCloud is asked for it like any other evicted file of the Vault.
         assert!(crate::cloud::evicted_under(d.path()).contains(&d.path().join("Places/C.geojson")));
         fs::write(d.path().join("Places/D.geojson"), SQUARE).unwrap();

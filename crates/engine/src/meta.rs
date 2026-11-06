@@ -103,7 +103,10 @@ pub fn check_join(root: &Path, invited_id: &str) -> JoinCheck {
     // A Vault whose identity is still in iCloud is a Vault all the same.
     if crate::cloud::is_evicted(&VaultMeta::path(root)) {
         return JoinCheck::Occupied {
-            name: root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "Vault".into()),
+            name: root
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Vault".into()),
             id: String::new(),
         };
     }

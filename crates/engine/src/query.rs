@@ -30,9 +30,8 @@
 use crate::document::DocType;
 use crate::index::{
     AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
-    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, RegionMember, SearchHit,
-    TrailEntry,
-    UnlinkedMentions, UnresolvedLink,
+    DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, RegionMember,
+    SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -54,7 +53,11 @@ pub const LINKABLE_LIMIT: usize = 50;
 /// how every Source's Hub came to list every Clipping in the vault, and how
 /// `List` ignored the type it was given.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum Query {
     /// Every document, or every document of one type.
     List { doc_type: Option<DocType> },
@@ -245,7 +248,12 @@ mod wire_tests {
 
         let q: Query = serde_json::from_str(r#"{"kind":"list","docType":"note"}"#).unwrap();
         assert!(
-            matches!(q, Query::List { doc_type: Some(crate::document::DocType::Note) }),
+            matches!(
+                q,
+                Query::List {
+                    doc_type: Some(crate::document::DocType::Note)
+                }
+            ),
             "docType did not reach doc_type: {q:?}"
         );
     }
@@ -256,15 +264,23 @@ mod wire_tests {
     #[test]
     fn every_narrowing_question_survives_a_round_trip() {
         let cases = vec![
-            Query::Clippings { source_id: Some("s1".into()) },
+            Query::Clippings {
+                source_id: Some("s1".into()),
+            },
             Query::Clippings { source_id: None },
-            Query::List { doc_type: Some(crate::document::DocType::Clipping) },
+            Query::List {
+                doc_type: Some(crate::document::DocType::Clipping),
+            },
             Query::List { doc_type: None },
         ];
         for q in cases {
             let json = serde_json::to_string(&q).unwrap();
             let back: Query = serde_json::from_str(&json).unwrap_or_else(|e| panic!("{json}: {e}"));
-            assert_eq!(format!("{q:?}"), format!("{back:?}"), "round trip changed {json}");
+            assert_eq!(
+                format!("{q:?}"),
+                format!("{back:?}"),
+                "round trip changed {json}"
+            );
         }
     }
 
@@ -281,12 +297,20 @@ mod wire_tests {
             Query::TagsOf { ids: vec![] },
             Query::UnresolvedLinks,
             Query::BoardsReferencing { id: "x".into() },
-            Query::UnlinkedMentions { id: "x".into(), limit: 1 },
+            Query::UnlinkedMentions {
+                id: "x".into(),
+                limit: 1,
+            },
             Query::AmbiguousTitles,
             Query::DatesOf { id: "x".into() },
             Query::EventsNaming { id: "x".into() },
-            Query::PlaceTies { id: Some("x".into()) },
-            Query::VerseCoverage { book: 1, chapter: 1 },
+            Query::PlaceTies {
+                id: Some("x".into()),
+            },
+            Query::VerseCoverage {
+                book: 1,
+                chapter: 1,
+            },
         ];
         for q in every {
             let v: serde_json::Value = serde_json::to_value(&q).unwrap();

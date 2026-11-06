@@ -37,12 +37,18 @@ pub fn app_decides_path() -> bool {
 pub fn access(app: &AppHandle) -> StorageAccess {
     #[cfg(target_os = "android")]
     {
-        return StorageAccess { needed: true, granted: android::is_manager(app) };
+        return StorageAccess {
+            needed: true,
+            granted: android::is_manager(app),
+        };
     }
     #[cfg(not(target_os = "android"))]
     {
         let _ = app;
-        StorageAccess { needed: false, granted: true }
+        StorageAccess {
+            needed: false,
+            granted: true,
+        }
     }
 }
 
@@ -58,9 +64,17 @@ pub fn vaults_parent(app: &AppHandle) -> CmdResult<PathBuf> {
         app.path().document_dir().map_err(err)?
     };
     #[cfg(target_os = "ios")]
-    let base = app.path().document_dir().or_else(|_| app.path().app_data_dir()).map_err(err)?;
+    let base = app
+        .path()
+        .document_dir()
+        .or_else(|_| app.path().app_data_dir())
+        .map_err(err)?;
     #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    let base = app.path().document_dir().or_else(|_| app.path().home_dir()).map_err(err)?;
+    let base = app
+        .path()
+        .document_dir()
+        .or_else(|_| app.path().home_dir())
+        .map_err(err)?;
     Ok(base.join("Synesis"))
 }
 
@@ -149,7 +163,9 @@ mod android {
     /// so the state's type matches the plugin the builder produced.
     pub struct Handle<R: Runtime>(pub PluginHandle<R>);
 
-    pub fn register<R: Runtime>(api: PluginApi<R, ()>) -> Result<PluginHandle<R>, Box<dyn std::error::Error>> {
+    pub fn register<R: Runtime>(
+        api: PluginApi<R, ()>,
+    ) -> Result<PluginHandle<R>, Box<dyn std::error::Error>> {
         Ok(api.register_android_plugin("tech.grimfeld.synesis", "StoragePlugin")?)
     }
 
@@ -160,20 +176,27 @@ mod android {
 
     pub fn is_manager(app: &AppHandle) -> bool {
         plugin(app)
-            .and_then(|h| h.0.run_mobile_plugin::<Granted>("isExternalStorageManager", ()).ok())
+            .and_then(|h| {
+                h.0.run_mobile_plugin::<Granted>("isExternalStorageManager", ())
+                    .ok()
+            })
             .map(|r| r.granted)
             .unwrap_or(false)
     }
 
     pub fn request(app: &AppHandle) -> CmdResult<()> {
         let h = plugin(app).ok_or("storage plugin unavailable")?;
-        h.0.run_mobile_plugin::<()>("requestExternalStorageManager", ()).map_err(err)
+        h.0.run_mobile_plugin::<()>("requestExternalStorageManager", ())
+            .map_err(err)
     }
 
     /// `/storage/emulated/0/Documents`, the folder the Files app shows.
     pub fn shared_documents(app: &AppHandle) -> PathBuf {
         plugin(app)
-            .and_then(|h| h.0.run_mobile_plugin::<DirPath>("getSharedDocumentsDir", ()).ok())
+            .and_then(|h| {
+                h.0.run_mobile_plugin::<DirPath>("getSharedDocumentsDir", ())
+                    .ok()
+            })
             .map(|r| PathBuf::from(r.path))
             .unwrap_or_else(|| PathBuf::from("/storage/emulated/0/Documents"))
     }
@@ -210,16 +233,32 @@ mod tests {
     #[test]
     fn nothing_stands_in_the_way_when_no_permission_is_needed() {
         // Desktop and iOS: the folder is reachable without asking.
-        assert!(StorageAccess { needed: false, granted: false }.visible());
-        assert!(StorageAccess { needed: false, granted: true }.visible());
+        assert!(StorageAccess {
+            needed: false,
+            granted: false
+        }
+        .visible());
+        assert!(StorageAccess {
+            needed: false,
+            granted: true
+        }
+        .visible());
     }
 
     #[test]
     fn android_without_the_grant_falls_back() {
         // The Vault is still made; it just lands where Files cannot browse,
         // which the wizard says on the screen before it happens (ADR 0015).
-        assert!(!StorageAccess { needed: true, granted: false }.visible());
-        assert!(StorageAccess { needed: true, granted: true }.visible());
+        assert!(!StorageAccess {
+            needed: true,
+            granted: false
+        }
+        .visible());
+        assert!(StorageAccess {
+            needed: true,
+            granted: true
+        }
+        .visible());
     }
 
     #[test]
@@ -234,13 +273,23 @@ mod tests {
         std::fs::write(nested.join("device.json"), "{}").unwrap();
         let to = root.join("to");
         copy_tree(&from, &to).unwrap();
-        assert_eq!(std::fs::read_to_string(to.join("a note.md")).unwrap(), "hello");
-        assert!(to.join(".bible-study").join("sync").join("device.json").is_file());
+        assert_eq!(
+            std::fs::read_to_string(to.join("a note.md")).unwrap(),
+            "hello"
+        );
+        assert!(to
+            .join(".bible-study")
+            .join("sync")
+            .join("device.json")
+            .is_file());
         std::fs::remove_dir_all(&root).ok();
     }
 
     #[test]
     fn only_mobile_chooses_the_path_for_the_user() {
-        assert_eq!(app_decides_path(), matches!(std::env::consts::OS, "android" | "ios"));
+        assert_eq!(
+            app_decides_path(),
+            matches!(std::env::consts::OS, "android" | "ios")
+        );
     }
 }

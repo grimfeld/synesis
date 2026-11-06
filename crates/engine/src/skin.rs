@@ -113,14 +113,20 @@ fn hidden(root: &Path) -> std::path::PathBuf {
 /// Every live Skin in the Vault with the file it lives in, by name.
 fn stored(root: &Path) -> Vec<(String, Skin)> {
     let mut out = Vec::new();
-    let Ok(files) = fs::read_dir(hidden(root).join(DIR)) else { return out };
+    let Ok(files) = fs::read_dir(hidden(root).join(DIR)) else {
+        return out;
+    };
     for f in files.flatten() {
         let file = f.file_name().to_string_lossy().to_string();
         if !config::is_synced(&format!("{DIR}/{file}")) {
             continue;
         }
-        let Ok(text) = fs::read_to_string(f.path()) else { continue };
-        let Ok(value) = serde_json::from_str::<Value>(&text) else { continue };
+        let Ok(text) = fs::read_to_string(f.path()) else {
+            continue;
+        };
+        let Ok(value) = serde_json::from_str::<Value>(&text) else {
+            continue;
+        };
         if config::is_tombstone(&value) {
             continue;
         }
@@ -157,11 +163,19 @@ fn file_for(root: &Path, name: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
         .join("-");
-    let slug = if slug.is_empty() { "skin".to_string() } else { slug };
+    let slug = if slug.is_empty() {
+        "skin".to_string()
+    } else {
+        slug
+    };
     let taken: Vec<String> = stored(root).into_iter().map(|(f, _)| f).collect();
     let mut n = 1;
     loop {
-        let file = if n == 1 { format!("{slug}.json") } else { format!("{slug}-{n}.json") };
+        let file = if n == 1 {
+            format!("{slug}.json")
+        } else {
+            format!("{slug}-{n}.json")
+        };
         if !taken.contains(&file) {
             return file;
         }
@@ -182,10 +196,17 @@ pub fn save(root: &Path, skin: Skin) -> Result<Skin> {
         skin.id = ulid::Ulid::new().to_string();
         None
     } else {
-        stored(root).into_iter().find(|(_, s)| s.id == skin.id).map(|(f, _)| f)
+        stored(root)
+            .into_iter()
+            .find(|(_, s)| s.id == skin.id)
+            .map(|(f, _)| f)
     };
     let file = existing.unwrap_or_else(|| file_for(root, &skin.name));
-    config::write(&hidden(root), &format!("{DIR}/{file}"), serde_json::to_value(&skin)?)?;
+    config::write(
+        &hidden(root),
+        &format!("{DIR}/{file}"),
+        serde_json::to_value(&skin)?,
+    )?;
     Ok(skin)
 }
 
@@ -207,8 +228,8 @@ pub fn read_file(path: &Path) -> Result<Skin> {
 /// Parse a Skin file's text, as `read_file` does; for Skins that arrive
 /// without a file, such as the Skin gallery's (PLAN §26.3).
 pub fn parse(text: &str) -> Result<Skin> {
-    let skin: Skin = serde_json::from_str(text)
-        .map_err(|e| Error::Invalid(format!("not a Skin file: {e}")))?;
+    let skin: Skin =
+        serde_json::from_str(text).map_err(|e| Error::Invalid(format!("not a Skin file: {e}")))?;
     if skin.name.trim().is_empty() {
         return Err(Error::Invalid("not a Skin file: it has no name".into()));
     }
@@ -238,7 +259,10 @@ mod tests {
     use super::*;
 
     fn named(name: &str) -> Skin {
-        Skin { name: name.into(), ..Default::default() }
+        Skin {
+            name: name.into(),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -246,7 +270,10 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let mut s = save(d.path(), named("Night reading")).unwrap();
         assert_eq!(s.id.len(), 26);
-        assert!(d.path().join(".bible-study/skins/night-reading.json").exists());
+        assert!(d
+            .path()
+            .join(".bible-study/skins/night-reading.json")
+            .exists());
         s.name = "Late".into();
         s.dark.seeds.background = Some("#101010".into());
         save(d.path(), s.clone()).unwrap();
@@ -254,7 +281,12 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].name, "Late");
         assert_eq!(all[0].dark.seeds.background.as_deref(), Some("#101010"));
-        assert!(d.path().join(".bible-study/skins/night-reading.json").exists(), "a rename moved the file");
+        assert!(
+            d.path()
+                .join(".bible-study/skins/night-reading.json")
+                .exists(),
+            "a rename moved the file"
+        );
     }
 
     #[test]
@@ -303,7 +335,10 @@ mod tests {
         let out = d.path().join("out.json");
         write_file(&saved, &out).unwrap();
         let text = fs::read_to_string(out).unwrap();
-        assert!(text.contains("\"future\"") && text.contains("\"glow\""), "{text}");
+        assert!(
+            text.contains("\"future\"") && text.contains("\"glow\""),
+            "{text}"
+        );
         assert!(!text.contains("updated"), "{text}");
     }
 
@@ -321,7 +356,13 @@ mod tests {
     fn appearance_roundtrips_and_defaults() {
         let d = tempfile::tempdir().unwrap();
         assert_eq!(appearance(d.path()).skin, None);
-        set_appearance(d.path(), &Appearance { skin: Some("builtin:sepia".into()) }).unwrap();
+        set_appearance(
+            d.path(),
+            &Appearance {
+                skin: Some("builtin:sepia".into()),
+            },
+        )
+        .unwrap();
         assert_eq!(appearance(d.path()).skin.as_deref(), Some("builtin:sepia"));
     }
 }

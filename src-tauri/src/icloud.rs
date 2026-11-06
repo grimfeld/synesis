@@ -48,7 +48,10 @@ pub fn container(home: &Path) -> Option<PathBuf> {
         if let Some(d) = apple::container_documents() {
             return Some(d);
         }
-        let d = home.join("Library/Mobile Documents").join(CONTAINER_DIR).join("Documents");
+        let d = home
+            .join("Library/Mobile Documents")
+            .join(CONTAINER_DIR)
+            .join("Documents");
         return d.is_dir().then_some(d);
     }
     #[cfg(target_os = "windows")]
@@ -57,7 +60,11 @@ pub fn container(home: &Path) -> Option<PathBuf> {
         // iCloud Drive; the `Documents` level is usually folded away.
         let c = home.join("iCloudDrive").join(CONTAINER_DIR);
         let docs = c.join("Documents");
-        return if docs.is_dir() { Some(docs) } else { c.is_dir().then_some(c) };
+        return if docs.is_dir() {
+            Some(docs)
+        } else {
+            c.is_dir().then_some(c)
+        };
     }
     #[allow(unreachable_code)]
     {
@@ -109,13 +116,20 @@ pub fn start(app: AppHandle) {
         loop {
             std::thread::sleep(Duration::from_secs(15));
             let state = app.state::<AppState>();
-            let Some(root) = state.vault.lock().ok().and_then(|g| g.as_ref().map(|v| v.root().to_path_buf())) else {
+            let Some(root) = state
+                .vault
+                .lock()
+                .ok()
+                .and_then(|g| g.as_ref().map(|v| v.root().to_path_buf()))
+            else {
                 waiting.clear();
                 continue;
             };
             // Walk outside the lock: the folder may be large.
             let evicted = engine::cloud::evicted_under(&root);
-            let arrived = waiting.iter().any(|p| p.starts_with(&root) && !evicted.contains(p));
+            let arrived = waiting
+                .iter()
+                .any(|p| p.starts_with(&root) && !evicted.contains(p));
             if !evicted.is_empty() {
                 download(&evicted);
             }
@@ -131,7 +145,9 @@ pub fn start(app: AppHandle) {
 /// it the way the watcher does.
 fn rescan(app: &AppHandle, root: &Path) {
     let state = app.state::<AppState>();
-    let Ok(mut guard) = state.vault.lock() else { return };
+    let Ok(mut guard) = state.vault.lock() else {
+        return;
+    };
     let Some(vault) = guard.as_mut() else { return };
     if vault.root() != root {
         return;
@@ -142,7 +158,14 @@ fn rescan(app: &AppHandle, root: &Path) {
     }
     drop(guard);
     if !changed.is_empty() {
-        let _ = app.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
+        let _ = app.emit(
+            "vault:changed",
+            crate::watch::ChangedPayload {
+                changed,
+                removed: vec![],
+                boards: vec![],
+            },
+        );
     }
 }
 
@@ -168,7 +191,8 @@ mod apple {
             let found = objc2::rc::autoreleasepool(|_| {
                 let fm = NSFileManager::defaultManager();
                 let id = NSString::from_str(CONTAINER_ID);
-                fm.URLForUbiquityContainerIdentifier(Some(&id)).and_then(|u| u.to_file_path())
+                fm.URLForUbiquityContainerIdentifier(Some(&id))
+                    .and_then(|u| u.to_file_path())
             });
             let _ = tx.send(found);
         });

@@ -10,7 +10,10 @@ use std::fs;
 
 /// The Compositions whose Board holds this document, through the one read seam.
 fn boards_referencing(v: &Vault, id: &str) -> Vec<engine::index::DocSummary> {
-    match v.query(Query::BoardsReferencing { id: id.to_string() }).unwrap() {
+    match v
+        .query(Query::BoardsReferencing { id: id.to_string() })
+        .unwrap()
+    {
         Answer::Docs(d) => d,
         other => panic!("unexpected answer: {other:?}"),
     }
@@ -95,7 +98,8 @@ fn a_peer_path_cannot_leave_the_vault() {
     let (id, file) = (doc.summary.id.clone(), root.join(&doc.summary.path));
     let mut b = open(&root, &tmp.path().join("devB"));
     let text = b.read(&id).unwrap().text;
-    b.write(&id, &text.replace("Mine.", "Mine, and B's.")).unwrap();
+    b.write(&id, &text.replace("Mine.", "Mine, and B's."))
+        .unwrap();
 
     let outside = tmp.path().join("escaped.md");
     for path in [
@@ -106,7 +110,10 @@ fn a_peer_path_cannot_leave_the_vault() {
     ] {
         forge_path(&root, &b, &id, &path);
         a.apply_remote().unwrap();
-        assert!(!outside.exists(), "{path}: a file was written outside the vault");
+        assert!(
+            !outside.exists(),
+            "{path}: a file was written outside the vault"
+        );
         assert!(
             file.is_file(),
             "{path}: the Note was moved away from {}",
@@ -160,7 +167,10 @@ fn concurrent_edits_survive_when_the_importer_saved_last() {
     );
     b.apply_remote().unwrap();
     let merged_b = b.read(&id).unwrap().text;
-    assert!(merged_b.contains("B line."), "B's edit was lost on B: {merged_b}");
+    assert!(
+        merged_b.contains("B line."),
+        "B's edit was lost on B: {merged_b}"
+    );
     assert_eq!(merged_a, merged_b);
 }
 
@@ -345,8 +355,12 @@ fn concurrent_drags_of_different_nodes_both_win() {
     let id = doc.summary.id.clone();
 
     let mut board = Canvas::default();
-    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
-    board.nodes.push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
     a.write_board(&id, &board).unwrap();
 
     // B comes online and sees the Board.
@@ -390,18 +404,23 @@ fn an_external_edit_folds_in_and_keeps_unknown_fields() {
     let id = doc.summary.id.clone();
 
     let mut board = Canvas::default();
-    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
     a.write_board(&id, &board).unwrap();
 
     // Obsidian adds a node carrying a key this app knows nothing about.
     let file = root.join(engine::canvas::board_path(&doc.summary.path));
     let raw = fs::read_to_string(&file).unwrap();
     let mut parsed: serde_json::Value = serde_json::from_str(&raw).unwrap();
-    parsed["nodes"].as_array_mut().unwrap().push(serde_json::json!({
-        "id": "n2", "type": "text", "text": "added in Obsidian",
-        "x": 300, "y": 0, "width": 200, "height": 100,
-        "styleAttributes": {"shape": "diamond"}
-    }));
+    parsed["nodes"]
+        .as_array_mut()
+        .unwrap()
+        .push(serde_json::json!({
+            "id": "n2", "type": "text", "text": "added in Obsidian",
+            "x": 300, "y": 0, "width": 200, "height": 100,
+            "styleAttributes": {"shape": "diamond"}
+        }));
     fs::write(&file, serde_json::to_string_pretty(&parsed).unwrap()).unwrap();
 
     let board = a.read_board(&id).unwrap().unwrap();
@@ -432,8 +451,12 @@ fn a_deleted_node_stays_deleted_after_sync() {
     let id = doc.summary.id.clone();
 
     let mut board = Canvas::default();
-    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
-    board.nodes.push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n2", NodeKind::Text, 400, 0, 200, 100));
     a.write_board(&id, &board).unwrap();
 
     let mut b = open(&root, &db);
@@ -464,7 +487,9 @@ fn an_empty_board_writes_no_file() {
 
     assert!(a.read_board(&id).unwrap().is_none());
     a.write_board(&id, &Canvas::default()).unwrap();
-    assert!(!root.join(engine::canvas::board_path(&doc.summary.path)).exists());
+    assert!(!root
+        .join(engine::canvas::board_path(&doc.summary.path))
+        .exists());
     assert!(a.read_board(&id).unwrap().is_none());
 }
 
@@ -508,10 +533,13 @@ fn renaming_follows_boards() {
     // Rename the Composition: its own Board file moves with it.
     let moved = a.rename(&comp_id, "Talk on endurance").unwrap();
     assert!(
-        root.join(engine::canvas::board_path(&moved.summary.path)).exists(),
+        root.join(engine::canvas::board_path(&moved.summary.path))
+            .exists(),
         "board file did not follow its Composition"
     );
-    assert!(!root.join(engine::canvas::board_path(&comp.summary.path)).exists());
+    assert!(!root
+        .join(engine::canvas::board_path(&comp.summary.path))
+        .exists());
     assert_eq!(a.read_board(&comp_id).unwrap().unwrap().nodes.len(), 1);
 }
 
@@ -541,7 +569,11 @@ fn deleting_a_target_leaves_the_node_as_missing() {
     a.delete(&note.summary.id).unwrap();
 
     let after = a.read_board(&comp_id).unwrap().unwrap();
-    assert_eq!(after.nodes.len(), 1, "node removed when its target was deleted");
+    assert_eq!(
+        after.nodes.len(),
+        1,
+        "node removed when its target was deleted"
+    );
     assert_eq!(
         after.node("n1").unwrap().file.as_deref(),
         Some(note.summary.path.as_str())
@@ -562,7 +594,9 @@ fn deleting_a_composition_removes_its_board() {
         .unwrap();
 
     let mut board = Canvas::default();
-    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
     a.write_board(&comp.summary.id, &board).unwrap();
     let file = root.join(engine::canvas::board_path(&comp.summary.path));
     assert!(file.exists());
@@ -635,9 +669,14 @@ fn a_vault_indexed_by_an_older_build_still_opens() {
         .create(DocType::Composition, "Talk", &Map::new(), "Body.")
         .unwrap();
     let mut board = Canvas::default();
-    board.nodes.push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
+    board
+        .nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 200, 100));
     v.write_board(&comp.summary.id, &board).unwrap();
-    assert_eq!(v.read_board(&comp.summary.id).unwrap().unwrap().nodes.len(), 1);
+    assert_eq!(
+        v.read_board(&comp.summary.id).unwrap().unwrap().nodes.len(),
+        1
+    );
 }
 
 // ---- a retired Device's folder (step 1 of removing a Vault from a Device) ---
@@ -665,7 +704,9 @@ fn a_retired_devices_snapshots_are_not_imported() {
 
     // B publishes a document, then its folder is all that is left of it.
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From the phone", &Map::new(), "Gone.")
+        .unwrap();
     let id = doc.summary.id.clone();
     let path = doc.summary.path.clone();
     let retired = b.device_id().unwrap().to_string();
@@ -673,14 +714,28 @@ fn a_retired_devices_snapshots_are_not_imported() {
     // The document is removed from the Vault the way losing the phone leaves it:
     // the file is gone, the snapshot is not.
     fs::remove_file(root.join(&path)).unwrap();
-    assert!(root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired).join(format!("{id}.loro")).is_file());
+    assert!(root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(&retired)
+        .join(format!("{id}.loro"))
+        .is_file());
 
     // A, with B retired, must not bring the file back.
     retire(&da, &root, &[&retired]);
     let mut a = open(&root, &da);
-    assert!(a.apply_remote().unwrap().is_empty(), "a retired Device's snapshots were imported");
-    assert!(!root.join(&path).exists(), "a retired Device's document was materialised");
-    assert!(a.read(&id).is_err(), "a retired Device's document reached the index");
+    assert!(
+        a.apply_remote().unwrap().is_empty(),
+        "a retired Device's snapshots were imported"
+    );
+    assert!(
+        !root.join(&path).exists(),
+        "a retired Device's document was materialised"
+    );
+    assert!(
+        a.read(&id).is_err(),
+        "a retired Device's document reached the index"
+    );
 }
 
 /// The other half: a Device that is merely unknown to the roster is still
@@ -695,13 +750,18 @@ fn an_unknown_device_is_still_trusted() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From a new device", &Map::new(), "Here.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From a new device", &Map::new(), "Here.")
+        .unwrap();
     let id = doc.summary.id.clone();
 
     // A's roster names some other Device as retired, not B.
     retire(&da, &root, &["01SOMEOTHERDEVICE"]);
     let a = open(&root, &da);
-    assert!(a.read(&id).unwrap().text.contains("Here."), "an unknown Device was refused");
+    assert!(
+        a.read(&id).unwrap().text.contains("Here."),
+        "an unknown Device was refused"
+    );
 }
 
 /// A Vault with no roster is unpaired (Syncthing, iCloud, a plain folder) and
@@ -714,11 +774,15 @@ fn without_a_roster_every_folder_is_trusted() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "Folder synced", &Map::new(), "Plain.").unwrap();
+    let doc = b
+        .create(DocType::Note, "Folder synced", &Map::new(), "Plain.")
+        .unwrap();
     let id = doc.summary.id.clone();
 
     let a = open(&root, &da);
-    assert!(!engine::vault::local_dir_for(&da, &root).join("pairing.json").exists());
+    assert!(!engine::vault::local_dir_for(&da, &root)
+        .join("pairing.json")
+        .exists());
     assert!(a.read(&id).unwrap().text.contains("Plain."));
 }
 
@@ -732,7 +796,9 @@ fn a_removal_takes_effect_without_reopening_the_vault() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let first = b.create(DocType::Note, "Before", &Map::new(), "Before.").unwrap();
+    let first = b
+        .create(DocType::Note, "Before", &Map::new(), "Before.")
+        .unwrap();
     let retired = b.device_id().unwrap().to_string();
 
     // A opens unpaired and imports normally.
@@ -740,12 +806,17 @@ fn a_removal_takes_effect_without_reopening_the_vault() {
     assert!(a.read(&first.summary.id).unwrap().text.contains("Before."));
 
     // B publishes again, and only then is it retired.
-    let second = b.create(DocType::Note, "After", &Map::new(), "After.").unwrap();
+    let second = b
+        .create(DocType::Note, "After", &Map::new(), "After.")
+        .unwrap();
     let second_path = second.summary.path.clone();
     fs::remove_file(root.join(&second_path)).unwrap();
     retire(&da, &root, &[&retired]);
 
-    assert!(a.apply_remote().unwrap().is_empty(), "the roster was cached from open");
+    assert!(
+        a.apply_remote().unwrap().is_empty(),
+        "the roster was cached from open"
+    );
     assert!(!root.join(&second_path).exists());
 }
 
@@ -759,19 +830,33 @@ fn forgetting_a_device_removes_its_folder_and_keeps_the_documents() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Kept.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From the phone", &Map::new(), "Kept.")
+        .unwrap();
     let id = doc.summary.id.clone();
     let retired = b.device_id().unwrap().to_string();
     drop(b);
 
     let mut a = open(&root, &da);
-    assert!(a.read(&id).unwrap().text.contains("Kept."), "A never saw the document");
-    let folder = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired);
+    assert!(
+        a.read(&id).unwrap().text.contains("Kept."),
+        "A never saw the document"
+    );
+    let folder = root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(&retired);
     assert!(folder.is_dir());
 
-    assert!(a.forget_device(&retired).unwrap(), "the folder was reported missing");
+    assert!(
+        a.forget_device(&retired).unwrap(),
+        "the folder was reported missing"
+    );
     assert!(!folder.exists(), "the retired Device's folder survived");
-    assert!(a.read(&id).unwrap().text.contains("Kept."), "forgetting a Device took its documents");
+    assert!(
+        a.read(&id).unwrap().text.contains("Kept."),
+        "forgetting a Device took its documents"
+    );
     // Idempotent: nothing left to remove.
     assert!(!a.forget_device(&retired).unwrap());
 }
@@ -788,17 +873,27 @@ fn forgetting_a_device_clears_what_was_imported_from_it() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "Shared", &Map::new(), "First.").unwrap();
+    let doc = b
+        .create(DocType::Note, "Shared", &Map::new(), "First.")
+        .unwrap();
     let id = doc.summary.id.clone();
     let device = b.device_id().unwrap().to_string();
 
     let mut a = open(&root, &da);
     assert!(a.read(&id).unwrap().text.contains("First."));
-    let manifest = engine::vault::local_dir_for(&da, &root).join("crdt").join("imported.json");
-    assert!(fs::read_to_string(&manifest).unwrap().contains(&device), "A never recorded the import");
+    let manifest = engine::vault::local_dir_for(&da, &root)
+        .join("crdt")
+        .join("imported.json");
+    assert!(
+        fs::read_to_string(&manifest).unwrap().contains(&device),
+        "A never recorded the import"
+    );
 
     a.forget_device(&device).unwrap();
-    assert!(!fs::read_to_string(&manifest).unwrap().contains(&device), "the import manifest still names the forgotten Device");
+    assert!(
+        !fs::read_to_string(&manifest).unwrap().contains(&device),
+        "the import manifest still names the forgotten Device"
+    );
 }
 
 /// A Device cannot forget itself: leaving a Vault is its own operation with
@@ -812,7 +907,11 @@ fn a_device_cannot_forget_itself() {
     let mut a = open(&root, &tmp.path().join("devA"));
     let me = a.device_id().unwrap().to_string();
     assert!(a.forget_device(&me).is_err());
-    assert!(root.join(engine::vault::HIDDEN_DIR).join("sync").join(&me).is_dir());
+    assert!(root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(&me)
+        .is_dir());
 }
 
 /// #82: forgetting a Device takes a Device id and nothing else. A name that
@@ -830,12 +929,30 @@ fn forgetting_refuses_anything_but_a_device_id() {
     fs::write(precious.join("keep.txt"), "keep").unwrap();
     let sync = root.join(engine::vault::HIDDEN_DIR).join("sync");
     fs::create_dir_all(sync.join("phone")).unwrap();
-    for bad in ["../../precious", precious.to_str().unwrap(), "a/b", "phone", "..", ""] {
+    for bad in [
+        "../../precious",
+        precious.to_str().unwrap(),
+        "a/b",
+        "phone",
+        "..",
+        "",
+    ] {
         assert!(a.forget_device(bad).is_err(), "{bad:?} was accepted");
     }
-    assert!(precious.join("keep.txt").is_file(), "a folder outside sync/ was deleted");
-    assert!(sync.join("phone").is_dir(), "a folder that is not a Device's was deleted");
-    assert!(!engine::vault::local_dir_for(&da, &root).join("pairing.json").exists(), "a refused name reached the roster");
+    assert!(
+        precious.join("keep.txt").is_file(),
+        "a folder outside sync/ was deleted"
+    );
+    assert!(
+        sync.join("phone").is_dir(),
+        "a folder that is not a Device's was deleted"
+    );
+    assert!(
+        !engine::vault::local_dir_for(&da, &root)
+            .join("pairing.json")
+            .exists(),
+        "a refused name reached the roster"
+    );
 }
 
 /// #82: a Device's folder that is a symlink is unlinked, never followed.
@@ -850,11 +967,17 @@ fn forgetting_a_symlinked_folder_does_not_follow_it() {
     fs::create_dir_all(&elsewhere).unwrap();
     fs::write(elsewhere.join("keep.txt"), "keep").unwrap();
     let id = engine::device_id::DeviceId::generate();
-    let link = root.join(engine::vault::HIDDEN_DIR).join("sync").join(id.as_str());
+    let link = root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(id.as_str());
     std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
     a.forget_device(id.as_str()).unwrap();
     assert!(fs::symlink_metadata(&link).is_err(), "the link survived");
-    assert!(elsewhere.join("keep.txt").is_file(), "the link was followed");
+    assert!(
+        elsewhere.join("keep.txt").is_file(),
+        "the link was followed"
+    );
 }
 
 /// #90: a retired Device's folder spelled in lower case is the same Device,
@@ -867,7 +990,9 @@ fn a_retired_device_cannot_return_in_lower_case() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From the phone", &Map::new(), "Gone.")
+        .unwrap();
     let (id, path) = (doc.summary.id.clone(), doc.summary.path.clone());
     let retired = b.device_id().unwrap().to_string();
     drop(b);
@@ -882,10 +1007,16 @@ fn a_retired_device_cannot_return_in_lower_case() {
         fs::create_dir_all(sync.join(&name)).unwrap();
         fs::write(sync.join(&name).join(format!("{id}.loro")), &snapshot).unwrap();
         assert!(a.apply_remote().unwrap().is_empty(), "{name} was imported");
-        assert!(!root.join(&path).exists(), "{name}'s document was materialised");
+        assert!(
+            !root.join(&path).exists(),
+            "{name}'s document was materialised"
+        );
         fs::remove_dir_all(sync.join(&name)).unwrap();
     }
-    assert!(!a.devices().iter().any(|d| d.id == "not-a-device"), "a folder that is no Device's was listed");
+    assert!(
+        !a.devices().iter().any(|d| d.id == "not-a-device"),
+        "a folder that is no Device's was listed"
+    );
 }
 
 /// #66: a damaged roster pauses sync from other Devices rather than reading
@@ -899,7 +1030,9 @@ fn a_damaged_roster_trusts_no_one() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Gone.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From the phone", &Map::new(), "Gone.")
+        .unwrap();
     let path = doc.summary.path.clone();
     let device = b.device_id().unwrap().to_string();
     drop(b);
@@ -910,10 +1043,22 @@ fn a_damaged_roster_trusts_no_one() {
     let torn = "{\"version\": 4, \"removed_devi";
     fs::write(local.join("pairing.json"), torn).unwrap();
     let mut a = open(&root, &da);
-    assert!(a.apply_remote().unwrap().is_empty(), "a damaged roster trusted a folder");
-    assert!(!root.join(&path).exists(), "a document came back through a damaged roster");
-    assert!(a.forget_device(&device).is_err(), "a damaged roster was written over");
-    assert_eq!(fs::read_to_string(local.join("pairing.json")).unwrap(), torn);
+    assert!(
+        a.apply_remote().unwrap().is_empty(),
+        "a damaged roster trusted a folder"
+    );
+    assert!(
+        !root.join(&path).exists(),
+        "a document came back through a damaged roster"
+    );
+    assert!(
+        a.forget_device(&device).is_err(),
+        "a damaged roster was written over"
+    );
+    assert_eq!(
+        fs::read_to_string(local.join("pairing.json")).unwrap(),
+        torn
+    );
 }
 
 // ---- leaving a Vault (step 3) ----------------------------------------------
@@ -928,24 +1073,38 @@ fn leaving_a_vault_keeps_the_documents_and_withdraws_the_snapshots() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut a = open(&root, &da);
-    let doc = a.create(DocType::Note, "My work", &Map::new(), "Mine.").unwrap();
+    let doc = a
+        .create(DocType::Note, "My work", &Map::new(), "Mine.")
+        .unwrap();
     let file = root.join(&doc.summary.path);
     let leaving = a.device_id().unwrap().to_string();
-    let own = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&leaving);
+    let own = root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(&leaving);
     assert!(own.is_dir());
     let local = engine::vault::local_dir_for(&da, &root);
     assert!(local.is_dir());
 
     a.leave(false).unwrap();
 
-    assert!(!own.exists(), "the leaving Device kept publishing into the Vault");
-    assert!(!local.exists(), "this Device's state for the Vault survived");
+    assert!(
+        !own.exists(),
+        "the leaving Device kept publishing into the Vault"
+    );
+    assert!(
+        !local.exists(),
+        "this Device's state for the Vault survived"
+    );
     assert!(file.is_file(), "leaving took the documents with it");
     assert!(fs::read_to_string(&file).unwrap().contains("Mine."));
 
     // B still has the Vault, and no longer sees A as a Device in it.
     let b = open(&root, &db);
-    assert!(!b.devices().iter().any(|d| d.id == leaving), "the Vault still lists the Device that left");
+    assert!(
+        !b.devices().iter().any(|d| d.id == leaving),
+        "the Vault still lists the Device that left"
+    );
 }
 
 /// Leaving with the documents: the Vault is gone from this Device entirely.
@@ -957,12 +1116,16 @@ fn leaving_a_vault_can_take_the_documents_too() {
     let da = tmp.path().join("devA");
 
     let mut a = open(&root, &da);
-    a.create(DocType::Note, "My work", &Map::new(), "Mine.").unwrap();
+    a.create(DocType::Note, "My work", &Map::new(), "Mine.")
+        .unwrap();
     let local = engine::vault::local_dir_for(&da, &root);
 
     a.leave(true).unwrap();
 
-    assert!(!root.exists(), "the Vault folder survived a leave that asked for it");
+    assert!(
+        !root.exists(),
+        "the Vault folder survived a leave that asked for it"
+    );
     assert!(!local.exists());
 }
 
@@ -983,16 +1146,30 @@ fn leaving_with_the_documents_keeps_files_the_vault_does_not_own() {
     let da = tmp.path().join("devA");
 
     let mut a = open(&root, &da);
-    a.create(DocType::Composition, "Talk", &Map::new(), "Mine.").unwrap();
-    a.create(DocType::Note, "Romans", &Map::new(), "Romans 8:28").unwrap();
+    a.create(DocType::Composition, "Talk", &Map::new(), "Mine.")
+        .unwrap();
+    a.create(DocType::Note, "Romans", &Map::new(), "Romans 8:28")
+        .unwrap();
     a.leave(true).unwrap();
 
     assert_eq!(fs::read_to_string(root.join(".ssh/id_rsa")).unwrap(), "key");
     assert!(root.join("Photos/beach.jpg").is_file());
-    assert!(root.join("Notes/todo.txt").is_file(), "a file in a Vault folder that is not the Vault's");
-    assert!(!root.join("Notes/old.md").exists(), "an indexed document survived");
-    assert!(!root.join("Compositions").exists(), "an emptied type folder was kept");
-    assert!(!root.join("Scripture").exists(), "materialised Scripture pages were kept");
+    assert!(
+        root.join("Notes/todo.txt").is_file(),
+        "a file in a Vault folder that is not the Vault's"
+    );
+    assert!(
+        !root.join("Notes/old.md").exists(),
+        "an indexed document survived"
+    );
+    assert!(
+        !root.join("Compositions").exists(),
+        "an emptied type folder was kept"
+    );
+    assert!(
+        !root.join("Scripture").exists(),
+        "materialised Scripture pages were kept"
+    );
     assert!(!root.join(engine::vault::HIDDEN_DIR).exists());
 }
 
@@ -1008,15 +1185,27 @@ fn a_vault_reopened_after_leaving_starts_clean() {
     let da = tmp.path().join("devA");
 
     let mut a = open(&root, &da);
-    let doc = a.create(DocType::Note, "Kept", &Map::new(), "Still here.").unwrap();
+    let doc = a
+        .create(DocType::Note, "Kept", &Map::new(), "Still here.")
+        .unwrap();
     let id = doc.summary.id.clone();
     let was = a.meta().id.clone();
     a.leave(false).unwrap();
 
     let mut again = open(&root, &da);
-    assert_eq!(again.meta().id, was, "reopening the folder invented a new Vault");
-    assert!(again.read(&id).unwrap().text.contains("Still here."), "the document did not come back from disk");
-    assert!(again.versions(&id).unwrap().is_empty(), "history survived leaving");
+    assert_eq!(
+        again.meta().id,
+        was,
+        "reopening the folder invented a new Vault"
+    );
+    assert!(
+        again.read(&id).unwrap().text.contains("Still here."),
+        "the document did not come back from disk"
+    );
+    assert!(
+        again.versions(&id).unwrap().is_empty(),
+        "history survived leaving"
+    );
 }
 
 /// Eviction has to stick with sync switched off, which is exactly where a
@@ -1030,11 +1219,16 @@ fn forgetting_a_device_survives_the_folder_coming_back() {
     let (da, db) = (tmp.path().join("devA"), tmp.path().join("devB"));
 
     let mut b = open(&root, &db);
-    let doc = b.create(DocType::Note, "From the phone", &Map::new(), "Ghost.").unwrap();
+    let doc = b
+        .create(DocType::Note, "From the phone", &Map::new(), "Ghost.")
+        .unwrap();
     let id = doc.summary.id.clone();
     let path = doc.summary.path.clone();
     let retired = b.device_id().unwrap().to_string();
-    let folder = root.join(engine::vault::HIDDEN_DIR).join("sync").join(&retired);
+    let folder = root
+        .join(engine::vault::HIDDEN_DIR)
+        .join("sync")
+        .join(&retired);
     let snapshot = folder.join(format!("{id}.loro"));
     let bytes = fs::read(&snapshot).unwrap();
     drop(b);
@@ -1049,12 +1243,18 @@ fn forgetting_a_device_survives_the_folder_coming_back() {
     fs::write(&snapshot, &bytes).unwrap();
     fs::remove_file(root.join(&path)).unwrap();
 
-    assert!(a.apply_remote().unwrap().is_empty(), "a retired Device's folder was trusted again");
+    assert!(
+        a.apply_remote().unwrap().is_empty(),
+        "a retired Device's folder was trusted again"
+    );
     assert!(!root.join(&path).exists(), "the ghost document came back");
 
     // And it is still refused by a Device opening the Vault afresh.
     let mut again = open(&root, &da);
-    assert!(again.apply_remote().unwrap().is_empty(), "the retirement did not persist");
+    assert!(
+        again.apply_remote().unwrap().is_empty(),
+        "the retirement did not persist"
+    );
 }
 
 /// A paired Device whose clock runs ahead stamps its snapshots in this
@@ -1076,7 +1276,8 @@ fn a_save_survives_a_snapshot_from_a_clock_that_runs_ahead() {
             .summary;
         // A edits once more so it has a published snapshot of its own.
         let text = a.read(&s.id).unwrap().text;
-        a.write(&s.id, &text.replace("First.", "First, from A.")).unwrap();
+        a.write(&s.id, &text.replace("First.", "First, from A."))
+            .unwrap();
         s
     };
     let (id, file) = (summary.id, root.join(&summary.path));
@@ -1103,7 +1304,9 @@ fn a_save_survives_a_snapshot_from_a_clock_that_runs_ahead() {
     let saved = b.write(&id, &typed).unwrap();
     assert!(saved.text.contains("Then B typed this."), "{}", saved.text);
     assert!(
-        fs::read_to_string(&file).unwrap().contains("Then B typed this."),
+        fs::read_to_string(&file)
+            .unwrap()
+            .contains("Then B typed this."),
         "the save was replaced by the older merged text"
     );
     // A second save in the same window, with the CRDT now a step behind again.
@@ -1123,7 +1326,9 @@ fn an_obsidian_edit_survives_a_snapshot_stamped_a_day_ahead() {
     fs::create_dir_all(&root).unwrap();
     let summary = {
         let mut a = open(&root, &tmp.path().join("devA"));
-        a.create(DocType::Note, "Skew", &Map::new(), "First.").unwrap().summary
+        a.create(DocType::Note, "Skew", &Map::new(), "First.")
+            .unwrap()
+            .summary
     };
     let (id, file) = (summary.id, root.join(&summary.path));
     let mut b = open(&root, &tmp.path().join("devB"));
@@ -1135,14 +1340,25 @@ fn an_obsidian_edit_survives_a_snapshot_stamped_a_day_ahead() {
     for dev in fs::read_dir(&sync_dir).unwrap().flatten() {
         let snap = dev.path().join(format!("{id}.loro"));
         if dev.file_name().to_string_lossy() != b.device_id().unwrap() && snap.is_file() {
-            fs::File::options().write(true).open(&snap).unwrap().set_modified(ahead).unwrap();
+            fs::File::options()
+                .write(true)
+                .open(&snap)
+                .unwrap()
+                .set_modified(ahead)
+                .unwrap();
         }
     }
     std::thread::sleep(std::time::Duration::from_millis(20));
 
-    let edited = fs::read_to_string(&file).unwrap().replace("First.", "First. Edited in Obsidian.");
+    let edited = fs::read_to_string(&file)
+        .unwrap()
+        .replace("First.", "First. Edited in Obsidian.");
     fs::write(&file, &edited).unwrap();
     b.index_file(&summary.path).unwrap();
-    assert_eq!(fs::read_to_string(&file).unwrap(), edited, "the Obsidian edit was overwritten");
+    assert_eq!(
+        fs::read_to_string(&file).unwrap(),
+        edited,
+        "the Obsidian edit was overwritten"
+    );
     assert!(b.read(&id).unwrap().text.contains("Edited in Obsidian."));
 }

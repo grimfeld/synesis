@@ -11,9 +11,12 @@
 # on every platform (12-19 minutes per job). Run from `main`, each job
 # restores the previous release's cache and only compiles what changed.
 #
-# The `version` job checks that the files carry the requested version, tags
-# the commit (a push made with GITHUB_TOKEN starts no other workflow) and
-# creates the release; the build jobs only attach files to it. A re-run finds
+# The `version` job checks that the files carry the requested version, waits
+# for CI (ci.yml) to pass on the commit, tags it (a push made with
+# GITHUB_TOKEN starts no other workflow) and creates the release as a draft;
+# the build jobs only attach files to it, and the `publish` job makes it
+# public once every platform is there. If a platform fails, the release stays
+# a draft: re-run the failed jobs and `publish` follows. A re-run finds
 # the tag and the release already there and leaves both alone. Creating the
 # release up front also sidesteps tauri-action creating it with
 # `target_commitish`, which GitHub refuses ("Resource not accessible by
@@ -28,6 +31,11 @@
 # which GitHub serves from the newest release that is neither a draft nor a
 # prerelease, so a `X.Y.Z-pre` version never reaches them. Without the key the
 # run stops before tagging (.github/actions/require-updater-key).
+#
+# Supply chain: every third-party action is pinned to a full commit SHA (the
+# version in a comment; Dependabot proposes bumps), since one of these jobs
+# holds the key every installed app trusts. Only the `version` checkout keeps
+# its git credentials, and no secret is passed on a command line.
 #
 #   macOS   .dmg / .app  (Apple Silicon and Intel)
 #   Windows .msi / .exe, signed through SignPath Foundation when SIGNPATH_API_TOKEN
@@ -55,8 +63,10 @@ on:
         required: true
         type: string
 
+# Read-only by default; each job that writes to the release asks for
+# `contents: write` itself.
 permissions:
-  contents: write
+  contents: read
 
 env:
   VERSION: ${{ inputs.version }}
@@ -66,21 +76,58 @@ jobs:
   version:
     name: Version, tag and release
     runs-on: ubuntu-22.04
+    # Waiting for CI takes most of this job; the rest is seconds.
+    timeout-minutes: 90
+    permissions:
+      contents: write # push the tag, create the draft release
+      actions: read # read CI's runs on this commit
     outputs:
+      release_id: ${{ steps.release.outputs.id }}
       has_apple_cert: ${{ steps.secrets.outputs.has_apple_cert }}
       has_ios_key: ${{ steps.secrets.outputs.has_ios_key }}
       has_android_key: ${{ steps.secrets.outputs.has_android_key }}
     steps:
-      - uses: actions/checkout@v4
-      - name: Compare the requested version with package.json, tauri.conf.json and Cargo.toml
+      # The one checkout that keeps its credentials: it pushes the tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Compare the requested version with package.json, package-lock.json, tauri.conf.json and Cargo.toml
         run: |
           case "$VERSION" in
             v*) echo "::error::Give the version without the v: ${VERSION#v}"; exit 1 ;;
           esac
           node scripts/release.mjs --check "$VERSION"
           if [ "$GITHUB_REF" != "refs/heads/main" ]; then
-            echo "::warning::Releasing from $GITHUB_REF_NAME rather than main."
+            case "$VERSION" in
+              *-*) echo "::warning::Releasing the prerelease $VERSION from $GITHUB_REF_NAME rather than main." ;;
+              *) echo "::error::A release comes from main; $GITHUB_REF_NAME may only release a X.Y.Z-pre version."; exit 1 ;;
+            esac
           fi
+
+      # Nothing ships that failed CI. `npm run release` pushes the commit and
+      # starts this run at once, so CI (ci.yml) is usually still running: wait
+      # for it rather than run the same tests a second time here.
+      - name: Wait for CI to pass on this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          deadline=$(( $(date +%s) + 75 * 60 ))
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&per_page=50" \
+              --jq '[.workflow_runs[] | {status, conclusion}]')
+            if jq -e 'any(.[]; .conclusion == "success")' <<< "$runs" > /dev/null; then
+              echo "CI passed on ${GITHUB_SHA:0:7}."
+              break
+            fi
+            if jq -e 'length > 0 and all(.[]; .status == "completed")' <<< "$runs" > /dev/null; then
+              echo "::error::CI did not pass on ${GITHUB_SHA:0:7} ($(jq -r 'map(.conclusion) | join(", ")' <<< "$runs")). Fix it, or re-run CI if it was cancelled, then start the release again."
+              exit 1
+            fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::No finished CI run on ${GITHUB_SHA:0:7} after 75 minutes; start the release again once CI has passed."
+              exit 1
+            fi
+            echo "Waiting for CI on ${GITHUB_SHA:0:7}: $(jq -c . <<< "$runs")"
+            sleep 30
+          done
 
       # Checked before the tag and the release exist, so a missing key leaves
       # nothing half-published behind.
@@ -109,22 +156,35 @@ jobs:
           git tag -a "$TAG" -m "Synesis $TAG" "$GITHUB_SHA"
           git push origin "refs/tags/$TAG"
 
-      # Create the release before any build starts (see the note at the top).
-      # A re-run finds the release already there and leaves it alone.
-      - name: Create the GitHub Release
+      # Create the release before any build starts (see the note at the top),
+      # as a draft: installed apps and the landing page read the latest
+      # published release, and must not see this one until the `publish` job
+      # has checked every platform is attached. A re-run finds the release
+      # already there and leaves it alone. Its id goes to the build jobs,
+      # since a draft cannot be looked up by its tag.
+      - name: Create the GitHub Release (draft)
+        id: release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          find_id() {
+            gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --paginate \
+              --jq ".[] | select(.tag_name == \"$TAG\") | .id" | head -1
+          }
+          id=$(find_id)
+          if [ -n "$id" ]; then
             echo "Release $TAG already exists."
-            exit 0
+          else
+            prerelease=""
+            case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag $prerelease \
+              --title "Synesis $TAG" \
+              --notes "Installers for macOS, Windows, Linux and Android. See the assets below."
+            id=$(find_id)
           fi
-          prerelease=""
-          case "$VERSION" in *-*) prerelease="--prerelease" ;; esac
-          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --verify-tag $prerelease \
-            --title "Synesis $TAG" \
-            --notes "Installers for macOS, Windows, Linux and Android. See the assets below."
+          [ -n "$id" ] || { echo "::error::Could not find the release for $TAG."; exit 1; }
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
       # Which signing material is available. The macOS and iOS answers are
       # separate: APPLE_CERTIFICATE is a "Developer ID Application" identity,
@@ -166,8 +226,12 @@ jobs:
             args: ""
             cache: linux-x64
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write # upload to the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # No desktop build without the updater signing key (see the note at the top).
       - uses: ./.github/actions/require-updater-key
@@ -181,13 +245,14 @@ jobs:
           sudo apt-get install -y -qq libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       # `key` keeps the two macOS entries apart: they run on the same runner
@@ -195,7 +260,7 @@ jobs:
       # them could ever save, and the other would restore a target/ built for
       # the wrong architecture. `cache-on-failure` keeps the dependency build
       # from a failed run, so the fix-up run after it is not cold again.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           key: ${{ matrix.cache }}
@@ -257,22 +322,25 @@ jobs:
           sed "s/TEAM_ID/$APPLE_TEAM_ID/g" src-tauri/macos/Synesis.entitlements > src-tauri/macos/Synesis.signed.entitlements
           printf '%s\n' '{"bundle":{"macOS":{"entitlements":"macos/Synesis.signed.entitlements","files":{"embedded.provisionprofile":"embedded.provisionprofile"}}}}' > src-tauri/tauri.macos.conf.json
 
-      # The release already exists (created by the `version` job), so this
-      # only builds and uploads. releaseName is still required by the action
-      # but is never used to create anything. The TAURI_SIGNING_* pair signs
+      # The release already exists (created by the `version` job, as a draft),
+      # so this only builds and uploads to it by id: a draft cannot be found
+      # by its tag. tagName still makes the download URLs in latest.json;
+      # releaseName is required by the action but never used to create
+      # anything. The TAURI_SIGNING_* pair signs
       # the updater bundles (`bundle.createUpdaterArtifacts`); with
       # includeUpdaterJson the action downloads the release's `latest.json`
       # if there is one, adds this job's platform and uploads it again.
       - name: Build and upload to the release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
+          releaseId: ${{ needs.version.outputs.release_id }}
           tagName: ${{ env.TAG }}
           releaseName: "Synesis ${{ env.TAG }}"
-          releaseDraft: false
+          releaseDraft: true
           prerelease: ${{ contains(inputs.version, '-') }}
           includeUpdaterJson: true
           args: ${{ matrix.args }}
@@ -281,31 +349,36 @@ jobs:
     name: Android
     needs: version
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write # upload to the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
         with:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2
         with:
           packages: "platform-tools platforms;android-34 build-tools;34.0.0 ndk;26.3.11579264"
 
       # 64-bit ARM only. Every phone sold since about 2017 is arm64, Google
       # Play has required 64-bit since 2019, and each extra target is another
       # full Rust build with LTO (armv7 and x86_64 used to triple this job).
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: aarch64-linux-android
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           cache-on-failure: true
@@ -346,12 +419,16 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        # The passwords reach apksigner through the environment (env:NAME),
+        # never on its command line, where any process could read them.
         run: |
-          echo "$ANDROID_KEYSTORE" | base64 -d > /tmp/release.keystore
-          "$ANDROID_SDK_ROOT/build-tools/34.0.0/zipalign" -p 4 "$APK" /tmp/aligned.apk
-          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" sign --ks /tmp/release.keystore \
-            --ks-pass "pass:$ANDROID_KEYSTORE_PASSWORD" --ks-key-alias "$ANDROID_KEY_ALIAS" \
-            --key-pass "pass:$ANDROID_KEY_PASSWORD" --out "$APK" /tmp/aligned.apk
+          KS="$RUNNER_TEMP/release.keystore"
+          trap 'rm -f "$KS"' EXIT
+          echo "$ANDROID_KEYSTORE" | base64 -d > "$KS"
+          "$ANDROID_SDK_ROOT/build-tools/34.0.0/zipalign" -p 4 "$APK" "$RUNNER_TEMP/aligned.apk"
+          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" sign --ks "$KS" \
+            --ks-pass env:ANDROID_KEYSTORE_PASSWORD --ks-key-alias "$ANDROID_KEY_ALIAS" \
+            --key-pass env:ANDROID_KEY_PASSWORD --out "$APK" "$RUNNER_TEMP/aligned.apk"
 
       - name: Rename the APK
         run: |
@@ -370,30 +447,35 @@ jobs:
             exit 1
           fi
 
+      # gh finds a draft release by its tag; no third-party action needed.
       - name: Upload to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: out/*.apk
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" out/*.apk --clobber --repo "$GITHUB_REPOSITORY"
 
   ios:
     name: iOS
     needs: version
     if: needs.version.outputs.has_ios_key == 'true'
     runs-on: macos-latest
+    permissions:
+      contents: write # upload to the release
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: aarch64-apple-ios,aarch64-apple-ios-sim,x86_64-apple-ios
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           cache-on-failure: true
@@ -510,10 +592,9 @@ jobs:
           cp src-tauri/gen/apple/build/arm64/*.ipa "out/Synesis_${VERSION}_ios.ipa"
 
       - name: Upload to the release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ env.TAG }}
-          files: out/*.ipa
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" out/*.ipa --clobber --repo "$GITHUB_REPOSITORY"
 
       # The IPA is signed for the App Store, so a phone installs it only
       # through TestFlight. altool finds AuthKey_<id>.p8 in
@@ -548,6 +629,9 @@ jobs:
     name: Desktop (Windows)
     needs: version
     runs-on: windows-latest
+    permissions:
+      contents: write # upload to the release
+      actions: read # SignPath fetches the artifacts to sign
     defaults:
       run:
         shell: bash
@@ -555,7 +639,9 @@ jobs:
       SIGNPATH_PROJECT: ${{ vars.SIGNPATH_PROJECT_SLUG || 'synesis' }}
       SIGNPATH_POLICY: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       # No desktop build without the updater signing key (see the note at the top).
       - uses: ./.github/actions/require-updater-key
@@ -578,14 +664,16 @@ jobs:
             echo "::warning::SIGNPATH_API_TOKEN (secret) or SIGNPATH_ORGANIZATION_ID (variable) is not set, so the Windows installers ship unsigned. See docs/release/signpath.md."
           fi
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           key: windows-x64
@@ -601,7 +689,7 @@ jobs:
       - name: Hand the exe over for signing
         id: exe
         if: steps.signpath.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-exe-unsigned
           path: target/release/synesis.exe
@@ -609,7 +697,7 @@ jobs:
 
       - name: Sign the exe
         if: steps.signpath.outputs.enabled == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -640,7 +728,7 @@ jobs:
       - name: Hand the installers over for signing
         id: installers
         if: steps.signpath.outputs.enabled == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: windows-installers-unsigned
           path: installers/
@@ -648,7 +736,7 @@ jobs:
 
       - name: Sign the installers
         if: steps.signpath.outputs.enabled == 'true'
-        uses: signpath/github-action-submit-signing-request@v3
+        uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
@@ -697,6 +785,8 @@ jobs:
     needs: [desktop, windows]
     if: always() && needs.windows.result == 'success'
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write # update latest.json
     steps:
       - env:
           GH_TOKEN: ${{ github.token }}
@@ -717,21 +807,64 @@ jobs:
               | .platforms["windows-x86_64-msi"] = {signature: $ms, url: $mu}' \
              latest.json > latest.new && mv latest.new latest.json
           # tauri-action merges latest.json job by job; two jobs finishing
-          # together can drop each other's entry. Say so rather than ship it.
+          # together can drop each other's entry. The `publish` job refuses
+          # such a manifest; say early which entry is missing.
           for p in darwin-aarch64 darwin-x86_64 linux-x86_64; do
             jq -e --arg p "$p" '.platforms[$p]' latest.json > /dev/null || \
               echo "::warning::latest.json has no $p entry; re-run that desktop job, then this one."
           done
           gh release upload "$TAG" latest.json --clobber --repo "$R"
 
+  # Make the draft public, only once every desktop platform and Android is
+  # attached and latest.json names all four desktop platforms: published,
+  # the release becomes what installed apps update to, and a manifest
+  # missing a platform would strand its users on the old version. A failed
+  # platform leaves the release a draft; re-run the failed jobs and this one
+  # follows. iOS does not hold the release back: it ships through
+  # TestFlight, and its job has yet to succeed.
+  publish:
+    name: Publish the release
+    needs: [desktop, windows, updater-windows, android, ios]
+    if: >-
+      !cancelled() &&
+      needs.desktop.result == 'success' &&
+      needs.windows.result == 'success' &&
+      needs.updater-windows.result == 'success' &&
+      needs.android.result == 'success'
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write # publish the release
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          IOS_RESULT: ${{ needs.ios.result }}
+        run: |
+          set -euo pipefail
+          R="$GITHUB_REPOSITORY"
+          mkdir work && cd work
+          gh release download "$TAG" --repo "$R" --pattern 'latest.json'
+          missing=""
+          for p in darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64; do
+            jq -e --arg p "$p" '.platforms[$p].url and .platforms[$p].signature' latest.json > /dev/null || missing="$missing $p"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::latest.json has no entry for:$missing. The release stays a draft; re-run that desktop job, then 'Add Windows to the updater manifest', then this one."
+            exit 1
+          fi
+          gh release view "$TAG" --repo "$R" --json assets --jq '.assets[].name' > assets.txt
+          grep -q '_android\.apk$' assets.txt || { echo "::error::No Android APK on the release; it stays a draft."; exit 1; }
+          if [ "$IOS_RESULT" != "success" ] && [ "$IOS_RESULT" != "skipped" ]; then
+            echo "::warning::The iOS job ended '$IOS_RESULT'; publishing without the IPA."
+          fi
+          gh release edit "$TAG" --repo "$R" --draft=false
+          echo "Published $TAG."
+
   # The landing page reads the latest Release when it is built, and opens a
   # platform's download once its file is attached (site/src/lib/release.ts).
-  # Rebuild it once every build job has finished, whichever failed: iOS has
-  # yet to succeed, and the files that did upload should still be offered.
+  # Rebuild it once the release is published; a draft is invisible to it.
   site:
     name: Rebuild the landing page
-    needs: [desktop, windows, updater-windows, android, ios]
-    if: always()
+    needs: [publish]
     runs-on: ubuntu-22.04
     steps:
       - name: Ask Vercel to rebuild synesis-app.vercel.app

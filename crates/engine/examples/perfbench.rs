@@ -31,9 +31,18 @@ const QUERIES: &[(&str, &str)] = &[
 fn main() {
     let a: Vec<String> = std::env::args().collect();
     match a.get(1).map(String::as_str) {
-        Some("gen") => generate(Path::new(&a[2]), a.get(3).map_or(1.0, |s| s.parse().expect("scale"))),
-        Some("run") => run(Path::new(&a[2]), Path::new(&a[3]), a.iter().any(|x| x == "--keep")),
-        _ => eprintln!("usage: perfbench gen <dir> [scale] | perfbench run <vault> <data> [--keep]"),
+        Some("gen") => generate(
+            Path::new(&a[2]),
+            a.get(3).map_or(1.0, |s| s.parse().expect("scale")),
+        ),
+        Some("run") => run(
+            Path::new(&a[2]),
+            Path::new(&a[3]),
+            a.iter().any(|x| x == "--keep"),
+        ),
+        _ => {
+            eprintln!("usage: perfbench gen <dir> [scale] | perfbench run <vault> <data> [--keep]")
+        }
     }
 }
 
@@ -65,9 +74,17 @@ fn run(root: &Path, data: &Path, keep: bool) {
         drop(Vault::open(root, data, Lang::En).expect("open"));
         report("open_cold", Some(t.elapsed().as_secs_f64() * 1e3));
     }
-    report("open_warm", Some(median_ms(5, || drop(Vault::open(root, data, Lang::En).expect("open")))));
+    report(
+        "open_warm",
+        Some(median_ms(5, || {
+            drop(Vault::open(root, data, Lang::En).expect("open"))
+        })),
+    );
     let mut v = Vault::open(root, data, Lang::En).expect("open");
-    report("scan_nochange", Some(median_ms(10, || drop(v.scan().expect("scan")))));
+    report(
+        "scan_nochange",
+        Some(median_ms(10, || drop(v.scan().expect("scan")))),
+    );
     let place = root.join("Places/place 0.md");
     let original = std::fs::read_to_string(&place).expect("place 0");
     let mut k = 0;
@@ -115,20 +132,37 @@ fn write(dir: &Path, rel: &str, text: &str) {
 
 fn generate(dir: &Path, scale: f64) {
     let n = |base: f64| ((base * scale) as usize).max(1);
-    let (notes, places, regions, characters, events) = (n(3000.0), n(1000.0), n(30.0), n(300.0), n(3000.0));
+    let (notes, places, regions, characters, events) =
+        (n(3000.0), n(1000.0), n(30.0), n(300.0), n(3000.0));
     let mut r = Rng(0x5eed_5eed_5eed_5eed);
     let books = ["Gen", "Exo", "Isa", "Jer", "Mat", "Joh", "Rom", "Psa"];
     for i in 0..notes {
         let mut body = String::new();
         for j in 0..8 {
-            let (p, c, b) = (r.below(places), r.below(characters), books[r.below(books.len())]);
-            let (ch, v, end, link) = (1 + r.below(20), 1 + r.below(20), 21 + r.below(10), r.below(places));
+            let (p, c, b) = (
+                r.below(places),
+                r.below(characters),
+                books[r.below(books.len())],
+            );
+            let (ch, v, end, link) = (
+                1 + r.below(20),
+                1 + r.below(20),
+                21 + r.below(10),
+                r.below(places),
+            );
             let _ = write!(
                 body,
                 "Paragraph {j} about Place {p} and Character {c}, see {b} {ch}:{v}-{end} and [[Place {link}]].\n\n"
             );
         }
-        write(dir, &format!("Notes/note {i}.md"), &format!("---\ntype: note\ntitle: \"Note {i}\"\ntags: [\"t{}\"]\n---\n{body}", i % 20));
+        write(
+            dir,
+            &format!("Notes/note {i}.md"),
+            &format!(
+                "---\ntype: note\ntitle: \"Note {i}\"\ntags: [\"t{}\"]\n---\n{body}",
+                i % 20
+            ),
+        );
     }
     for i in 0..places {
         let (lat, lon) = (29.0 + r.unit() * 6.0, 33.0 + r.unit() * 5.0);
@@ -140,7 +174,10 @@ fn generate(dir: &Path, scale: f64) {
         let mut ring: Vec<[f64; 2]> = (0..k)
             .map(|j| {
                 let t = std::f64::consts::TAU * j as f64 / k as f64;
-                [lon + rad * t.cos() * (0.8 + 0.2 * r.unit()), lat + rad * t.sin() * (0.8 + 0.2 * r.unit())]
+                [
+                    lon + rad * t.cos() * (0.8 + 0.2 * r.unit()),
+                    lat + rad * t.sin() * (0.8 + 0.2 * r.unit()),
+                ]
             })
             .collect();
         ring.push(ring[0]);
@@ -154,14 +191,27 @@ fn generate(dir: &Path, scale: f64) {
         );
     }
     let list = |r: &mut Rng, what: &str, n: usize| {
-        (0..3).map(|_| format!("\"[[{what} {}]]\"", r.below(n))).collect::<Vec<_>>().join(", ")
+        (0..3)
+            .map(|_| format!("\"[[{what} {}]]\"", r.below(n)))
+            .collect::<Vec<_>>()
+            .join(", ")
     };
     for i in 0..characters {
         let pl = list(&mut r, "Place", places);
-        write(dir, &format!("Characters/character {i}.md"), &format!("---\ntype: character\ntitle: \"Character {i}\"\nplaces: [{pl}]\n---\nSomeone.\n"));
+        write(
+            dir,
+            &format!("Characters/character {i}.md"),
+            &format!(
+                "---\ntype: character\ntitle: \"Character {i}\"\nplaces: [{pl}]\n---\nSomeone.\n"
+            ),
+        );
     }
     for i in 0..events {
-        let (start, place, ch) = (500 + r.below(1500), r.below(places), list(&mut r, "Character", characters));
+        let (start, place, ch) = (
+            500 + r.below(1500),
+            r.below(places),
+            list(&mut r, "Character", characters),
+        );
         write(
             dir,
             &format!("Events/event {i}.md"),

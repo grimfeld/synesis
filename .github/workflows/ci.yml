@@ -1,5 +1,13 @@
 name: CI
 
+# The Release workflow (release.yml) waits for this workflow to pass on the
+# commit it releases, so a release never ships code that failed here.
+#
+# Every third-party action is pinned to a full commit SHA, with the version it
+# was in a comment: a tag can be moved by whoever controls the action's
+# repository, a commit cannot. Dependabot (.github/dependabot.yml) proposes
+# the bumps.
+
 on:
   push:
     branches: [main]
@@ -9,12 +17,18 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Read-only by default; no job here writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   check:
-    name: Typecheck, engine tests, clippy, Tauri build check
+    name: Typecheck, tests, fmt, clippy, Tauri build check
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Tauri system libraries
         run: |
@@ -22,16 +36,17 @@ jobs:
           sudo apt-get install -y -qq libwebkit2gtk-4.1-dev build-essential curl wget file \
             libxdo-dev libssl-dev libayatana-appindicator3-dev librsvg2-dev
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
-          components: clippy
+          toolchain: stable
+          components: clippy, rustfmt
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
 
@@ -39,27 +54,58 @@ jobs:
       - run: npm run typecheck
       - run: npm run test:unit
       - run: npm run build
-      - run: cargo test -p engine
-      - run: cargo check -p synesis
+      - run: cargo fmt --all -- --check
+      # The engine and the desktop shell (src-tauri); crates/web is a
+      # wasm32-wasip1 build, checked by the `web` job.
+      - run: cargo test --workspace --exclude web
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: npm run licenses -- --check
+      - run: node scripts/release.mjs --check "$(node -p 'require("./package.json").version')"
+
+  # Known vulnerabilities in what ships: the Rust dependencies (accepted ones
+  # are listed with a reason in .cargo/audit.toml) and the production npm
+  # dependencies of the app and the landing page.
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # A prebuilt cargo-audit, checksum-verified by the action.
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-audit
+
+      - run: cargo audit
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --omit=dev --audit-level=high
+        working-directory: site
 
   web:
     name: Web test build
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
+          toolchain: stable
           targets: wasm32-wasip1
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ". -> target"
           key: web
@@ -76,9 +122,11 @@ jobs:
       run:
         working-directory: site
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
           cache: npm

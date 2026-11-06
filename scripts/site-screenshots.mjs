@@ -12,10 +12,11 @@
 //   node scripts/site-screenshots.mjs hub map    only these
 import { chromium } from "playwright-core";
 import { createHash } from "node:crypto";
-import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { cpSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { isTestVault, makeTestVault } from "./test-vaults.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const out = join(root, "site", "src", "assets", "screens");
@@ -24,7 +25,12 @@ const BRIDGE = "http://127.0.0.1:4321";
 const WIDTH = 1600; // stored width: twice the largest the page shows them
 
 const bridge = async (cmd, args = {}) => {
-  const r = await fetch(`${BRIDGE}/invoke/${cmd}`, { method: "POST", body: JSON.stringify(args) });
+  const r = await fetch(`${BRIDGE}/invoke/${cmd}`, {
+    method: "POST",
+    // The bridge refuses a POST that is not JSON (src-tauri/src/devbridge.rs).
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(args),
+  });
   const text = await r.text();
   if (!r.ok) throw new Error(`${cmd}: ${text}`);
   return text ? JSON.parse(text) : null;
@@ -119,8 +125,8 @@ const only = process.argv.slice(2);
 const browser = await chromium.launch(process.env.CHROME ? { executablePath: process.env.CHROME } : { channel: "chrome" });
 const before = await bridge("get_settings");
 // One copy per language, in a folder named for it: the sidebar shows the
-// vault's folder name. Inside a `synesis-cy-` folder, so cleanups find it.
-const dir = mkdtempSync(join(tmpdir(), "synesis-cy-"));
+// vault's folder name. Inside a marked test copy (scripts/test-vaults.mjs), so cleanups find it.
+const dir = makeTestVault();
 const vaultFor = (lang) => join(dir, { en: "Bible study", fr: "Étude biblique" }[lang]);
 for (const lang of ["en", "fr"])
   cpSync(join(root, "examples", "demo-vault"), vaultFor(lang), {
@@ -182,9 +188,9 @@ try {
     mentionedOnly: before.map_mentioned_only ?? false,
     colorBy: before.map_color_by ?? "kind",
   });
-  if (before.vault_path && !before.vault_path.includes("synesis-cy-")) await bridge("open_vault", { path: before.vault_path });
+  if (before.vault_path && !isTestVault(before.vault_path)) await bridge("open_vault", { path: before.vault_path });
   else await bridge("close_vault");
-  for (const v of (await bridge("get_settings")).vaults.filter((v) => v.path.includes("synesis-cy-"))) {
+  for (const v of (await bridge("get_settings")).vaults.filter((v) => isTestVault(v.path))) {
     await bridge("forget_vault", { id: v.id });
     rmSync(v.path, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
     rmSync(localDirFor(v.path), { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });

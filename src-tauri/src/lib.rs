@@ -2,17 +2,19 @@
 //! (ADR 0004), keeps the vault open in app state, watches the folder for
 //! external edits and forwards changes to the UI as events.
 
-use engine::api::{self, BookMeta, DetectedRange, DocumentPayload, LinkResult, MentionRef, NameEntry};
+use engine::api::{
+    self, BookMeta, DetectedRange, DocumentPayload, LinkResult, MentionRef, NameEntry,
+};
 use engine::canvas::Canvas;
 use engine::document::DocType;
-use engine::place_kinds::{self, CustomKind};
-use engine::vault::{FillResult, KindSuggestion};
 use engine::index::{DocSummary, GraphLevel, Linkable};
+use engine::place_kinds::{self, CustomKind};
 use engine::properties::{PropertySchema, PropertyType};
 use engine::query::{Answer, Query};
 use engine::scripture::Lang;
 use engine::skin::{self, Appearance, Skin};
 use engine::sync::{HistoryPoint, Version};
+use engine::vault::{FillResult, KindSuggestion};
 use engine::vault::{VaultInfo, HIDDEN_DIR};
 use engine::Vault;
 use serde::{Deserialize, Serialize};
@@ -161,7 +163,11 @@ fn set_language(state: State<AppState>, lang: Lang) -> CmdResult<()> {
 
 /// Appearance mode and Text scale: this Device's, not the Vault's (ADR 0017).
 #[tauri::command]
-fn set_device_appearance(state: State<AppState>, mode: AppearanceMode, text_scale: f64) -> CmdResult<()> {
+fn set_device_appearance(
+    state: State<AppState>,
+    mode: AppearanceMode,
+    text_scale: f64,
+) -> CmdResult<()> {
     {
         let mut s = state.settings.lock().map_err(err)?;
         s.appearance_mode = mode;
@@ -213,7 +219,11 @@ fn set_map_filters(
 }
 
 /// Open (or create) the vault folder at `path`, or the last one from settings.
-pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<String>) -> CmdResult<VaultInfo> {
+pub(crate) fn do_open_vault(
+    app: AppHandle,
+    state: &AppState,
+    path: Option<String>,
+) -> CmdResult<VaultInfo> {
     let lang = state.settings.lock().map_err(err)?.lang;
     let path = match path.or_else(|| {
         state
@@ -261,7 +271,11 @@ pub(crate) fn do_open_vault(app: AppHandle, state: &AppState, path: Option<Strin
 }
 
 #[tauri::command]
-fn open_vault(app: AppHandle, state: State<AppState>, path: Option<String>) -> CmdResult<VaultInfo> {
+fn open_vault(
+    app: AppHandle,
+    state: State<AppState>,
+    path: Option<String>,
+) -> CmdResult<VaultInfo> {
     tauri::async_runtime::block_on(pairing::stop(&state));
     let info = do_open_vault(app.clone(), &state, path)?;
     pairing::autostart(app);
@@ -329,7 +343,11 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
     let vaults_home = storage::vaults_parent(&app)?;
     // The sync tools keep their folders under the real home, which on mobile
     // is not a place the app can look.
-    let home = if mobile { vaults_home.clone() } else { app.path().home_dir().map_err(err)? };
+    let home = if mobile {
+        vaults_home.clone()
+    } else {
+        app.path().home_dir().map_err(err)?
+    };
     let env_dir = |k: &str| std::env::var(k).ok().map(PathBuf::from);
     // (method, folder, whether Vaults sit directly in it)
     let mut candidates: Vec<(&str, PathBuf, bool)> = Vec::new();
@@ -342,7 +360,11 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
                 candidates.push(("icloud", c, true));
             }
             candidates.push(("icloud", home.join("iCloudDrive"), false));
-            candidates.push(("onedrive", env_dir("OneDrive").unwrap_or_else(|| home.join("OneDrive")), false));
+            candidates.push((
+                "onedrive",
+                env_dir("OneDrive").unwrap_or_else(|| home.join("OneDrive")),
+                false,
+            ));
             candidates.push(("gdrive", home.join("My Drive"), false));
             candidates.push(("gdrive", PathBuf::from("G:\\My Drive"), false));
             candidates.push(("dropbox", home.join("Dropbox"), false));
@@ -352,12 +374,24 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
             if let Some(c) = container {
                 candidates.push(("icloud", c, true));
             }
-            candidates.push(("icloud", home.join("Library/Mobile Documents/com~apple~CloudDocs"), false));
+            candidates.push((
+                "icloud",
+                home.join("Library/Mobile Documents/com~apple~CloudDocs"),
+                false,
+            ));
             let cloud = home.join("Library/CloudStorage");
             if let Ok(entries) = std::fs::read_dir(&cloud) {
                 for e in entries.flatten() {
                     let n = e.file_name().to_string_lossy().to_string();
-                    let m = if n.starts_with("OneDrive") { "onedrive" } else if n.starts_with("GoogleDrive") { "gdrive" } else if n.starts_with("Dropbox") { "dropbox" } else { continue };
+                    let m = if n.starts_with("OneDrive") {
+                        "onedrive"
+                    } else if n.starts_with("GoogleDrive") {
+                        "gdrive"
+                    } else if n.starts_with("Dropbox") {
+                        "dropbox"
+                    } else {
+                        continue;
+                    };
                     candidates.push((m, e.path(), false));
                 }
             }
@@ -365,7 +399,11 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
             candidates.push(("syncthing", home.join("Sync"), false));
         }
         "android" => {
-            candidates.push(("syncthing", PathBuf::from("/storage/emulated/0/Sync"), false));
+            candidates.push((
+                "syncthing",
+                PathBuf::from("/storage/emulated/0/Sync"),
+                false,
+            ));
         }
         "ios" => {
             // The ubiquity container, or an empty path that does not exist
@@ -380,8 +418,15 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
             candidates.push(("gdrive", home.join("GoogleDrive"), false));
         }
     }
-    let self_id = state.with_vault(|v| Ok(v.device_id().map(str::to_string))).ok().flatten();
-    let roots: Vec<PathBuf> = candidates.iter().filter(|(_, p, _)| is_folder(p)).map(|(_, p, _)| p.clone()).collect();
+    let self_id = state
+        .with_vault(|v| Ok(v.device_id().map(str::to_string)))
+        .ok()
+        .flatten();
+    let roots: Vec<PathBuf> = candidates
+        .iter()
+        .filter(|(_, p, _)| is_folder(p))
+        .map(|(_, p, _)| p.clone())
+        .collect();
     let found = engine::sync::find_vaults(&roots, self_id.as_deref());
     let locations = candidates
         .into_iter()
@@ -411,7 +456,12 @@ fn sync_locations(app: AppHandle, state: State<AppState>) -> CmdResult<SyncLocat
 fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>> {
     {
         let mut s = state.settings.lock().map_err(err)?;
-        let paths: Vec<String> = s.vaults.iter().filter(|v| v.id == id).map(|v| v.path.clone()).collect();
+        let paths: Vec<String> = s
+            .vaults
+            .iter()
+            .filter(|v| v.id == id)
+            .map(|v| v.path.clone())
+            .collect();
         s.vaults.retain(|v| v.id != id);
         s.recent.retain(|p| !paths.contains(p));
     }
@@ -430,10 +480,19 @@ fn forget_vault(state: State<AppState>, id: String) -> CmdResult<Vec<KnownVault>
 /// Only the open Vault can be left: leaving runs the engine, and the engine
 /// only holds the Vault that is open. The UI opens it first.
 #[tauri::command]
-fn leave_vault(app: AppHandle, state: State<AppState>, id: String, delete_documents: bool) -> CmdResult<Vec<KnownVault>> {
+fn leave_vault(
+    app: AppHandle,
+    state: State<AppState>,
+    id: String,
+    delete_documents: bool,
+) -> CmdResult<Vec<KnownVault>> {
     let known = {
         let s = state.settings.lock().map_err(err)?;
-        s.vaults.iter().find(|v| v.id == id).cloned().ok_or("no such vault")?
+        s.vaults
+            .iter()
+            .find(|v| v.id == id)
+            .cloned()
+            .ok_or("no such vault")?
     };
     let open_path = state.settings.lock().map_err(err)?.vault_path.clone();
     if open_path.as_deref() != Some(known.path.as_str()) {
@@ -443,7 +502,12 @@ fn leave_vault(app: AppHandle, state: State<AppState>, id: String, delete_docume
     // Both must let go before the engine can remove anything.
     tauri::async_runtime::block_on(pairing::stop(&state));
     *state.watcher.lock().map_err(err)? = None;
-    let vault = state.vault.lock().map_err(err)?.take().ok_or("no vault open")?;
+    let vault = state
+        .vault
+        .lock()
+        .map_err(err)?
+        .take()
+        .ok_or("no vault open")?;
     windows::vault_changed(&app);
     vault.leave(delete_documents).map_err(err)?;
     {
@@ -462,10 +526,14 @@ fn leave_vault(app: AppHandle, state: State<AppState>, id: String, delete_docume
 /// The Vault's documents are untouched: a Device leaving takes its history,
 /// not the work (ADR 0001).
 #[tauri::command]
-fn forget_device(state: State<AppState>, device: String) -> CmdResult<Vec<engine::sync::DeviceInfo>> {
+fn forget_device(
+    state: State<AppState>,
+    device: String,
+) -> CmdResult<Vec<engine::sync::DeviceInfo>> {
     // Only a Device id names a Device's folder (#82): anything else is refused
     // before a roster or a folder is touched.
-    let id = engine::device_id::DeviceId::parse(&device).ok_or_else(|| format!("not a device id: {device:?}"))?;
+    let id = engine::device_id::DeviceId::parse(&device)
+        .ok_or_else(|| format!("not a device id: {device:?}"))?;
     // The roster first: it is what stops the folder being trusted, and it must
     // outlive a crash between the two steps. `pairing_remove` covers a Device
     // that is still a member; this also reaches one that never was, which is
@@ -485,7 +553,11 @@ fn forget_device(state: State<AppState>, device: String) -> CmdResult<Vec<engine
 #[tauri::command]
 fn hidden_vaults(app: AppHandle, state: State<AppState>) -> CmdResult<Vec<String>> {
     let vaults = state.settings.lock().map_err(err)?.vaults.clone();
-    Ok(vaults.into_iter().filter(|v| storage::is_hidden_path(&app, &v.path)).map(|v| v.id).collect())
+    Ok(vaults
+        .into_iter()
+        .filter(|v| storage::is_hidden_path(&app, &v.path))
+        .map(|v| v.id)
+        .collect())
 }
 
 /// Move a Vault to the folder this Device would choose for it today, for the
@@ -498,7 +570,11 @@ fn hidden_vaults(app: AppHandle, state: State<AppState>) -> CmdResult<Vec<String
 fn move_vault(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<VaultInfo> {
     let known = {
         let s = state.settings.lock().map_err(err)?;
-        s.vaults.iter().find(|v| v.id == id).cloned().ok_or("no such vault")?
+        s.vaults
+            .iter()
+            .find(|v| v.id == id)
+            .cloned()
+            .ok_or("no such vault")?
     };
     let from = PathBuf::from(&known.path);
     if !from.is_dir() {
@@ -512,7 +588,8 @@ fn move_vault(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<V
         return Err("the vault is already there".into());
     }
     let to = storage::vault_path(&app, &known.name)?;
-    let was_open = state.settings.lock().map_err(err)?.vault_path.as_deref() == Some(known.path.as_str());
+    let was_open =
+        state.settings.lock().map_err(err)?.vault_path.as_deref() == Some(known.path.as_str());
     if was_open {
         close_vault(app.clone(), state.clone())?;
     }
@@ -559,7 +636,9 @@ fn suggest_vault_path(app: AppHandle, name: String, method: Option<String>) -> C
     if method.as_deref() == Some("icloud") && storage::app_decides_path() {
         let home = app.path().home_dir().unwrap_or_default();
         if let Some(parent) = icloud::container(&home) {
-            return Ok(engine::meta::free_path(&parent, &name).display().to_string());
+            return Ok(engine::meta::free_path(&parent, &name)
+                .display()
+                .to_string());
         }
     }
     Ok(storage::vault_path(&app, &name)?.display().to_string())
@@ -752,7 +831,11 @@ fn link_mentions(
 /// Write a region's Border drawn on the Map (ADR 0023): a `.geojson` file
 /// beside the Place, named in its `border` Property.
 #[tauri::command]
-fn save_border(state: State<AppState>, id: String, corners: Vec<[f64; 2]>) -> CmdResult<DocumentPayload> {
+fn save_border(
+    state: State<AppState>,
+    id: String,
+    corners: Vec<[f64; 2]>,
+) -> CmdResult<DocumentPayload> {
     let r = state.with_vault_mut(|v| api::save_border(v, &id, &corners));
     if r.is_ok() {
         pairing::after_write(&state);
@@ -900,7 +983,11 @@ async fn skin_gallery() -> CmdResult<Value> {
 async fn gallery_skin(file: String) -> CmdResult<Skin> {
     // Lower-case words joined by hyphens, as the gallery's gate requires: never a path.
     let stem = file.strip_suffix(".json").unwrap_or("");
-    if stem.is_empty() || !stem.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+    if stem.is_empty()
+        || !stem
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
         return Err(format!("not a Skin gallery file: {file}"));
     }
     skin::parse(&fetch_gallery_file(&file).await?).map_err(err)
@@ -1048,11 +1135,7 @@ fn attach_image(state: State<AppState>, title: String, path: String) -> CmdResul
 /// vault owns. Always the user's explicit choice, never a side effect of
 /// fetching metadata (ADR 0012).
 #[tauri::command]
-async fn save_remote_cover(
-    app: tauri::AppHandle,
-    title: String,
-    url: String,
-) -> CmdResult<String> {
+async fn save_remote_cover(app: tauri::AppHandle, title: String, url: String) -> CmdResult<String> {
     if title.trim().is_empty() {
         return Err("a Cover needs the Source's title to be named after".into());
     }
@@ -1103,8 +1186,8 @@ async fn save_remote_cover(
 #[tauri::command]
 fn read_attachment(state: State<AppState>, path: String) -> CmdResult<String> {
     use base64::Engine as _;
-    let media = engine::attachments::media_type(&path)
-        .ok_or_else(|| format!("not an image: {path}"))?;
+    let media =
+        engine::attachments::media_type(&path).ok_or_else(|| format!("not an image: {path}"))?;
     let bytes = state.with_vault(|v| {
         let abs = engine::attachments::safe_relative(v.root(), &path)?;
         Ok(std::fs::read(abs)?)
@@ -1118,7 +1201,12 @@ fn read_attachment(state: State<AppState>, path: String) -> CmdResult<String> {
 /// (ADR 0019). The bytes come from the webview as base64: a drop hands the
 /// page a `File`, not a path.
 #[tauri::command]
-fn attach_picture(state: State<AppState>, title: String, name: String, data: String) -> CmdResult<String> {
+fn attach_picture(
+    state: State<AppState>,
+    title: String,
+    name: String,
+    data: String,
+) -> CmdResult<String> {
     state.with_vault(|v| api::attach_picture(v.root(), &title, &name, &data))
 }
 
@@ -1455,8 +1543,14 @@ mod tests {
     fn a_meta_tag_is_read_in_either_attribute_order() {
         let a = r#"<meta property="og:title" content="Keep Enduring">"#;
         let b = r#"<meta content="Keep Enduring" property="og:title">"#;
-        assert_eq!(meta_content(a, "og:title").as_deref(), Some("Keep Enduring"));
-        assert_eq!(meta_content(b, "og:title").as_deref(), Some("Keep Enduring"));
+        assert_eq!(
+            meta_content(a, "og:title").as_deref(),
+            Some("Keep Enduring")
+        );
+        assert_eq!(
+            meta_content(b, "og:title").as_deref(),
+            Some("Keep Enduring")
+        );
     }
 
     #[test]

@@ -20,12 +20,20 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
     }
     // Every document needs a snapshot before another Device can receive it.
     state.with_vault_mut(|v| v.publish_missing())?;
-    let (root, device_id) = state.with_vault(|v| Ok((v.root().to_path_buf(), v.device_id().map(str::to_string))))?;
-    let device_id = device_id.and_then(|d| engine::device_id::DeviceId::parse(&d)).ok_or("this Vault has no Device id to pair with")?;
+    let (root, device_id) =
+        state.with_vault(|v| Ok((v.root().to_path_buf(), v.device_id().map(str::to_string))))?;
+    let device_id = device_id
+        .and_then(|d| engine::device_id::DeviceId::parse(&d))
+        .ok_or("this Vault has no Device id to pair with")?;
     let data_dir = app.path().app_data_dir().map_err(err)?;
     let local_dir = engine::vault::local_dir_for(&data_dir, &root);
     let (name, platform) = engine::sync::this_device();
-    let me = Member { node: [0; 32], device_id, name, platform };
+    let me = Member {
+        node: [0; 32],
+        device_id,
+        name,
+        platform,
+    };
     let relay = state.settings.lock().map_err(err)?.relay_url.clone();
     let (tx, mut rx) = mpsc::channel::<Event>(256);
     let forward = app.clone();
@@ -37,7 +45,14 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                 let state = forward.state::<AppState>();
                 if let Ok(changed) = state.with_vault_mut(|v| v.apply_remote()) {
                     if !changed.is_empty() {
-                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
+                        let _ = forward.emit(
+                            "vault:changed",
+                            crate::watch::ChangedPayload {
+                                changed,
+                                removed: vec![],
+                                boards: vec![],
+                            },
+                        );
                     }
                 }
             }
@@ -47,7 +62,14 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                 let state = forward.state::<AppState>();
                 if let Ok(changed) = state.with_vault_mut(|v| v.border_file_changed()) {
                     if !changed.is_empty() {
-                        let _ = forward.emit("vault:changed", crate::watch::ChangedPayload { changed, removed: vec![], boards: vec![] });
+                        let _ = forward.emit(
+                            "vault:changed",
+                            crate::watch::ChangedPayload {
+                                changed,
+                                removed: vec![],
+                                boards: vec![],
+                            },
+                        );
                     }
                 }
             }
@@ -63,7 +85,9 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
             let _ = forward.emit("pairing:event", &ev);
         }
     });
-    let node = Node::start(&root, &data_dir.join("device"), &local_dir, me, relay, tx).await.map_err(err)?;
+    let node = Node::start(&root, &data_dir.join("device"), &local_dir, me, relay, tx)
+        .await
+        .map_err(err)?;
     *state.p2p.lock().map_err(err)? = Some(node.clone());
     Ok(node)
 }
@@ -133,7 +157,10 @@ pub struct InvitePayload {
 impl InvitePayload {
     fn of(node: &Node) -> InvitePayload {
         let (invite, left) = node.invite();
-        InvitePayload { code: invite.encode(), expires_in_ms: left.as_millis() as u64 }
+        InvitePayload {
+            code: invite.encode(),
+            expires_in_ms: left.as_millis() as u64,
+        }
     }
 }
 
@@ -143,13 +170,19 @@ pub async fn pairing_status(state: tauri::State<'_, AppState>) -> CmdResult<Opti
 }
 
 #[tauri::command]
-pub async fn pairing_invite(app: AppHandle, state: tauri::State<'_, AppState>) -> CmdResult<InvitePayload> {
+pub async fn pairing_invite(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> CmdResult<InvitePayload> {
     let node = ensure_started(&app, &state).await?;
     Ok(InvitePayload::of(&node))
 }
 
 #[tauri::command]
-pub async fn pairing_revoke_invite(app: AppHandle, state: tauri::State<'_, AppState>) -> CmdResult<InvitePayload> {
+pub async fn pairing_revoke_invite(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> CmdResult<InvitePayload> {
     let node = ensure_started(&app, &state).await?;
     node.revoke_invite();
     Ok(InvitePayload::of(&node))
@@ -157,7 +190,12 @@ pub async fn pairing_revoke_invite(app: AppHandle, state: tauri::State<'_, AppSt
 
 /// Join a vault from an Invite: create the vault folder at `path`, open it, and ask to join.
 #[tauri::command]
-pub async fn pairing_join(app: AppHandle, state: tauri::State<'_, AppState>, code: String, path: String) -> CmdResult<Status> {
+pub async fn pairing_join(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    code: String,
+    path: String,
+) -> CmdResult<Status> {
     let invite = Invite::decode(&code).ok_or("not a pairing code")?;
     // Refuse a folder that already holds another Vault (ADR 0014). Merging two
     // Vaults is permanent and is never what anyone meant; this is the check
@@ -176,7 +214,8 @@ pub async fn pairing_join(app: AppHandle, state: tauri::State<'_, AppState>, cod
     crate::do_open_vault(app.clone(), &state, Some(path))?;
     // The folder is this Vault from here on, whatever it was called locally.
     if let Some(v) = state.vault.lock().map_err(err)?.as_mut() {
-        v.adopt_identity(&invite.vault_id, &invite.vault_name).map_err(err)?;
+        v.adopt_identity(&invite.vault_id, &invite.vault_name)
+            .map_err(err)?;
     }
     let node = ensure_started(&app, &state).await?;
     node.join(invite);
@@ -184,16 +223,30 @@ pub async fn pairing_join(app: AppHandle, state: tauri::State<'_, AppState>, cod
 }
 
 #[tauri::command]
-pub async fn pairing_approve(state: tauri::State<'_, AppState>, node: String, allow: bool) -> CmdResult<bool> {
+pub async fn pairing_approve(
+    state: tauri::State<'_, AppState>,
+    node: String,
+    allow: bool,
+) -> CmdResult<bool> {
     let id = parse_node(&node)?;
-    let n = state.p2p.lock().map_err(err)?.clone().ok_or("pairing not running")?;
+    let n = state
+        .p2p
+        .lock()
+        .map_err(err)?
+        .clone()
+        .ok_or("pairing not running")?;
     Ok(n.approve(&id, allow))
 }
 
 #[tauri::command]
 pub async fn pairing_remove(state: tauri::State<'_, AppState>, node: String) -> CmdResult<()> {
     let id = parse_node(&node)?;
-    let n = state.p2p.lock().map_err(err)?.clone().ok_or("pairing not running")?;
+    let n = state
+        .p2p
+        .lock()
+        .map_err(err)?
+        .clone()
+        .ok_or("pairing not running")?;
     n.remove(&id);
     Ok(())
 }
@@ -205,7 +258,11 @@ pub async fn pairing_stop(state: tauri::State<'_, AppState>) -> CmdResult<()> {
 }
 
 #[tauri::command]
-pub async fn set_relay(app: AppHandle, state: tauri::State<'_, AppState>, url: Option<String>) -> CmdResult<()> {
+pub async fn set_relay(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+    url: Option<String>,
+) -> CmdResult<()> {
     let url = url.map(|u| u.trim().to_string()).filter(|u| !u.is_empty());
     state.settings.lock().map_err(err)?.relay_url = url;
     state.save_settings()?;
@@ -234,16 +291,21 @@ pub fn setup_tray(app: &AppHandle) -> tauri::Result<()> {
     let open = MenuItem::with_id(app, "open", "Open Synesis", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&open, &quit])?;
-    let mut tray = TrayIconBuilder::with_id("main").menu(&menu).tooltip("Synesis").on_menu_event(|app, e| match e.id().as_ref() {
-        "open" => show_main(app),
-        "quit" => {
-            let state = app.state::<AppState>();
-            state.quitting.store(true, std::sync::atomic::Ordering::SeqCst);
-            // Every Window saves its typing first (spec #35).
-            crate::windows::flush_all_then(app, |app| app.exit(0));
-        }
-        _ => {}
-    });
+    let mut tray = TrayIconBuilder::with_id("main")
+        .menu(&menu)
+        .tooltip("Synesis")
+        .on_menu_event(|app, e| match e.id().as_ref() {
+            "open" => show_main(app),
+            "quit" => {
+                let state = app.state::<AppState>();
+                state
+                    .quitting
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+                // Every Window saves its typing first (spec #35).
+                crate::windows::flush_all_then(app, |app| app.exit(0));
+            }
+            _ => {}
+        });
     if let Some(icon) = app.default_window_icon() {
         tray = tray.icon(icon.clone());
     }
@@ -266,7 +328,11 @@ pub fn keep_in_background(state: &AppState) -> bool {
     if state.quitting.load(std::sync::atomic::Ordering::SeqCst) {
         return false;
     }
-    let bg = state.settings.lock().map(|s| s.background_sync).unwrap_or(true);
+    let bg = state
+        .settings
+        .lock()
+        .map(|s| s.background_sync)
+        .unwrap_or(true);
     let running = state.p2p.lock().map(|g| g.is_some()).unwrap_or(false);
     bg && running
 }

@@ -372,7 +372,11 @@ mod tests {
         assert_eq!(found(&["Élie"], "lorsqu\u{2019}Élie vint"), ["Élie"]);
         assert_eq!(found(&["Isaïe"], "Puisqu'Isaïe le dit"), ["Isaïe"]);
         for e in ["d", "l", "j", "m", "n", "s", "t", "c", "D", "L"] {
-            assert_eq!(found(&["Israël"], &format!("{e}'Israël")), ["Israël"], "{e}'");
+            assert_eq!(
+                found(&["Israël"], &format!("{e}'Israël")),
+                ["Israël"],
+                "{e}'"
+            );
         }
     }
 
@@ -461,7 +465,10 @@ mod tests {
     #[test]
     fn the_longest_name_wins() {
         assert_eq!(
-            found(&["Antioch", "Antioch in Pisidia"], "at Antioch in Pisidia now"),
+            found(
+                &["Antioch", "Antioch in Pisidia"],
+                "at Antioch in Pisidia now"
+            ),
             ["Antioch in Pisidia"]
         );
     }
@@ -469,7 +476,10 @@ mod tests {
     #[test]
     fn multi_word_names_match() {
         assert_eq!(
-            found(&["Paul's second missionary journey"], "on Paul's second missionary journey he"),
+            found(
+                &["Paul's second missionary journey"],
+                "on Paul's second missionary journey he"
+            ),
             ["Paul's second missionary journey"]
         );
     }
@@ -498,11 +508,13 @@ mod tests {
             Some("went to [[Antioch]] and")
         );
         // The file changed under us: the same offset now holds other words.
-        assert_eq!(splice("we went to Antioch", 8, 15, "Antioch", "[[Antioch]]"), None);
+        assert_eq!(
+            splice("we went to Antioch", 8, 15, "Antioch", "[[Antioch]]"),
+            None
+        );
         assert_eq!(splice(text, 8, 999, "Antioch", "[[Antioch]]"), None);
         // Reversed offsets refuse rather than panic.
         assert_eq!(splice("hello world", 6, 3, "", "x"), None);
         assert_eq!(splice("hello world", 6, 3, "lo ", "x"), None);
     }
 }
-

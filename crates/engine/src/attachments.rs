@@ -39,10 +39,7 @@ const TYPES: &[(&str, &str)] = &[
 
 /// The media type for a stored picture, by extension.
 pub fn media_type(path: &str) -> Option<&'static str> {
-    let ext = Path::new(path)
-        .extension()?
-        .to_str()?
-        .to_ascii_lowercase();
+    let ext = Path::new(path).extension()?.to_str()?.to_ascii_lowercase();
     TYPES.iter().find(|(e, _)| *e == ext).map(|(_, m)| *m)
 }
 
@@ -129,11 +126,23 @@ pub fn is_picture_target(target: &str) -> bool {
 ///
 /// Brackets, `#` and `^` are dropped as well as what a file name cannot hold,
 /// because the name is written inside `![[…]]`, where they mean something.
-pub fn picture_path(root: &Path, title: &str, ext: &str, bytes: &[u8], now: chrono::NaiveDateTime) -> String {
+pub fn picture_path(
+    root: &Path,
+    title: &str,
+    ext: &str,
+    bytes: &[u8],
+    now: chrono::NaiveDateTime,
+) -> String {
     use sha2::Digest as _;
     let cleaned: String = title
         .chars()
-        .map(|c| if matches!(c, '[' | ']' | '#' | '^') { ' ' } else { c })
+        .map(|c| {
+            if matches!(c, '[' | ']' | '#' | '^') {
+                ' '
+            } else {
+                c
+            }
+        })
         .collect();
     let base = crate::vault::sanitize_title(&cleaned).to_lowercase();
     let base = if cleaned.trim().is_empty() || base == "untitled" {
@@ -200,7 +209,12 @@ pub fn shrink(bytes: &[u8], ext: &str, max: u32, keep_gif: bool) -> Result<(Vec<
 /// `![[athens.png]]` is looked for in `Attachments/` too (ADR 0019). Nothing
 /// indexes pictures, so this is a look at the disk, not a query.
 pub fn locate_picture(root: &Path, target: &str) -> Option<String> {
-    let target = target.split('|').next().unwrap_or(target).trim().replace('\\', "/");
+    let target = target
+        .split('|')
+        .next()
+        .unwrap_or(target)
+        .trim()
+        .replace('\\', "/");
     let name = target.rsplit('/').next().unwrap_or(&target).to_string();
     [target.clone(), format!("{FOLDER}/{name}")]
         .into_iter()
@@ -218,7 +232,9 @@ pub fn store_picture(
     now: chrono::NaiveDateTime,
 ) -> Result<String> {
     if !is_supported(file_name) {
-        return Err(Error::Invalid(format!("not a picture we can store: {file_name}")));
+        return Err(Error::Invalid(format!(
+            "not a picture we can store: {file_name}"
+        )));
     }
     let ext = Path::new(file_name)
         .extension()
@@ -312,7 +328,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         std::fs::write(outside.path().join("private.png"), b"x").unwrap();
-        std::os::unix::fs::symlink(outside.path().join("private.png"), dir.path().join("cover.png")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("private.png"),
+            dir.path().join("cover.png"),
+        )
+        .unwrap();
         assert!(safe_relative(dir.path(), "cover.png").is_err());
         assert_eq!(locate_picture(dir.path(), "cover.png"), None);
     }
@@ -464,14 +484,21 @@ mod tests {
             let h = sha2::Sha256::digest(b);
             format!("{:02x}{:02x}{:02x}", h[0], h[1], h[2])
         };
-        let first = store_picture(root, "Paul in Athens", "IMG_2031.PNG", &png(10, 10), noon()).unwrap();
-        assert_eq!(first, format!("Attachments/paul in athens {}.png", short(&png(10, 10))));
+        let first =
+            store_picture(root, "Paul in Athens", "IMG_2031.PNG", &png(10, 10), noon()).unwrap();
+        assert_eq!(
+            first,
+            format!("Attachments/paul in athens {}.png", short(&png(10, 10)))
+        );
         // The same picture again is the same file, not a second copy.
         let again = store_picture(root, "Paul in Athens", "x.png", &png(10, 10), noon()).unwrap();
         assert_eq!(again, first);
         // Another picture in the same document: another name, on any Device.
         let other = store_picture(root, "Paul in Athens", "x.png", &png(10, 11), noon()).unwrap();
-        assert_eq!(other, format!("Attachments/paul in athens {}.png", short(&png(10, 11))));
+        assert_eq!(
+            other,
+            format!("Attachments/paul in athens {}.png", short(&png(10, 11)))
+        );
         assert_ne!(other, first);
         // What means something inside `![[…]]` never reaches the file name.
         assert_eq!(
@@ -486,7 +513,10 @@ mod tests {
         let root = dir.path();
         std::fs::create_dir_all(root.join(FOLDER)).unwrap();
         std::fs::write(root.join("Attachments/athens 2d7116.png"), b"not x").unwrap();
-        assert_eq!(picture_path(root, "Athens", "png", b"x", noon()), "Attachments/athens 2d7116 2.png");
+        assert_eq!(
+            picture_path(root, "Athens", "png", b"x", noon()),
+            "Attachments/athens 2d7116 2.png"
+        );
     }
 
     #[test]
@@ -533,10 +563,19 @@ mod tests {
         std::fs::create_dir_all(root.join(FOLDER)).unwrap();
         std::fs::write(root.join("Attachments/athens.png"), b"x").unwrap();
         std::fs::write(root.join("map.png"), b"x").unwrap();
-        assert_eq!(locate_picture(root, "Attachments/athens.png").as_deref(), Some("Attachments/athens.png"));
-        assert_eq!(locate_picture(root, "athens.png|300").as_deref(), Some("Attachments/athens.png"));
+        assert_eq!(
+            locate_picture(root, "Attachments/athens.png").as_deref(),
+            Some("Attachments/athens.png")
+        );
+        assert_eq!(
+            locate_picture(root, "athens.png|300").as_deref(),
+            Some("Attachments/athens.png")
+        );
         assert_eq!(locate_picture(root, "map.png").as_deref(), Some("map.png"));
         assert_eq!(locate_picture(root, "rome.png"), None);
-        assert_eq!(locate_picture(root, "../athens.png"), Some("Attachments/athens.png".into()));
+        assert_eq!(
+            locate_picture(root, "../athens.png"),
+            Some("Attachments/athens.png".into())
+        );
     }
 }

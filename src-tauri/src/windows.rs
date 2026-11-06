@@ -39,12 +39,16 @@ pub fn open_window(app: AppHandle, state: State<WindowState>, id: String) -> Res
     #[cfg(desktop)]
     {
         let label = state.windows.lock().map_err(err)?.create(&id);
-        let built = tauri::WebviewWindowBuilder::new(&app, &label, tauri::WebviewUrl::App("index.html".into()))
-            .title("Synesis")
-            .inner_size(1100.0, 800.0)
-            .min_inner_size(720.0, 480.0)
-            .disable_drag_drop_handler()
-            .build();
+        let built = tauri::WebviewWindowBuilder::new(
+            &app,
+            &label,
+            tauri::WebviewUrl::App("index.html".into()),
+        )
+        .title("Synesis")
+        .inner_size(1100.0, 800.0)
+        .min_inner_size(720.0, 480.0)
+        .disable_drag_drop_handler()
+        .build();
         if let Err(e) = built {
             state.windows.lock().map_err(err)?.forget(&label);
             return Err(err(e));
@@ -60,8 +64,15 @@ pub fn open_window(app: AppHandle, state: State<WindowState>, id: String) -> Res
 
 /// The document this Window was opened on, if it is a new Window just opening.
 #[tauri::command]
-pub fn window_start(window: tauri::Window, state: State<WindowState>) -> Result<Option<String>, String> {
-    Ok(state.windows.lock().map_err(err)?.take_start(window.label()))
+pub fn window_start(
+    window: tauri::Window,
+    state: State<WindowState>,
+) -> Result<Option<String>, String> {
+    Ok(state
+        .windows
+        .lock()
+        .map_err(err)?
+        .take_start(window.label()))
 }
 
 /// This Window shows `id`, which it read as `text`.
@@ -73,13 +84,26 @@ pub fn doc_join(
     client: u64,
     text: String,
 ) -> Result<Joined, String> {
-    Ok(state.windows.lock().map_err(err)?.join(window.label(), client, &id, &text))
+    Ok(state
+        .windows
+        .lock()
+        .map_err(err)?
+        .join(window.label(), client, &id, &text))
 }
 
 /// This Window no longer shows `id`.
 #[tauri::command]
-pub fn doc_leave(window: tauri::Window, state: State<WindowState>, id: String, client: u64) -> Result<(), String> {
-    state.windows.lock().map_err(err)?.leave(window.label(), client, &id);
+pub fn doc_leave(
+    window: tauri::Window,
+    state: State<WindowState>,
+    id: String,
+    client: u64,
+) -> Result<(), String> {
+    state
+        .windows
+        .lock()
+        .map_err(err)?
+        .leave(window.label(), client, &id);
     Ok(())
 }
 
@@ -95,7 +119,14 @@ pub fn doc_sync(
     let (reply, to) = {
         let mut w = state.windows.lock().map_err(err)?;
         let (reply, changed) = w.sync(window.label(), req)?;
-        (reply, if changed { w.others(window.label(), &id) } else { Vec::new() })
+        (
+            reply,
+            if changed {
+                w.others(window.label(), &id)
+            } else {
+                Vec::new()
+            },
+        )
     };
     for label in to {
         let _ = app.emit_to(label.as_str(), "doc:poke", Poke { id: &id });
@@ -137,7 +168,10 @@ pub fn closed(app: &AppHandle, label: &str) {
 #[tauri::command]
 pub async fn close_other_windows(app: AppHandle) -> Result<(), String> {
     let others = || -> Vec<String> {
-        app.webview_windows().into_keys().filter(|l| l != MAIN).collect()
+        app.webview_windows()
+            .into_keys()
+            .filter(|l| l != MAIN)
+            .collect()
     };
     for label in others() {
         let _ = app.emit_to(label.as_str(), "windows:close", ());

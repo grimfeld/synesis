@@ -20,7 +20,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Top-level config files that sync. `vault.json` is not one: it names the
 /// Vault's identity, which never changes after creation.
-pub const TOP_FILES: &[&str] = &[crate::properties::FILE_NAME, "appearance.json", crate::place_kinds::FILE];
+pub const TOP_FILES: &[&str] = &[
+    crate::properties::FILE_NAME,
+    "appearance.json",
+    crate::place_kinds::FILE,
+];
 /// Folders whose `*.json` files all sync.
 pub const DIRS: &[&str] = &["skins"];
 
@@ -34,7 +38,10 @@ pub struct ConfigEntry {
 }
 
 pub fn now_ms() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// How far ahead of this Device's clock a peer's stamp or snapshot time may
@@ -68,7 +75,8 @@ pub(crate) fn next_stamp(previous: i64) -> i64 {
 }
 
 fn next_stamp_at(previous: i64, now: i64) -> i64 {
-    now.max(previous.saturating_add(1)).min(now.saturating_add(MAX_SKEW_MS))
+    now.max(previous.saturating_add(1))
+        .min(now.saturating_add(MAX_SKEW_MS))
 }
 
 /// `ms` after the epoch as a file time, or `None` where it does not fit.
@@ -82,7 +90,9 @@ pub fn is_synced(name: &str) -> bool {
     if TOP_FILES.contains(&name) {
         return true;
     }
-    let Some((dir, file)) = name.split_once('/') else { return false };
+    let Some((dir, file)) = name.split_once('/') else {
+        return false;
+    };
     DIRS.contains(&dir)
         && file.ends_with(".json")
         && file.len() > ".json".len()
@@ -91,7 +101,8 @@ pub fn is_synced(name: &str) -> bool {
 }
 
 fn path(hidden: &Path, name: &str) -> PathBuf {
-    name.split('/').fold(hidden.to_path_buf(), |p, part| p.join(part))
+    name.split('/')
+        .fold(hidden.to_path_buf(), |p, part| p.join(part))
 }
 
 pub(crate) fn mtime_ms(p: &Path) -> i64 {
@@ -105,7 +116,10 @@ pub(crate) fn mtime_ms(p: &Path) -> i64 {
 
 /// The `updated` stamp of these bytes, if they are JSON carrying one.
 pub(crate) fn stamp_of(bytes: &[u8]) -> Option<i64> {
-    serde_json::from_slice::<Value>(bytes).ok()?.get("updated")?.as_i64()
+    serde_json::from_slice::<Value>(bytes)
+        .ok()?
+        .get("updated")?
+        .as_i64()
 }
 
 fn stamp_at(p: &Path, bytes: &[u8]) -> i64 {
@@ -128,7 +142,11 @@ pub fn manifest(hidden: &Path) -> Vec<ConfigEntry> {
         .filter_map(|name| {
             let p = path(hidden, &name);
             let bytes = fs::read(&p).ok()?;
-            Some(ConfigEntry { stamp: stamp_at(&p, &bytes), size: bytes.len() as u64, name })
+            Some(ConfigEntry {
+                stamp: stamp_at(&p, &bytes),
+                size: bytes.len() as u64,
+                name,
+            })
         })
         .collect()
 }
@@ -172,16 +190,28 @@ fn accept_at(hidden: &Path, name: &str, bytes: &[u8], now: i64) -> bool {
             if p.exists() {
                 return false;
             }
-            let Ok(Value::Object(mut map)) = serde_json::from_slice::<Value>(bytes) else { return false };
+            let Ok(Value::Object(mut map)) = serde_json::from_slice::<Value>(bytes) else {
+                return false;
+            };
             map.insert("updated".into(), Value::from(clamp_stamp_at(stamp, now)));
-            let Ok(text) = serde_json::to_string_pretty(&map) else { return false };
+            let Ok(text) = serde_json::to_string_pretty(&map) else {
+                return false;
+            };
             clamped = text + "\n";
             clamped.as_bytes()
         }
         _ => bytes,
     };
-    let incoming = ConfigEntry { name: name.into(), stamp: stamp_at(&p, bytes), size: bytes.len() as u64 };
-    let mine = fs::read(&p).ok().map(|b| ConfigEntry { name: name.into(), stamp: stamp_at(&p, &b), size: b.len() as u64 });
+    let incoming = ConfigEntry {
+        name: name.into(),
+        stamp: stamp_at(&p, bytes),
+        size: bytes.len() as u64,
+    };
+    let mine = fs::read(&p).ok().map(|b| ConfigEntry {
+        name: name.into(),
+        stamp: stamp_at(&p, &b),
+        size: b.len() as u64,
+    });
     if !is_newer(&incoming, mine.as_ref()) {
         return false;
     }
@@ -196,7 +226,10 @@ fn accept_at(hidden: &Path, name: &str, bytes: &[u8], now: i64) -> bool {
     if ok {
         // Keep the mtime in step with the stamp, for readers that fall back to it.
         if let Some(t) = file_time(incoming.stamp) {
-            let _ = fs::File::options().write(true).open(&p).and_then(|f| f.set_modified(t));
+            let _ = fs::File::options()
+                .write(true)
+                .open(&p)
+                .and_then(|f| f.set_modified(t));
         }
     }
     ok
@@ -255,15 +288,28 @@ mod tests {
     fn newest_stamp_wins_regardless_of_mtime() {
         let a = tempfile::tempdir().unwrap();
         let b = tempfile::tempdir().unwrap();
-        write(a.path(), "skins/x.json", serde_json::json!({ "name": "old" })).unwrap();
+        write(
+            a.path(),
+            "skins/x.json",
+            serde_json::json!({ "name": "old" }),
+        )
+        .unwrap();
         std::thread::sleep(Duration::from_millis(5));
-        write(b.path(), "skins/x.json", serde_json::json!({ "name": "new" })).unwrap();
+        write(
+            b.path(),
+            "skins/x.json",
+            serde_json::json!({ "name": "new" }),
+        )
+        .unwrap();
         let newer = read(b.path(), "skins/x.json").unwrap();
         let older = read(a.path(), "skins/x.json").unwrap();
         // Touch a's file so its mtime is the latest: the stamp still decides.
         fs::write(a.path().join("skins/x.json"), &older).unwrap();
         assert!(accept(a.path(), "skins/x.json", &newer));
-        assert!(!accept(b.path(), "skins/x.json", &older), "an older stamp replaced a newer file");
+        assert!(
+            !accept(b.path(), "skins/x.json", &older),
+            "an older stamp replaced a newer file"
+        );
         let text = fs::read_to_string(a.path().join("skins/x.json")).unwrap();
         assert!(text.contains("new"), "{text}");
     }
@@ -272,12 +318,23 @@ mod tests {
     fn a_local_write_outranks_a_stamp_from_a_fast_clock() {
         let d = tempfile::tempdir().unwrap();
         let future = serde_json::json!({ "name": "peer", "updated": now_ms() + 60_000 });
-        assert!(accept(d.path(), "appearance.json", future.to_string().as_bytes()));
-        write(d.path(), "appearance.json", serde_json::json!({ "name": "mine" })).unwrap();
+        assert!(accept(
+            d.path(),
+            "appearance.json",
+            future.to_string().as_bytes()
+        ));
+        write(
+            d.path(),
+            "appearance.json",
+            serde_json::json!({ "name": "mine" }),
+        )
+        .unwrap();
         let m = manifest(d.path());
         let e = m.iter().find(|e| e.name == "appearance.json").unwrap();
         assert!(e.stamp > now_ms() + 59_000);
-        assert!(fs::read_to_string(d.path().join("appearance.json")).unwrap().contains("mine"));
+        assert!(fs::read_to_string(d.path().join("appearance.json"))
+            .unwrap()
+            .contains("mine"));
     }
 
     #[test]
@@ -291,7 +348,10 @@ mod tests {
         delete(a.path(), "skins/x.json").unwrap();
         let tomb = read(a.path(), "skins/x.json").unwrap();
         assert!(accept(b.path(), "skins/x.json", &tomb));
-        assert!(!accept(b.path(), "skins/x.json", &live), "a deleted Skin came back");
+        assert!(
+            !accept(b.path(), "skins/x.json", &live),
+            "a deleted Skin came back"
+        );
         let v: Value = serde_json::from_slice(&read(b.path(), "skins/x.json").unwrap()).unwrap();
         assert!(is_tombstone(&v));
     }
@@ -310,18 +370,49 @@ mod tests {
     #[test]
     fn a_far_future_stamp_never_locks_a_file() {
         let d = tempfile::tempdir().unwrap();
-        write_at(d.path(), "appearance.json", serde_json::json!({ "name": "mine" }), NOW).unwrap();
+        write_at(
+            d.path(),
+            "appearance.json",
+            serde_json::json!({ "name": "mine" }),
+            NOW,
+        )
+        .unwrap();
         let poison = serde_json::json!({ "name": "peer", "updated": i64::MAX });
-        assert!(!accept_at(d.path(), "appearance.json", poison.to_string().as_bytes(), NOW));
-        assert!(fs::read_to_string(d.path().join("appearance.json")).unwrap().contains("mine"));
+        assert!(!accept_at(
+            d.path(),
+            "appearance.json",
+            poison.to_string().as_bytes(),
+            NOW
+        ));
+        assert!(fs::read_to_string(d.path().join("appearance.json"))
+            .unwrap()
+            .contains("mine"));
         // A file this Device lacks still arrives, pulled back to a day ahead.
-        assert!(accept_at(d.path(), "skins/x.json", poison.to_string().as_bytes(), NOW));
+        assert!(accept_at(
+            d.path(),
+            "skins/x.json",
+            poison.to_string().as_bytes(),
+            NOW
+        ));
         let stamp = stamp_of(&read(d.path(), "skins/x.json").unwrap()).unwrap();
         assert_eq!(stamp, NOW + MAX_SKEW_MS);
         // And is not taken again over the edit made after it, a minute later.
-        write_at(d.path(), "skins/x.json", serde_json::json!({ "name": "edited" }), NOW + 60_000).unwrap();
-        assert!(!accept_at(d.path(), "skins/x.json", poison.to_string().as_bytes(), NOW + 60_000));
-        assert!(fs::read_to_string(d.path().join("skins/x.json")).unwrap().contains("edited"));
+        write_at(
+            d.path(),
+            "skins/x.json",
+            serde_json::json!({ "name": "edited" }),
+            NOW + 60_000,
+        )
+        .unwrap();
+        assert!(!accept_at(
+            d.path(),
+            "skins/x.json",
+            poison.to_string().as_bytes(),
+            NOW + 60_000
+        ));
+        assert!(fs::read_to_string(d.path().join("skins/x.json"))
+            .unwrap()
+            .contains("edited"));
     }
 
     #[test]
@@ -330,11 +421,22 @@ mod tests {
         // Written before stamps were checked: the next edit must not overflow.
         let poisoned = serde_json::json!({ "name": "poisoned", "updated": i64::MAX });
         fs::write(d.path().join("appearance.json"), poisoned.to_string()).unwrap();
-        write_at(d.path(), "appearance.json", serde_json::json!({ "name": "mine" }), NOW).unwrap();
+        write_at(
+            d.path(),
+            "appearance.json",
+            serde_json::json!({ "name": "mine" }),
+            NOW,
+        )
+        .unwrap();
         let stamp = stamp_of(&read(d.path(), "appearance.json").unwrap()).unwrap();
         assert_eq!(stamp, NOW + MAX_SKEW_MS);
         // A peer's ordinary edit a second later gets through again.
         let later = serde_json::json!({ "name": "peer", "updated": NOW + 1_000 + MAX_SKEW_MS });
-        assert!(accept_at(d.path(), "appearance.json", later.to_string().as_bytes(), NOW + 1_000));
+        assert!(accept_at(
+            d.path(),
+            "appearance.json",
+            later.to_string().as_bytes(),
+            NOW + 1_000
+        ));
     }
 }

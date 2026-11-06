@@ -62,7 +62,10 @@ fn lengths(op: &Op) -> (usize, usize) {
 pub fn apply(op: &Op, text: &[u16]) -> Result<Vec<u16>, String> {
     let (base, target) = lengths(op);
     if base != text.len() {
-        return Err(format!("a change for {base} characters, on a text of {}", text.len()));
+        return Err(format!(
+            "a change for {base} characters, on a text of {}",
+            text.len()
+        ));
     }
     let mut out = Vec::with_capacity(target);
     let mut at = 0usize;
@@ -100,7 +103,13 @@ fn common_start(a: &[u16], b: &[u16]) -> usize {
 /// beginning inside a surrogate pair.
 fn common_end(a: &[u16], b: &[u16], start: usize) -> usize {
     let max = a.len().min(b.len()) - start;
-    let end = a.iter().rev().zip(b.iter().rev()).take(max).take_while(|(x, y)| x == y).count();
+    let end = a
+        .iter()
+        .rev()
+        .zip(b.iter().rev())
+        .take(max)
+        .take_while(|(x, y)| x == y)
+        .count();
     if end > 0 && is_low(a[a.len() - end]) {
         end - 1
     } else {
@@ -123,7 +132,8 @@ pub fn diff(a: &[u16], b: &[u16]) -> Option<Op> {
         Part::Count(-((a.len() - end - start) as i64)),
         Part::Count(end as i64),
     ];
-    let empty = |p: &Part| matches!(p, Part::Count(0)) || matches!(p, Part::Insert(s) if s.is_empty());
+    let empty =
+        |p: &Part| matches!(p, Part::Count(0)) || matches!(p, Part::Insert(s) if s.is_empty());
     Some(parts.into_iter().filter(|p| !empty(p)).collect())
 }
 
@@ -221,7 +231,12 @@ impl Session {
         if base < self.log_start || base > self.rev {
             return Err(format!("revision {base} is not in this session"));
         }
-        Ok(self.log.iter().skip((base - self.log_start) as usize).cloned().collect())
+        Ok(self
+            .log
+            .iter()
+            .skip((base - self.log_start) as usize)
+            .cloned()
+            .collect())
     }
 
     /// A Window's change made on `base`: taken only when `base` is the latest revision.
@@ -301,17 +316,23 @@ impl Windows {
     /// `window` shows `id`, which it read as `text`. A Window already showing
     /// it decides the text: the newcomer takes theirs, typing not saved yet included.
     pub fn join(&mut self, window: &str, client: u64, id: &str, text: &str) -> Joined {
-        let s = self.sessions.entry(id.to_string()).or_insert_with(|| Session {
-            text: text.encode_utf16().collect(),
-            rev: 0,
-            log: VecDeque::new(),
-            log_start: 0,
-            members: BTreeMap::new(),
-            saved: VecDeque::new(),
-            on_disk: hash_text(text),
-        });
+        let s = self
+            .sessions
+            .entry(id.to_string())
+            .or_insert_with(|| Session {
+                text: text.encode_utf16().collect(),
+                rev: 0,
+                log: VecDeque::new(),
+                log_start: 0,
+                members: BTreeMap::new(),
+                saved: VecDeque::new(),
+                on_disk: hash_text(text),
+            });
         s.members.insert(member(window, client), s.rev);
-        Joined { rev: s.rev, text: s.text() }
+        Joined {
+            rev: s.rev,
+            text: s.text(),
+        }
     }
 
     /// That live document no longer shows `id`. The last one out ends the session.
@@ -362,8 +383,12 @@ impl Windows {
         self.sessions
             .get(id)
             .map(|s| {
-                let mut w: Vec<String> =
-                    s.members.keys().map(|(w, _)| w.clone()).filter(|w| w != from).collect();
+                let mut w: Vec<String> = s
+                    .members
+                    .keys()
+                    .map(|(w, _)| w.clone())
+                    .filter(|w| w != from)
+                    .collect();
                 w.dedup();
                 w
             })
@@ -379,7 +404,12 @@ impl Windows {
             .get_mut(&req.id)
             .filter(|s| s.members.contains_key(&member(window, req.client)))
             .ok_or_else(|| format!("{} is not open in this Window", req.id))?;
-        let mut reply = SyncReply { rev: s.rev, ops: Vec::new(), accepted: false, external: false };
+        let mut reply = SyncReply {
+            rev: s.rev,
+            ops: Vec::new(),
+            accepted: false,
+            external: false,
+        };
         let mut changed = false;
         if let Some(op) = req.op {
             reply.accepted = s.take_op(req.base, op)?;
@@ -475,13 +505,25 @@ mod tests {
     }
 
     fn req(id: &str, base: u64) -> SyncRequest {
-        SyncRequest { id: id.into(), base, ..Default::default() }
+        SyncRequest {
+            id: id.into(),
+            base,
+            ..Default::default()
+        }
     }
 
     #[test]
     fn an_operation_keeps_deletes_and_inserts_in_utf16() {
-        let op = vec![Part::Count(2), Part::Insert("é😀".into()), Part::Count(-1), Part::Count(1)];
-        assert_eq!(String::from_utf16_lossy(&apply(&op, &u("abcd")).unwrap()), "abé😀d");
+        let op = vec![
+            Part::Count(2),
+            Part::Insert("é😀".into()),
+            Part::Count(-1),
+            Part::Count(1),
+        ];
+        assert_eq!(
+            String::from_utf16_lossy(&apply(&op, &u("abcd")).unwrap()),
+            "abé😀d"
+        );
         assert!(apply(&op, &u("abc")).is_err());
     }
 
@@ -499,11 +541,25 @@ mod tests {
     fn a_newcomer_takes_the_text_the_others_have() {
         let mut w = Windows::new();
         assert_eq!(w.join("main", 0, "a", "one").text, "one");
-        let (r, _) = w.sync("main", SyncRequest { op: Some(ins(3, " two", 0)), ..req("a", 0) }).unwrap();
+        let (r, _) = w
+            .sync(
+                "main",
+                SyncRequest {
+                    op: Some(ins(3, " two", 0)),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(r.accepted);
         // The file still says "one": the second Window reads it, and is given the typing.
         let j = w.join("doc-1", 0, "a", "one");
-        assert_eq!(j, Joined { rev: 1, text: "one two".into() });
+        assert_eq!(
+            j,
+            Joined {
+                rev: 1,
+                text: "one two".into()
+            }
+        );
     }
 
     #[test]
@@ -511,22 +567,58 @@ mod tests {
         let mut w = Windows::new();
         w.join("main", 0, "a", "ab");
         w.join("doc-1", 0, "a", "ab");
-        let (r, changed) = w.sync("main", SyncRequest { op: Some(ins(0, "x", 2)), ..req("a", 0) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "main",
+                SyncRequest {
+                    op: Some(ins(0, "x", 2)),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(r.accepted && changed);
         assert_eq!(r.rev, 1);
         assert_eq!(w.others("main", "a"), vec!["doc-1".to_string()]);
         // doc-1 typed on revision 0 too: refused, and given main's change.
-        let (r, changed) = w.sync("doc-1", SyncRequest { op: Some(ins(2, "y", 0)), ..req("a", 0) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "doc-1",
+                SyncRequest {
+                    op: Some(ins(2, "y", 0)),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(!r.accepted && !changed);
-        assert_eq!(r.ops, vec![Entry { op: ins(0, "x", 2), disk: false }]);
+        assert_eq!(
+            r.ops,
+            vec![Entry {
+                op: ins(0, "x", 2),
+                disk: false
+            }]
+        );
         assert_eq!(r.rev, 1);
         // Rebased, it is taken.
-        let (r, _) = w.sync("doc-1", SyncRequest { op: Some(ins(3, "y", 0)), ..req("a", 1) }).unwrap();
+        let (r, _) = w
+            .sync(
+                "doc-1",
+                SyncRequest {
+                    op: Some(ins(3, "y", 0)),
+                    ..req("a", 1)
+                },
+            )
+            .unwrap();
         assert!(r.accepted);
         assert_eq!(w.text("a").unwrap(), "xaby");
         // A pull: main is told of doc-1's change.
         let (r, _) = w.sync("main", req("a", 1)).unwrap();
-        assert_eq!(r.ops, vec![Entry { op: ins(3, "y", 0), disk: false }]);
+        assert_eq!(
+            r.ops,
+            vec![Entry {
+                op: ins(3, "y", 0),
+                disk: false
+            }]
+        );
         assert_eq!(r.rev, 2);
     }
 
@@ -534,7 +626,15 @@ mod tests {
     fn a_change_that_does_not_fit_is_an_error() {
         let mut w = Windows::new();
         w.join("main", 0, "a", "ab");
-        assert!(w.sync("main", SyncRequest { op: Some(ins(0, "x", 5)), ..req("a", 0) }).is_err());
+        assert!(w
+            .sync(
+                "main",
+                SyncRequest {
+                    op: Some(ins(0, "x", 5)),
+                    ..req("a", 0)
+                }
+            )
+            .is_err());
         assert_eq!(w.text("a").unwrap(), "ab");
     }
 
@@ -542,7 +642,15 @@ mod tests {
     fn a_window_that_has_not_joined_cannot_change_the_text() {
         let mut w = Windows::new();
         w.join("main", 0, "a", "ab");
-        assert!(w.sync("doc-1", SyncRequest { op: Some(ins(0, "x", 2)), ..req("a", 0) }).is_err());
+        assert!(w
+            .sync(
+                "doc-1",
+                SyncRequest {
+                    op: Some(ins(0, "x", 2)),
+                    ..req("a", 0)
+                }
+            )
+            .is_err());
     }
 
     #[test]
@@ -566,7 +674,14 @@ mod tests {
         // main reopens the document while the old copy is still saving.
         w.join("main", 2, "a", "x");
         w.leave("main", 1, "a");
-        let r = w.sync("main", SyncRequest { client: 2, op: Some(ins(1, "y", 0)), ..req("a", 0) });
+        let r = w.sync(
+            "main",
+            SyncRequest {
+                client: 2,
+                op: Some(ins(1, "y", 0)),
+                ..req("a", 0)
+            },
+        );
         assert!(r.unwrap().0.accepted);
         assert_eq!(w.others("doc-1", "a"), vec!["main".to_string()]);
     }
@@ -576,7 +691,14 @@ mod tests {
         let mut w = Windows::new();
         w.join("main", 0, "a", "");
         w.join("doc-1", 0, "a", "");
-        w.sync("main", SyncRequest { op: Some(ins(0, "x", 0)), ..req("a", 0) }).unwrap();
+        w.sync(
+            "main",
+            SyncRequest {
+                op: Some(ins(0, "x", 0)),
+                ..req("a", 0)
+            },
+        )
+        .unwrap();
         w.sync("doc-1", req("a", 0)).unwrap();
         let s = &w.sessions["a"];
         assert_eq!((s.log_start, s.log.len()), (1, 0));
@@ -589,7 +711,10 @@ mod tests {
         w.create("notes/a.md");
         w.vault_changed();
         // The same id in the new Vault starts from its own file.
-        assert_eq!(w.join("main", 0, "notes/a.md", "new vault").text, "new vault");
+        assert_eq!(
+            w.join("main", 0, "notes/a.md", "new vault").text,
+            "new vault"
+        );
         assert!(w.sync("doc-1", req("notes/a.md", 0)).is_err());
         assert_eq!(w.take_start("doc-1"), None);
     }
@@ -599,10 +724,25 @@ mod tests {
         let mut w = Windows::new();
         w.join("main", 0, "a", "one");
         w.join("doc-1", 0, "a", "one");
-        w.sync("main", SyncRequest { op: Some(ins(3, " two", 0)), ..req("a", 0) }).unwrap();
+        w.sync(
+            "main",
+            SyncRequest {
+                op: Some(ins(3, " two", 0)),
+                ..req("a", 0)
+            },
+        )
+        .unwrap();
         w.saved("a", "one two");
         // doc-1, a step behind, sees main's save on disk.
-        let (r, changed) = w.sync("doc-1", SyncRequest { disk: Some("one two".into()), ..req("a", 0) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "doc-1",
+                SyncRequest {
+                    disk: Some("one two".into()),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(!r.external && !changed);
         assert_eq!(r.ops.len(), 1);
         assert_eq!(w.text("a").unwrap(), "one two");
@@ -613,11 +753,33 @@ mod tests {
         let mut w = Windows::new();
         w.join("main", 0, "a", "one");
         w.join("doc-1", 0, "a", "one");
-        let (r, changed) = w.sync("main", SyncRequest { disk: Some("one!".into()), ..req("a", 0) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "main",
+                SyncRequest {
+                    disk: Some("one!".into()),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(!r.external && changed);
-        assert_eq!(r.ops, vec![Entry { op: vec![Part::Count(3), Part::Insert("!".into())], disk: true }]);
+        assert_eq!(
+            r.ops,
+            vec![Entry {
+                op: vec![Part::Count(3), Part::Insert("!".into())],
+                disk: true
+            }]
+        );
         // The other Window reading the same file changes nothing more.
-        let (r, changed) = w.sync("doc-1", SyncRequest { disk: Some("one!".into()), ..req("a", 0) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "doc-1",
+                SyncRequest {
+                    disk: Some("one!".into()),
+                    ..req("a", 0)
+                },
+            )
+            .unwrap();
         assert!(!changed);
         assert_eq!(r.ops.len(), 1);
         assert_eq!(w.text("a").unwrap(), "one!");
@@ -627,12 +789,35 @@ mod tests {
     fn an_outside_edit_over_unsaved_typing_is_shown_not_taken_unless_forced() {
         let mut w = Windows::new();
         w.join("main", 0, "a", "one");
-        w.sync("main", SyncRequest { op: Some(ins(3, " two", 0)), ..req("a", 0) }).unwrap();
-        let (r, changed) = w.sync("main", SyncRequest { disk: Some("uno".into()), ..req("a", 1) }).unwrap();
+        w.sync(
+            "main",
+            SyncRequest {
+                op: Some(ins(3, " two", 0)),
+                ..req("a", 0)
+            },
+        )
+        .unwrap();
+        let (r, changed) = w
+            .sync(
+                "main",
+                SyncRequest {
+                    disk: Some("uno".into()),
+                    ..req("a", 1)
+                },
+            )
+            .unwrap();
         assert!(r.external && !changed);
         assert_eq!(w.text("a").unwrap(), "one two");
-        let (r, changed) =
-            w.sync("main", SyncRequest { disk: Some("uno".into()), force: true, ..req("a", 1) }).unwrap();
+        let (r, changed) = w
+            .sync(
+                "main",
+                SyncRequest {
+                    disk: Some("uno".into()),
+                    force: true,
+                    ..req("a", 1)
+                },
+            )
+            .unwrap();
         assert!(!r.external && changed);
         assert_eq!(w.text("a").unwrap(), "uno");
     }
@@ -653,7 +838,15 @@ mod tests {
     fn a_request_reads_as_the_ui_sends_it() {
         let r: SyncRequest =
             serde_json::from_str(r#"{"id":"a","base":3,"op":[2,"hé",-1,4]}"#).unwrap();
-        assert_eq!(r.op.unwrap(), vec![Part::Count(2), Part::Insert("hé".into()), Part::Count(-1), Part::Count(4)]);
+        assert_eq!(
+            r.op.unwrap(),
+            vec![
+                Part::Count(2),
+                Part::Insert("hé".into()),
+                Part::Count(-1),
+                Part::Count(4)
+            ]
+        );
         assert!(r.disk.is_none() && !r.force);
     }
 }

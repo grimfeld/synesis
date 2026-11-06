@@ -135,13 +135,18 @@ impl Membership {
     /// the loss permanent.
     fn load(dir: &Path) -> crate::Result<Membership> {
         match fs::read_to_string(dir.join(MEMBERSHIP_FILE)) {
-            Ok(s) => serde_json::from_str(&s).map_err(|_| crate::Error::Invalid(ROSTER_DAMAGED.into())),
+            Ok(s) => {
+                serde_json::from_str(&s).map_err(|_| crate::Error::Invalid(ROSTER_DAMAGED.into()))
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Membership::default()),
             Err(_) => Err(crate::Error::Invalid(ROSTER_DAMAGED.into())),
         }
     }
     fn save(&self, dir: &Path) -> crate::Result<()> {
-        write_durable(&dir.join(MEMBERSHIP_FILE), serde_json::to_string_pretty(self)?.as_bytes())
+        write_durable(
+            &dir.join(MEMBERSHIP_FILE),
+            serde_json::to_string_pretty(self)?.as_bytes(),
+        )
     }
     pub fn is_member(&self, node: &NodeId) -> bool {
         !self.removed.contains(node) && self.members.iter().any(|m| &m.node == node)
@@ -151,15 +156,27 @@ impl Membership {
     }
     /// What a member is told: everything but this Device's secrets.
     fn public(&self) -> Membership {
-        Membership { vault_key: None, invite_secret: None, ..self.clone() }
+        Membership {
+            vault_key: None,
+            invite_secret: None,
+            ..self.clone()
+        }
     }
     /// What a newcomer is told when approved: the members and the vault key.
     fn for_joiner(&self) -> Membership {
-        Membership { vault_key: self.vault_key, ..self.public() }
+        Membership {
+            vault_key: self.vault_key,
+            ..self.public()
+        }
     }
     /// What a removed Device is told: that it, and who else, was removed (#89).
     fn for_removed(&self) -> Membership {
-        Membership { version: self.version, removed: self.removed.clone(), removed_devices: self.removed_devices.clone(), ..Default::default() }
+        Membership {
+            version: self.version,
+            removed: self.removed.clone(),
+            removed_devices: self.removed_devices.clone(),
+            ..Default::default()
+        }
     }
     /// Why `m` may not become a member, if it may not: it was removed, its
     /// folder was retired, or another member already holds that folder.
@@ -169,7 +186,11 @@ impl Membership {
             Some("this Device was removed from the Vault")
         } else if self.removed_devices.contains(&m.device_id) {
             Some("this Device's id was retired from the Vault")
-        } else if self.members.iter().any(|x| x.device_id == m.device_id && x.node != m.node) {
+        } else if self
+            .members
+            .iter()
+            .any(|x| x.device_id == m.device_id && x.node != m.node)
+        {
             Some("another Device already uses this Device's id")
         } else {
             None
@@ -213,7 +234,8 @@ impl Membership {
             }
         }
         let (removed, retired) = (&self.removed, &self.removed_devices);
-        self.members.retain(|m| !removed.contains(&m.node) && !retired.contains(&m.device_id));
+        self.members
+            .retain(|m| !removed.contains(&m.node) && !retired.contains(&m.device_id));
         if newer {
             self.version = other.version;
         }
@@ -243,11 +265,16 @@ pub struct Invite {
 impl Invite {
     pub fn encode(&self) -> String {
         let bytes = postcard::to_allocvec(self).expect("invite serialises");
-        format!("synesis:{}", base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes))
+        format!(
+            "synesis:{}",
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+        )
     }
     pub fn decode(code: &str) -> Option<Invite> {
         let b = code.trim().strip_prefix("synesis:")?;
-        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(b).ok()?;
+        let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(b)
+            .ok()?;
         postcard::from_bytes(&bytes).ok()
     }
 }
@@ -263,12 +290,21 @@ pub struct Entry {
 #[derive(Debug, Serialize, Deserialize)]
 enum Request {
     /// Newcomer with the invite secret; polled until approved.
-    Join { secret: [u8; 32], member: Member },
+    Join {
+        secret: [u8; 32],
+        member: Member,
+    },
     /// Membership exchange; the reply carries the responder's membership.
     Membership(Membership),
     Manifest(Vec<Entry>),
-    GetFile { device: String, name: String },
-    PutFile { entry: Entry, bytes: Vec<u8> },
+    GetFile {
+        device: String,
+        name: String,
+    },
+    PutFile {
+        entry: Entry,
+        bytes: Vec<u8>,
+    },
     /// The dialler's own address; the reply carries the responder's. Last in
     /// the enum so older peers still decode every other request.
     Hello(EndpointAddr),
@@ -276,18 +312,27 @@ enum Request {
     /// an older peer fails only this request and the snapshot round stands.
     ConfigManifest(Vec<ConfigEntry>),
     GetConfig(String),
-    PutConfig { name: String, bytes: Vec<u8> },
+    PutConfig {
+        name: String,
+        bytes: Vec<u8>,
+    },
     /// Pictures in `Attachments/` (ADR 0020), last again: an older peer fails
     /// only these and the rest of the round stands.
     AttachmentManifest(Vec<AttachmentEntry>),
     GetAttachment(String),
-    PutAttachment { entry: AttachmentEntry, bytes: Vec<u8> },
+    PutAttachment {
+        entry: AttachmentEntry,
+        bytes: Vec<u8>,
+    },
     /// Region Borders (ADR 0023), vault-relative `.geojson` paths. Last, so
     /// an older peer fails only these. A manifest entry may be a tombstone,
     /// which `DeleteBorder` passes on.
     BorderManifest(Vec<BorderEntry>),
     GetBorder(String),
-    PutBorder { entry: BorderEntry, bytes: Vec<u8> },
+    PutBorder {
+        entry: BorderEntry,
+        bytes: Vec<u8>,
+    },
     DeleteBorder(BorderEntry),
 }
 
@@ -323,19 +368,35 @@ pub struct AttachmentEntry {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Event {
-    JoinRequest { node: String, member: Member },
+    JoinRequest {
+        node: String,
+        member: Member,
+    },
     Approved,
     Denied,
-    Peer { node: String, connected: bool },
-    Synced { files: usize },
+    Peer {
+        node: String,
+        connected: bool,
+    },
+    Synced {
+        files: usize,
+    },
     Membership,
-    Error { message: String },
+    Error {
+        message: String,
+    },
     /// Config files a peer delivered (ADR 0016), named relative to `.bible-study/`.
-    Config { names: Vec<String> },
+    Config {
+        names: Vec<String>,
+    },
     /// Pictures a peer delivered (ADR 0020), vault-relative paths.
-    Attachments { names: Vec<String> },
+    Attachments {
+        names: Vec<String>,
+    },
     /// Border files a peer delivered (ADR 0023), vault-relative paths.
-    Borders { names: Vec<String> },
+    Borders {
+        names: Vec<String>,
+    },
     /// The Invite this Device is joining through has expired or was already
     /// used (#89): a new one is needed.
     InviteExpired,
@@ -370,7 +431,9 @@ struct State {
 impl State {
     /// Whether `secret` opens this Device's Invite now.
     fn invite_open(&self, secret: &[u8; 32]) -> bool {
-        self.membership.invite_secret.is_some_and(|s| same_secret(&s, secret))
+        self.membership
+            .invite_secret
+            .is_some_and(|s| same_secret(&s, secret))
             && self.invite_issued.is_some_and(|t| t.elapsed() < INVITE_TTL)
     }
     /// Hold a join request for an answer, dropping the oldest beyond
@@ -397,9 +460,16 @@ impl State {
     /// Merge a peer's membership, replacing this Device's secrets when the
     /// merge brought a removal. Returns whether anything changed.
     fn merge(&mut self, theirs: &Membership) -> bool {
-        let removals = (self.membership.removed.len(), self.membership.removed_devices.len());
+        let removals = (
+            self.membership.removed.len(),
+            self.membership.removed_devices.len(),
+        );
         let changed = self.membership.merge(theirs);
-        if (self.membership.removed.len(), self.membership.removed_devices.len()) != removals {
+        if (
+            self.membership.removed.len(),
+            self.membership.removed_devices.len(),
+        ) != removals
+        {
             self.rotate_secrets();
         }
         changed
@@ -439,7 +509,12 @@ pub fn node_id_hex(id: &NodeId) -> String {
 }
 
 fn mtime_ms(p: &Path) -> i64 {
-    fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0)
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Load or create this Device's long-lived node key (one per app data dir).
@@ -451,9 +526,15 @@ fn node_secret(device_dir: &Path) -> crate::Result<SecretKey> {
     let p = device_dir.join(KEY_FILE);
     match fs::read_to_string(&p) {
         Ok(s) => {
-            let arr = hex::decode(s.trim()).ok().and_then(|b| <[u8; 32]>::try_from(b).ok()).ok_or_else(|| {
-                crate::Error::Invalid(format!("this Device's pairing key ({}) is damaged", p.display()))
-            })?;
+            let arr = hex::decode(s.trim())
+                .ok()
+                .and_then(|b| <[u8; 32]>::try_from(b).ok())
+                .ok_or_else(|| {
+                    crate::Error::Invalid(format!(
+                        "this Device's pairing key ({}) is damaged",
+                        p.display()
+                    ))
+                })?;
             Ok(SecretKey::from_bytes(&arr))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -466,12 +547,19 @@ fn node_secret(device_dir: &Path) -> crate::Result<SecretKey> {
 }
 
 fn load_addrs(dir: &Path) -> HashMap<NodeId, EndpointAddr> {
-    let saved: HashMap<String, EndpointAddr> = fs::read_to_string(dir.join(PEERS_FILE)).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-    saved.into_iter().filter_map(|(k, v)| Some((hex::decode(k).ok()?.try_into().ok()?, v))).collect()
+    let saved: HashMap<String, EndpointAddr> = fs::read_to_string(dir.join(PEERS_FILE))
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default();
+    saved
+        .into_iter()
+        .filter_map(|(k, v)| Some((hex::decode(k).ok()?.try_into().ok()?, v)))
+        .collect()
 }
 
 fn save_addrs(dir: &Path, addrs: &HashMap<NodeId, EndpointAddr>) {
-    let by_hex: HashMap<String, &EndpointAddr> = addrs.iter().map(|(k, v)| (node_id_hex(k), v)).collect();
+    let by_hex: HashMap<String, &EndpointAddr> =
+        addrs.iter().map(|(k, v)| (node_id_hex(k), v)).collect();
     // Only a hint for the next dial: losing it costs an address lookup.
     if let Ok(json) = serde_json::to_string_pretty(&by_hex) {
         let _ = write_durable(&dir.join(PEERS_FILE), json.as_bytes());
@@ -492,22 +580,38 @@ impl Node {
     /// on this Device); `local_dir` is the vault's per-Device data folder.
     /// `relay`: custom relay URL, `None` for Iroh's public relays,
     /// `Some("")` to disable relays (tests).
-    pub async fn start(vault_root: &Path, device_dir: &Path, local_dir: &Path, me: Member, relay: Option<String>, events: mpsc::Sender<Event>) -> crate::Result<Arc<Node>> {
+    pub async fn start(
+        vault_root: &Path,
+        device_dir: &Path,
+        local_dir: &Path,
+        me: Member,
+        relay: Option<String>,
+        events: mpsc::Sender<Event>,
+    ) -> crate::Result<Arc<Node>> {
         let secret = node_secret(device_dir)?;
         // Damaged pairing data pauses pairing rather than starting it afresh (#66).
         let mut membership = Membership::load(local_dir)?;
-        let mut builder = Endpoint::builder(iroh::endpoint::presets::N0).secret_key(secret).alpns(vec![ALPN.to_vec()]);
+        let mut builder = Endpoint::builder(iroh::endpoint::presets::N0)
+            .secret_key(secret)
+            .alpns(vec![ALPN.to_vec()]);
         let mut relay_url = None;
         match relay.as_deref() {
             Some("") => builder = builder.relay_mode(RelayMode::Disabled),
             Some(url) => {
-                let parsed: RelayUrl = url.parse().map_err(|e| crate::Error::Invalid(format!("relay url: {e}")))?;
-                builder = builder.relay_mode(RelayMode::Custom(iroh::RelayMap::from_iter([parsed.clone()])));
+                let parsed: RelayUrl = url
+                    .parse()
+                    .map_err(|e| crate::Error::Invalid(format!("relay url: {e}")))?;
+                builder = builder.relay_mode(RelayMode::Custom(iroh::RelayMap::from_iter([
+                    parsed.clone(),
+                ])));
                 relay_url = Some(parsed);
             }
             None => {}
         }
-        let endpoint = builder.bind().await.map_err(|e| crate::Error::Invalid(format!("p2p bind: {e}")))?;
+        let endpoint = builder
+            .bind()
+            .await
+            .map_err(|e| crate::Error::Invalid(format!("p2p bind: {e}")))?;
         // This Device's card may have changed since it was recorded (a better
         // name, an OS upgrade): refresh it so every peer shows the new one.
         let my_id = *endpoint.id().as_bytes();
@@ -564,13 +668,21 @@ impl Node {
     }
 
     fn relay_hint(&self) -> Option<String> {
-        self.relay.as_ref().map(|r| r.to_string()).or_else(|| self.endpoint.addr().relay_urls().next().map(|r| r.to_string()))
+        self.relay.as_ref().map(|r| r.to_string()).or_else(|| {
+            self.endpoint
+                .addr()
+                .relay_urls()
+                .next()
+                .map(|r| r.to_string())
+        })
     }
 
     /// Save the membership; a failure is told to the UI rather than lost.
     fn persist(&self, m: &Membership) {
         if let Err(e) = m.save(&self.local_dir) {
-            let _ = self.events.try_send(Event::Error { message: format!("saving the pairing data: {e}") });
+            let _ = self.events.try_send(Event::Error {
+                message: format!("saving the pairing data: {e}"),
+            });
         }
     }
 
@@ -580,7 +692,10 @@ impl Node {
     /// admitted a Device (#89), a new one is made.
     pub fn invite(&self) -> (Invite, Duration) {
         let mut st = self.state.lock().unwrap();
-        let open = st.invite_issued.filter(|t| t.elapsed() < INVITE_TTL).filter(|_| st.membership.invite_secret.is_some());
+        let open = st
+            .invite_issued
+            .filter(|t| t.elapsed() < INVITE_TTL)
+            .filter(|_| st.membership.invite_secret.is_some());
         let issued = match open {
             Some(t) => t,
             None => {
@@ -621,7 +736,12 @@ impl Node {
         Status {
             node: node_id_hex(&self.id()),
             relay: self.relay_hint(),
-            connected: st.conns.iter().filter(|(_, c)| c.close_reason().is_none()).map(|(n, _)| node_id_hex(n)).collect(),
+            connected: st
+                .conns
+                .iter()
+                .filter(|(_, c)| c.close_reason().is_none())
+                .map(|(n, _)| node_id_hex(n))
+                .collect(),
             pending: st.pending.clone(),
             members: st.membership.members.clone(),
             joining: st.joining.is_some(),
@@ -635,7 +755,9 @@ impl Node {
     /// the Device was admitted, or for a denial whether it was pending.
     pub fn approve(&self, node: &NodeId, allow: bool) -> bool {
         let mut st = self.state.lock().unwrap();
-        let Some(i) = st.pending.iter().position(|m| &m.node == node) else { return false };
+        let Some(i) = st.pending.iter().position(|m| &m.node == node) else {
+            return false;
+        };
         let member = st.pending.remove(i);
         st.rotate_invite();
         let admitted = allow && st.membership.refuses(&member).is_none();
@@ -667,7 +789,12 @@ impl Node {
         m.removed_devices.push(device.clone());
         // A member holding that folder goes too, so it is not re-admitted on
         // the next round.
-        if let Some(node) = m.members.iter().find(|x| x.device_id == *device).map(|x| x.node) {
+        if let Some(node) = m
+            .members
+            .iter()
+            .find(|x| x.device_id == *device)
+            .map(|x| x.node)
+        {
             m.members.retain(|x| x.node != node);
             if !m.removed.contains(&node) {
                 m.removed.push(node);
@@ -688,7 +815,11 @@ impl Node {
         let m = &mut st.membership;
         // Take the device id before dropping the Member: the folder to stop
         // trusting is named by the device, not by the node.
-        let device = m.members.iter().find(|x| &x.node == node).map(|x| x.device_id.clone());
+        let device = m
+            .members
+            .iter()
+            .find(|x| &x.node == node)
+            .map(|x| x.device_id.clone());
         m.members.retain(|x| &x.node != node);
         if !m.removed.contains(node) {
             m.removed.push(*node);
@@ -717,23 +848,40 @@ impl Node {
                 let still = node.state.lock().unwrap().joining.clone();
                 let Some(inv) = still else { return };
                 let Some(addr) = endpoint_addr(&inv.host, inv.relay.as_deref()) else {
-                    node.emit(Event::Error { message: "bad invite".into() }).await;
+                    node.emit(Event::Error {
+                        message: "bad invite".into(),
+                    })
+                    .await;
                     return;
                 };
                 let mut me = node.me.clone();
                 me.node = node.id();
-                let connected = match tokio::time::timeout(DIAL_TIMEOUT, node.endpoint.connect(addr, ALPN)).await {
-                    Ok(r) => r.map_err(|e| format!("connect: {e}")),
-                    Err(_) => Err("connect: timed out".to_string()),
-                };
+                let connected =
+                    match tokio::time::timeout(DIAL_TIMEOUT, node.endpoint.connect(addr, ALPN))
+                        .await
+                    {
+                        Ok(r) => r.map_err(|e| format!("connect: {e}")),
+                        Err(_) => Err("connect: timed out".to_string()),
+                    };
                 match connected {
-                    Ok(conn) => match request(&conn, &Request::Join { secret: inv.secret, member: me }).await {
+                    Ok(conn) => match request(
+                        &conn,
+                        &Request::Join {
+                            secret: inv.secret,
+                            member: me,
+                        },
+                    )
+                    .await
+                    {
                         Ok(Response::Approved(m)) => {
                             {
                                 let mut st = node.state.lock().unwrap();
                                 // The host's secret is its own (#85): this
                                 // Device makes its own when it shows an Invite.
-                                st.membership = Membership { invite_secret: None, ..m };
+                                st.membership = Membership {
+                                    invite_secret: None,
+                                    ..m
+                                };
                                 st.invite_issued = None;
                                 node.persist(&st.membership);
                                 st.joining = None;
@@ -768,11 +916,20 @@ impl Node {
 
     // ---------------------------------------------------------------- server
 
-    async fn serve(&self, remote: NodeId, mut send: SendStream, mut recv: RecvStream) -> Result<(), String> {
+    async fn serve(
+        &self,
+        remote: NodeId,
+        mut send: SendStream,
+        mut recv: RecvStream,
+    ) -> Result<(), String> {
         // Who is asking decides how much is read (#70): a stranger is never
         // buffered more than a join request's worth.
         let is_member = self.state.lock().unwrap().membership.is_member(&remote);
-        let limit = if is_member { MAX_FILE + 4096 } else { MAX_STRANGER_REQUEST };
+        let limit = if is_member {
+            MAX_FILE + 4096
+        } else {
+            MAX_STRANGER_REQUEST
+        };
         let bytes = recv.read_to_end(limit).await.map_err(|e| e.to_string())?;
         let req: Request = postcard::from_bytes(&bytes).map_err(|e| e.to_string())?;
         let resp = match req {
@@ -780,7 +937,11 @@ impl Node {
                 // Decide under the lock, announce after it (guards must not live across awaits).
                 let (resp, announce) = {
                     let mut st = self.state.lock().unwrap();
-                    let member = Member { node: remote, ..member }.capped();
+                    let member = Member {
+                        node: remote,
+                        ..member
+                    }
+                    .capped();
                     if st.membership.removed.contains(&remote) {
                         (Response::Denied, None)
                     } else if st.membership.is_member(&remote) {
@@ -798,7 +959,11 @@ impl Node {
                     }
                 };
                 if let Some(member) = announce {
-                    self.emit(Event::JoinRequest { node: node_id_hex(&remote), member }).await;
+                    self.emit(Event::JoinRequest {
+                        node: node_id_hex(&remote),
+                        member,
+                    })
+                    .await;
                 }
                 resp
             }
@@ -836,7 +1001,9 @@ impl Node {
                 self.emit(Event::Synced { files: 1 }).await;
                 Response::Ok
             }
-            Request::ConfigManifest(_) => Response::ConfigManifest(config::manifest(&self.hidden_dir)),
+            Request::ConfigManifest(_) => {
+                Response::ConfigManifest(config::manifest(&self.hidden_dir))
+            }
             Request::GetConfig(name) => Response::File(config::read(&self.hidden_dir, &name)),
             Request::PutConfig { name, bytes } => {
                 if config::accept(&self.hidden_dir, &name, &bytes) {
@@ -844,7 +1011,9 @@ impl Node {
                 }
                 Response::Ok
             }
-            Request::AttachmentManifest(_) => Response::AttachmentManifest(self.attachment_manifest()),
+            Request::AttachmentManifest(_) => {
+                Response::AttachmentManifest(self.attachment_manifest())
+            }
             Request::GetAttachment(name) => Response::File(self.read_attachment(&name)),
             Request::PutAttachment { entry, bytes } => {
                 if let Some(name) = self.accept_attachment(&entry, &bytes) {
@@ -855,16 +1024,39 @@ impl Node {
             Request::BorderManifest(_) => {
                 Response::BorderManifest(crate::border::manifest(&self.vault_root, &self.local_dir))
             }
-            Request::GetBorder(name) => Response::File(crate::border::offered(&self.vault_root, &self.local_dir, &name)),
+            Request::GetBorder(name) => Response::File(crate::border::offered(
+                &self.vault_root,
+                &self.local_dir,
+                &name,
+            )),
             Request::PutBorder { entry, bytes } => {
-                if crate::border::accept(&self.vault_root, &self.local_dir, &entry.name, &bytes, entry.stamp) {
-                    self.emit(Event::Borders { names: vec![entry.name] }).await;
+                if crate::border::accept(
+                    &self.vault_root,
+                    &self.local_dir,
+                    &entry.name,
+                    &bytes,
+                    entry.stamp,
+                ) {
+                    self.emit(Event::Borders {
+                        names: vec![entry.name],
+                    })
+                    .await;
                 }
                 Response::Ok
             }
             Request::DeleteBorder(entry) => {
-                if entry.deleted && crate::border::forget(&self.vault_root, &self.local_dir, &entry.name, entry.stamp) {
-                    self.emit(Event::Borders { names: vec![entry.name] }).await;
+                if entry.deleted
+                    && crate::border::forget(
+                        &self.vault_root,
+                        &self.local_dir,
+                        &entry.name,
+                        entry.stamp,
+                    )
+                {
+                    self.emit(Event::Borders {
+                        names: vec![entry.name],
+                    })
+                    .await;
                 }
                 Response::Ok
             }
@@ -903,28 +1095,42 @@ impl Node {
         let remote: NodeId = *conn.remote_id().as_bytes();
         let fresh = {
             let mut st = self.state.lock().unwrap();
-            let live = st.conns.get(&remote).is_some_and(|c| c.close_reason().is_none());
+            let live = st
+                .conns
+                .get(&remote)
+                .is_some_and(|c| c.close_reason().is_none());
             st.conns.insert(remote, conn.clone());
             !live
         };
         let node = self.clone();
         tokio::spawn(async move {
             if fresh {
-                node.emit(Event::Peer { node: node_id_hex(&remote), connected: true }).await;
+                node.emit(Event::Peer {
+                    node: node_id_hex(&remote),
+                    connected: true,
+                })
+                .await;
             }
             node.serve_conn(remote, &conn).await;
             // Only the connection still on record speaks for the peer: an
             // older one closing after a newer replaced it changes nothing.
             let gone = {
                 let mut st = node.state.lock().unwrap();
-                let current = st.conns.get(&remote).is_some_and(|c| c.stable_id() == conn.stable_id());
+                let current = st
+                    .conns
+                    .get(&remote)
+                    .is_some_and(|c| c.stable_id() == conn.stable_id());
                 if current {
                     st.conns.remove(&remote);
                 }
                 current
             };
             if gone {
-                node.emit(Event::Peer { node: node_id_hex(&remote), connected: false }).await;
+                node.emit(Event::Peer {
+                    node: node_id_hex(&remote),
+                    connected: false,
+                })
+                .await;
                 // Redial now: the peer may only have changed networks.
                 node.changed.notify_one();
             }
@@ -936,8 +1142,13 @@ impl Node {
     /// it falls idle. A stranger can then hold at most one small request in
     /// memory per connection, however many streams it opens (#70).
     async fn serve_stranger(&self, remote: NodeId, conn: &Connection) {
-        while let Ok(Ok((send, recv))) = tokio::time::timeout(STRANGER_TIMEOUT, conn.accept_bi()).await {
-            if tokio::time::timeout(STRANGER_TIMEOUT, self.serve(remote, send, recv)).await.is_err() {
+        while let Ok(Ok((send, recv))) =
+            tokio::time::timeout(STRANGER_TIMEOUT, conn.accept_bi()).await
+        {
+            if tokio::time::timeout(STRANGER_TIMEOUT, self.serve(remote, send, recv))
+                .await
+                .is_err()
+            {
                 break;
             }
         }
@@ -967,7 +1178,11 @@ impl Node {
     /// Where to dial a member: its own last reported address, else a relay hint.
     fn dial_addr(&self, node: &NodeId) -> Option<EndpointAddr> {
         let st = self.state.lock().unwrap();
-        let hint = st.joining.as_ref().and_then(|i| i.relay.clone()).or_else(|| self.relay_hint());
+        let hint = st
+            .joining
+            .as_ref()
+            .and_then(|i| i.relay.clone())
+            .or_else(|| self.relay_hint());
         match st.addrs.get(node) {
             Some(known) if known.relay_urls().next().is_some() => Some(known.clone()),
             Some(known) => {
@@ -985,7 +1200,9 @@ impl Node {
     /// request fails it, which is fine: it is then found as before.
     async fn hello(&self, conn: &Connection) {
         let remote: NodeId = *conn.remote_id().as_bytes();
-        if let Ok(Response::Hello(addr)) = request(conn, &Request::Hello(self.endpoint.addr())).await {
+        if let Ok(Response::Hello(addr)) =
+            request(conn, &Request::Hello(self.endpoint.addr())).await
+        {
             self.learn_addr(remote, addr);
         }
     }
@@ -1002,7 +1219,12 @@ impl Node {
         loop {
             let members: Vec<Member> = {
                 let st = node.state.lock().unwrap();
-                st.membership.members.iter().filter(|m| m.node != node.id()).cloned().collect()
+                st.membership
+                    .members
+                    .iter()
+                    .filter(|m| m.node != node.id())
+                    .cloned()
+                    .collect()
             };
             let mut pass = tokio::task::JoinSet::new();
             for m in members {
@@ -1032,7 +1254,14 @@ impl Node {
     /// start a dial and return false: the dial runs on its own, so an
     /// unreachable member never holds up the round with a reachable one.
     async fn sync_with(self: &Arc<Self>, m: Member) -> bool {
-        let live = self.state.lock().unwrap().conns.get(&m.node).filter(|c| c.close_reason().is_none()).cloned();
+        let live = self
+            .state
+            .lock()
+            .unwrap()
+            .conns
+            .get(&m.node)
+            .filter(|c| c.close_reason().is_none())
+            .cloned();
         let Some(conn) = live else {
             self.dial(m.node);
             return false;
@@ -1041,7 +1270,10 @@ impl Node {
             // A connection that closed mid-round is the peer going away, not
             // an error: its closing already woke the loop to redial.
             if conn.close_reason().is_none() {
-                self.emit(Event::Error { message: format!("{}: {e}", m.name) }).await;
+                self.emit(Event::Error {
+                    message: format!("{}: {e}", m.name),
+                })
+                .await;
             }
         }
         true
@@ -1055,7 +1287,10 @@ impl Node {
         let me = self.clone();
         tokio::spawn(async move {
             let conn = match me.dial_addr(&node) {
-                Some(addr) => tokio::time::timeout(DIAL_TIMEOUT, me.endpoint.connect(addr, ALPN)).await.ok().and_then(|r| r.ok()),
+                Some(addr) => tokio::time::timeout(DIAL_TIMEOUT, me.endpoint.connect(addr, ALPN))
+                    .await
+                    .ok()
+                    .and_then(|r| r.ok()),
                 None => None,
             };
             if let Some(conn) = &conn {
@@ -1072,7 +1307,9 @@ impl Node {
     /// One sync round with a peer: memberships, manifests, then files both ways.
     async fn round(&self, conn: &Connection) -> Result<(), String> {
         let mine_m = self.membership();
-        if let Response::Membership(theirs) = request(conn, &Request::Membership(mine_m.public())).await? {
+        if let Response::Membership(theirs) =
+            request(conn, &Request::Membership(mine_m.public())).await?
+        {
             let changed = {
                 let mut st = self.state.lock().unwrap();
                 let c = st.merge(&theirs);
@@ -1099,24 +1336,54 @@ impl Node {
             if self.me.device_id == e.device.as_str() {
                 continue;
             }
-            let newer = mine_by.get(k).is_none_or(|m| e.mtime_ms > m.mtime_ms || (e.mtime_ms == m.mtime_ms && e.size != m.size));
+            let newer = mine_by.get(k).is_none_or(|m| {
+                e.mtime_ms > m.mtime_ms || (e.mtime_ms == m.mtime_ms && e.size != m.size)
+            });
             if newer {
-                if let Response::File(Some(bytes)) = request(conn, &Request::GetFile { device: e.device.clone(), name: e.name.clone() }).await? {
+                if let Response::File(Some(bytes)) = request(
+                    conn,
+                    &Request::GetFile {
+                        device: e.device.clone(),
+                        name: e.name.clone(),
+                    },
+                )
+                .await?
+                {
                     self.write_file(e, &bytes);
                     pulled += 1;
                 }
             }
         }
         // Push what I have newer, except their own device folder.
-        let their_device = self.state.lock().unwrap().membership.members.iter().find(|m| m.node == *conn.remote_id().as_bytes()).map(|m| m.device_id.clone());
+        let their_device = self
+            .state
+            .lock()
+            .unwrap()
+            .membership
+            .members
+            .iter()
+            .find(|m| m.node == *conn.remote_id().as_bytes())
+            .map(|m| m.device_id.clone());
         for (k, e) in &mine_by {
-            if their_device.as_ref().is_some_and(|d| *d == e.device.as_str()) {
+            if their_device
+                .as_ref()
+                .is_some_and(|d| *d == e.device.as_str())
+            {
                 continue;
             }
-            let newer = theirs_by.get(k).is_none_or(|t| e.mtime_ms > t.mtime_ms || (e.mtime_ms == t.mtime_ms && e.size != t.size));
+            let newer = theirs_by.get(k).is_none_or(|t| {
+                e.mtime_ms > t.mtime_ms || (e.mtime_ms == t.mtime_ms && e.size != t.size)
+            });
             if newer {
                 if let Some(bytes) = self.read_file(&e.device, &e.name) {
-                    request(conn, &Request::PutFile { entry: (*e).clone(), bytes }).await?;
+                    request(
+                        conn,
+                        &Request::PutFile {
+                            entry: (*e).clone(),
+                            bytes,
+                        },
+                    )
+                    .await?;
                 }
             }
         }
@@ -1166,10 +1433,14 @@ impl Node {
         if e.deleted {
             return Ok(crate::border::forget(root, local, &e.name, e.stamp));
         }
-        Ok(match request(conn, &Request::GetBorder(e.name.clone())).await? {
-            Response::File(Some(bytes)) => crate::border::accept(root, local, &e.name, &bytes, e.stamp),
-            _ => false,
-        })
+        Ok(
+            match request(conn, &Request::GetBorder(e.name.clone())).await? {
+                Response::File(Some(bytes)) => {
+                    crate::border::accept(root, local, &e.name, &bytes, e.stamp)
+                }
+                _ => false,
+            },
+        )
     }
 
     /// Give a peer this Device's newer Border, or its deletion.
@@ -1177,8 +1448,10 @@ impl Node {
         let req = if e.deleted {
             Some(Request::DeleteBorder(e.clone()))
         } else {
-            crate::border::read_file(&self.vault_root, &e.name)
-                .map(|bytes| Request::PutBorder { entry: e.clone(), bytes })
+            crate::border::read_file(&self.vault_root, &e.name).map(|bytes| Request::PutBorder {
+                entry: e.clone(),
+                bytes,
+            })
         };
         if let Some(req) = req {
             request(conn, &req).await?;
@@ -1197,10 +1470,15 @@ impl Node {
         let mut got = Vec::new();
         let mut seen = HashSet::new();
         for e in &theirs {
-            if my_hashes.contains(&e.hash) || !seen.insert(e.hash) || !Self::attachment_name_ok(&e.name) {
+            if my_hashes.contains(&e.hash)
+                || !seen.insert(e.hash)
+                || !Self::attachment_name_ok(&e.name)
+            {
                 continue;
             }
-            if let Response::File(Some(bytes)) = request(conn, &Request::GetAttachment(e.name.clone())).await? {
+            if let Response::File(Some(bytes)) =
+                request(conn, &Request::GetAttachment(e.name.clone())).await?
+            {
                 if let Some(name) = self.accept_attachment(e, &bytes) {
                     got.push(name);
                 }
@@ -1212,7 +1490,14 @@ impl Node {
                 continue;
             }
             if let Some(bytes) = self.read_attachment(&e.name) {
-                request(conn, &Request::PutAttachment { entry: e.clone(), bytes }).await?;
+                request(
+                    conn,
+                    &Request::PutAttachment {
+                        entry: e.clone(),
+                        bytes,
+                    },
+                )
+                .await?;
             }
         }
         if !got.is_empty() {
@@ -1233,7 +1518,9 @@ impl Node {
         let mut got = Vec::new();
         for e in &theirs {
             if config::is_newer(e, mine_by.get(e.name.as_str()).copied()) {
-                if let Response::File(Some(bytes)) = request(conn, &Request::GetConfig(e.name.clone())).await? {
+                if let Response::File(Some(bytes)) =
+                    request(conn, &Request::GetConfig(e.name.clone())).await?
+                {
                     if config::accept(&self.hidden_dir, &e.name, &bytes) {
                         got.push(e.name.clone());
                     }
@@ -1243,7 +1530,14 @@ impl Node {
         for e in &mine {
             if config::is_newer(e, theirs_by.get(e.name.as_str()).copied()) {
                 if let Some(bytes) = config::read(&self.hidden_dir, &e.name) {
-                    request(conn, &Request::PutConfig { name: e.name.clone(), bytes }).await?;
+                    request(
+                        conn,
+                        &Request::PutConfig {
+                            name: e.name.clone(),
+                            bytes,
+                        },
+                    )
+                    .await?;
                 }
             }
         }
@@ -1257,14 +1551,24 @@ impl Node {
 
     fn manifest(&self) -> Vec<Entry> {
         let mut out = Vec::new();
-        let Ok(devices) = fs::read_dir(&self.sync_dir) else { return out };
-        let removed = self.state.lock().unwrap().membership.removed_devices.clone();
+        let Ok(devices) = fs::read_dir(&self.sync_dir) else {
+            return out;
+        };
+        let removed = self
+            .state
+            .lock()
+            .unwrap()
+            .membership
+            .removed_devices
+            .clone();
         for d in devices.flatten() {
             if !d.path().is_dir() {
                 continue;
             }
             // Only a folder named by a Device id is a Device's (#90).
-            let Some(device) = DeviceId::parse(&d.file_name().to_string_lossy()) else { continue };
+            let Some(device) = DeviceId::parse(&d.file_name().to_string_lossy()) else {
+                continue;
+            };
             // A retired Device's folder is not advertised, so a peer that
             // still holds it does not learn of it from here and mirroring
             // stops spreading it.
@@ -1283,7 +1587,12 @@ impl Node {
                         continue;
                     }
                     let size = fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
-                    out.push(Entry { device: device.clone(), name, size, mtime_ms: mtime_ms(&p) });
+                    out.push(Entry {
+                        device: device.clone(),
+                        name,
+                        size,
+                        mtime_ms: mtime_ms(&p),
+                    });
                 }
             }
         }
@@ -1305,7 +1614,9 @@ impl Node {
             && name != "."
             && name != ".."
             && !name.ends_with(['.', ' '])
-            && !name.chars().any(|c| c.is_control() || "/\\:<>\"|?*".contains(c))
+            && !name
+                .chars()
+                .any(|c| c.is_control() || "/\\:<>\"|?*".contains(c))
             && !RESERVED.contains(&stem.as_str())
             && !numbered
     }
@@ -1322,14 +1633,23 @@ impl Node {
     /// compared case-blind with this Device's own and the retired ones, since
     /// the disk may not tell `01abc` from `01ABC` (#90).
     fn write_file(&self, e: &Entry, bytes: &[u8]) {
-        let Some(device) = DeviceId::parse(&e.device) else { return };
+        let Some(device) = DeviceId::parse(&e.device) else {
+            return;
+        };
         if !Self::safe(&e.name) || device == self.me.device_id {
             return;
         }
         // A peer that has not yet merged the removal will still offer the
         // retired Device's snapshots; refusing them here is what keeps the
         // folder from coming back.
-        if self.state.lock().unwrap().membership.removed_devices.contains(&device) {
+        if self
+            .state
+            .lock()
+            .unwrap()
+            .membership
+            .removed_devices
+            .contains(&device)
+        {
             return;
         }
         let dir = self.sync_dir.join(&device);
@@ -1356,7 +1676,10 @@ impl Node {
 
     fn set_mtime(path: &Path, ms: i64) {
         if let Some(t) = config::file_time(ms) {
-            let _ = fs::File::options().write(true).open(path).and_then(|f| f.set_modified(t));
+            let _ = fs::File::options()
+                .write(true)
+                .open(path)
+                .and_then(|f| f.set_modified(t));
         }
     }
 
@@ -1365,12 +1688,17 @@ impl Node {
     /// A plain picture name directly inside `Attachments/`: no separators, no
     /// dot-dot, not hidden, and a type we serve (ADR 0012).
     fn attachment_name_ok(name: &str) -> bool {
-        Self::safe(name) && !name.starts_with('.') && !name.contains("..") && crate::attachments::is_supported(name)
+        Self::safe(name)
+            && !name.starts_with('.')
+            && !name.contains("..")
+            && crate::attachments::is_supported(name)
     }
 
     fn attachment_manifest(&self) -> Vec<AttachmentEntry> {
         let mut out = Vec::new();
-        let Ok(files) = fs::read_dir(&self.attachments_dir) else { return out };
+        let Ok(files) = fs::read_dir(&self.attachments_dir) else {
+            return out;
+        };
         let mut cache = self.hashes.lock().unwrap();
         let mut present = HashSet::new();
         for f in files.flatten() {
@@ -1380,7 +1708,9 @@ impl Node {
                 continue;
             }
             // A link is never served: it may point anywhere on the disk (#86).
-            let Ok(meta) = fs::symlink_metadata(&p) else { continue };
+            let Ok(meta) = fs::symlink_metadata(&p) else {
+                continue;
+            };
             if !meta.is_file() || meta.len() as usize > MAX_FILE {
                 continue;
             }
@@ -1462,7 +1792,11 @@ fn free_attachment_name(dir: &Path, name: &str, hash: &[u8; 32]) -> Option<Strin
         _ => return None,
     };
     for n in 1..10_000 {
-        let candidate = if n == 1 { name.to_string() } else { format!("{stem} {n}.{ext}") };
+        let candidate = if n == 1 {
+            name.to_string()
+        } else {
+            format!("{stem} {n}.{ext}")
+        };
         match fs::read(dir.join(&candidate)) {
             Err(_) => return Some(candidate),
             Ok(existing) if &sha256(&existing) == hash => return Some(candidate),
@@ -1477,7 +1811,10 @@ async fn request(conn: &Connection, req: &Request) -> Result<Response, String> {
     let bytes = postcard::to_allocvec(req).map_err(|e| e.to_string())?;
     send.write_all(&bytes).await.map_err(|e| e.to_string())?;
     send.finish().map_err(|e| e.to_string())?;
-    let reply = recv.read_to_end(MAX_FILE + 4096).await.map_err(|e| e.to_string())?;
+    let reply = recv
+        .read_to_end(MAX_FILE + 4096)
+        .await
+        .map_err(|e| e.to_string())?;
     postcard::from_bytes(&reply).map_err(|e| e.to_string())
 }
 
@@ -1491,15 +1828,37 @@ mod tests {
             assert!(Node::safe(ok), "{ok}");
         }
         for bad in [
-            "", ".", "..", "a/b", "a\\b", "c:map.png", "x:y.png", "CON", "nul.png", "com1.loro",
-            "lpt9", "trailing.", "trailing ", "a|b", "a?b", "a*b", "a<b", "a\"b", "tab\there",
+            "",
+            ".",
+            "..",
+            "a/b",
+            "a\\b",
+            "c:map.png",
+            "x:y.png",
+            "CON",
+            "nul.png",
+            "com1.loro",
+            "lpt9",
+            "trailing.",
+            "trailing ",
+            "a|b",
+            "a?b",
+            "a*b",
+            "a<b",
+            "a\"b",
+            "tab\there",
         ] {
             assert!(!Node::safe(bad), "{bad:?}");
         }
     }
 
     fn member(device: &DeviceId, name: &str) -> Member {
-        Member { node: [0; 32], device_id: device.clone(), name: name.into(), platform: "test".into() }
+        Member {
+            node: [0; 32],
+            device_id: device.clone(),
+            name: name.into(),
+            platform: "test".into(),
+        }
     }
 
     fn id() -> DeviceId {
@@ -1507,12 +1866,24 @@ mod tests {
     }
 
     fn with_node(node: u8, device: &DeviceId, name: &str) -> Member {
-        Member { node: [node; 32], ..member(device, name) }
+        Member {
+            node: [node; 32],
+            ..member(device, name)
+        }
     }
 
     async fn start(dir: &Path, me: Member) -> Arc<Node> {
         let (tx, _rx) = mpsc::channel(64);
-        Node::start(dir, &dir.join("device"), &dir.join("local"), me, Some(String::new()), tx).await.unwrap()
+        Node::start(
+            dir,
+            &dir.join("device"),
+            &dir.join("local"),
+            me,
+            Some(String::new()),
+            tx,
+        )
+        .await
+        .unwrap()
     }
 
     #[test]
@@ -1530,12 +1901,25 @@ mod tests {
         assert_eq!(Invite::decode("nope"), None);
 
         let (da, db) = (id(), id());
-        let mut a = Membership { version: 1, members: vec![with_node(1, &da, "A")], ..Default::default() };
-        let b = Membership { version: 2, members: vec![with_node(1, &da, "A"), with_node(2, &db, "B")], removed: vec![[3; 32]], ..Default::default() };
+        let mut a = Membership {
+            version: 1,
+            members: vec![with_node(1, &da, "A")],
+            ..Default::default()
+        };
+        let b = Membership {
+            version: 2,
+            members: vec![with_node(1, &da, "A"), with_node(2, &db, "B")],
+            removed: vec![[3; 32]],
+            ..Default::default()
+        };
         assert!(a.merge(&b));
         assert_eq!(a.version, 2);
         assert_eq!(a.members.len(), 2);
-        let older = Membership { version: 1, removed: vec![[4; 32]], ..Default::default() };
+        let older = Membership {
+            version: 1,
+            removed: vec![[4; 32]],
+            ..Default::default()
+        };
         assert!(a.merge(&older));
         assert!(a.removed.contains(&[4; 32]) && a.removed.contains(&[3; 32]));
     }
@@ -1546,19 +1930,41 @@ mod tests {
     fn members_approved_apart_are_both_kept() {
         let (dx, dy, dp, dq) = (id(), id(), id(), id());
         let base = vec![with_node(1, &dx, "X"), with_node(2, &dy, "Y")];
-        let mut x = Membership { version: 5, members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(), ..Default::default() };
-        let mut y = Membership { version: 5, members: [base.clone(), vec![with_node(4, &dq, "Tablet")]].concat(), ..Default::default() };
+        let mut x = Membership {
+            version: 5,
+            members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(),
+            ..Default::default()
+        };
+        let mut y = Membership {
+            version: 5,
+            members: [base.clone(), vec![with_node(4, &dq, "Tablet")]].concat(),
+            ..Default::default()
+        };
         let (x0, y0) = (x.clone(), y.clone());
         assert!(x.merge(&y0));
         assert!(y.merge(&x0));
         for m in [&x, &y] {
-            assert!(m.is_member(&[3; 32]) && m.is_member(&[4; 32]), "an approved Device was dropped: {m:?}");
+            assert!(
+                m.is_member(&[3; 32]) && m.is_member(&[4; 32]),
+                "an approved Device was dropped: {m:?}"
+            );
         }
         // And with one side ahead: the higher version no longer replaces the list.
-        let mut behind = Membership { version: 1, members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(), ..Default::default() };
-        let ahead = Membership { version: 9, members: base, ..Default::default() };
+        let mut behind = Membership {
+            version: 1,
+            members: [base.clone(), vec![with_node(3, &dp, "Phone")]].concat(),
+            ..Default::default()
+        };
+        let ahead = Membership {
+            version: 9,
+            members: base,
+            ..Default::default()
+        };
         behind.merge(&ahead);
-        assert!(behind.is_member(&[3; 32]), "a newer membership dropped a member");
+        assert!(
+            behind.is_member(&[3; 32]),
+            "a newer membership dropped a member"
+        );
     }
 
     /// #65: a removal and an approval of the same Device made apart: the
@@ -1566,8 +1972,17 @@ mod tests {
     #[test]
     fn a_removal_wins_over_an_approval_made_apart() {
         let dp = id();
-        let mut approving = Membership { version: 7, members: vec![with_node(3, &dp, "Phone")], ..Default::default() };
-        let mut removing = Membership { version: 2, removed: vec![[3; 32]], removed_devices: vec![dp.clone()], ..Default::default() };
+        let mut approving = Membership {
+            version: 7,
+            members: vec![with_node(3, &dp, "Phone")],
+            ..Default::default()
+        };
+        let mut removing = Membership {
+            version: 2,
+            removed: vec![[3; 32]],
+            removed_devices: vec![dp.clone()],
+            ..Default::default()
+        };
         let (a0, r0) = (approving.clone(), removing.clone());
         approving.merge(&r0);
         removing.merge(&a0);
@@ -1581,7 +1996,13 @@ mod tests {
     #[test]
     fn a_huge_version_takes_nothing_over() {
         let (dx, dm) = (id(), id());
-        let mut mine = Membership { version: 3, vault_key: Some([1; 32]), invite_secret: Some([2; 32]), members: vec![with_node(1, &dx, "X")], ..Default::default() };
+        let mut mine = Membership {
+            version: 3,
+            vault_key: Some([1; 32]),
+            invite_secret: Some([2; 32]),
+            members: vec![with_node(1, &dx, "X")],
+            ..Default::default()
+        };
         let hostile = Membership {
             version: u64::MAX,
             vault_key: Some([9; 32]),
@@ -1590,18 +2011,35 @@ mod tests {
             ..Default::default()
         };
         mine.merge(&hostile);
-        assert_eq!(mine.vault_key, Some([1; 32]), "the vault key came from a merge");
-        assert_eq!(mine.invite_secret, Some([2; 32]), "the invite secret came from a merge");
+        assert_eq!(
+            mine.vault_key,
+            Some([1; 32]),
+            "the vault key came from a merge"
+        );
+        assert_eq!(
+            mine.invite_secret,
+            Some([2; 32]),
+            "the invite secret came from a merge"
+        );
         assert_eq!(mine.version, 3, "an absurd version was adopted");
-        assert_eq!(mine.members[0].name, "X", "an absurd version renamed a member");
+        assert_eq!(
+            mine.members[0].name, "X",
+            "an absurd version renamed a member"
+        );
         assert!(mine.is_member(&[1; 32]));
         // Mallory is a member now (a member admitted it), and can be removed for good.
         mine.removed.push([8; 32]);
         mine.bump();
         mine.merge(&hostile);
-        assert!(!mine.is_member(&[8; 32]), "a removal was undone by a huge version");
+        assert!(
+            !mine.is_member(&[8; 32]),
+            "a removal was undone by a huge version"
+        );
         // Bumping at the top saturates rather than panicking under the lock.
-        let mut top = Membership { version: u64::MAX, ..Default::default() };
+        let mut top = Membership {
+            version: u64::MAX,
+            ..Default::default()
+        };
         top.bump();
         assert_eq!(top.version, u64::MAX);
     }
@@ -1611,15 +2049,29 @@ mod tests {
     #[test]
     fn a_merged_member_cannot_claim_a_folder() {
         let (dx, retired) = (id(), id());
-        let mut mine = Membership { members: vec![with_node(1, &dx, "X")], removed_devices: vec![retired.clone()], ..Default::default() };
+        let mut mine = Membership {
+            members: vec![with_node(1, &dx, "X")],
+            removed_devices: vec![retired.clone()],
+            ..Default::default()
+        };
         let long = "n".repeat(10_000);
         let theirs = Membership {
-            members: vec![with_node(2, &dx, "Thief"), with_node(3, &retired, "Ghost"), with_node(4, &id(), &long)],
+            members: vec![
+                with_node(2, &dx, "Thief"),
+                with_node(3, &retired, "Ghost"),
+                with_node(4, &id(), &long),
+            ],
             ..Default::default()
         };
         mine.merge(&theirs);
-        assert!(!mine.is_member(&[2; 32]), "a second node took a member's folder");
-        assert!(!mine.is_member(&[3; 32]), "a retired id came back through a merge");
+        assert!(
+            !mine.is_member(&[2; 32]),
+            "a second node took a member's folder"
+        );
+        assert!(
+            !mine.is_member(&[3; 32]),
+            "a retired id came back through a merge"
+        );
         let kept = mine.members.iter().find(|m| m.node == [4; 32]).unwrap();
         assert_eq!(kept.name.chars().count(), MAX_LABEL);
     }
@@ -1642,8 +2094,15 @@ mod tests {
         assert_eq!(joiner.vault_key, m.vault_key);
         assert!(joiner.invite_secret.is_none());
         let removed = m.for_removed();
-        assert!(removed.vault_key.is_none() && removed.invite_secret.is_none() && removed.members.is_empty());
-        assert_eq!((removed.version, &removed.removed, &removed.removed_devices), (4, &m.removed, &m.removed_devices));
+        assert!(
+            removed.vault_key.is_none()
+                && removed.invite_secret.is_none()
+                && removed.members.is_empty()
+        );
+        assert_eq!(
+            (removed.version, &removed.removed, &removed.removed_devices),
+            (4, &m.removed, &m.removed_devices)
+        );
     }
 
     /// A retired Device's folder is named by its device id, and that travels
@@ -1653,14 +2112,29 @@ mod tests {
     #[test]
     fn a_removed_device_is_never_forgotten_by_a_merge() {
         let (phone, tablet, laptop) = (id(), id(), id());
-        let mut a = Membership { version: 1, removed_devices: vec![phone.clone()], ..Default::default() };
-        let newer = Membership { version: 9, removed_devices: vec![tablet.clone()], ..Default::default() };
+        let mut a = Membership {
+            version: 1,
+            removed_devices: vec![phone.clone()],
+            ..Default::default()
+        };
+        let newer = Membership {
+            version: 9,
+            removed_devices: vec![tablet.clone()],
+            ..Default::default()
+        };
         assert!(a.merge(&newer));
-        assert!(a.removed_devices.contains(&phone), "a newer membership dropped a removal");
+        assert!(
+            a.removed_devices.contains(&phone),
+            "a newer membership dropped a removal"
+        );
         assert!(a.removed_devices.contains(&tablet));
 
         // An older peer's removal is still taken, and taken only once.
-        let older = Membership { version: 1, removed_devices: vec![laptop.clone(), phone.clone()], ..Default::default() };
+        let older = Membership {
+            version: 1,
+            removed_devices: vec![laptop.clone(), phone.clone()],
+            ..Default::default()
+        };
         assert!(a.merge(&older));
         assert_eq!(a.removed_devices.iter().filter(|d| **d == phone).count(), 1);
         assert!(a.removed_devices.contains(&laptop));
@@ -1682,26 +2156,42 @@ mod tests {
         let tablet = id();
         {
             let mut st = node.state.lock().unwrap();
-            st.membership.members.push(Member { node: paired, ..member(&tablet, "Tablet") });
+            st.membership.members.push(Member {
+                node: paired,
+                ..member(&tablet, "Tablet")
+            });
         }
         node.forget_device(&tablet);
         let m = node.membership();
         assert!(m.removed_devices.contains(&tablet));
-        assert!(!m.is_member(&paired), "the retired Device is still a member");
+        assert!(
+            !m.is_member(&paired),
+            "the retired Device is still a member"
+        );
 
         // A Device that never paired through this roster, which is how the
         // phone whose folder outlived it looks. No node id to go by.
         let ghost = id();
         node.forget_device(&ghost);
         let m = node.membership();
-        assert!(m.removed_devices.contains(&ghost), "a folder-only Device could not be retired");
+        assert!(
+            m.removed_devices.contains(&ghost),
+            "a folder-only Device could not be retired"
+        );
 
         // Idempotent, and it persists for the next Sync to read.
         let before = node.membership().version;
         node.forget_device(&ghost);
-        assert_eq!(node.membership().version, before, "retiring twice bumped the version");
+        assert_eq!(
+            node.membership().version,
+            before,
+            "retiring twice bumped the version"
+        );
         let saved = fs::read_to_string(dir.path().join("local").join(MEMBERSHIP_FILE)).unwrap();
-        assert!(saved.contains(ghost.as_str()), "the retirement was not written for sync to read");
+        assert!(
+            saved.contains(ghost.as_str()),
+            "the retirement was not written for sync to read"
+        );
         node.shutdown().await;
     }
 
@@ -1718,26 +2208,50 @@ mod tests {
         let their_node = [42u8; 32];
         node.forget_device(&phone);
 
-        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&phone, "Phone") });
-        assert!(!node.approve(&their_node, true), "a retired id was admitted");
+        node.state.lock().unwrap().pending.push(Member {
+            node: their_node,
+            ..member(&phone, "Phone")
+        });
+        assert!(
+            !node.approve(&their_node, true),
+            "a retired id was admitted"
+        );
         let m = node.membership();
-        assert!(m.removed_devices.contains(&phone), "approval lifted a retirement");
+        assert!(
+            m.removed_devices.contains(&phone),
+            "approval lifted a retirement"
+        );
         assert!(!m.is_member(&their_node));
 
         // A lowercase spelling of the same id is the same id (#90).
         let sneaky = DeviceId::parse(&phone.as_str().to_lowercase()).unwrap();
-        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&sneaky, "Phone") });
-        assert!(!node.approve(&their_node, true), "a lowercased retired id was admitted");
+        node.state.lock().unwrap().pending.push(Member {
+            node: their_node,
+            ..member(&sneaky, "Phone")
+        });
+        assert!(
+            !node.approve(&their_node, true),
+            "a lowercased retired id was admitted"
+        );
 
         // Wiped and paired again under a fresh id: admitted.
-        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&id(), "Phone") });
+        node.state.lock().unwrap().pending.push(Member {
+            node: their_node,
+            ..member(&id(), "Phone")
+        });
         assert!(node.approve(&their_node, true));
         assert!(node.membership().is_member(&their_node));
 
         // A removed node stays removed whatever id it brings.
         node.remove(&their_node);
-        node.state.lock().unwrap().pending.push(Member { node: their_node, ..member(&id(), "Phone") });
-        assert!(!node.approve(&their_node, true), "a removed node was admitted again");
+        node.state.lock().unwrap().pending.push(Member {
+            node: their_node,
+            ..member(&id(), "Phone")
+        });
+        assert!(
+            !node.approve(&their_node, true),
+            "a removed node was admitted again"
+        );
         node.shutdown().await;
     }
 
@@ -1750,33 +2264,59 @@ mod tests {
 
         let (first, left) = node.invite();
         assert!(left <= INVITE_TTL && left > INVITE_TTL - Duration::from_secs(5));
-        assert_eq!(node.invite().0.secret, first.secret, "showing the code again changed it");
+        assert_eq!(
+            node.invite().0.secret,
+            first.secret,
+            "showing the code again changed it"
+        );
         assert!(node.state.lock().unwrap().invite_open(&first.secret));
         assert!(!node.state.lock().unwrap().invite_open(&[0; 32]));
 
         // Used: an approval closes it.
-        node.state.lock().unwrap().pending.push(Member { node: [5; 32], ..member(&id(), "Phone") });
+        node.state.lock().unwrap().pending.push(Member {
+            node: [5; 32],
+            ..member(&id(), "Phone")
+        });
         assert!(node.approve(&[5; 32], true));
-        assert!(!node.state.lock().unwrap().invite_open(&first.secret), "an Invite admitted a second Device");
+        assert!(
+            !node.state.lock().unwrap().invite_open(&first.secret),
+            "an Invite admitted a second Device"
+        );
         let (second, _) = node.invite();
         assert_ne!(second.secret, first.secret);
 
         // Expired: the window has passed.
         node.state.lock().unwrap().invite_issued = Some(Instant::now() - INVITE_TTL);
-        assert!(!node.state.lock().unwrap().invite_open(&second.secret), "an expired Invite still opened");
+        assert!(
+            !node.state.lock().unwrap().invite_open(&second.secret),
+            "an expired Invite still opened"
+        );
         let (third, _) = node.invite();
-        assert_ne!(third.secret, second.secret, "an expired Invite was shown again");
+        assert_ne!(
+            third.secret, second.secret,
+            "an expired Invite was shown again"
+        );
 
         // Removing a Device replaces the key and closes the Invite.
         let key = node.membership().vault_key;
         node.remove(&[5; 32]);
-        assert_ne!(node.membership().vault_key, key, "the vault key survived a removal");
-        assert!(!node.state.lock().unwrap().invite_open(&third.secret), "an Invite survived a removal");
+        assert_ne!(
+            node.membership().vault_key,
+            key,
+            "the vault key survived a removal"
+        );
+        assert!(
+            !node.state.lock().unwrap().invite_open(&third.secret),
+            "an Invite survived a removal"
+        );
 
         // A removal learnt from a peer does the same.
         let (fourth, _) = node.invite();
         let key = node.membership().vault_key;
-        let theirs = Membership { removed: vec![[6; 32]], ..Default::default() };
+        let theirs = Membership {
+            removed: vec![[6; 32]],
+            ..Default::default()
+        };
         assert!(node.state.lock().unwrap().merge(&theirs));
         assert_ne!(node.membership().vault_key, key);
         assert!(!node.state.lock().unwrap().invite_open(&fourth.secret));
@@ -1790,19 +2330,45 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let local = dir.path().join("local");
         fs::create_dir_all(&local).unwrap();
-        fs::write(local.join(MEMBERSHIP_FILE), "{\"version\": 3, \"removed_dev").unwrap();
+        fs::write(
+            local.join(MEMBERSHIP_FILE),
+            "{\"version\": 3, \"removed_dev",
+        )
+        .unwrap();
         let (tx, _rx) = mpsc::channel(4);
-        let err = Node::start(dir.path(), &dir.path().join("device"), &local, member(&id(), "Self"), Some(String::new()), tx).await.err().expect("a torn pairing.json was read as empty");
+        let err = Node::start(
+            dir.path(),
+            &dir.path().join("device"),
+            &local,
+            member(&id(), "Self"),
+            Some(String::new()),
+            tx,
+        )
+        .await
+        .err()
+        .expect("a torn pairing.json was read as empty");
         assert!(err.to_string().contains("damaged"), "{err}");
-        assert!(fs::read_to_string(local.join(MEMBERSHIP_FILE)).unwrap().contains("removed_dev"), "the damaged file was overwritten");
+        assert!(
+            fs::read_to_string(local.join(MEMBERSHIP_FILE))
+                .unwrap()
+                .contains("removed_dev"),
+            "the damaged file was overwritten"
+        );
 
         let other = tempfile::tempdir().unwrap();
         fs::create_dir_all(other.path().join("device")).unwrap();
         fs::write(other.path().join("device").join(KEY_FILE), "abc").unwrap();
-        assert!(node_secret(&other.path().join("device")).is_err(), "a torn node key was replaced");
+        assert!(
+            node_secret(&other.path().join("device")).is_err(),
+            "a torn node key was replaced"
+        );
 
         // A good save is whole, with no temporary file left beside it.
-        let m = Membership { version: 2, removed_devices: vec![id()], ..Default::default() };
+        let m = Membership {
+            version: 2,
+            removed_devices: vec![id()],
+            ..Default::default()
+        };
         let fresh = other.path().join("fresh");
         m.save(&fresh).unwrap();
         assert_eq!(Membership::load(&fresh).unwrap(), m);
@@ -1826,48 +2392,105 @@ mod tests {
                 request(&conn, &req).await
             }
         };
-        let me = Member { node: [0; 32], ..member(&id(), "Stranger") };
+        let me = Member {
+            node: [0; 32],
+            ..member(&id(), "Stranger")
+        };
 
         // A wrong secret, and then a stale one.
         let (invite, _) = a.invite();
-        assert!(matches!(ask(Request::Join { secret: [0; 32], member: me.clone() }).await, Ok(Response::Expired)));
+        assert!(matches!(
+            ask(Request::Join {
+                secret: [0; 32],
+                member: me.clone()
+            })
+            .await,
+            Ok(Response::Expired)
+        ));
         a.revoke_invite();
-        assert!(matches!(ask(Request::Join { secret: invite.secret, member: me.clone() }).await, Ok(Response::Expired)));
+        assert!(matches!(
+            ask(Request::Join {
+                secret: invite.secret,
+                member: me.clone()
+            })
+            .await,
+            Ok(Response::Expired)
+        ));
 
         // A good one: pending, with its labels capped.
         let (invite, _) = a.invite();
-        let long = Member { name: "x".repeat(5_000), ..me.clone() };
-        assert!(matches!(ask(Request::Join { secret: invite.secret, member: long }).await, Ok(Response::Pending)));
+        let long = Member {
+            name: "x".repeat(5_000),
+            ..me.clone()
+        };
+        assert!(matches!(
+            ask(Request::Join {
+                secret: invite.secret,
+                member: long
+            })
+            .await,
+            Ok(Response::Pending)
+        ));
         assert_eq!(a.status().pending[0].name.chars().count(), MAX_LABEL);
 
         // A request bigger than a join is refused before it is read whole.
-        let big = Request::PutFile { entry: Entry { device: id().into(), name: "x.loro".into(), size: 0, mtime_ms: 0 }, bytes: vec![0; 64 * 1024] };
-        assert!(ask(big).await.is_err(), "a stranger's large request was read");
+        let big = Request::PutFile {
+            entry: Entry {
+                device: id().into(),
+                name: "x.loro".into(),
+                size: 0,
+                mtime_ms: 0,
+            },
+            bytes: vec![0; 64 * 1024],
+        };
+        assert!(
+            ask(big).await.is_err(),
+            "a stranger's large request was read"
+        );
 
         // A removed Device learns of its removal and nothing else.
         let node_s = s.id();
         {
             let mut st = a.state.lock().unwrap();
             st.pending.clear();
-            st.membership.members.push(Member { node: node_s, ..member(&id(), "Stranger") });
+            st.membership.members.push(Member {
+                node: node_s,
+                ..member(&id(), "Stranger")
+            });
         }
         a.remove(&node_s);
         match ask(Request::Membership(Membership::default())).await {
             Ok(Response::Membership(m)) => {
                 assert!(m.removed.contains(&node_s));
-                assert!(m.vault_key.is_none() && m.invite_secret.is_none() && m.members.is_empty(), "a removed Device was told the secrets: {m:?}");
+                assert!(
+                    m.vault_key.is_none() && m.invite_secret.is_none() && m.members.is_empty(),
+                    "a removed Device was told the secrets: {m:?}"
+                );
             }
             other => panic!("{other:?}"),
         }
-        assert!(matches!(ask(Request::Join { secret: a.invite().0.secret, member: me.clone() }).await, Ok(Response::Denied)));
+        assert!(matches!(
+            ask(Request::Join {
+                secret: a.invite().0.secret,
+                member: me.clone()
+            })
+            .await,
+            Ok(Response::Denied)
+        ));
 
         // At most MAX_PENDING requests wait; the oldest goes.
         for i in 0..(MAX_PENDING as u8 + 3) {
-            a.state.lock().unwrap().add_pending(Member { node: [100 + i; 32], ..member(&id(), "N") });
+            a.state.lock().unwrap().add_pending(Member {
+                node: [100 + i; 32],
+                ..member(&id(), "N")
+            });
         }
         let pending = a.status().pending;
         assert_eq!(pending.len(), MAX_PENDING);
-        assert_eq!(pending[0].node, [103; 32], "the oldest requests were not the ones dropped");
+        assert_eq!(
+            pending[0].node, [103; 32],
+            "the oldest requests were not the ones dropped"
+        );
         a.shutdown().await;
         s.shutdown().await;
     }
@@ -1882,17 +2505,36 @@ mod tests {
         let node = start(dir.path(), member(&mine, "Self")).await;
         let retired = id();
         node.forget_device(&retired);
-        let entry = |device: String| Entry { device, name: "DOC.loro".into(), size: 3, mtime_ms: 0 };
-        for device in [mine.as_str().to_lowercase(), retired.as_str().to_lowercase(), "..".into(), "phone".into()] {
+        let entry = |device: String| Entry {
+            device,
+            name: "DOC.loro".into(),
+            size: 3,
+            mtime_ms: 0,
+        };
+        for device in [
+            mine.as_str().to_lowercase(),
+            retired.as_str().to_lowercase(),
+            "..".into(),
+            "phone".into(),
+        ] {
             node.write_file(&entry(device.clone()), b"bad");
-            assert!(node.read_file(&device, "DOC.loro").is_none(), "{device} was written");
+            assert!(
+                node.read_file(&device, "DOC.loro").is_none(),
+                "{device} was written"
+            );
         }
         let sync = dir.path().join(HIDDEN_DIR).join(SYNC_DIR);
-        assert!(!sync.exists() || fs::read_dir(&sync).unwrap().count() == 0, "a folder was made");
+        assert!(
+            !sync.exists() || fs::read_dir(&sync).unwrap().count() == 0,
+            "a folder was made"
+        );
         // A good id in lower case lands in its canonical folder.
         let other = id();
         node.write_file(&entry(other.as_str().to_lowercase()), b"ok!");
-        assert_eq!(fs::read(sync.join(other.as_str()).join("DOC.loro")).unwrap(), b"ok!");
+        assert_eq!(
+            fs::read(sync.join(other.as_str()).join("DOC.loro")).unwrap(),
+            b"ok!"
+        );
         node.shutdown().await;
     }
 
@@ -1910,8 +2552,26 @@ mod tests {
         let (tx_a, mut rx_a) = mpsc::channel(64);
         let (tx_b, mut rx_b) = mpsc::channel(64);
         let dev_a = id();
-        let a = Node::start(&vault_a, &dir.path().join("dev-a"), &dir.path().join("local-a"), member(&dev_a, "A"), Some(String::new()), tx_a).await.unwrap();
-        let b = Node::start(&vault_b, &dir.path().join("dev-b"), &dir.path().join("local-b"), member(&id(), "B"), Some(String::new()), tx_b).await.unwrap();
+        let a = Node::start(
+            &vault_a,
+            &dir.path().join("dev-a"),
+            &dir.path().join("local-a"),
+            member(&dev_a, "A"),
+            Some(String::new()),
+            tx_a,
+        )
+        .await
+        .unwrap();
+        let b = Node::start(
+            &vault_b,
+            &dir.path().join("dev-b"),
+            &dir.path().join("local-b"),
+            member(&id(), "B"),
+            Some(String::new()),
+            tx_b,
+        )
+        .await
+        .unwrap();
 
         // Without relays the invite carries no address; give B A's direct addresses.
         let mut invite = a.invite().0;
@@ -1935,7 +2595,10 @@ mod tests {
         {
             let gone = *SecretKey::generate().public().as_bytes();
             let mut st = a.state.lock().unwrap();
-            st.membership.members.push(Member { node: gone, ..member(&id(), "Gone") });
+            st.membership.members.push(Member {
+                node: gone,
+                ..member(&id(), "Gone")
+            });
         }
         assert!(a.approve(&node_b, true));
         tokio::time::timeout(Duration::from_secs(20), async {
@@ -1950,12 +2613,16 @@ mod tests {
         assert!(b.membership().is_member(&a.id()));
         // The joiner has the vault key, and not the host's Invite secret.
         assert_eq!(b.membership().vault_key, a.membership().vault_key);
-        assert!(b.membership().invite_secret.is_none(), "the host's Invite secret travelled");
+        assert!(
+            b.membership().invite_secret.is_none(),
+            "the host's Invite secret travelled"
+        );
 
         // One connection, online on both sides, not only the side that accepted it.
         let (hex_a, hex_b) = (node_id_hex(&a.id()), node_id_hex(&node_b));
         tokio::time::timeout(Duration::from_secs(5), async {
-            while !(a.status().connected.contains(&hex_b) && b.status().connected.contains(&hex_a)) {
+            while !(a.status().connected.contains(&hex_b) && b.status().connected.contains(&hex_a))
+            {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         })
@@ -1967,7 +2634,11 @@ mod tests {
         fs::create_dir_all(&snap).unwrap();
         fs::write(snap.join("DOC1.loro"), b"snapshot bytes").unwrap();
         a.notify_changed();
-        let target = vault_b.join(HIDDEN_DIR).join(SYNC_DIR).join(&dev_a).join("DOC1.loro");
+        let target = vault_b
+            .join(HIDDEN_DIR)
+            .join(SYNC_DIR)
+            .join(&dev_a)
+            .join("DOC1.loro");
         tokio::time::timeout(Duration::from_secs(3), async {
             while fs::read(&target).ok().as_deref() != Some(b"snapshot bytes") {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -1977,11 +2648,19 @@ mod tests {
         .expect("B mirrors A's snapshot");
 
         // Config files travel too (ADR 0016): a Skin written on B reaches A.
-        config::write(&vault_b.join(HIDDEN_DIR), "skins/sepia.json", serde_json::json!({ "name": "Sepia" })).unwrap();
+        config::write(
+            &vault_b.join(HIDDEN_DIR),
+            "skins/sepia.json",
+            serde_json::json!({ "name": "Sepia" }),
+        )
+        .unwrap();
         b.notify_changed();
         let skin = vault_a.join(HIDDEN_DIR).join("skins").join("sepia.json");
         tokio::time::timeout(Duration::from_secs(3), async {
-            while !fs::read_to_string(&skin).unwrap_or_default().contains("Sepia") {
+            while !fs::read_to_string(&skin)
+                .unwrap_or_default()
+                .contains("Sepia")
+            {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
         })
@@ -2007,7 +2686,11 @@ mod tests {
         .await
         .expect("B receives A's pictures");
         assert_eq!(fs::read(att_b.join("paul.jpg")).unwrap(), b"paul bytes");
-        assert_eq!(fs::read(att_b.join("athens.png")).unwrap(), b"B's athens", "B's own picture is never overwritten");
+        assert_eq!(
+            fs::read(att_b.join("athens.png")).unwrap(),
+            b"B's athens",
+            "B's own picture is never overwritten"
+        );
         assert_eq!(fs::read(att_b.join("athens 2.png")).unwrap(), b"A's athens");
         assert!(!att_b.join("page.html").exists(), "only pictures travel");
         // The next rounds settle: nothing is fetched again under yet another name.
@@ -2023,7 +2706,12 @@ mod tests {
         let rel = "Places/Judah.geojson";
         let (local_a, local_b) = (dir.path().join("local-a"), dir.path().join("local-b"));
         crate::border::write(&vault_a, rel, &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
-        crate::border::write(&vault_a, "Maps/roads.geojson", &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
+        crate::border::write(
+            &vault_a,
+            "Maps/roads.geojson",
+            &[[31.0, 35.0], [31.0, 36.0], [32.0, 36.0]],
+        )
+        .unwrap();
         crate::border::set_named(&local_a, [rel.to_string()]).unwrap();
         a.notify_changed();
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -2033,7 +2721,10 @@ mod tests {
         })
         .await
         .expect("B receives A's Border");
-        assert!(!vault_b.join("Maps/roads.geojson").exists(), "a file no region names travelled");
+        assert!(
+            !vault_b.join("Maps/roads.geojson").exists(),
+            "a file no region names travelled"
+        );
         crate::border::set_named(&local_b, [rel.to_string()]).unwrap();
         std::thread::sleep(Duration::from_millis(5));
         crate::border::write(&vault_b, rel, &[[30.0, 35.0], [31.0, 36.0], [32.0, 36.0]]).unwrap();
@@ -2063,8 +2754,12 @@ mod tests {
 
         // Each remembers the other's own address for the next dial.
         for (local, peer) in [("local-a", &hex_b), ("local-b", &hex_a)] {
-            let saved = fs::read_to_string(dir.path().join(local).join(PEERS_FILE)).unwrap_or_default();
-            assert!(saved.contains(peer.as_str()), "{local} did not remember its peer's address");
+            let saved =
+                fs::read_to_string(dir.path().join(local).join(PEERS_FILE)).unwrap_or_default();
+            assert!(
+                saved.contains(peer.as_str()),
+                "{local} did not remember its peer's address"
+            );
         }
 
         // Removal propagates: A removes B, B learns it on the next round.
@@ -2088,21 +2783,46 @@ mod tests {
     async fn a_far_future_snapshot_time_is_pulled_back() {
         let dir = tempfile::tempdir().unwrap();
         let (tx, _rx) = mpsc::channel(16);
-        let node = Node::start(dir.path(), &dir.path().join("device"), &dir.path().join("local"), member(&id(), "Self"), Some(String::new()), tx).await.unwrap();
+        let node = Node::start(
+            dir.path(),
+            &dir.path().join("device"),
+            &dir.path().join("local"),
+            member(&id(), "Self"),
+            Some(String::new()),
+            tx,
+        )
+        .await
+        .unwrap();
         let phone = id();
-        let entry = Entry { device: phone.as_str().into(), name: "DOC.loro".into(), size: 3, mtime_ms: i64::MAX };
+        let entry = Entry {
+            device: phone.as_str().into(),
+            name: "DOC.loro".into(),
+            size: 3,
+            mtime_ms: i64::MAX,
+        };
         node.write_file(&entry, b"abc");
         let path = node.sync_dir.join(phone.as_str()).join("DOC.loro");
         assert_eq!(fs::read(&path).unwrap(), b"abc");
         let stamped = mtime_ms(&path);
-        assert!(stamped > config::now_ms() && stamped <= config::now_ms() + config::MAX_SKEW_MS, "{stamped}");
+        assert!(
+            stamped > config::now_ms() && stamped <= config::now_ms() + config::MAX_SKEW_MS,
+            "{stamped}"
+        );
 
         std::thread::sleep(Duration::from_millis(20));
         node.write_file(&entry, b"abc");
-        assert_eq!(mtime_ms(&path), stamped, "an unchanged snapshot was touched again");
+        assert_eq!(
+            mtime_ms(&path),
+            stamped,
+            "an unchanged snapshot was touched again"
+        );
 
         // A real update from that Device still lands.
-        let update = Entry { size: 4, mtime_ms: config::now_ms(), ..entry };
+        let update = Entry {
+            size: 4,
+            mtime_ms: config::now_ms(),
+            ..entry
+        };
         node.write_file(&update, b"abcd");
         assert_eq!(fs::read(&path).unwrap(), b"abcd");
         node.shutdown().await;

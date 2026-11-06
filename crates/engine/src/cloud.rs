@@ -78,7 +78,10 @@ pub fn evicted_under(root: &Path) -> Vec<PathBuf> {
 /// The error for touching an item that is still in iCloud. Phrased for the
 /// user: it reaches them through whatever action they tried.
 pub fn downloading(path: &Path) -> crate::Error {
-    let name = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
     crate::Error::Invalid(format!(
         "“{name}” is still in iCloud and is downloading to this device. Try again once it has arrived."
     ))
@@ -104,7 +107,10 @@ mod tests {
         assert!(is_placeholder(&ph));
         assert!(!is_placeholder(p));
         // Hidden files have placeholders too: `.x` -> `..x.icloud`.
-        assert_eq!(original_of(Path::new("..x.icloud")).unwrap(), Path::new(".x"));
+        assert_eq!(
+            original_of(Path::new("..x.icloud")).unwrap(),
+            Path::new(".x")
+        );
         // Not every file ending in .icloud is a placeholder.
         assert!(original_of(Path::new("notes.icloud")).is_none());
         assert!(original_of(Path::new("..icloud")).is_none());
@@ -120,7 +126,10 @@ mod tests {
         assert!(is_evicted(&doc));
         assert!(occupied(&doc));
         fs::write(&doc, "back").unwrap();
-        assert!(!is_evicted(&doc), "a downloaded file is present, whatever is beside it");
+        assert!(
+            !is_evicted(&doc),
+            "a downloaded file is present, whatever is beside it"
+        );
         assert!(occupied(&doc));
     }
 
@@ -137,6 +146,9 @@ mod tests {
         fs::write(root.join("Notes/.kept.md.icloud"), b"").unwrap();
         let mut found = evicted_under(&root);
         found.sort();
-        assert_eq!(found, vec![sync.join("01J.loro"), root.join("Notes/grace.md")]);
+        assert_eq!(
+            found,
+            vec![sync.join("01J.loro"), root.join("Notes/grace.md")]
+        );
     }
 }

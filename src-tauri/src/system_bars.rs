@@ -68,10 +68,21 @@ mod android {
             .map_err(err)
     }
 
-    fn paint(env: &mut JNIEnv, activity: &JObject, argb: i32, dark: bool) -> jni::errors::Result<()> {
-        let sdk = env.get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?.i()?;
-        let window = env.call_method(activity, "getWindow", "()Landroid/view/Window;", &[])?.l()?;
-        let decor = env.call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?.l()?;
+    fn paint(
+        env: &mut JNIEnv,
+        activity: &JObject,
+        argb: i32,
+        dark: bool,
+    ) -> jni::errors::Result<()> {
+        let sdk = env
+            .get_static_field("android/os/Build$VERSION", "SDK_INT", "I")?
+            .i()?;
+        let window = env
+            .call_method(activity, "getWindow", "()Landroid/view/Window;", &[])?
+            .l()?;
+        let decor = env
+            .call_method(&window, "getDecorView", "()Landroid/view/View;", &[])?
+            .l()?;
 
         // The Activity is edge to edge (Tauri's template, and enforced from
         // API 35): the bars are see-through and MainActivity pads the content
@@ -81,32 +92,64 @@ mod android {
         if sdk < 35 {
             // Ignored from 35 on; below it a bar may still be painted opaque.
             env.call_method(&window, "setStatusBarColor", "(I)V", &[JValue::Int(argb)])?;
-            env.call_method(&window, "setNavigationBarColor", "(I)V", &[JValue::Int(argb)])?;
+            env.call_method(
+                &window,
+                "setNavigationBarColor",
+                "(I)V",
+                &[JValue::Int(argb)],
+            )?;
         }
         if sdk >= 29 {
             // No translucent scrim over the three-button navigation bar.
-            env.call_method(&window, "setNavigationBarContrastEnforced", "(Z)V", &[JValue::Bool(0)])?;
-            env.call_method(&window, "setStatusBarContrastEnforced", "(Z)V", &[JValue::Bool(0)])?;
+            env.call_method(
+                &window,
+                "setNavigationBarContrastEnforced",
+                "(Z)V",
+                &[JValue::Bool(0)],
+            )?;
+            env.call_method(
+                &window,
+                "setStatusBarContrastEnforced",
+                "(Z)V",
+                &[JValue::Bool(0)],
+            )?;
         }
 
         let light = !dark;
         if sdk >= 30 {
             let controller = env
-                .call_method(&window, "getInsetsController", "()Landroid/view/WindowInsetsController;", &[])?
+                .call_method(
+                    &window,
+                    "getInsetsController",
+                    "()Landroid/view/WindowInsetsController;",
+                    &[],
+                )?
                 .l()?;
             if !controller.is_null() {
                 let mask = APPEARANCE_LIGHT_STATUS_BARS | APPEARANCE_LIGHT_NAVIGATION_BARS;
                 let value = if light { mask } else { 0 };
-                env.call_method(&controller, "setSystemBarsAppearance", "(II)V", &[JValue::Int(value), JValue::Int(mask)])?;
+                env.call_method(
+                    &controller,
+                    "setSystemBarsAppearance",
+                    "(II)V",
+                    &[JValue::Int(value), JValue::Int(mask)],
+                )?;
             }
         } else if sdk >= 23 {
-            let mut flags = env.call_method(&decor, "getSystemUiVisibility", "()I", &[])?.i()?;
+            let mut flags = env
+                .call_method(&decor, "getSystemUiVisibility", "()I", &[])?
+                .i()?;
             let mut bits = SYSTEM_UI_FLAG_LIGHT_STATUS_BAR;
             if sdk >= 26 {
                 bits |= SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR;
             }
             flags = if light { flags | bits } else { flags & !bits };
-            env.call_method(&decor, "setSystemUiVisibility", "(I)V", &[JValue::Int(flags)])?;
+            env.call_method(
+                &decor,
+                "setSystemUiVisibility",
+                "(I)V",
+                &[JValue::Int(flags)],
+            )?;
         }
         Ok(())
     }
@@ -134,8 +177,12 @@ mod ios {
     }
 
     pub fn apply(window: &tauri::WebviewWindow, rgb: u32, dark: bool) -> CmdResult<()> {
-        STYLE.store(if dark { LIGHT_CONTENT } else { DARK_CONTENT }, Ordering::Relaxed);
-        let [r, g, b] = [(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF].map(|c| c as f64 / 255.0);
+        STYLE.store(
+            if dark { LIGHT_CONTENT } else { DARK_CONTENT },
+            Ordering::Relaxed,
+        );
+        let [r, g, b] =
+            [(rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF].map(|c| c as f64 / 255.0);
         // `with_webview` runs on the main thread, where UIKit must be called.
         window
             .with_webview(move |wv| unsafe {
@@ -144,7 +191,8 @@ mod ios {
                 if webview.is_null() || controller.is_null() {
                     return;
                 }
-                let color: *mut AnyObject = msg_send![class!(UIColor), colorWithRed: r, green: g, blue: b, alpha: 1.0f64];
+                let color: *mut AnyObject =
+                    msg_send![class!(UIColor), colorWithRed: r, green: g, blue: b, alpha: 1.0f64];
                 // Behind the status bar, the home indicator and an overscroll
                 // bounce, before the page paints.
                 let _: () = msg_send![webview, setBackgroundColor: color];
@@ -158,7 +206,10 @@ mod ios {
                 }
 
                 let cls = object_getClass(controller) as *mut AnyClass;
-                let imp: Imp = std::mem::transmute(preferred_status_bar_style as extern "C-unwind" fn(*mut AnyObject, Sel) -> isize);
+                let imp: Imp = std::mem::transmute(
+                    preferred_status_bar_style
+                        as extern "C-unwind" fn(*mut AnyObject, Sel) -> isize,
+                );
                 // NSInteger (q) returned from (id self, SEL _cmd).
                 class_replaceMethod(cls, sel!(preferredStatusBarStyle), imp, c"q@:".as_ptr());
                 let _: () = msg_send![controller, setNeedsStatusBarAppearanceUpdate];

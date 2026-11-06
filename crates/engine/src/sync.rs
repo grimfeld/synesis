@@ -67,14 +67,25 @@ fn this_device_card() -> DeviceCard {
     let host = hostname::get().ok().and_then(|h| h.into_string().ok());
     #[cfg(target_os = "wasi")]
     let host = None;
-    DeviceCard { name: device_name(host, product_name(), os), platform: os.to_string() }
+    DeviceCard {
+        name: device_name(host, product_name(), os),
+        platform: os.to_string(),
+    }
 }
 
 /// A human name for this Device. Phones report a hostname of `localhost`, so
 /// the product name (Android's `ro.product.*`) wins over the hostname, and a
 /// meaningless hostname falls back to the platform.
 pub fn device_name(hostname: Option<String>, product: Option<String>, os: &str) -> String {
-    let clean = |s: Option<String>| s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty() && !matches!(s.to_ascii_lowercase().as_str(), "localhost" | "unknown" | "android" | "device"));
+    let clean = |s: Option<String>| {
+        s.map(|s| s.trim().to_string()).filter(|s| {
+            !s.is_empty()
+                && !matches!(
+                    s.to_ascii_lowercase().as_str(),
+                    "localhost" | "unknown" | "android" | "device"
+                )
+        })
+    };
     if let Some(p) = clean(product) {
         return p;
     }
@@ -96,21 +107,33 @@ pub fn device_name(hostname: Option<String>, product: Option<String>, os: &str) 
 #[cfg(target_os = "android")]
 fn product_name() -> Option<String> {
     fn prop(key: &str) -> Option<String> {
-        let out = std::process::Command::new("getprop").arg(key).output().ok()?;
+        let out = std::process::Command::new("getprop")
+            .arg(key)
+            .output()
+            .ok()?;
         let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
         (!s.is_empty()).then_some(s)
     }
-    prop("ro.product.marketname").or_else(|| prop("ro.product.vendor.marketname")).or_else(|| {
-        let model = prop("ro.product.model")?;
-        Some(match prop("ro.product.manufacturer") {
-            Some(m) if !model.to_ascii_lowercase().starts_with(&m.to_ascii_lowercase()) => {
-                let mut c = m.chars();
-                let m = c.next().map(|f| f.to_uppercase().collect::<String>() + c.as_str()).unwrap_or(m);
-                format!("{m} {model}")
-            }
-            _ => model,
+    prop("ro.product.marketname")
+        .or_else(|| prop("ro.product.vendor.marketname"))
+        .or_else(|| {
+            let model = prop("ro.product.model")?;
+            Some(match prop("ro.product.manufacturer") {
+                Some(m)
+                    if !model
+                        .to_ascii_lowercase()
+                        .starts_with(&m.to_ascii_lowercase()) =>
+                {
+                    let mut c = m.chars();
+                    let m = c
+                        .next()
+                        .map(|f| f.to_uppercase().collect::<String>() + c.as_str())
+                        .unwrap_or(m);
+                    format!("{m} {model}")
+                }
+                _ => model,
+            })
         })
-    })
 }
 
 #[cfg(not(target_os = "android"))]
@@ -119,22 +142,33 @@ fn product_name() -> Option<String> {
 }
 
 fn mtime_ms_of(p: &Path) -> i64 {
-    fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as i64).unwrap_or(0)
+    fs::metadata(p)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
 }
 
 /// Devices that have published into `<vault>/.bible-study/sync/`.
 pub fn devices_in(vault_root: &Path, self_id: Option<&str>) -> Vec<DeviceInfo> {
     let dir = vault_root.join(crate::vault::HIDDEN_DIR).join(SYNC_DIR);
     let mut out = Vec::new();
-    let Ok(entries) = fs::read_dir(&dir) else { return out };
+    let Ok(entries) = fs::read_dir(&dir) else {
+        return out;
+    };
     for e in entries.flatten() {
         if !e.path().is_dir() {
             continue;
         }
         // Only a folder named by a Device id is a Device (#90).
-        let Some(id) = DeviceId::parse(&e.file_name().to_string_lossy()) else { continue };
+        let Some(id) = DeviceId::parse(&e.file_name().to_string_lossy()) else {
+            continue;
+        };
         let id = String::from(id);
-        let card: Option<DeviceCard> = fs::read_to_string(e.path().join(DEVICE_FILE)).ok().and_then(|s| serde_json::from_str(&s).ok());
+        let card: Option<DeviceCard> = fs::read_to_string(e.path().join(DEVICE_FILE))
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok());
         let mut last = 0;
         if let Ok(files) = fs::read_dir(e.path()) {
             for f in files.flatten() {
@@ -163,8 +197,13 @@ pub fn devices_in(vault_root: &Path, self_id: Option<&str>) -> Vec<DeviceInfo> {
 pub fn find_vaults(roots: &[PathBuf], self_id: Option<&str>) -> Vec<FoundVault> {
     let mut out: Vec<FoundVault> = Vec::new();
     let mut consider = |p: PathBuf| {
-        if p.join(crate::vault::HIDDEN_DIR).is_dir() && !out.iter().any(|v| v.path == p.to_string_lossy()) {
-            out.push(FoundVault { path: p.to_string_lossy().to_string(), devices: devices_in(&p, self_id) });
+        if p.join(crate::vault::HIDDEN_DIR).is_dir()
+            && !out.iter().any(|v| v.path == p.to_string_lossy())
+        {
+            out.push(FoundVault {
+                path: p.to_string_lossy().to_string(),
+                devices: devices_in(&p, self_id),
+            });
         }
     };
     for root in roots {
@@ -286,14 +325,18 @@ pub const ROSTER_DAMAGED: &str =
 impl Roster {
     /// The roster beside a Vault's CRDT state.
     fn beside(crdt_dir: &Path) -> Trust {
-        let Some(path) = crdt_dir.parent().map(|p| p.join(ROSTER_FILE)) else { return Trust::Unpaired };
+        let Some(path) = crdt_dir.parent().map(|p| p.join(ROSTER_FILE)) else {
+            return Trust::Unpaired;
+        };
         let text = match fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Trust::Unpaired,
             Err(_) => return Trust::Damaged,
         };
         match serde_json::from_str::<RosterFile>(&text) {
-            Ok(f) => Trust::Paired(Roster { removed: f.removed_devices }),
+            Ok(f) => Trust::Paired(Roster {
+                removed: f.removed_devices,
+            }),
             Err(_) => Trust::Damaged,
         }
     }
@@ -308,12 +351,15 @@ impl Roster {
     /// version this write does not touch is right — `merge` takes removals
     /// from either side regardless of version.
     fn retire(crdt_dir: &Path, device: &DeviceId) -> Result<()> {
-        let Some(dir) = crdt_dir.parent() else { return Ok(()) };
+        let Some(dir) = crdt_dir.parent() else {
+            return Ok(());
+        };
         let path = dir.join(ROSTER_FILE);
         // A roster that is there but unreadable is not overwritten: it holds
         // removals this Device can no longer see (#66).
         let doc: serde_json::Value = match fs::read_to_string(&path) {
-            Ok(s) => serde_json::from_str(&s).map_err(|_| crate::Error::Invalid(ROSTER_DAMAGED.into()))?,
+            Ok(s) => serde_json::from_str(&s)
+                .map_err(|_| crate::Error::Invalid(ROSTER_DAMAGED.into()))?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
             Err(e) => return Err(e.into()),
         };
@@ -327,7 +373,9 @@ impl Roster {
             .entry("removed_devices")
             .or_insert_with(|| serde_json::json!([]));
         let Some(arr) = list.as_array_mut() else {
-            return Err(crate::Error::Invalid("the pairing roster is malformed".into()));
+            return Err(crate::Error::Invalid(
+                "the pairing roster is malformed".into(),
+            ));
         };
         if arr.iter().any(|d| d.as_str().is_some_and(|d| *device == d)) {
             return Ok(());
@@ -389,16 +437,26 @@ fn mtime_ms(p: &Path) -> i64 {
 /// creation time where there is none.
 fn arrived_ms(p: &Path) -> i64 {
     let Ok(meta) = fs::metadata(p) else { return 0 };
-    let since_epoch = |t: std::time::SystemTime| t.duration_since(UNIX_EPOCH).ok().map(|d| d.as_millis() as i64);
+    let since_epoch = |t: std::time::SystemTime| {
+        t.duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_millis() as i64)
+    };
     let modified = meta.modified().ok().and_then(since_epoch).unwrap_or(0);
     #[cfg(unix)]
     let arrived = {
         use std::os::unix::fs::MetadataExt;
-        Some(meta.ctime().saturating_mul(1000).saturating_add(meta.ctime_nsec() / 1_000_000))
+        Some(
+            meta.ctime()
+                .saturating_mul(1000)
+                .saturating_add(meta.ctime_nsec() / 1_000_000),
+        )
     };
     #[cfg(not(unix))]
     let arrived = meta.created().ok().and_then(since_epoch);
-    arrived.filter(|&a| a > 0).map_or(modified, |a| modified.min(a))
+    arrived
+        .filter(|&a| a > 0)
+        .map_or(modified, |a| modified.min(a))
 }
 
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
@@ -453,7 +511,10 @@ impl Sync {
     pub fn open(vault_root: &Path, device_dir: &Path, vault_local_dir: &Path) -> Result<Sync> {
         fs::create_dir_all(device_dir)?;
         let id_path = device_dir.join("device.id");
-        let device_id = match fs::read_to_string(&id_path).ok().and_then(|s| DeviceId::parse(s.trim())) {
+        let device_id = match fs::read_to_string(&id_path)
+            .ok()
+            .and_then(|s| DeviceId::parse(s.trim()))
+        {
             Some(id) => id,
             None => {
                 let id = DeviceId::generate();
@@ -492,7 +553,12 @@ impl Sync {
 
     /// Every Device that has published into this vault, newest first.
     pub fn devices(&self) -> Vec<DeviceInfo> {
-        let root = self.vault_sync_dir.parent().and_then(|p| p.parent()).map(Path::to_path_buf).unwrap_or_default();
+        let root = self
+            .vault_sync_dir
+            .parent()
+            .and_then(|p| p.parent())
+            .map(Path::to_path_buf)
+            .unwrap_or_default();
         devices_in(&root, Some(self.device_id.as_str()))
     }
 
@@ -514,7 +580,9 @@ impl Sync {
     /// not a Device id is no Device's and is never read (#90); one whose name
     /// spells this Device's id in any case is this Device's own.
     fn other_device_dirs(&self) -> Vec<(DeviceId, PathBuf)> {
-        let Ok(entries) = fs::read_dir(&self.vault_sync_dir) else { return Vec::new() };
+        let Ok(entries) = fs::read_dir(&self.vault_sync_dir) else {
+            return Vec::new();
+        };
         entries
             .flatten()
             .filter_map(|e| Some((DeviceId::parse(&e.file_name().to_string_lossy())?, e.path())))
@@ -735,7 +803,11 @@ fn canvas_in(doc: &LoroDoc) -> Option<Canvas> {
     if nodes.is_empty() && edges.is_empty() && extra.is_empty() {
         return None;
     }
-    Some(Canvas { nodes, edges, extra })
+    Some(Canvas {
+        nodes,
+        edges,
+        extra,
+    })
 }
 
 impl Sync {
@@ -793,7 +865,11 @@ impl Sync {
         }
 
         let order = serde_json::to_string(
-            &canvas.nodes.iter().map(|n| n.id.clone()).collect::<Vec<_>>(),
+            &canvas
+                .nodes
+                .iter()
+                .map(|n| n.id.clone())
+                .collect::<Vec<_>>(),
         )?;
         // Recording an empty Board into a map that holds nothing must leave it
         // empty: a Composition whose Board tab was merely opened has no Board,
@@ -1006,7 +1082,9 @@ impl Sync {
             if id != device {
                 continue;
             }
-            let Ok(meta) = fs::symlink_metadata(&dir) else { continue };
+            let Ok(meta) = fs::symlink_metadata(&dir) else {
+                continue;
+            };
             if meta.file_type().is_symlink() {
                 fs::remove_file(&dir)?;
             } else if meta.is_dir() {
@@ -1016,7 +1094,9 @@ impl Sync {
         }
         let prefix = format!("{device}/");
         let before = self.manifest.imported.len();
-        self.manifest.imported.retain(|k, _| !k.starts_with(&prefix));
+        self.manifest
+            .imported
+            .retain(|k, _| !k.starts_with(&prefix));
         if self.manifest.imported.len() != before {
             write_atomic(
                 &self.local_dir.join("imported.json"),
@@ -1108,10 +1188,19 @@ mod device_name_tests {
 
     #[test]
     fn device_name_prefers_product_then_hostname_then_platform() {
-        assert_eq!(device_name(Some("localhost".into()), Some("Pixel 8".into()), "android"), "Pixel 8");
-        assert_eq!(device_name(Some("localhost".into()), None, "android"), "Android device");
+        assert_eq!(
+            device_name(Some("localhost".into()), Some("Pixel 8".into()), "android"),
+            "Pixel 8"
+        );
+        assert_eq!(
+            device_name(Some("localhost".into()), None, "android"),
+            "Android device"
+        );
         assert_eq!(device_name(Some("  ".into()), None, "ios"), "iPhone");
-        assert_eq!(device_name(Some("DESKTOP-42".into()), None, "windows"), "DESKTOP-42");
+        assert_eq!(
+            device_name(Some("DESKTOP-42".into()), None, "windows"),
+            "DESKTOP-42"
+        );
         assert_eq!(device_name(None, None, "linux"), "Linux PC");
     }
 }
