@@ -13,8 +13,8 @@ describe("Duplicate as new Composition", () => {
       cy.docByTitle("Talk on endurance").then((orig) => {
         expect(copy.id).not.to.equal(orig.id);
         expect(copy.type).to.equal("composition");
-        cy.task<string>("file:read", `${Cypress.env("vault")}/${orig.path}`).then((before) => {
-          cy.task<string>("file:read", `${Cypress.env("vault")}/${copy.path}`).then((after) => {
+        cy.task<string>("file:read", `${Cypress.expose("vault")}/${orig.path}`).then((before) => {
+          cy.task<string>("file:read", `${Cypress.expose("vault")}/${copy.path}`).then((after) => {
             // The frontmatter differs by design (title, id, created); the
             // demo file may have CRLF line breaks on Windows.
             const body = (t: string) => t.replace(/^---[\s\S]*?\r?\n---\r?\n/, "");

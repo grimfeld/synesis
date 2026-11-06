@@ -46,7 +46,7 @@ describe("Tutorial: Passages", () => {
     cy.get("[data-testid=save-status]").should("have.attr", "data-status", "saved");
     // Never rewritten: the file holds the words as typed.
     cy.docByTitle("Passage practice").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.contain("Ro 12:2 and Jean 3,16.");
       });
     });

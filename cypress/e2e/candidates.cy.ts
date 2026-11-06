@@ -59,10 +59,10 @@ describe("Candidates", () => {
     // It is a card on the Board file, not a Mention in the talk.
     cy.docByTitle("Undeserved kindness in Romans").then((note) => {
       cy.docByTitle("Talk on endurance").then((talk) => {
-        cy.task<string>("file:read", `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`).then((text) => {
+        cy.task<string>("file:read", `${Cypress.expose("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`).then((text) => {
           expect(text).to.contain(note.path);
         });
-        cy.task<string>("file:read", `${Cypress.env("vault")}/${talk.path}`).then((text) => {
+        cy.task<string>("file:read", `${Cypress.expose("vault")}/${talk.path}`).then((text) => {
           expect(text).not.to.contain("Undeserved kindness in Romans");
         });
       });

@@ -26,7 +26,7 @@ before(() => {
   cy.bridge("set_language", { lang: "en" });
   cy.task<string>("vault:seed").then((dir) => {
     vault = dir;
-    Cypress.env("vault", dir);
+    Cypress.expose("vault", dir);
     cy.bridge("open_vault", { path: dir });
   });
 });

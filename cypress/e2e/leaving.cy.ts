@@ -6,7 +6,7 @@
  * no longer had were materialised again. A folder is not a claim.
  */
 describe("Leaving a vault", () => {
-  const seeded = () => Cypress.env("vault") as string;
+  const seeded = () => Cypress.expose("vault") as string;
 
   beforeEach(() => cy.openApp());
 
@@ -79,14 +79,14 @@ describe("Removing a device from a vault", () => {
 
   /** A folder in `sync/` for a device that is not this one, as a retired phone leaves. */
   const ghost = "01GHOSTDEVICEGHOSTDEVICE00";
-  const ghostDir = () => `${Cypress.env("vault")}/.bible-study/sync/${ghost}`;
+  const ghostDir = () => `${Cypress.expose("vault")}/.bible-study/sync/${ghost}`;
 
   it("evicts a device, removes its folder, and does not trust it again", () => {
     cy.task("file:write", {
       path: `${ghostDir()}/device.json`,
       text: JSON.stringify({ name: "Old phone", platform: "android" }),
     });
-    cy.bridge("open_vault", { path: Cypress.env("vault") });
+    cy.bridge("open_vault", { path: Cypress.expose("vault") });
     cy.visit("/");
     cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
     cy.get("[data-testid=nav-settings]").click();
@@ -110,7 +110,7 @@ describe("Removing a device from a vault", () => {
       path: `${ghostDir()}/device.json`,
       text: JSON.stringify({ name: "Old phone", platform: "android" }),
     });
-    cy.bridge("open_vault", { path: Cypress.env("vault") });
+    cy.bridge("open_vault", { path: Cypress.expose("vault") });
     cy.bridge<{ removed_devices?: string[] }>("pairing_status").then(() => {
       cy.task<boolean>("file:exists", ghostDir()).should("equal", true);
     });

@@ -92,7 +92,7 @@ describe("Tutorial: The Delivery view", () => {
     // 4. Do it once: Deliver, Start, Exit. The Composition is unchanged.
     cy.tutorialStep(3);
     cy.docByTitle("Talk on endurance").then((d) => {
-      const file = `${Cypress.env("vault")}/${d.path}`;
+      const file = `${Cypress.expose("vault")}/${d.path}`;
       cy.task<string>("file:read", file).then((before) => {
         deliver();
         cy.get("[data-testid=delivery-timer-toggle]").click();

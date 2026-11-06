@@ -186,7 +186,7 @@ describe("Properties", () => {
     // Declared once: the schema file records it and another page knows the name.
     cy.task<string>(
       "file:read",
-      `${Cypress.env("vault")}/.bible-study/properties.json`,
+      `${Cypress.expose("vault")}/.bible-study/properties.json`,
     ).then((text) => {
       expect(JSON.parse(text).types.founded).to.equal("date");
     });
@@ -200,7 +200,7 @@ describe("Properties", () => {
     cy.get("[data-testid=property-lat] input").clear().type("38.5").blur();
     cy.wait(800);
     cy.docByTitle("Ephesus").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => {
           expect(text).to.contain("lat: 38.5\n");
         },
@@ -238,7 +238,7 @@ describe("Properties", () => {
     cy.get("[data-testid=property-modern_name]").should("not.exist");
     cy.wait(800);
     cy.docByTitle("Ephesus").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => {
           expect(text).not.to.contain("modern_name:");
           // Only that line went: its neighbours are untouched (ADR 0003).
