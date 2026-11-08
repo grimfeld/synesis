@@ -240,6 +240,8 @@ export const fr: Dict = {
     tebeth: "tébeth",
     shebat: "shebat",
     adar: "adar",
+    adar_i: "adar I",
+    adar_ii: "adar II",
   },
   date_errors: {
     no_era: "Pas une Date : ère manquante. Ajoutez av. n. è. ou de n. è., comme dans « v. 1513 av. n. è. ».",
