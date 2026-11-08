@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(v["bce"], true);
         assert_eq!(v["approx"], true);
         assert_eq!(v["precision"], "year");
-        assert_eq!(v["era"], "common");
+        assert_eq!(v["reckoning"], "common");
         assert_eq!(v["month"], serde_json::Value::Null);
         assert_eq!(
             serde_json::to_value(read_date("1513–1473 BCE")).unwrap(),
