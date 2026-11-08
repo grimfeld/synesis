@@ -65,13 +65,13 @@ impl BibleDate {
         let Parsed {
             date,
             month_name,
-            era,
+            reckoning,
         } = Self::parse_parts(text)?;
         let (era_year, bce) = date.era_year();
         Ok(DateReading {
             era_year,
             bce,
-            era,
+            reckoning,
             month: date.month,
             month_name,
             day: date.day,
@@ -87,11 +87,11 @@ impl BibleDate {
         let cleaned = clean(&text);
         let tokens = join_adar(cleaned.split_whitespace().collect());
         let read = match era_suffix(&tokens) {
-            Some((bce, era, n)) => {
+            Some((bce, reckoning, n)) => {
                 read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, month_name)| Parsed {
                     date,
                     month_name,
-                    era,
+                    reckoning,
                 })
             }
             None => Err(no_era(&tokens)),
@@ -112,7 +112,7 @@ struct Parsed {
     date: BibleDate,
     /// The Hebrew month's one name, when the text named one.
     month_name: Option<&'static str>,
-    era: EraStyle,
+    reckoning: Reckoning,
 }
 
 /// "Adar I" and "Adar II" as one month token each. Only after "adar": a bare
@@ -234,24 +234,24 @@ pub struct DateReading {
     /// The year as people say it, with `bce` for its era: 1513 and true for 1513 BCE.
     pub era_year: i32,
     pub bce: bool,
-    /// Which pair of era markers the text used, so the preview answers in it.
-    pub era: EraStyle,
+    /// The Reckoning the text was written in, so the preview answers in it.
+    pub reckoning: Reckoning,
     /// Civil month, 1–12.
     pub month: Option<u8>,
-    /// The Hebrew month the text named ("nisan", "tishri"…), under one name
-    /// whatever spelling was typed; `None` for a civil month.
+    /// The Hebrew month the text named ("nisan", "tishri", "adar_ii"…), under
+    /// one name whatever spelling was typed; `None` for a civil month.
     pub month_name: Option<&'static str>,
     pub day: Option<u8>,
     pub approx: bool,
     pub precision: Precision,
 }
 
-/// The pair of era markers a Date was written with. The preview echoes the
-/// user's own family in the app language: "1513 BC" reads back as "1513 BC"
-/// (or "1513 av. J.-C."), not "1513 BCE".
+/// The Reckoning a Date was written in: which pair of era markers it uses.
+/// The preview echoes the user's own Reckoning in the app language: "1513 BC"
+/// reads back as "1513 BC" (or "1513 av. J.-C."), not "1513 BCE".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EraStyle {
+pub enum Reckoning {
     /// BCE/CE, av. n. è./de n. è.
     Common,
     /// BC/AD, av. J.-C./ap. J.-C.
@@ -313,9 +313,9 @@ const APPROX: &[&str] = &[
 ];
 
 /// Era phrases as token sequences (dots, commas and dashes already turned to
-/// spaces): the words, whether they mean BCE, and the family they belong to.
-const ERAS: &[(&[&str], bool, EraStyle)] = {
-    use EraStyle::{Christian as X, Common as C};
+/// spaces): the words, whether they mean BCE, and the Reckoning they belong to.
+const ERAS: &[(&[&str], bool, Reckoning)] = {
+    use Reckoning::{Christian as X, Common as C};
     &[
         (&["bce"], true, C),
         (&["b", "c", "e"], true, C),
@@ -347,16 +347,16 @@ const ERAS: &[(&[&str], bool, EraStyle)] = {
 };
 
 /// The era marker ending `tokens`, the longest that fits: whether it means
-/// BCE, its family, and how many tokens it takes.
-fn era_suffix(tokens: &[&str]) -> Option<(bool, EraStyle, usize)> {
-    let mut best: Option<(bool, EraStyle, usize)> = None;
-    for (phrase, bce, style) in ERAS {
+/// BCE, its Reckoning, and how many tokens it takes.
+fn era_suffix(tokens: &[&str]) -> Option<(bool, Reckoning, usize)> {
+    let mut best: Option<(bool, Reckoning, usize)> = None;
+    for (phrase, bce, reckoning) in ERAS {
         let n = phrase.len();
         if tokens.len() > n
             && tokens[tokens.len() - n..] == **phrase
             && best.is_none_or(|(_, _, b)| n > b)
         {
-            best = Some((*bce, *style, n));
+            best = Some((*bce, *reckoning, n));
         }
     }
     best
@@ -393,12 +393,15 @@ fn hebrew_month(s: &str) -> Option<(u8, &'static str)> {
         "tammuz" | "tamouz" => (7, "tammuz"),
         "ab" | "av" => (8, "ab"),
         "elul" | "eloul" => (9, "elul"),
-        "tishri" | "tishrei" | "ethanim" | "tisri" => (10, "tishri"),
-        "heshvan" | "cheshvan" | "marheshvan" | "bul" => (11, "heshvan"),
+        "tishri" | "tishrei" | "tichri" | "ethanim" | "tisri" => (10, "tishri"),
+        "heshvan" | "cheshvan" | "hechvan" | "marheshvan" | "bul" => (11, "heshvan"),
         "chislev" | "kislev" | "kislew" => (12, "chislev"),
         "tebeth" | "tevet" | "tébeth" => (1, "tebeth"),
-        "shebat" | "shevat" | "schebat" => (2, "shebat"),
-        "adar" | "veadar" | "adar i" | "adar ii" => (3, "adar"),
+        "shebat" | "shevat" | "chevat" | "schebat" => (2, "shebat"),
+        // A leap year's two Adars read apart but sort as the same civil month.
+        "adar" => (3, "adar"),
+        "adar i" => (3, "adar_i"),
+        "adar ii" | "veadar" => (3, "adar_ii"),
         _ => return None,
     })
 }
@@ -494,6 +497,19 @@ mod tests {
     }
 
     #[test]
+    fn french_hebrew_month_spellings() {
+        let r = read("14 Tichri 33 de n. è.").unwrap();
+        assert_eq!(
+            (r.day, r.month, r.month_name),
+            (Some(14), Some(10), Some("tishri"))
+        );
+        let r = read("Hechvan 33 de n. è.").unwrap();
+        assert_eq!((r.month, r.month_name), (Some(11), Some("heshvan")));
+        let r = read("Chevat 33 de n. è.").unwrap();
+        assert_eq!((r.month, r.month_name), (Some(2), Some("shebat")));
+    }
+
+    #[test]
     fn adar_i_and_adar_ii_are_months() {
         let d = p("Adar II 33 CE").unwrap();
         assert_eq!((d.month, d.day), (Some(3), None));
@@ -503,7 +519,16 @@ mod tests {
         assert_eq!((d.month, d.day), (Some(3), Some(14)));
         let d = p("Adar I 33 CE").unwrap();
         assert_eq!((d.month, d.day), (Some(3), None));
-        assert_eq!(read("14 Adar II 33 CE").unwrap().month_name, Some("adar"));
+        // Read apart, sorted alike.
+        assert_eq!(
+            read("14 Adar II 33 CE").unwrap().month_name,
+            Some("adar_ii")
+        );
+        assert_eq!(read("14 Adar I 33 CE").unwrap().month_name, Some("adar_i"));
+        assert_eq!(read("Veadar 33 CE").unwrap().month_name, Some("adar_ii"));
+        assert_eq!(read("14 Adar 33 CE").unwrap().month_name, Some("adar"));
+        assert_eq!(read("14 Adar I 33 CE").unwrap().month, Some(3));
+        assert_eq!(read("14 Adar II 33 CE").unwrap().month, Some(3));
         // A bare numeral is not a month.
         assert_eq!(p("II 33 CE"), None);
         assert_eq!(read("14 Adar II 33"), Err(DateError::NoEra));
@@ -596,7 +621,8 @@ mod tests {
         let ok = serde_json::to_value(read("14 Nisan 33 CE").unwrap()).unwrap();
         assert_eq!(ok["precision"], "day");
         assert_eq!(ok["month_name"], "nisan");
-        assert_eq!(ok["era"], "common");
+        assert_eq!(ok["reckoning"], "common");
+        assert!(ok.get("era").is_none());
         assert!(ok.get("year").is_none());
         assert_eq!(
             serde_json::to_value(DateError::SpanInOneValue).unwrap(),
@@ -616,9 +642,9 @@ mod tests {
     }
 
     #[test]
-    fn reading_keeps_the_era_family_typed() {
-        use EraStyle::*;
-        for (text, style) in [
+    fn reading_keeps_the_reckoning_typed() {
+        use Reckoning::*;
+        for (text, reckoning) in [
             ("1513 BCE", Common),
             ("33 C.E.", Common),
             ("1513 av. n. è.", Common),
@@ -629,7 +655,7 @@ mod tests {
             ("33 apr. J.-C.", Christian),
             ("607 avant Jésus-Christ", Christian),
         ] {
-            assert_eq!(read(text).unwrap().era, style, "{text}");
+            assert_eq!(read(text).unwrap().reckoning, reckoning, "{text}");
         }
     }
 }
