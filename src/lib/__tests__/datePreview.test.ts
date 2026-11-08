@@ -9,7 +9,7 @@ const exodus: DatePreview = {
   ok: true,
   era_year: 1513,
   bce: true,
-  era: "common",
+  reckoning: "common",
   month: null,
   month_name: null,
   day: null,
@@ -20,7 +20,7 @@ const passover: DatePreview = {
   ok: true,
   era_year: 33,
   bce: false,
-  era: "common",
+  reckoning: "common",
   month: 4,
   month_name: "nisan",
   day: 14,
@@ -31,7 +31,7 @@ const april: DatePreview = {
   ok: true,
   era_year: 33,
   bce: false,
-  era: "common",
+  reckoning: "common",
   month: 4,
   month_name: null,
   day: null,
@@ -57,14 +57,21 @@ describe("datePreviewText", () => {
     expect(datePreviewText(april, en, "en").text).toBe("April 33 CE · month");
     expect(datePreviewText(april, fr, "fr").text).toBe("avril 33 de n. è. · mois");
   });
-  it("answers in the era family the user wrote, in the app language", () => {
+  it("answers in the Reckoning the user wrote, in the app language", () => {
     // "c. 1513 BC" or "v. 1513 av. J.-C."
-    const bc: DatePreview = { ...exodus, era: "christian" };
+    const bc: DatePreview = { ...exodus, reckoning: "christian" };
     expect(datePreviewText(bc, en, "en").text).toBe("≈ 1513 BC · year");
     expect(datePreviewText(bc, fr, "fr").text).toBe("v. 1513 av. J.-C. · année");
-    const ad: DatePreview = { ...passover, era: "christian" };
+    const ad: DatePreview = { ...passover, reckoning: "christian" };
     expect(datePreviewText(ad, en, "en").text).toBe("14 Nisan 33 AD · day");
     expect(datePreviewText(ad, fr, "fr").text).toBe("14 nisan 33 ap. J.-C. · jour");
+  });
+  it("keeps Adar I and Adar II apart", () => {
+    const adarII: DatePreview = { ...passover, month: 3, month_name: "adar_ii" };
+    expect(datePreviewText(adarII, en, "en").text).toBe("14 Adar II 33 CE · day");
+    expect(datePreviewText(adarII, fr, "fr").text).toBe("14 adar II 33 de n. è. · jour");
+    const adarI: DatePreview = { ...passover, month: 3, month_name: "adar_i" };
+    expect(datePreviewText(adarI, en, "en").text).toBe("14 Adar I 33 CE · day");
   });
   it("says why a value is not a Date", () => {
     expect(datePreviewText({ ok: false, error: "no_era" }, en, "en")).toEqual({

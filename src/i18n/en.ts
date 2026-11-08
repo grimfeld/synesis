@@ -248,6 +248,8 @@ export const en = {
     tebeth: "Tebeth",
     shebat: "Shebat",
     adar: "Adar",
+    adar_i: "Adar I",
+    adar_ii: "Adar II",
   },
   /** Why a Date field's value is not a Date, under the field as you type. */
   date_errors: {
