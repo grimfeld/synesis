@@ -128,8 +128,12 @@ One Place on a Journey, at one position in its order. The same Place may be Stop
 _Avoid_: Leg, Waypoint, Station
 
 **Date**:
-A moment in the Bible's chronology, written the way a reader would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". Carries its own precision (year, month, day) and whether it is approximate. A Date is never rewritten; the app only reads it. A pair of Dates makes a Span.
+A moment in the Bible's chronology, written the way a reader would say it: "c. 1513 BCE", "14 Nisan 33 CE", "52 CE". Carries its own precision (year, month, day), whether it is approximate, and its Reckoning. Its month may be a civil one or a Hebrew one. The app never rewrites a Date on its own: it changes only when the user types it or picks it, and a pick keeps the Date's Reckoning and any note beside it. A pair of Dates makes a Span.
 _Avoid_: Timestamp, year (a year is one precision of Date)
+
+**Reckoning**:
+Which words a Date counts its years in: the Common Era (BCE/CE, av. n. è./de n. è.) or the Christian era (BC/AD, av. J.-C./ap. J.-C.). Both count the same years; the Reckoning is the writer's choice and is kept. A Date with none is not a Date. Where the user has not chosen one, the app writes the Common Era.
+_Avoid_: Era (a stretch of time; see Period), era style, calendar (the civil and Hebrew months are calendars)
 
 **Span**:
 The stretch between a pair of Dates: a Character's lifespan, an Event's or a Journey's duration. One concept whichever it is, carried by two Date Properties whose names differ by what the Span is of — a Character is `born` and `died`, an Event, a Journey and a Place `start` and `end`. A Span is recognised, never declared: the user writes two Dates and the app sees the Span in them, so there is nothing named "span" to fill in. Recognised on any page that carries such a pair, so a Character with a reign has that Span too; each kind of page only *suggests* the pair conventional for it.
