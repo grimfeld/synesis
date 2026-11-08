@@ -221,6 +221,13 @@ export const en = {
     url: "URL",
   },
   date_placeholder: "c. 1513 BCE",
+  /** The Date picker beside a Date field. */
+  date_picker: {
+    open: "Pick a Date",
+    approx: "Approximate (c.)",
+    year: "Year",
+    era: "Era",
+  },
   add_date: "Add Date",
   add_lifespan: "Add lifespan",
   add_span: "Add Span",

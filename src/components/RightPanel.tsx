@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
 import { DatePreview } from "./DatePreview";
+import { DatePicker } from "./DatePicker";
 import { PanelTitle } from "./Field";
 
 interface Props {
@@ -569,6 +570,16 @@ function PropertyRow({
               propType === "date" ? (e) => setTyped(e.target.value) : undefined
             }
             onBlur={(e) => commit(e.target.value)}
+          />
+        )}
+        {propType === "date" && (
+          <DatePicker
+            text={typed}
+            testId={`date-picker-${name}`}
+            onPick={(text) => {
+              setTyped(text);
+              commit(text);
+            }}
           />
         )}
         {link && (

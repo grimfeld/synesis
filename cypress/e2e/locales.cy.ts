@@ -85,6 +85,29 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Date picker's Sheet sets "Approximative (vers)" beside its switch
+      // and "av. J.-C." / "ap. J.-C." beside the year on a 390px screen.
+      it("keeps the Date picker inside its Sheet on a phone", () => {
+        cy.bridge("create_document", {
+          docType: "note",
+          title: `Picked ${lang}`,
+          fields: { born: "1000 BC (1 Sam 16)" },
+        });
+        cy.openApp();
+        // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=sidebar-search]").click();
+        cy.get("[data-testid=palette] input[cmdk-input]").type(`Picked ${lang}`);
+        cy.get("[data-testid=palette] [cmdk-item]").contains(`Picked ${lang}`).click();
+        cy.get("[data-testid=toggle-panel]").click();
+        cy.get("[data-testid=date-picker-born-open]").click();
+        cy.get("[data-testid=date-picker-born]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get("[data-testid=date-picker-born-year]").should("have.value", "1000");
+        expectNoOverflow();
+      });
+
       // The Period row carries the Period as text ("1100–1000 av. n. è."),
       // "1 non daté non affiché" and "Effacer la Période" side by side on a
       // 390px screen; its popover sets a year field beside an era button.
