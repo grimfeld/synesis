@@ -214,6 +214,12 @@ export const fr: Dict = {
     url: "URL",
   },
   date_placeholder: "v. 1513 av. n. è.",
+  date_picker: {
+    open: "Choisir une Date",
+    approx: "Approximative (vers)",
+    year: "Année",
+    era: "Ère",
+  },
   add_date: "Ajouter une date",
   add_lifespan: "Ajouter naissance et mort",
   add_span: "Ajouter début et fin",
