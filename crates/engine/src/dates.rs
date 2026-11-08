@@ -6,6 +6,7 @@
 //! Astronomical years: 1 CE = 1, 1 BCE = 0, 2 BCE = -1. An era marker is
 //! required, so bare numbers never become Dates.
 
+use crate::scripture::Lang;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -258,6 +259,69 @@ pub enum Reckoning {
     Christian,
 }
 
+/// A Date as the picker sets it: the year as people say it, its era, and
+/// whether it is approximate. The picker's later segments (month, day) join
+/// this as optional fields, so `write` keeps its shape as the picker grows.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DatePick {
+    /// The year as people say it; there is no year 0.
+    pub era_year: std::num::NonZeroU32,
+    pub bce: bool,
+    #[serde(default)]
+    pub approx: bool,
+}
+
+impl DatePick {
+    /// The Date part in the picker's own form for `lang`: what a pick writes
+    /// into the field. `previous` is the field's text before the pick, whose
+    /// Reckoning is kept; the Common Era when it has none.
+    pub fn write(&self, lang: Lang, previous: &str) -> String {
+        let reckoning = reckoning_of(previous).unwrap_or(Reckoning::Common);
+        let (approx, era) = match lang {
+            Lang::En => ("c.", era_words_en(reckoning, self.bce)),
+            Lang::Fr => ("vers", era_words_fr(reckoning, self.bce)),
+        };
+        let mut parts: Vec<String> = Vec::new();
+        if self.approx {
+            parts.push(approx.into());
+        }
+        parts.push(self.era_year.to_string());
+        parts.push(era.into());
+        parts.extend(notes(previous).map(String::from));
+        parts.join(" ")
+    }
+}
+
+/// The Reckoning `text` ends in, whether or not the rest of it is a Date.
+fn reckoning_of(text: &str) -> Option<Reckoning> {
+    let cleaned = clean(&without_notes(text));
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+    era_suffix(&tokens).map(|(_, reckoning, _)| reckoning)
+}
+
+/// The notes in brackets in `text`, in order.
+fn notes(text: &str) -> impl Iterator<Item = &str> {
+    NOTE.find_iter(text).map(|m| m.as_str())
+}
+
+fn era_words_en(reckoning: Reckoning, bce: bool) -> &'static str {
+    match (reckoning, bce) {
+        (Reckoning::Common, true) => "BCE",
+        (Reckoning::Common, false) => "CE",
+        (Reckoning::Christian, true) => "BC",
+        (Reckoning::Christian, false) => "AD",
+    }
+}
+
+fn era_words_fr(reckoning: Reckoning, bce: bool) -> &'static str {
+    match (reckoning, bce) {
+        (Reckoning::Common, true) => "av. n. è.",
+        (Reckoning::Common, false) => "de n. è.",
+        (Reckoning::Christian, true) => "av. J.-C.",
+        (Reckoning::Christian, false) => "ap. J.-C.",
+    }
+}
+
 /// Why a text is not a Date, so the preview can say how to fix it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -276,11 +340,12 @@ pub enum DateError {
 /// The text without its notes in brackets: "c. 1513 BCE (Ex 12-13)" is
 /// "c. 1513 BCE" with a reference beside it.
 fn without_notes(text: &str) -> std::borrow::Cow<'_, str> {
-    use std::sync::LazyLock;
-    static NOTE: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"\([^()]*\)").unwrap());
     NOTE.replace_all(text, " ")
 }
+
+/// A note in brackets beside a Date.
+static NOTE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"\([^()]*\)").unwrap());
 
 /// Lowercased, with the separators a Date may use turned to spaces.
 fn clean(text: &str) -> String {
