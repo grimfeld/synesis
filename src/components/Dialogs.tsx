@@ -869,8 +869,13 @@ function SpanFields({
             onChange={(v) => set(name, v)}
             placeholder={t.date_placeholder}
             testId={`new-${name}`}
-            Picker={DatePicker}
-            pickerTestId={`new-date-picker-${name}`}
+            picker={
+              <DatePicker
+                text={f[name] ?? ""}
+                onPick={(v) => set(name, v)}
+                testId={`new-date-picker-${name}`}
+              />
+            }
           />
         </Field>
       ))}
@@ -1829,22 +1834,21 @@ export async function pickFolder(): Promise<string | null> {
 
 /**
  * A text field in a dialog with its picker beside it: the text as typed is
- * the value, and a pick writes into it.
+ * the value, and the picker, given the same value and `onChange`, writes
+ * into it.
  */
 function PickerField({
   value,
   onChange,
   placeholder,
   testId,
-  Picker,
-  pickerTestId,
+  picker,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder: string;
   testId: string;
-  Picker: typeof DatePicker | typeof CalendarPicker;
-  pickerTestId: string;
+  picker: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 items-center gap-1">
@@ -1855,7 +1859,7 @@ function PickerField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
-      <Picker text={value} onPick={onChange} testId={pickerTestId} />
+      {picker}
     </div>
   );
 }
@@ -1878,8 +1882,13 @@ function CalendarDateField({
       onChange={onChange}
       placeholder={t.calendar_placeholder}
       testId="new-doc-date"
-      Picker={CalendarPicker}
-      pickerTestId="new-doc-date-picker"
+      picker={
+        <CalendarPicker
+          text={value}
+          onPick={onChange}
+          testId="new-doc-date-picker"
+        />
+      }
     />
   );
 }
