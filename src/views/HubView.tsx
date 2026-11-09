@@ -1761,6 +1761,15 @@ function DatesSection({
 }
 
 /**
+ * Run `f` once the menu that chose it has closed. While the menu is open it
+ * traps focus, and a field mounted with `autoFocus` in the same render would
+ * have its focus taken back by the closing menu, which then leaves it nowhere.
+ */
+function afterMenu(f: () => void) {
+  setTimeout(f, 0);
+}
+
+/**
  * The Dates section's "Add Date" menu, and the name field its "Date…" opens.
  *
  * Naming follows the Properties panel's rule (`checkNewProperty`) with the
@@ -1820,7 +1829,7 @@ function AddDate({
               <DropdownMenuItem
                 key="pair"
                 data-testid="add-date-pair"
-                onSelect={() => onAdd(o.names)}
+                onSelect={() => afterMenu(() => onAdd(o.names))}
               >
                 {o.label === "lifespan" ? t.add_lifespan : t.add_span}
               </DropdownMenuItem>
@@ -1829,7 +1838,7 @@ function AddDate({
                 key="half"
                 data-testid="add-date-half"
                 data-name={o.name}
-                onSelect={() => onAdd([o.name])}
+                onSelect={() => afterMenu(() => onAdd([o.name]))}
               >
                 {t.add_date_half(propertyLabel(o.name, t))}
               </DropdownMenuItem>
@@ -1837,7 +1846,7 @@ function AddDate({
               <DropdownMenuItem
                 key="named"
                 data-testid="add-date-named"
-                onSelect={() => setNaming(true)}
+                onSelect={() => afterMenu(() => setNaming(true))}
               >
                 {t.add_date_named}
               </DropdownMenuItem>
