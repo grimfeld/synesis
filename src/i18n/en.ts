@@ -232,6 +232,33 @@ export const en = {
     approx: "Approximate (c.)",
     year: "Year",
     era: "Era",
+    month: "Month",
+    day: "Day",
+    no_month: "No month",
+    no_day: "No day",
+    calendar: "Calendar",
+    civil: "Civil",
+    hebrew: "Hebrew",
+    /**
+     * The Hebrew months as the picker lists them: what a pick writes
+     * (crates/engine/src/dates.rs `HebrewMonth::name`).
+     */
+    hebrew_months: {
+      nisan: "Nisan",
+      iyyar: "Iyyar",
+      sivan: "Sivan",
+      tammuz: "Tammuz",
+      ab: "Ab",
+      elul: "Elul",
+      tishri: "Tishri",
+      heshvan: "Heshvan",
+      chislev: "Chislev",
+      tebeth: "Tebeth",
+      shebat: "Shebat",
+      adar: "Adar",
+      adar_i: "Adar I",
+      adar_ii: "Adar II",
+    },
   },
   add_date: "Add Date",
   add_lifespan: "Add lifespan",

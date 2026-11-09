@@ -259,9 +259,9 @@ pub enum Reckoning {
     Christian,
 }
 
-/// A Date as the picker sets it: the year as people say it, its era, and
-/// whether it is approximate. The picker's later segments (month, day) join
-/// this as optional fields, so `write` keeps its shape as the picker grows.
+/// A Date as the picker sets it: the year as people say it, its era, whether
+/// it is approximate, and optionally a civil month and a day. Later segments
+/// join this as optional fields, so `write` keeps its shape as the picker grows.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct DatePick {
     /// The year as people say it; there is no year 0.
@@ -269,6 +269,38 @@ pub struct DatePick {
     pub bce: bool,
     #[serde(default)]
     pub approx: bool,
+    /// Civil month, 1–12.
+    #[serde(default, deserialize_with = "civil_month_number")]
+    pub month: Option<u8>,
+    /// A Hebrew month instead of a civil one; it wins over `month`.
+    #[serde(default)]
+    pub month_name: Option<HebrewMonth>,
+    /// Day of the month, 1–31; written only with a month.
+    #[serde(default, deserialize_with = "day_of_month")]
+    pub day: Option<u8>,
+}
+
+fn civil_month_number<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    in_range(d, 1..=12, "a month from 1 to 12")
+}
+
+fn day_of_month<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    in_range(d, 1..=31, "a day from 1 to 31")
+}
+
+fn in_range<'de, D: serde::Deserializer<'de>>(
+    d: D,
+    range: std::ops::RangeInclusive<u8>,
+    what: &'static str,
+) -> Result<Option<u8>, D::Error> {
+    let n = Option::<u8>::deserialize(d)?;
+    match n {
+        Some(n) if !range.contains(&n) => Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Unsigned(n.into()),
+            &what,
+        )),
+        _ => Ok(n),
+    }
 }
 
 impl DatePick {
@@ -285,11 +317,132 @@ impl DatePick {
         if self.approx {
             parts.push(approx.into());
         }
+        let month = match (self.month_name, self.month) {
+            (Some(hebrew), _) => Some(hebrew.name(lang)),
+            (None, Some(civil)) => Some(civil_month_name(lang, civil)),
+            (None, None) => None,
+        };
+        if let Some(month) = month {
+            if let Some(day) = self.day {
+                parts.push(match (lang, day) {
+                    (Lang::Fr, 1) => "1er".into(),
+                    _ => day.to_string(),
+                });
+            }
+            parts.push(month.into());
+        }
         parts.push(self.era_year.to_string());
         parts.push(era.into());
         parts.extend(notes(previous).map(String::from));
         parts.join(" ")
     }
+}
+
+/// A Hebrew month as the picker sets it; a leap year's two Adars are months
+/// of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HebrewMonth {
+    Nisan,
+    Iyyar,
+    Sivan,
+    Tammuz,
+    Ab,
+    Elul,
+    Tishri,
+    Heshvan,
+    Chislev,
+    Tebeth,
+    Shebat,
+    Adar,
+    #[serde(rename = "adar_i")]
+    AdarI,
+    #[serde(rename = "adar_ii")]
+    AdarII,
+}
+
+impl HebrewMonth {
+    /// Every Hebrew month, in the order of the sacred year.
+    pub const ALL: [HebrewMonth; 14] = {
+        use HebrewMonth::*;
+        [
+            Nisan, Iyyar, Sivan, Tammuz, Ab, Elul, Tishri, Heshvan, Chislev, Tebeth, Shebat, Adar,
+            AdarI, AdarII,
+        ]
+    };
+
+    /// The month's name in `lang`, as the picker writes it.
+    pub fn name(self, lang: Lang) -> &'static str {
+        const EN: [&str; 14] = [
+            "Nisan", "Iyyar", "Sivan", "Tammuz", "Ab", "Elul", "Tishri", "Heshvan", "Chislev",
+            "Tebeth", "Shebat", "Adar", "Adar I", "Adar II",
+        ];
+        const FR: [&str; 14] = [
+            "Nissan", "Iyar", "Sivan", "Tamouz", "Av", "Eloul", "Tichri", "Hechvan", "Kislev",
+            "Tevet", "Chevat", "Adar", "Adar I", "Adar II",
+        ];
+        let names = match lang {
+            Lang::En => &EN,
+            Lang::Fr => &FR,
+        };
+        names[self as usize]
+    }
+
+    /// The civil month it usually begins in, as a Date reading it reports.
+    pub fn civil_month(self) -> u8 {
+        use HebrewMonth::*;
+        match self {
+            Tebeth => 1,
+            Shebat => 2,
+            Adar | AdarI | AdarII => 3,
+            Nisan => 4,
+            Iyyar => 5,
+            Sivan => 6,
+            Tammuz => 7,
+            Ab => 8,
+            Elul => 9,
+            Tishri => 10,
+            Heshvan => 11,
+            Chislev => 12,
+        }
+    }
+}
+
+/// The civil month's name in `lang`, as the picker writes it.
+fn civil_month_name(lang: Lang, month: u8) -> &'static str {
+    const EN: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    const FR: [&str; 12] = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+    let names = match lang {
+        Lang::En => &EN,
+        Lang::Fr => &FR,
+    };
+    names[usize::from(month.clamp(1, 12)) - 1]
 }
 
 /// The Reckoning `text` ends in, whether or not the rest of it is a Date.
