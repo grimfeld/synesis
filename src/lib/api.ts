@@ -330,6 +330,16 @@ export type DatePreview =
     }
   | { ok: false; error: DateErrorKind };
 
+/**
+ * A Date as the picker sets it (crates/engine/src/dates.rs `DatePick`): the
+ * year as people say it (never 0), its era, and whether it is approximate.
+ */
+export interface DatePick {
+  era_year: number;
+  bce: boolean;
+  approx: boolean;
+}
+
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
 export interface DatedProperty {
   doc: DocSummary;
@@ -1077,6 +1087,12 @@ export const api = {
     invoke<DetectedRange[]>("detect_passages", { text }),
   /** How the engine reads a Date as typed, for the preview under its field. */
   readDate: (text: string) => invoke<DatePreview>("read_date", { text }),
+  /**
+   * The text a Date picker writes into a Date field: `pick` in the picker's
+   * form for `language`, keeping the Reckoning and notes of `previousText`.
+   */
+  writeDate: (pick: DatePick, language: Lang, previousText: string) =>
+    invoke<string>("write_date", { pick, language, previousText }),
   books: () => invoke<BookMeta[]>("books"),
   fetchUrlMetadata: (url: string) =>
     invoke<UrlMeta>("fetch_url_metadata", { url }),
