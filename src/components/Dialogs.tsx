@@ -16,6 +16,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { CalendarPicker } from "@/components/CalendarPicker";
 import { cn } from "cn";
 import {
   api,
@@ -924,9 +925,9 @@ const TYPE_FIELDS: Record<
         />
       </Field>
       <Field label={t.date}>
-        <Input
+        <CalendarDateField
           value={f.date ?? ""}
-          onChange={(e) => set("date", e.target.value)}
+          onChange={(v) => set("date", v)}
         />
       </Field>
     </div>
@@ -1160,10 +1161,9 @@ function NewDocument({
         <KindSelect value={f.kind} onChange={(v) => set("kind", v)} />
       </Field>
       <Field label={t.date}>
-        <Input
+        <CalendarDateField
           value={f.date ?? ""}
-          onChange={(e) => set("date", e.target.value)}
-          placeholder="2026-09-08"
+          onChange={(v) => set("date", v)}
         />
       </Field>
     </div>
@@ -1831,4 +1831,33 @@ function ConfirmDelete({ id, onClose }: { id: string; onClose: () => void }) {
 export async function pickFolder(): Promise<string | null> {
   const dir = await openDialog({ directory: true, multiple: false });
   return typeof dir === "string" ? dir : null;
+}
+
+/**
+ * A calendar date in a dialog (a Composition's or Source's `date`): the text
+ * as typed, with the calendar date picker beside it.
+ */
+function CalendarDateField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <Input
+        className="min-w-0 flex-1"
+        data-testid="new-doc-date"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="YYYY-MM-DD"
+      />
+      <CalendarPicker
+        text={value}
+        onPick={onChange}
+        testId="new-doc-date-picker"
+      />
+    </div>
+  );
 }

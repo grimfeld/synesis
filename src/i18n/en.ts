@@ -222,6 +222,11 @@ export const en = {
   },
   date_placeholder: "c. 1513 BCE",
   /** The Date picker beside a Date field. */
+  calendar_picker: {
+    open: "Pick a day",
+    today: "Today",
+    clear: "Clear",
+  },
   date_picker: {
     open: "Pick a Date",
     approx: "Approximate (c.)",
