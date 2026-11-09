@@ -232,7 +232,7 @@ describe("datePick", () => {
   it("clears the day when the month is cleared", () => {
     const s = after(
       read("1000 BC"),
-      { type: "month", month: "4" },
+      { type: "month", month: 4 },
       { type: "day", day: 14 },
       { type: "month", month: null },
     );
@@ -244,7 +244,7 @@ describe("datePick", () => {
     const s = after(
       read("1000 BC"),
       { type: "calendar", calendar: "hebrew", months: MONTHS },
-      { type: "month", month: "nisan" },
+      { type: "hebrewMonth", hebrew: "nisan" },
       { type: "day", day: 14 },
     );
     expect(s.write?.date).toEqual({
@@ -254,8 +254,19 @@ describe("datePick", () => {
       hebrew_month: "nisan",
       day: 14,
     });
-    const cleared = datePick(s, { type: "month", month: null });
+    const cleared = datePick(s, { type: "hebrewMonth", hebrew: null });
     expect(cleared.segments).toMatchObject({ hebrew: null, day: null });
+  });
+
+  it("ignores a month of the calendar the segment is not on", () => {
+    const civilPick = after(read("1000 BC"), { type: "month", month: 4 });
+    expect(datePick(civilPick, { type: "hebrewMonth", hebrew: "nisan" })).toBe(civilPick);
+    const hebrewPick = after(
+      read("1000 BC"),
+      { type: "calendar", calendar: "hebrew", months: MONTHS },
+      { type: "hebrewMonth", hebrew: "nisan" },
+    );
+    expect(datePick(hebrewPick, { type: "month", month: 4 })).toBe(hebrewPick);
   });
 
   it("starts afresh on an empty field", () => {

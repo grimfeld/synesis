@@ -35,7 +35,6 @@ import {
   daysOf,
   INITIAL_PICK,
   yearOf,
-  type Calendar,
   type DateSegments,
   type PickAction,
 } from "@/lib/datePick";
@@ -133,9 +132,9 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
   return { segments: state.segments, reckoning: state.reckoning, dispatch, open, onOpenChange };
 }
 
-/** One choice in a segment's Select. */
-interface SegmentItem {
-  value: string;
+/** One choice in a segment's Select or toggle. */
+interface SegmentItem<T extends string = string> {
+  value: T;
   label: ReactNode;
 }
 
@@ -210,6 +209,22 @@ function monthValue(s: DateSegments): string | null {
   return s.month == null ? null : String(s.month);
 }
 
+/**
+ * What choosing `value` in the month segment does: the Select hands back an
+ * item's value, read here as the month of the segment's calendar.
+ */
+function monthPicked(
+  s: DateSegments,
+  value: string | null,
+  words: DateWords | null,
+): PickAction {
+  if (s.calendar === "hebrew") {
+    const entry = words?.hebrew_months.find((h) => h.hebrew_month === value);
+    return { type: "hebrewMonth", hebrew: entry?.hebrew_month ?? null };
+  }
+  return { type: "month", month: value == null ? null : Number(value) };
+}
+
 /** The months the month segment offers, in its calendar. */
 function monthItems(s: DateSegments, words: DateWords | null): SegmentItem[] {
   if (!words) return [];
@@ -227,7 +242,7 @@ function dayItems(s: DateSegments): SegmentItem[] {
 }
 
 /** A two-way toggle segment (calendar, era), each item touch-sized. */
-function SegmentToggle({
+function SegmentToggle<T extends string>({
   label,
   testId,
   value,
@@ -238,9 +253,9 @@ function SegmentToggle({
 }: {
   label: string;
   testId: string;
-  value: string;
-  onChange: (value: string) => void;
-  items: SegmentItem[];
+  value: T;
+  onChange: (value: T) => void;
+  items: SegmentItem<T>[];
   disabled?: boolean;
   /** Fill the row, the items sharing it and wrapping their labels. */
   wide?: boolean;
@@ -255,7 +270,10 @@ function SegmentToggle({
       className={cn(wide && "w-full min-w-0")}
       value={value}
       disabled={disabled}
-      onValueChange={(v) => v && onChange(v)}
+      onValueChange={(v) => {
+        const item = items.find((i) => i.value === v);
+        if (item) onChange(item.value);
+      }}
     >
       {items.map((item) => (
         <ToggleGroupItem
@@ -426,7 +444,7 @@ export function DatePicker({
           onChange={(v) =>
             dispatch({
               type: "calendar",
-              calendar: v as Calendar,
+              calendar: v,
               months: words?.hebrew_months ?? [],
             })
           }
@@ -453,7 +471,7 @@ export function DatePicker({
             noneLabel={t.date_picker.no_month}
             items={monthItems(segments, words)}
             disabled={disabled}
-            onChange={(month) => dispatch({ type: "month", month })}
+            onChange={(v) => dispatch(monthPicked(segments, v, words))}
           />
         </div>
         <YearRow

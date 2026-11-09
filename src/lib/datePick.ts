@@ -168,8 +168,10 @@ export type PickAction =
   | { type: "approx"; approx: boolean }
   | { type: "era"; bce: boolean }
   | { type: "calendar"; calendar: Calendar; months: readonly HebrewMonthEntry[] }
-  /** A civil month as "1"–"12", a Hebrew month by its id, or none. */
-  | { type: "month"; month: string | null }
+  /** A civil month, 1–12, or none; only on the civil calendar. */
+  | { type: "month"; month: number | null }
+  /** A Hebrew month, or none; only on the Hebrew calendar. */
+  | { type: "hebrewMonth"; hebrew: HebrewMonth | null }
   | { type: "day"; day: number | null }
   /** The year as typed; it is written only when committed. */
   | { type: "typeYear"; year: string }
@@ -206,13 +208,6 @@ function pick(state: PickState, segments: DateSegments): PickState {
   return { ...state, segments, yearTyped: false, ticket, write: { ticket, date } };
 }
 
-/** The segments after the month segment is set to `month`, in their calendar. */
-function monthSet(s: DateSegments, month: string | null): DateSegments {
-  return s.calendar === "hebrew"
-    ? withHebrewMonth(s, month as HebrewMonth | null)
-    : withMonth(s, month == null ? null : Number(month));
-}
-
 /** The Date picker's reducer. */
 export function datePick(state: PickState, action: PickAction): PickState {
   const s = state.segments;
@@ -235,7 +230,9 @@ export function datePick(state: PickState, action: PickAction): PickState {
     case "calendar":
       return pick(state, withCalendar(s, action.calendar, action.months));
     case "month":
-      return pick(state, monthSet(s, action.month));
+      return s.calendar === "civil" ? pick(state, withMonth(s, action.month)) : state;
+    case "hebrewMonth":
+      return s.calendar === "hebrew" ? pick(state, withHebrewMonth(s, action.hebrew)) : state;
     case "day":
       return pick(state, { ...s, day: action.day });
     case "typeYear":
