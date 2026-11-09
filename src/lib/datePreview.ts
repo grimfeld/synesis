@@ -30,7 +30,7 @@ export function datePreviewText(
 }
 
 /** "April" or "avril": the month's name in the app language, not the system's. */
-function civilMonth(m: number, lang: Lang): string {
+export function civilMonth(m: number, lang: Lang): string {
   return new Intl.DateTimeFormat(lang, { month: "long", timeZone: "UTC" }).format(
     new Date(Date.UTC(2000, m - 1, 1)),
   );
