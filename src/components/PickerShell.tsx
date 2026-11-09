@@ -18,6 +18,13 @@ import {
 import { useIsMobile } from "@/hooks/use-mobile";
 
 /**
+ * Touch-sized in the phone Sheet, like the calendar's days; the Popover's
+ * compact size from `md` up (the Sheet's breakpoint, `useIsMobile`). Every
+ * control inside a picker takes it.
+ */
+export const FINGER = "min-h-10 md:min-h-8";
+
+/**
  * The button beside a text field that opens a picker, and what it opens in:
  * a Popover beside the field on a desktop, a bottom Sheet at phone width.
  * Shared by every picker (the Date picker, the calendar date picker); the
@@ -53,7 +60,7 @@ export function PickerShell({
     <Button
       type="button"
       variant="ghost"
-      size={mobile ? "icon" : "icon-xs"}
+      size={mobile ? "icon" : "icon-sm"}
       className="shrink-0"
       aria-label={label}
       title={label}

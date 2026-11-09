@@ -10,7 +10,7 @@ import { CalendarClock } from "lucide-react";
 import { api, type DateWords, type Lang } from "@/lib/api";
 import { cn } from "cn";
 import { useLang, useT } from "@/i18n";
-import { PickerShell } from "@/components/PickerShell";
+import { FINGER, PickerShell } from "@/components/PickerShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -121,12 +121,6 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
 
   return { segments: state.segments, reckoning: state.reckoning, dispatch, open, onOpenChange };
 }
-
-/**
- * Touch-sized in the phone Sheet, like the calendar's days; the Popover's
- * compact size from `md` up (the Sheet's breakpoint, `useIsMobile`).
- */
-const FINGER = "min-h-10 md:min-h-8";
 
 /** A Select trigger's height, overriding its fixed one: the same sizes. */
 const TRIGGER = "data-[size=default]:h-10 md:data-[size=default]:h-8";

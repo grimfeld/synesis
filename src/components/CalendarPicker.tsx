@@ -3,7 +3,8 @@ import { CalendarDays } from "lucide-react";
 import { enUS, fr } from "react-day-picker/locale";
 import { useLang, useT } from "@/i18n";
 import { readIsoDate, weekStartsOn, writeIsoDate } from "@/lib/calendarDate";
-import { PickerShell } from "@/components/PickerShell";
+import { cn } from "cn";
+import { FINGER, PickerShell } from "@/components/PickerShell";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 
@@ -102,7 +103,7 @@ export function CalendarPicker({
             type="button"
             variant="outline"
             size="sm"
-            className="h-auto min-h-8"
+            className={cn("h-auto", FINGER)}
             data-testid={`${testId}-today`}
             onClick={() => write(writeIsoDate(new Date()))}
           >
@@ -112,7 +113,7 @@ export function CalendarPicker({
             type="button"
             variant="ghost"
             size="sm"
-            className="h-auto min-h-8"
+            className={cn("h-auto", FINGER)}
             data-testid={`${testId}-clear`}
             disabled={!text.trim()}
             onClick={() => write("")}
