@@ -422,6 +422,22 @@ export function Properties({
 }
 
 /** One Property: widget chosen by its type (ADR 0006); the key opens a menu to retype it. */
+function placeholderFor(
+  propType: PropertyType,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  switch (propType) {
+    case "date":
+      return t.date_placeholder;
+    case "calendar":
+      return t.calendar_placeholder;
+    case "link":
+      return "[[…]]";
+    default:
+      return undefined;
+  }
+}
+
 function PropertyRow({
   name,
   value,
@@ -443,6 +459,8 @@ function PropertyRow({
   // What a Date or calendar date field holds as typed, for its preview and
   // picker; the field itself stays uncontrolled and commits on blur like
   // every other Property.
+  // Date and calendar text is tracked as typed, to feed the picker and preview.
+  const tracksTyped = propType === "date" || propType === "calendar";
   const [typed, setTyped] = useState(shown);
   useEffect(() => setTyped(shown), [shown]);
   const link =
@@ -560,20 +578,8 @@ function PropertyRow({
             defaultValue={shown}
             type={propType === "number" ? "number" : "text"}
             step={propType === "number" ? "any" : undefined}
-            placeholder={
-              propType === "date"
-                ? t.date_placeholder
-                : propType === "link"
-                  ? "[[…]]"
-                  : propType === "calendar"
-                    ? t.calendar_placeholder
-                    : undefined
-            }
-            onChange={
-              propType === "date" || propType === "calendar"
-                ? (e) => setTyped(e.target.value)
-                : undefined
-            }
+            placeholder={placeholderFor(propType, t)}
+            onChange={tracksTyped ? (e) => setTyped(e.target.value) : undefined}
             onBlur={(e) => commit(e.target.value)}
           />
         )}
