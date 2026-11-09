@@ -5,7 +5,7 @@
 //! two cannot drift apart. Offsets here are UTF-16, which is what the editor
 //! counts in; the engine itself works in bytes.
 
-use crate::dates::{BibleDate, DateError, DateReading};
+use crate::dates::{BibleDate, DateError, DatePick, DateReading};
 use crate::document::DocType;
 use crate::index::{DocSummary, Linkable};
 use crate::scripture::{Lang, Passage, Unit};
@@ -177,6 +177,14 @@ pub fn read_date(text: &str) -> DatePreview {
         Ok(date) => DatePreview::Read(date),
         Err(error) => DatePreview::NotADate(error),
     }
+}
+
+/// The text a Date picker writes into a Date field (#120): `pick` in the
+/// picker's form for `language`, keeping the Reckoning and the notes in
+/// brackets of `previous_text`, the field's text before the pick. Its
+/// `read_date` gives `pick` back. The user's act, never the app's (ADR 0005).
+pub fn write_date(pick: &DatePick, language: Lang, previous_text: &str) -> String {
+    pick.write(language, previous_text)
 }
 
 #[derive(Serialize)]
@@ -529,6 +537,111 @@ mod tests {
         assert_eq!(
             serde_json::to_value(read_date("1513–1473 BCE")).unwrap(),
             json!({ "ok": false, "error": "span_in_one_value" })
+        );
+    }
+
+    fn year(era_year: u32, bce: bool, approx: bool) -> DatePick {
+        DatePick {
+            era_year: std::num::NonZeroU32::new(era_year).unwrap(),
+            bce,
+            approx,
+        }
+    }
+
+    #[test]
+    fn write_date_on_empty_text_writes_the_common_era_in_the_language() {
+        assert_eq!(
+            write_date(&year(1513, true, true), Lang::En, ""),
+            "c. 1513 BCE"
+        );
+        assert_eq!(
+            write_date(&year(1513, true, true), Lang::Fr, ""),
+            "vers 1513 av. n. è."
+        );
+        assert_eq!(write_date(&year(33, false, false), Lang::En, ""), "33 CE");
+        assert_eq!(
+            write_date(&year(33, false, false), Lang::Fr, "  "),
+            "33 de n. è."
+        );
+    }
+
+    /// Every app language. A new one stops this compiling, so the round trip
+    /// below covers it before the picker can write in it.
+    fn every_language() -> [Lang; 2] {
+        match Lang::En {
+            Lang::En | Lang::Fr => [Lang::En, Lang::Fr],
+        }
+    }
+
+    #[test]
+    fn write_date_reads_back_as_the_pick() {
+        for lang in every_language() {
+            for (previous, reckoning) in [
+                ("", "common"),
+                ("1000 BC (1 Sam 16)", "christian"),
+                ("33 de n. è.", "common"),
+                ("70 ap. J.-C.", "christian"),
+            ] {
+                for (era_year, bce) in [(1513, true), (1, true), (1, false), (2026, false)] {
+                    for approx in [false, true] {
+                        let text = write_date(&year(era_year, bce, approx), lang, previous);
+                        let v = serde_json::to_value(read_date(&text)).unwrap();
+                        let case = format!("{lang:?} {previous:?} -> {text:?}");
+                        assert_eq!(v["ok"], true, "{case}");
+                        assert_eq!(v["era_year"], era_year, "{case}");
+                        assert_eq!(v["bce"], bce, "{case}");
+                        assert_eq!(v["approx"], approx, "{case}");
+                        assert_eq!(v["reckoning"], reckoning, "{case}");
+                        assert_eq!(v["precision"], "year", "{case}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn write_date_takes_the_pick_as_the_ui_sends_it() {
+        let pick: DatePick =
+            serde_json::from_value(json!({ "era_year": 1513, "bce": true, "approx": true }))
+                .unwrap();
+        assert_eq!(pick, year(1513, true, true));
+        // There is no year 0.
+        assert!(serde_json::from_value::<DatePick>(json!({ "era_year": 0, "bce": true })).is_err());
+    }
+
+    #[test]
+    fn write_date_keeps_the_reckoning_and_the_note() {
+        let y = |n| year(n, true, false);
+        assert_eq!(
+            write_date(&y(1010), Lang::En, "1000 BC (1 Sam 16)"),
+            "1010 BC (1 Sam 16)"
+        );
+        assert_eq!(
+            write_date(&y(1010), Lang::Fr, "1000 BC (1 Sam 16)"),
+            "1010 av. J.-C. (1 Sam 16)"
+        );
+        assert_eq!(
+            write_date(&year(34, false, true), Lang::En, "33 apr. J.-C."),
+            "c. 34 AD"
+        );
+        assert_eq!(
+            write_date(&year(34, false, false), Lang::Fr, "c. 33 C.E."),
+            "34 de n. è."
+        );
+        // The picker's own form replaces the Date part, whatever spelling was
+        // typed; a note before it moves after it.
+        assert_eq!(
+            write_date(&year(34, false, true), Lang::En, "(Jn 19) ca. 33 A.D."),
+            "c. 34 AD (Jn 19)"
+        );
+        // Text that names no Reckoning gets the Common Era, and its notes stay.
+        assert_eq!(
+            write_date(&y(1513), Lang::En, "1513 (Ex 12-13)"),
+            "1513 BCE (Ex 12-13)"
+        );
+        assert_eq!(
+            write_date(&y(1513), Lang::En, "(a) whatever (b)"),
+            "1513 BCE (a) (b)"
         );
     }
 }

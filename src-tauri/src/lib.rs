@@ -1234,6 +1234,12 @@ fn read_date(text: String) -> api::DatePreview {
     api::read_date(&text)
 }
 
+/// The text a Date picker writes into a Date field.
+#[tauri::command]
+fn write_date(pick: engine::dates::DatePick, language: Lang, previous_text: String) -> String {
+    api::write_date(&pick, language, &previous_text)
+}
+
 #[tauri::command]
 fn books(state: State<AppState>) -> CmdResult<Vec<BookMeta>> {
     let lang = state.settings.lock().map_err(err)?.lang;
@@ -1507,6 +1513,7 @@ pub fn run() {
             find_source_by_url,
             detect_passages,
             read_date,
+            write_date,
             books,
             fetch_url_metadata,
             skin_gallery,
