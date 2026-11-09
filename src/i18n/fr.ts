@@ -222,6 +222,7 @@ export const fr: Dict = {
     open: "Choisir une Date",
     approx: "Approximative (vers)",
     year: "Année",
+    year_invalid: "L’année doit être 1 ou plus",
     era: "Ère",
     month: "Mois",
     day: "Jour",

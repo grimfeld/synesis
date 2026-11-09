@@ -90,6 +90,25 @@ describe("Date picker", () => {
     bornInFile().should("contain", "1010 BC (1 Sam 16)");
   });
 
+  it("flags year 0 with a hint and leaves the text as it was", () => {
+    noteWithBorn("1000 BC (1 Sam 16)");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "1000");
+    cy.get(at("-year-hint")).should("not.exist");
+    cy.get(at("-year")).clear().type("0{enter}");
+    cy.get(at("-year")).should("have.attr", "aria-invalid", "true");
+    cy.get(at("-year-hint"))
+      .should("be.visible")
+      .invoke("attr", "id")
+      .then((hint) => cy.get(at("-year")).should("have.attr", "aria-describedby", hint));
+    cy.get("body").type("{esc}");
+    cy.get(at()).should("not.exist");
+    cy.get(field).should("have.value", "1000 BC (1 Sam 16)");
+    // Longer than the field's save would take, so a write would be on disk.
+    cy.wait(800);
+    bornInFile().should("contain", "1000 BC (1 Sam 16)");
+  });
+
   it("follows what is typed in the field", () => {
     noteWithBorn("");
     cy.get(field).type("c. 33 CE").blur();
