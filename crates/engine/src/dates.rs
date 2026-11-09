@@ -350,9 +350,8 @@ impl From<&DateReading> for DatePick {
     /// The pick that writes the Date `reading` read.
     fn from(reading: &DateReading) -> DatePick {
         DatePick {
-            // A reading's year is at least 1: the parser reads no year 0.
             era_year: std::num::NonZeroU32::new(reading.era_year.unsigned_abs())
-                .unwrap_or(std::num::NonZeroU32::MIN),
+                .expect("the parser reads no year 0"),
             bce: reading.bce,
             approx: reading.approx,
             month: reading.month.filter(|_| reading.hebrew_month.is_none()),
@@ -490,7 +489,8 @@ impl HebrewMonth {
     }
 }
 
-/// The civil month's name in `lang`, as the picker writes it.
+/// The civil month's name in `lang`, as the picker writes it. `month` is 1 to
+/// 12, as `DatePick`'s deserializer checks; any other is a bug and panics.
 pub fn civil_month_name(lang: Lang, month: u8) -> &'static str {
     const EN: [&str; 12] = [
         "January",
@@ -524,7 +524,10 @@ pub fn civil_month_name(lang: Lang, month: u8) -> &'static str {
         Lang::En => &EN,
         Lang::Fr => &FR,
     };
-    names[usize::from(month.clamp(1, 12)) - 1]
+    usize::from(month)
+        .checked_sub(1)
+        .and_then(|i| names.get(i))
+        .expect("a civil month is 1 to 12")
 }
 
 /// The Reckoning `text` ends in, whether or not the rest of it is a Date.
@@ -1028,5 +1031,11 @@ mod tests {
         ] {
             assert_eq!(read(text).unwrap().reckoning, reckoning, "{text}");
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "a civil month is 1 to 12")]
+    fn civil_month_name_refuses_a_month_out_of_range() {
+        civil_month_name(Lang::En, 13);
     }
 }
