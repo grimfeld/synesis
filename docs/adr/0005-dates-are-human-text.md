@@ -4,7 +4,7 @@ status: accepted
 
 # Bible-chronology Dates are human-readable text, parsed by the engine
 
-Events, Characters and Places carry Dates in the Bible's chronology ("c. 1513 BCE", "14 Nisan 33 CE", "52 CE"). We decided that a Date is written in frontmatter exactly as a reader would say it, and that the engine parses it into an astronomical year plus precision (year / month / day) and an approximate flag at index time. The text is never rewritten; an unparseable value simply is not a Date and stays off the Timeline, with a warning on the page. This mirrors how Scripture Mentions are handled (ADR 0002): the user writes naturally, the app decorates and indexes.
+Events, Characters and Places carry Dates in the Bible's chronology ("c. 1513 BCE", "14 Nisan 33 CE", "52 CE"). We decided that a Date is written in frontmatter exactly as a reader would say it, and that the engine parses it into an astronomical year plus precision (year / month / day) and an approximate flag at index time. The app never rewrites the text on its own; an unparseable value simply is not a Date and stays off the Timeline, with a warning on the page. This mirrors how Scripture Mentions are handled (ADR 0002): the user writes naturally, the app decorates and indexes.
 
 ## Considered options
 
@@ -15,4 +15,5 @@ Events, Characters and Places carry Dates in the Bible's chronology ("c. 1513 BC
 
 - The Date parser is a tested engine component with a case per bug, like the Passage parser. It accepts English (BCE/CE, BC/AD) and French (av. J.-C. / ap. J.-C. / av. n. è. / de n. è.) era markers, `c.` / `ca.` / `~` for approximate, optional month (Gregorian names and Hebrew months) and day.
 - An Event has `start` and, optionally, `end`. Any other Date-typed Property on a Subject (`born`, `died`, `anointed`, ...) is a Timeline mark labelled by its key (ADR 0006).
-- Today's-world calendar dates (a Composition's delivery `date`, a Source's publication `date`, `created`) remain ISO and are a different Property type; they never appear on the Timeline.
+- The Date picker beside a Date field writes the Date as text, through the engine's `write_date` next to the parser, so every Date it writes is one the parser reads. A pick is the user's act: it regenerates the Date part in the picker's form for the app language, keeps the text's Reckoning (BC/AD or BCE/CE) and any note in brackets, and writes the Common Era when the text has no Reckoning. Opening and closing the picker writes nothing. The app still never rewrites a Date on its own; a Date stays as typed until the user picks.
+- Today's-world calendar dates (a Composition's delivery `date`, a Source's publication `date`, `created`) remain ISO and are a different Property type; they never appear on the Timeline. Their calendar picker writes `YYYY-MM-DD`; a calendar date that is not ISO text stays as typed until the user picks a day.

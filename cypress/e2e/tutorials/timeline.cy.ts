@@ -132,7 +132,14 @@ describe("Tutorial: Timeline", () => {
     cy.tutorialCommand("create.event");
     cy.get("[data-testid=new-doc-form]").should("contain", "Event");
     cy.get("[data-testid=new-doc-form] input").first().type("Paul shipwrecked on Malta");
-    cy.get("[data-testid=new-start]").type("c. 58 CE");
+    // Picked with the Date picker beside the field; typing it works as well.
+    cy.get("[data-testid=new-date-picker-start-open]").click();
+    cy.get("[data-testid=new-date-picker-start-approx]").click();
+    cy.get("[data-testid=new-date-picker-start-year]").type("58");
+    cy.get("[data-testid=new-date-picker-start-era-ce]").click();
+    cy.get("[data-testid=new-start]").should("have.value", "c. 58 CE");
+    cy.get("[data-testid=new-date-picker-start-open]").click();
+    cy.get("[data-testid=new-date-picker-start]").should("not.exist");
     cy.get("[data-testid=new-doc-form]").contains("button", "Create").click();
     cy.hubTitle("Paul shipwrecked on Malta");
     cy.get("[data-testid=nav-timeline]").click();
