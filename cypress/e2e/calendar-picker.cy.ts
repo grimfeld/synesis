@@ -77,6 +77,7 @@ describe("Calendar date picker", () => {
     noteWithDate("");
     cy.get(at("-open")).click();
     cy.get(`${at()} select.rdp-years_dropdown`).select("1611");
+    cy.get(`${at()} select.rdp-years_dropdown`).should("have.value", "1611");
     cy.get(`${at()} select.rdp-months_dropdown`).select("4");
     cy.get(`${at()} td[data-day="1611-05-02"] button`).click();
     cy.get(at()).should("not.exist");
