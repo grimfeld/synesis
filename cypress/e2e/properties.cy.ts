@@ -259,7 +259,7 @@ describe("Date preview", () => {
     cy.openDoc("David");
     cy.get("[data-testid=date-preview-born]")
       .should("have.attr", "data-ok", "true")
-      .and("contain", "≈ 1107 BCE · year");
+      .and("contain", "c. 1107 BCE · year");
     cy.get("[data-testid=date-input-born]").clear().type("14 nisan 33 c.e.");
     cy.get("[data-testid=date-preview-born]")
       .should("have.attr", "data-ok", "true")
@@ -297,7 +297,7 @@ describe("Date preview", () => {
     cy.get("[data-testid=property-founded] input").type("c. 1000 BCE");
     cy.get("[data-testid=date-preview-founded]").should(
       "contain",
-      "≈ 1000 BCE · year",
+      "c. 1000 BCE · year",
     );
     cy.get("[data-testid=property-founded] input").clear().type("1000 to 900 BCE");
     cy.get("[data-testid=date-preview-founded]").should(

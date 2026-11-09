@@ -221,6 +221,8 @@ export const en = {
     url: "URL",
   },
   date_placeholder: "c. 1513 BCE",
+  /** A calendar date field's placeholder: the ISO form a pick writes. */
+  calendar_placeholder: "YYYY-MM-DD",
   /** The Date picker beside a Date field. */
   calendar_picker: {
     open: "Pick a day",
@@ -239,26 +241,6 @@ export const en = {
     calendar: "Calendar",
     civil: "Civil",
     hebrew: "Hebrew",
-    /**
-     * The Hebrew months as the picker lists them: what a pick writes
-     * (crates/engine/src/dates.rs `HebrewMonth::name`).
-     */
-    hebrew_months: {
-      nisan: "Nisan",
-      iyyar: "Iyyar",
-      sivan: "Sivan",
-      tammuz: "Tammuz",
-      ab: "Ab",
-      elul: "Elul",
-      tishri: "Tishri",
-      heshvan: "Heshvan",
-      chislev: "Chislev",
-      tebeth: "Tebeth",
-      shebat: "Shebat",
-      adar: "Adar",
-      adar_i: "Adar I",
-      adar_ii: "Adar II",
-    },
   },
   add_date: "Add Date",
   add_lifespan: "Add lifespan",
@@ -271,25 +253,7 @@ export const en = {
     `“${name}” is already a ${type} Property in this vault. A name has one type everywhere; choose another.`,
   date_name_reserved: (name: string) =>
     `“${name}” is reserved and cannot be a Property.`,
-  /** Before an approximate year in the Date preview: "≈ 1513 BCE". */
-  date_approx: "≈",
   date_precision: { year: "year", month: "month", day: "day" },
-  hebrew_months: {
-    nisan: "Nisan",
-    iyyar: "Iyyar",
-    sivan: "Sivan",
-    tammuz: "Tammuz",
-    ab: "Ab",
-    elul: "Elul",
-    tishri: "Tishri",
-    heshvan: "Heshvan",
-    chislev: "Chislev",
-    tebeth: "Tebeth",
-    shebat: "Shebat",
-    adar: "Adar",
-    adar_i: "Adar I",
-    adar_ii: "Adar II",
-  },
   /** Why a Date field's value is not a Date, under the field as you type. */
   date_errors: {
     no_era: "Not a Date: no era. Add BCE or CE, as in “c. 1513 BCE”.",
