@@ -127,6 +127,15 @@ describe("Calendar date picker", () => {
       "have.text",
       "sept.",
     );
+    // The dropdowns and the month buttons are named in French too, from
+    // react-day-picker's `fr` locale.
+    for (const [part, name] of [
+      ["select.rdp-months_dropdown", "Choisir le mois"],
+      ["select.rdp-years_dropdown", "Choisir l'année"],
+      ["button.rdp-button_previous", "Aller au mois précédent"],
+      ["button.rdp-button_next", "Aller au mois suivant"],
+    ])
+      cy.get(`${at()} ${part}`).should("have.attr", "aria-label", name);
   });
 
   it("gives Today and Clear a finger's size in the phone Sheet, the trigger 28px on a desktop", () => {

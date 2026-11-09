@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { readIsoDate, weekStartsOn, writeIsoDate } from "../calendarDate";
+import {
+  calendarLocale,
+  readIsoDate,
+  weekStartsOn,
+  writeIsoDate,
+} from "../calendarDate";
 
 describe("calendar dates", () => {
   it("reads an ISO date as that day", () => {
@@ -34,5 +39,16 @@ describe("calendar dates", () => {
   it("starts the week on Sunday in English and Monday in French", () => {
     expect(weekStartsOn("en")).toBe(0);
     expect(weekStartsOn("fr")).toBe(1);
+  });
+
+  it("names the calendar in the app language", () => {
+    expect(calendarLocale("en").code).toBe("en-US");
+    expect(calendarLocale("fr").code).toBe("fr");
+    expect(calendarLocale("fr").labels?.labelMonthDropdown).toBe(
+      "Choisir le mois",
+    );
+    expect(calendarLocale("fr").labels?.labelNext).toBe(
+      "Aller au mois suivant",
+    );
   });
 });

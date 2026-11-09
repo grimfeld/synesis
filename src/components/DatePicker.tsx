@@ -8,6 +8,7 @@ import {
 } from "react";
 import { CalendarClock } from "lucide-react";
 import { api, type DateWords, type Lang } from "@/lib/api";
+import { useQuery } from "@/lib/useQuery";
 import { cn } from "cn";
 import { useLang, useT } from "@/i18n";
 import { FINGER, PickerShell } from "@/components/PickerShell";
@@ -35,30 +36,19 @@ import {
 /** The Select value for an empty month or day segment (Radix forbids ""). */
 const NONE = "none";
 
-/** The engine's Date words per language, asked for once. */
-const dateWordsAsked = new Map<Lang, Promise<DateWords>>();
-
 /**
  * The words the segments are labelled with, from the engine for `lang`
  * (`date_words`): the same tables a pick writes from and the parser reads.
- * Null until the engine answers.
+ * Null until the engine answers. Each picker asks for itself: the answer is a
+ * table lookup in the engine, and a failure is reported like any other read.
  */
 function useDateWords(lang: Lang): DateWords | null {
-  const [words, setWords] = useState<{ lang: Lang; words: DateWords } | null>(null);
-  useEffect(() => {
-    let live = true;
-    let asked = dateWordsAsked.get(lang);
-    if (!asked) {
-      asked = api.dateWords(lang);
-      dateWordsAsked.set(lang, asked);
-      asked.catch(() => dateWordsAsked.delete(lang));
-    }
-    asked.then((w) => live && setWords({ lang, words: w })).catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [lang]);
-  return words?.lang === lang ? words.words : null;
+  const { data } = useQuery<DateWords>({
+    key: [lang],
+    deps: { none: true },
+    fetch: () => api.dateWords(lang),
+  });
+  return data ?? null;
 }
 
 /**
