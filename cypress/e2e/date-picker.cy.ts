@@ -1,4 +1,4 @@
-// The Date picker beside a Date field (#120, #122): a button opens it (a
+// The Date picker beside a Date field (#120, #122, #123): a button opens it (a
 // Popover on a desktop, a bottom Sheet on a phone); a pick writes the Date
 // into the field through the engine, keeping the text's Reckoning and note,
 // and the preview reads it. The field stays the Date and stays editable.
@@ -108,6 +108,68 @@ describe("Date picker", () => {
       cy.wait(800);
       bornInFile().should("equal", before);
     });
+  });
+
+  /** Choose `value` in the picker's `segment` (month or day) Select. */
+  function choose(segment: "month" | "day", value: string) {
+    cy.get(at(`-${segment}`)).click();
+    cy.get(at(`-${segment}-${value}`)).click();
+  }
+
+  it("writes a day, a civil month and a year, and the preview reads the day", () => {
+    noteWithBorn("");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).type("33");
+    cy.get(at("-era-ce")).click();
+    choose("month", "3");
+    choose("day", "14");
+    cy.get(field).should("have.value", "14 March 33 CE");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "true")
+      .and("contain", "day");
+    bornInFile().should("contain", "14 March 33 CE");
+  });
+
+  it("writes the day and month in French in the French form", () => {
+    cy.bridge("set_language", { lang: "fr" });
+    noteWithBorn("");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).type("33");
+    cy.get(at("-era-ce")).click();
+    choose("month", "3");
+    choose("day", "14");
+    cy.get(field).should("have.value", "14 mars 33 de n. è.");
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "true")
+      .and("contain", "jour");
+  });
+
+  it("offers a day only once a month is chosen, and only the days it has", () => {
+    noteWithBorn("33 CE");
+    cy.get(at("-open")).click();
+    cy.get(at("-day")).should("be.disabled");
+    choose("month", "2");
+    cy.get(at("-day")).should("not.be.disabled").click();
+    cy.get(at("-day-1")).should("exist");
+    cy.get(at("-day-29")).should("exist");
+    cy.get(at("-day-30")).should("not.exist");
+    cy.get(at("-day-29")).click();
+    choose("month", "4");
+    cy.get(at("-day")).click();
+    cy.get(at("-day-30")).should("exist");
+    cy.get(at("-day-31")).should("not.exist");
+  });
+
+  it("clears the day with the month, and the Date becomes a year", () => {
+    noteWithBorn("14 March 33 CE");
+    cy.get(at("-open")).click();
+    // The picker opens on the month and day the field holds.
+    cy.get(at("-month")).should("contain", "March");
+    cy.get(at("-day")).should("contain", "14");
+    choose("month", "none");
+    cy.get(at("-day")).should("be.disabled").and("not.contain", "14");
+    cy.get(field).should("have.value", "33 CE");
+    bornInFile().should("contain", "33 CE").and("not.contain", "March");
   });
 
   it("opens in a bottom Sheet at phone width", () => {

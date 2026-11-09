@@ -332,12 +332,15 @@ export type DatePreview =
 
 /**
  * A Date as the picker sets it (crates/engine/src/dates.rs `DatePick`): the
- * year as people say it (never 0), its era, and whether it is approximate.
+ * year as people say it (never 0), its era, whether it is approximate, and
+ * optionally a civil month (1–12) and a day (1–31, written only with a month).
  */
 export interface DatePick {
   era_year: number;
   bce: boolean;
   approx: boolean;
+  month?: number | null;
+  day?: number | null;
 }
 
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
