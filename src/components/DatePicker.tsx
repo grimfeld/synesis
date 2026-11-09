@@ -3,8 +3,8 @@ import { CalendarClock } from "lucide-react";
 import {
   api,
   type DatePick,
+  type DateWords,
   type HebrewMonth,
-  type HebrewMonthEntry,
   type Lang,
   type Reckoning,
 } from "@/lib/api";
@@ -22,7 +22,6 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { civilMonth } from "@/lib/datePreview";
 import {
   daysOf,
   withCalendar,
@@ -52,32 +51,30 @@ const EMPTY: Segments = {
 /** The Select value for an empty month or day segment (Radix forbids ""). */
 const NONE = "none";
 
-const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
-
-/** The engine's Hebrew months per language, asked for once. */
-const hebrewMonthsAsked = new Map<Lang, Promise<HebrewMonthEntry[]>>();
+/** The engine's Date words per language, asked for once. */
+const dateWordsAsked = new Map<Lang, Promise<DateWords>>();
 
 /**
- * The Hebrew months the month segment offers, in the engine's order and
- * names for `lang` (`hebrew_months`): the same table a pick writes from and
- * the parser reads. Empty until the engine answers.
+ * The words the segments are labelled with, from the engine for `lang`
+ * (`date_words`): the same tables a pick writes from and the parser reads.
+ * Null until the engine answers.
  */
-function useHebrewMonths(lang: Lang): HebrewMonthEntry[] {
-  const [months, setMonths] = useState<HebrewMonthEntry[]>([]);
+function useDateWords(lang: Lang): DateWords | null {
+  const [words, setWords] = useState<{ lang: Lang; words: DateWords } | null>(null);
   useEffect(() => {
     let live = true;
-    let asked = hebrewMonthsAsked.get(lang);
+    let asked = dateWordsAsked.get(lang);
     if (!asked) {
-      asked = api.hebrewMonths(lang);
-      hebrewMonthsAsked.set(lang, asked);
-      asked.catch(() => hebrewMonthsAsked.delete(lang));
+      asked = api.dateWords(lang);
+      dateWordsAsked.set(lang, asked);
+      asked.catch(() => dateWordsAsked.delete(lang));
     }
-    asked.then((m) => live && setMonths(m)).catch(() => {});
+    asked.then((w) => live && setWords({ lang, words: w })).catch(() => {});
     return () => {
       live = false;
     };
   }, [lang]);
-  return months;
+  return words?.lang === lang ? words.words : null;
 }
 
 /**
@@ -133,7 +130,8 @@ export function DatePicker({
   const t = useT();
   const lang = useLang();
   const id = useId();
-  const hebrewMonths = useHebrewMonths(lang);
+  const words = useDateWords(lang);
+  const hebrewMonths = words?.hebrew_months ?? [];
   const [open, setOpen] = useState(false);
   const [segments, setSegments] = useState<Segments>(EMPTY);
   const [reckoning, setReckoning] = useState<Reckoning>("common");
@@ -219,8 +217,7 @@ export function DatePicker({
   };
 
   const yearInvalid = segments.year !== "" && yearOf(segments.year) == null;
-  const eraWords =
-    reckoning === "christian" ? { bce: t.bc, ce: t.ad } : { bce: t.bce, ce: t.ce };
+  const eraWords = words?.eras[reckoning];
   const hebrew = segments.calendar === "hebrew";
   const days = daysOf(segments);
   const monthValue = hebrew
@@ -230,7 +227,7 @@ export function DatePicker({
       : String(segments.month);
   const months: { value: string; label: string }[] = hebrew
     ? hebrewMonths.map((h) => ({ value: h.hebrew_month, label: h.name }))
-    : MONTHS.map((m) => ({ value: String(m), label: civilMonth(m, lang) }));
+    : (words?.civil_months ?? []).map((name, i) => ({ value: String(i + 1), label: name }));
   const setMonth = (v: string) =>
     pick(
       hebrew
@@ -407,14 +404,14 @@ export function DatePicker({
               data-testid={`${testId}-era-bce`}
               className={cn("h-auto", FINGER)}
             >
-              {eraWords.bce}
+              {eraWords?.bce}
             </ToggleGroupItem>
             <ToggleGroupItem
               value="ce"
               data-testid={`${testId}-era-ce`}
               className={cn("h-auto", FINGER)}
             >
-              {eraWords.ce}
+              {eraWords?.ce}
             </ToggleGroupItem>
           </ToggleGroup>
         </div>

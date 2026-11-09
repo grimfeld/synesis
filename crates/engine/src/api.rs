@@ -5,7 +5,9 @@
 //! two cannot drift apart. Offsets here are UTF-16, which is what the editor
 //! counts in; the engine itself works in bytes.
 
-use crate::dates::{BibleDate, DateError, DatePick, DateReading, HebrewMonth};
+use crate::dates::{
+    civil_month_name, BibleDate, DateError, DatePick, DateReading, HebrewMonth, Reckoning,
+};
 use crate::document::DocType;
 use crate::index::{DocSummary, Linkable};
 use crate::scripture::{Lang, Passage, Unit};
@@ -205,18 +207,56 @@ pub struct HebrewMonthEntry {
     pub civil_month: u8,
 }
 
-/// The Hebrew months the Date picker offers, in the order of the sacred year
-/// (Adar I and II last), named in `language`. The UI takes the order, the
-/// names and the civil months from here, never from a table of its own.
-pub fn hebrew_months(language: Lang) -> Vec<HebrewMonthEntry> {
-    HebrewMonth::ALL
-        .into_iter()
-        .map(|hebrew_month| HebrewMonthEntry {
-            hebrew_month,
-            name: hebrew_month.name(language),
-            civil_month: hebrew_month.civil_month(),
-        })
-        .collect()
+/// An era marker for each side of year 1, as a pick writes it.
+#[derive(Debug, Serialize)]
+pub struct EraPair {
+    pub bce: &'static str,
+    pub ce: &'static str,
+}
+
+/// The era markers of each Reckoning.
+#[derive(Debug, Serialize)]
+pub struct Eras {
+    pub common: EraPair,
+    pub christian: EraPair,
+}
+
+/// Every word the Date picker labels a segment with, in one language.
+#[derive(Debug, Serialize)]
+pub struct DateWords {
+    /// The civil months, January first.
+    pub civil_months: [&'static str; 12],
+    /// The Hebrew months in the order of the sacred year, Adar I and II last.
+    pub hebrew_months: Vec<HebrewMonthEntry>,
+    pub eras: Eras,
+}
+
+/// The words the Date picker offers, named in `language`: each is the word
+/// `write_date` writes for that pick. The UI takes the months' order and
+/// names, the Hebrew months' civil months and the era markers from here,
+/// never from a table of its own.
+pub fn date_words(language: Lang) -> DateWords {
+    let eras = |reckoning: Reckoning| EraPair {
+        bce: reckoning.era(true, language),
+        ce: reckoning.era(false, language),
+    };
+    DateWords {
+        civil_months: std::array::from_fn(|i| {
+            civil_month_name(language, u8::try_from(i + 1).unwrap_or(12))
+        }),
+        hebrew_months: HebrewMonth::ALL
+            .into_iter()
+            .map(|hebrew_month| HebrewMonthEntry {
+                hebrew_month,
+                name: hebrew_month.name(language),
+                civil_month: hebrew_month.civil_month(),
+            })
+            .collect(),
+        eras: Eras {
+            common: eras(Reckoning::Common),
+            christian: eras(Reckoning::Christian),
+        },
+    }
 }
 
 /// The text a Date picker writes into a Date field (#120): `pick` in the
@@ -608,32 +648,63 @@ mod tests {
     }
 
     #[test]
-    fn hebrew_months_lists_the_sacred_year_with_names_and_civil_months() {
-        let fr = serde_json::to_value(hebrew_months(Lang::Fr)).unwrap();
-        assert_eq!(fr.as_array().unwrap().len(), 14);
+    fn date_words_lists_the_sacred_year_with_names_and_civil_months() {
+        let fr = serde_json::to_value(date_words(Lang::Fr)).unwrap();
+        let hebrew = &fr["hebrew_months"];
+        assert_eq!(hebrew.as_array().unwrap().len(), 14);
         assert_eq!(
-            fr[0],
+            hebrew[0],
             json!({ "hebrew_month": "nisan", "name": "Nissan", "civil_month": 4 })
         );
         assert_eq!(
-            fr[9],
+            hebrew[9],
             json!({ "hebrew_month": "tebeth", "name": "Tevet", "civil_month": 1 })
         );
         assert_eq!(
-            fr[13],
+            hebrew[13],
             json!({ "hebrew_month": "adar_ii", "name": "Adar II", "civil_month": 3 })
         );
-        let en = serde_json::to_value(hebrew_months(Lang::En)).unwrap();
-        assert_eq!(en[4]["name"], "Ab");
-        // What the list names is what a pick writes and what the parser reads.
+        assert_eq!(fr["civil_months"][3], "avril");
+        assert_eq!(
+            fr["eras"],
+            json!({
+                "common": { "bce": "av. n. è.", "ce": "de n. è." },
+                "christian": { "bce": "av. J.-C.", "ce": "ap. J.-C." },
+            })
+        );
+        let en = serde_json::to_value(date_words(Lang::En)).unwrap();
+        assert_eq!(en["hebrew_months"][4]["name"], "Ab");
+        assert_eq!(en["civil_months"][0], "January");
+        assert_eq!(en["eras"]["christian"]["bce"], "BC");
+    }
+
+    /// Every word `date_words` lists is exactly the word `write_date` writes
+    /// for that pick, so the picker labels its segments with what it writes.
+    #[test]
+    fn date_words_are_the_words_a_pick_writes() {
         for lang in every_language() {
-            for entry in hebrew_months(lang) {
-                let pick = DatePick {
-                    hebrew_month: Some(entry.hebrew_month),
-                    ..year(33, false, false)
-                };
+            let words = date_words(lang);
+            let common = &words.eras.common;
+            for (previous, eras) in [("", common), ("70 AD", &words.eras.christian)] {
+                for (bce, era) in [(true, eras.bce), (false, eras.ce)] {
+                    let pick = year(33, bce, false);
+                    assert_eq!(write_date(&pick, lang, previous), format!("33 {era}"));
+                }
+            }
+            assert_eq!(words.civil_months.len(), 12);
+            for (i, name) in words.civil_months.iter().enumerate() {
+                let month = u8::try_from(i + 1).unwrap();
+                let pick = on(year(33, false, false), Some(month), None);
                 let text = write_date(&pick, lang, "");
-                assert!(text.starts_with(entry.name), "{text}");
+                assert_eq!(text, format!("{name} 33 {}", common.ce));
+                let v = serde_json::to_value(read_date(&text, lang)).unwrap();
+                assert_eq!(v["month"], month, "{text}");
+            }
+            assert_eq!(words.hebrew_months.len(), HebrewMonth::ALL.len());
+            for entry in &words.hebrew_months {
+                let pick = in_hebrew(year(33, false, false), entry.hebrew_month, None);
+                let text = write_date(&pick, lang, "");
+                assert_eq!(text, format!("{} 33 {}", entry.name, common.ce));
                 let v = serde_json::to_value(read_date(&text, lang)).unwrap();
                 assert_eq!(v["month"], entry.civil_month, "{text}");
             }

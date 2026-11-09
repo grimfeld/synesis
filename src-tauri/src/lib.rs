@@ -1235,10 +1235,10 @@ fn read_date(text: String, language: Lang) -> api::DatePreview {
     api::read_date(&text, language)
 }
 
-/// The Hebrew months the Date picker lists, named in `language`.
+/// Every word the Date picker labels a segment with, named in `language`.
 #[tauri::command]
-fn hebrew_months(language: Lang) -> Vec<api::HebrewMonthEntry> {
-    api::hebrew_months(language)
+fn date_words(language: Lang) -> api::DateWords {
+    api::date_words(language)
 }
 
 /// The text a Date picker writes into a Date field.
@@ -1520,7 +1520,7 @@ pub fn run() {
             find_source_by_url,
             detect_passages,
             read_date,
-            hebrew_months,
+            date_words,
             write_date,
             books,
             fetch_url_metadata,

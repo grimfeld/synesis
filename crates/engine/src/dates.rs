@@ -317,10 +317,11 @@ impl DatePick {
     /// The Date alone in the picker's form for `lang`, in `reckoning`: what
     /// the picker writes, and what the preview under a Date field shows.
     pub fn words(&self, lang: Lang, reckoning: Reckoning) -> String {
-        let (approx, era) = match lang {
-            Lang::En => ("c.", era_words_en(reckoning, self.bce)),
-            Lang::Fr => ("vers", era_words_fr(reckoning, self.bce)),
+        let approx = match lang {
+            Lang::En => "c.",
+            Lang::Fr => "vers",
         };
+        let era = reckoning.era(self.bce, lang);
         let mut parts: Vec<String> = Vec::new();
         if self.approx {
             parts.push(approx.into());
@@ -398,7 +399,7 @@ struct HebrewMonthWords {
 
 /// Every Hebrew month in the order of the sacred year, Adar I and II last:
 /// the one place a Hebrew month is named, ordered and set in the civil year.
-/// The picker lists them from here (`api::hebrew_months`).
+/// The picker lists them from here (`api::date_words`).
 const HEBREW_MONTHS: [HebrewMonthWords; 14] = {
     use HebrewMonth::*;
     const fn m(
@@ -490,7 +491,7 @@ impl HebrewMonth {
 }
 
 /// The civil month's name in `lang`, as the picker writes it.
-fn civil_month_name(lang: Lang, month: u8) -> &'static str {
+pub fn civil_month_name(lang: Lang, month: u8) -> &'static str {
     const EN: [&str; 12] = [
         "January",
         "February",
@@ -536,24 +537,6 @@ fn reckoning_of(text: &str) -> Option<Reckoning> {
 /// The notes in brackets in `text`, in order.
 fn notes(text: &str) -> impl Iterator<Item = &str> {
     NOTE.find_iter(text).map(|m| m.as_str())
-}
-
-fn era_words_en(reckoning: Reckoning, bce: bool) -> &'static str {
-    match (reckoning, bce) {
-        (Reckoning::Common, true) => "BCE",
-        (Reckoning::Common, false) => "CE",
-        (Reckoning::Christian, true) => "BC",
-        (Reckoning::Christian, false) => "AD",
-    }
-}
-
-fn era_words_fr(reckoning: Reckoning, bce: bool) -> &'static str {
-    match (reckoning, bce) {
-        (Reckoning::Common, true) => "av. n. è.",
-        (Reckoning::Common, false) => "de n. è.",
-        (Reckoning::Christian, true) => "av. J.-C.",
-        (Reckoning::Christian, false) => "ap. J.-C.",
-    }
 }
 
 /// Why a text is not a Date, so the preview can say how to fix it.
@@ -611,48 +594,123 @@ const APPROX: &[&str] = &[
     "c", "ca", "circa", "v", "vers", "env", "environ", "about", "abt", "approx",
 ];
 
-/// Era phrases as token sequences (dots, commas and dashes already turned to
-/// spaces): the words, whether they mean BCE, and the Reckoning they belong to.
-const ERAS: &[(&[&str], bool, Reckoning)] = {
-    use Reckoning::{Christian as X, Common as C};
-    &[
-        (&["bce"], true, C),
-        (&["b", "c", "e"], true, C),
-        (&["bc"], true, X),
-        (&["b", "c"], true, X),
-        (&["ce"], false, C),
-        (&["c", "e"], false, C),
-        (&["ad"], false, X),
-        (&["a", "d"], false, X),
-        (&["av", "j", "c"], true, X),
-        (&["av", "jc"], true, X),
-        (&["av", "n", "è"], true, C),
-        (&["av", "n", "e"], true, C),
-        (&["avant", "notre", "ère"], true, C),
-        (&["avant", "notre", "ere"], true, C),
-        (&["avant", "jésus", "christ"], true, X),
-        (&["avant", "jesus", "christ"], true, X),
-        (&["ap", "j", "c"], false, X),
-        (&["apr", "j", "c"], false, X),
-        (&["ap", "jc"], false, X),
-        (&["apr", "jc"], false, X),
-        (&["de", "n", "è"], false, C),
-        (&["de", "n", "e"], false, C),
-        (&["de", "notre", "ère"], false, C),
-        (&["de", "notre", "ere"], false, C),
-        (&["après", "jésus", "christ"], false, X),
-        (&["apres", "jesus", "christ"], false, X),
+/// An era's words: its Reckoning, whether it means BCE, its names as the
+/// picker writes them, and the other spellings the parser reads.
+struct EraWords {
+    reckoning: Reckoning,
+    bce: bool,
+    en: &'static str,
+    fr: &'static str,
+    /// Other spellings as token sequences (lowercase, dots, commas and dashes
+    /// already turned to spaces); the names above are read too.
+    also: &'static [&'static [&'static str]],
+}
+
+/// Every era marker: the one place an era is named, written and read.
+const ERA_WORDS: [EraWords; 4] = {
+    use Reckoning::{Christian, Common};
+    [
+        EraWords {
+            reckoning: Common,
+            bce: true,
+            en: "BCE",
+            fr: "av. n. è.",
+            also: &[
+                &["b", "c", "e"],
+                &["av", "n", "e"],
+                &["avant", "notre", "ère"],
+                &["avant", "notre", "ere"],
+            ],
+        },
+        EraWords {
+            reckoning: Common,
+            bce: false,
+            en: "CE",
+            fr: "de n. è.",
+            also: &[
+                &["c", "e"],
+                &["de", "n", "e"],
+                &["de", "notre", "ère"],
+                &["de", "notre", "ere"],
+            ],
+        },
+        EraWords {
+            reckoning: Christian,
+            bce: true,
+            en: "BC",
+            fr: "av. J.-C.",
+            also: &[
+                &["b", "c"],
+                &["av", "jc"],
+                &["avant", "jésus", "christ"],
+                &["avant", "jesus", "christ"],
+            ],
+        },
+        EraWords {
+            reckoning: Christian,
+            bce: false,
+            en: "AD",
+            fr: "ap. J.-C.",
+            also: &[
+                &["a", "d"],
+                &["apr", "j", "c"],
+                &["ap", "jc"],
+                &["apr", "jc"],
+                &["après", "jésus", "christ"],
+                &["apres", "jesus", "christ"],
+            ],
+        },
     ]
 };
+
+impl Reckoning {
+    /// The era marker for `bce` in this Reckoning, as the picker writes it in `lang`.
+    pub fn era(self, bce: bool, lang: Lang) -> &'static str {
+        let w = ERA_WORDS
+            .iter()
+            .find(|w| w.reckoning == self && w.bce == bce)
+            .expect("every era is in ERA_WORDS");
+        match lang {
+            Lang::En => w.en,
+            Lang::Fr => w.fr,
+        }
+    }
+}
+
+/// Era phrases as token sequences, from `ERA_WORDS`: the written names as
+/// `clean` splits them, then the other spellings; whether each means BCE,
+/// and its Reckoning.
+static ERAS: std::sync::LazyLock<Vec<(Vec<String>, bool, Reckoning)>> =
+    std::sync::LazyLock::new(|| {
+        ERA_WORDS
+            .iter()
+            .flat_map(|w| {
+                let written = [w.en, w.fr].map(|name| {
+                    clean(name)
+                        .split_whitespace()
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                });
+                let also = w
+                    .also
+                    .iter()
+                    .map(|phrase| phrase.iter().map(|t| String::from(*t)).collect::<Vec<_>>());
+                written
+                    .into_iter()
+                    .chain(also)
+                    .map(move |phrase| (phrase, w.bce, w.reckoning))
+            })
+            .collect()
+    });
 
 /// The era marker ending `tokens`, the longest that fits: whether it means
 /// BCE, its Reckoning, and how many tokens it takes.
 fn era_suffix(tokens: &[&str]) -> Option<(bool, Reckoning, usize)> {
     let mut best: Option<(bool, Reckoning, usize)> = None;
-    for (phrase, bce, reckoning) in ERAS {
+    for (phrase, bce, reckoning) in ERAS.iter() {
         let n = phrase.len();
         if tokens.len() > n
-            && tokens[tokens.len() - n..] == **phrase
+            && tokens[tokens.len() - n..] == phrase[..]
             && best.is_none_or(|(_, _, b)| n > b)
         {
             best = Some((*bce, *reckoning, n));
