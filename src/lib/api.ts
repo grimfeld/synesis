@@ -333,13 +333,16 @@ export type DatePreview =
 /**
  * A Date as the picker sets it (crates/engine/src/dates.rs `DatePick`): the
  * year as people say it (never 0), its era, whether it is approximate, and
- * optionally a civil month (1–12) and a day (1–31, written only with a month).
+ * optionally a civil month (1–12) or a Hebrew month, and a day (1–31,
+ * written only with a month).
  */
 export interface DatePick {
   era_year: number;
   bce: boolean;
   approx: boolean;
   month?: number | null;
+  /** A Hebrew month instead of a civil one; it wins over `month`. */
+  month_name?: HebrewMonth | null;
   day?: number | null;
 }
 
