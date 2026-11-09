@@ -91,6 +91,7 @@ import { Field } from "./Field";
 import { SyncSetup } from "./SyncSetup";
 import { PairingPanel } from "./Pairing";
 import { EventDate, TypeDot } from "./DocLink";
+import { DatePicker } from "./DatePicker";
 
 export function Dialogs() {
   const s = useStore();
@@ -861,12 +862,21 @@ function SpanFields({
     <div className="grid grid-cols-2 gap-3">
       {span.map((name) => (
         <Field key={name} label={propertyLabel(name, t)}>
-          <Input
-            value={f[name] ?? ""}
-            onChange={(e) => set(name, e.target.value)}
-            placeholder={t.date_placeholder}
-            data-testid={`new-${name}`}
-          />
+          {/* Each Date its own picker: a Span is two Dates, never a range. */}
+          <div className="flex min-w-0 items-center gap-1">
+            <Input
+              className="min-w-0 flex-1"
+              value={f[name] ?? ""}
+              onChange={(e) => set(name, e.target.value)}
+              placeholder={t.date_placeholder}
+              data-testid={`new-${name}`}
+            />
+            <DatePicker
+              text={f[name] ?? ""}
+              testId={`new-date-picker-${name}`}
+              onPick={(picked) => set(name, picked)}
+            />
+          </div>
         </Field>
       ))}
     </div>
