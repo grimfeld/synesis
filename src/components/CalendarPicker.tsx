@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { CalendarDays } from "lucide-react";
-import { enUS, fr } from "react-day-picker/locale";
 import { useLang, useT } from "@/i18n";
-import { readIsoDate, weekStartsOn, writeIsoDate } from "@/lib/calendarDate";
+import {
+  calendarLocale,
+  readIsoDate,
+  weekStartsOn,
+  writeIsoDate,
+} from "@/lib/calendarDate";
 import { cn } from "cn";
 import { FINGER, PickerShell } from "@/components/PickerShell";
 import { Button } from "@/components/ui/button";
@@ -85,7 +89,7 @@ export function CalendarPicker({
           onMonthChange={setMonth}
           startMonth={first}
           endMonth={last}
-          locale={lang === "fr" ? fr : enUS}
+          locale={calendarLocale(lang)}
           weekStartsOn={weekStartsOn(lang)}
           formatters={{
             formatCaption: (d) =>

@@ -1,3 +1,4 @@
+import { enUS, fr } from "react-day-picker/locale";
 import type { Lang } from "./api";
 
 /**
@@ -32,4 +33,13 @@ export function writeIsoDate(date: Date): string {
 /** The first day of the week in the app language: 0 Sunday, 1 Monday. */
 export function weekStartsOn(lang: Lang): 0 | 1 {
   return lang === "fr" ? 1 : 0;
+}
+
+/**
+ * react-day-picker's locale for the app language: date-fns' month and
+ * weekday names plus the calendar's French or English accessible names
+ * (the month and year dropdowns, the previous and next month buttons).
+ */
+export function calendarLocale(lang: Lang) {
+  return lang === "fr" ? fr : enUS;
 }
