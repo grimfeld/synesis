@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
+import type { HebrewMonthEntry } from "../api";
 import {
-  HEBREW_MONTHS,
   daysOf,
   withCalendar,
   withHebrewMonth,
@@ -44,25 +44,6 @@ const civil = (month: number | null, day: number | null): MonthPick => ({
 });
 
 describe("Hebrew months", () => {
-  it("lists the fourteen months in the order of the sacred year, Adar I and II last", () => {
-    expect(HEBREW_MONTHS).toEqual([
-      "nisan",
-      "iyyar",
-      "sivan",
-      "tammuz",
-      "ab",
-      "elul",
-      "tishri",
-      "heshvan",
-      "chislev",
-      "tebeth",
-      "shebat",
-      "adar",
-      "adar_i",
-      "adar_ii",
-    ]);
-  });
-
   it("offers days 1-30 in a Hebrew month, none without a month", () => {
     expect(daysOf({ calendar: "hebrew", month: null, hebrew: "nisan", day: null })).toBe(30);
     expect(daysOf({ calendar: "hebrew", month: null, hebrew: "adar_ii", day: null })).toBe(30);
@@ -90,18 +71,29 @@ describe("Hebrew months", () => {
   });
 });
 
+// The engine's Hebrew months (crates/engine/src/api.rs `hebrew_months`), in
+// its order; the picker takes the order and the civil months from there.
+const MONTHS: HebrewMonthEntry[] = [
+  { hebrew_month: "nisan", name: "Nisan", civil_month: 4 },
+  { hebrew_month: "tebeth", name: "Tebeth", civil_month: 1 },
+  { hebrew_month: "shebat", name: "Shebat", civil_month: 2 },
+  { hebrew_month: "adar", name: "Adar", civil_month: 3 },
+  { hebrew_month: "adar_i", name: "Adar I", civil_month: 3 },
+  { hebrew_month: "adar_ii", name: "Adar II", civil_month: 3 },
+];
+
 describe("withCalendar", () => {
   it("moves a civil month to the Hebrew month that usually begins in it", () => {
-    expect(withCalendar(civil(4, 14), "hebrew")).toEqual({
+    expect(withCalendar(civil(4, 14), "hebrew", MONTHS)).toEqual({
       calendar: "hebrew",
       month: null,
       hebrew: "nisan",
       day: 14,
     });
-    expect(withCalendar(civil(3, null), "hebrew")).toMatchObject({
+    expect(withCalendar(civil(3, null), "hebrew", MONTHS)).toMatchObject({
       hebrew: "adar",
     });
-    expect(withCalendar(civil(1, 31), "hebrew")).toMatchObject({
+    expect(withCalendar(civil(1, 31), "hebrew", MONTHS)).toMatchObject({
       hebrew: "tebeth",
       day: 30,
     });
@@ -114,24 +106,24 @@ describe("withCalendar", () => {
       hebrew: "adar_ii",
       day: 30,
     };
-    expect(withCalendar(adar2, "civil")).toEqual(civil(3, 30));
+    expect(withCalendar(adar2, "civil", MONTHS)).toEqual(civil(3, 30));
     const shebat: MonthPick = {
       calendar: "hebrew",
       month: null,
       hebrew: "shebat",
       day: 30,
     };
-    expect(withCalendar(shebat, "civil")).toEqual(civil(2, 29));
+    expect(withCalendar(shebat, "civil", MONTHS)).toEqual(civil(2, 29));
   });
 
   it("switches an empty month segment without a month or day", () => {
-    expect(withCalendar(civil(null, null), "hebrew")).toEqual({
+    expect(withCalendar(civil(null, null), "hebrew", MONTHS)).toEqual({
       calendar: "hebrew",
       month: null,
       hebrew: null,
       day: null,
     });
     const same = civil(5, 2);
-    expect(withCalendar(same, "civil")).toBe(same);
+    expect(withCalendar(same, "civil", MONTHS)).toBe(same);
   });
 });

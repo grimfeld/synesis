@@ -65,7 +65,7 @@ impl BibleDate {
     pub fn read(text: &str) -> Result<DateReading, DateError> {
         let Parsed {
             date,
-            month_name,
+            hebrew_month,
             reckoning,
         } = Self::parse_parts(text)?;
         let (era_year, bce) = date.era_year();
@@ -74,7 +74,7 @@ impl BibleDate {
             bce,
             reckoning,
             month: date.month,
-            month_name,
+            hebrew_month,
             day: date.day,
             approx: date.approx,
             precision: date.precision(),
@@ -89,9 +89,9 @@ impl BibleDate {
         let tokens = join_adar(cleaned.split_whitespace().collect());
         let read = match era_suffix(&tokens) {
             Some((bce, reckoning, n)) => {
-                read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, month_name)| Parsed {
+                read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, hebrew_month)| Parsed {
                     date,
-                    month_name,
+                    hebrew_month,
                     reckoning,
                 })
             }
@@ -111,8 +111,8 @@ impl BibleDate {
 
 struct Parsed {
     date: BibleDate,
-    /// The Hebrew month's one name, when the text named one.
-    month_name: Option<&'static str>,
+    /// The Hebrew month, when the text named one.
+    hebrew_month: Option<HebrewMonth>,
     reckoning: Reckoning,
 }
 
@@ -140,7 +140,7 @@ fn join_adar(tokens: Vec<&str>) -> Vec<&str> {
 
 /// The Date in what comes before the era marker: an optional "c.", an
 /// optional day and month in either order, then the year.
-fn read_tokens(tokens: &[&str], bce: bool) -> Result<(BibleDate, Option<&'static str>), DateError> {
+fn read_tokens(tokens: &[&str], bce: bool) -> Result<(BibleDate, Option<HebrewMonth>), DateError> {
     let mut tokens = tokens.to_vec();
     let approx = take_approx(&mut tokens);
     // The year is the last token: digits only.
@@ -239,9 +239,9 @@ pub struct DateReading {
     pub reckoning: Reckoning,
     /// Civil month, 1–12.
     pub month: Option<u8>,
-    /// The Hebrew month the text named ("nisan", "tishri", "adar_ii"…), under
-    /// one name whatever spelling was typed; `None` for a civil month.
-    pub month_name: Option<&'static str>,
+    /// The Hebrew month the text named, whatever spelling was typed; `None`
+    /// for a civil month.
+    pub hebrew_month: Option<HebrewMonth>,
     pub day: Option<u8>,
     pub approx: bool,
     pub precision: Precision,
@@ -274,7 +274,7 @@ pub struct DatePick {
     pub month: Option<u8>,
     /// A Hebrew month instead of a civil one; it wins over `month`.
     #[serde(default)]
-    pub month_name: Option<HebrewMonth>,
+    pub hebrew_month: Option<HebrewMonth>,
     /// Day of the month, 1–31; written only with a month.
     #[serde(default, deserialize_with = "day_of_month")]
     pub day: Option<u8>,
@@ -309,6 +309,14 @@ impl DatePick {
     /// Reckoning is kept; the Common Era when it has none.
     pub fn write(&self, lang: Lang, previous: &str) -> String {
         let reckoning = reckoning_of(previous).unwrap_or(Reckoning::Common);
+        let mut parts = vec![self.words(lang, reckoning)];
+        parts.extend(notes(previous).map(String::from));
+        parts.join(" ")
+    }
+
+    /// The Date alone in the picker's form for `lang`, in `reckoning`: what
+    /// the picker writes, and what the preview under a Date field shows.
+    pub fn words(&self, lang: Lang, reckoning: Reckoning) -> String {
         let (approx, era) = match lang {
             Lang::En => ("c.", era_words_en(reckoning, self.bce)),
             Lang::Fr => ("vers", era_words_fr(reckoning, self.bce)),
@@ -317,7 +325,7 @@ impl DatePick {
         if self.approx {
             parts.push(approx.into());
         }
-        let month = match (self.month_name, self.month) {
+        let month = match (self.hebrew_month, self.month) {
             (Some(hebrew), _) => Some(hebrew.name(lang)),
             (None, Some(civil)) => Some(civil_month_name(lang, civil)),
             (None, None) => None,
@@ -333,8 +341,23 @@ impl DatePick {
         }
         parts.push(self.era_year.to_string());
         parts.push(era.into());
-        parts.extend(notes(previous).map(String::from));
         parts.join(" ")
+    }
+}
+
+impl From<&DateReading> for DatePick {
+    /// The pick that writes the Date `reading` read.
+    fn from(reading: &DateReading) -> DatePick {
+        DatePick {
+            // A reading's year is at least 1: the parser reads no year 0.
+            era_year: std::num::NonZeroU32::new(reading.era_year.unsigned_abs())
+                .unwrap_or(std::num::NonZeroU32::MIN),
+            bce: reading.bce,
+            approx: reading.approx,
+            month: reading.month.filter(|_| reading.hebrew_month.is_none()),
+            hebrew_month: reading.hebrew_month,
+            day: reading.day,
+        }
     }
 }
 
@@ -361,50 +384,108 @@ pub enum HebrewMonth {
     AdarII,
 }
 
+/// A Hebrew month's words: its civil month, its names as the picker writes
+/// them, and the other spellings the parser reads.
+struct HebrewMonthWords {
+    month: HebrewMonth,
+    /// The civil month it usually begins in, as a Date reading it reports.
+    civil: u8,
+    en: &'static str,
+    fr: &'static str,
+    /// Other spellings, lowercase; the names above are read too.
+    also: &'static [&'static str],
+}
+
+/// Every Hebrew month in the order of the sacred year, Adar I and II last:
+/// the one place a Hebrew month is named, ordered and set in the civil year.
+/// The picker lists them from here (`api::hebrew_months`).
+const HEBREW_MONTHS: [HebrewMonthWords; 14] = {
+    use HebrewMonth::*;
+    const fn m(
+        month: HebrewMonth,
+        civil: u8,
+        en: &'static str,
+        fr: &'static str,
+        also: &'static [&'static str],
+    ) -> HebrewMonthWords {
+        HebrewMonthWords {
+            month,
+            civil,
+            en,
+            fr,
+            also,
+        }
+    }
+    [
+        m(Nisan, 4, "Nisan", "Nissan", &["abib"]),
+        m(Iyyar, 5, "Iyyar", "Iyar", &["ziv"]),
+        m(Sivan, 6, "Sivan", "Sivan", &["siwan"]),
+        m(Tammuz, 7, "Tammuz", "Tamouz", &["tammouz"]),
+        m(Ab, 8, "Ab", "Av", &[]),
+        m(Elul, 9, "Elul", "Eloul", &["éloul"]),
+        m(
+            Tishri,
+            10,
+            "Tishri",
+            "Tichri",
+            &["tishrei", "ethanim", "tisri"],
+        ),
+        m(
+            Heshvan,
+            11,
+            "Heshvan",
+            "Hechvan",
+            &["cheshvan", "marheshvan", "bul"],
+        ),
+        m(Chislev, 12, "Chislev", "Kislev", &["kislew"]),
+        m(Tebeth, 1, "Tebeth", "Tevet", &["tébeth"]),
+        m(Shebat, 2, "Shebat", "Chevat", &["shevat", "schebat"]),
+        // A leap year's two Adars read apart but sort as the same civil month.
+        m(Adar, 3, "Adar", "Adar", &[]),
+        m(AdarI, 3, "Adar I", "Adar I", &[]),
+        m(AdarII, 3, "Adar II", "Adar II", &["veadar"]),
+    ]
+};
+
 impl HebrewMonth {
     /// Every Hebrew month, in the order of the sacred year.
     pub const ALL: [HebrewMonth; 14] = {
-        use HebrewMonth::*;
-        [
-            Nisan, Iyyar, Sivan, Tammuz, Ab, Elul, Tishri, Heshvan, Chislev, Tebeth, Shebat, Adar,
-            AdarI, AdarII,
-        ]
+        let mut all = [HebrewMonth::Nisan; 14];
+        let mut i = 0;
+        while i < all.len() {
+            all[i] = HEBREW_MONTHS[i].month;
+            i += 1;
+        }
+        all
     };
+
+    fn words(self) -> &'static HebrewMonthWords {
+        HEBREW_MONTHS
+            .iter()
+            .find(|w| w.month == self)
+            .expect("every Hebrew month is in HEBREW_MONTHS")
+    }
 
     /// The month's name in `lang`, as the picker writes it.
     pub fn name(self, lang: Lang) -> &'static str {
-        const EN: [&str; 14] = [
-            "Nisan", "Iyyar", "Sivan", "Tammuz", "Ab", "Elul", "Tishri", "Heshvan", "Chislev",
-            "Tebeth", "Shebat", "Adar", "Adar I", "Adar II",
-        ];
-        const FR: [&str; 14] = [
-            "Nissan", "Iyar", "Sivan", "Tamouz", "Av", "Eloul", "Tichri", "Hechvan", "Kislev",
-            "Tevet", "Chevat", "Adar", "Adar I", "Adar II",
-        ];
-        let names = match lang {
-            Lang::En => &EN,
-            Lang::Fr => &FR,
-        };
-        names[self as usize]
+        let w = self.words();
+        match lang {
+            Lang::En => w.en,
+            Lang::Fr => w.fr,
+        }
     }
 
     /// The civil month it usually begins in, as a Date reading it reports.
     pub fn civil_month(self) -> u8 {
-        use HebrewMonth::*;
-        match self {
-            Tebeth => 1,
-            Shebat => 2,
-            Adar | AdarI | AdarII => 3,
-            Nisan => 4,
-            Iyyar => 5,
-            Sivan => 6,
-            Tammuz => 7,
-            Ab => 8,
-            Elul => 9,
-            Tishri => 10,
-            Heshvan => 11,
-            Chislev => 12,
-        }
+        self.words().civil
+    }
+
+    /// The Hebrew month `s` (lowercase) names, in any spelling the parser reads.
+    fn read(s: &str) -> Option<HebrewMonth> {
+        HEBREW_MONTHS
+            .iter()
+            .find(|w| w.en.to_lowercase() == s || w.fr.to_lowercase() == s || w.also.contains(&s))
+            .map(|w| w.month)
     }
 }
 
@@ -589,39 +670,16 @@ fn day_number(s: &str) -> Option<u8> {
     s.parse().ok().filter(|d| (1..=31).contains(d))
 }
 
-/// A civil month, 1–12, and the Hebrew month's one name when the text named one.
-type Month = (Option<u8>, Option<&'static str>);
+/// A civil month, 1–12, and the Hebrew month when the text named one.
+type Month = (Option<u8>, Option<HebrewMonth>);
 
-/// Civil month for an English, French or Hebrew month name (or abbreviation),
-/// with the Hebrew month's one name when it is one.
+/// Civil month for an English, French or Hebrew month name (or
+/// abbreviation), with the Hebrew month when it is one.
 fn month_of(s: &str) -> Option<Month> {
-    if let Some((m, name)) = hebrew_month(s) {
-        return Some((Some(m), Some(name)));
+    if let Some(hebrew) = HebrewMonth::read(s) {
+        return Some((Some(hebrew.civil_month()), Some(hebrew)));
     }
     civil_month(s).map(|m| (Some(m), None))
-}
-
-/// A Hebrew month, at the civil month it usually begins in, under one name
-/// whatever spelling was typed.
-fn hebrew_month(s: &str) -> Option<(u8, &'static str)> {
-    Some(match s {
-        "nisan" | "nissan" | "abib" => (4, "nisan"),
-        "iyyar" | "iyar" | "ziv" => (5, "iyyar"),
-        "sivan" | "siwan" => (6, "sivan"),
-        "tammuz" | "tamouz" => (7, "tammuz"),
-        "ab" | "av" => (8, "ab"),
-        "elul" | "eloul" => (9, "elul"),
-        "tishri" | "tishrei" | "tichri" | "ethanim" | "tisri" => (10, "tishri"),
-        "heshvan" | "cheshvan" | "hechvan" | "marheshvan" | "bul" => (11, "heshvan"),
-        "chislev" | "kislev" | "kislew" => (12, "chislev"),
-        "tebeth" | "tevet" | "tébeth" => (1, "tebeth"),
-        "shebat" | "shevat" | "chevat" | "schebat" => (2, "shebat"),
-        // A leap year's two Adars read apart but sort as the same civil month.
-        "adar" => (3, "adar"),
-        "adar i" => (3, "adar_i"),
-        "adar ii" | "veadar" => (3, "adar_ii"),
-        _ => return None,
-    })
 }
 
 fn civil_month(s: &str) -> Option<u8> {
@@ -718,13 +776,38 @@ mod tests {
     fn french_hebrew_month_spellings() {
         let r = read("14 Tichri 33 de n. è.").unwrap();
         assert_eq!(
-            (r.day, r.month, r.month_name),
-            (Some(14), Some(10), Some("tishri"))
+            (r.day, r.month, r.hebrew_month),
+            (Some(14), Some(10), Some(HebrewMonth::Tishri))
         );
         let r = read("Hechvan 33 de n. è.").unwrap();
-        assert_eq!((r.month, r.month_name), (Some(11), Some("heshvan")));
+        assert_eq!(
+            (r.month, r.hebrew_month),
+            (Some(11), Some(HebrewMonth::Heshvan))
+        );
         let r = read("Chevat 33 de n. è.").unwrap();
-        assert_eq!((r.month, r.month_name), (Some(2), Some("shebat")));
+        assert_eq!(
+            (r.month, r.hebrew_month),
+            (Some(2), Some(HebrewMonth::Shebat))
+        );
+        // Every French name the picker writes, and the spellings the preview
+        // once showed, still read.
+        for (text, month) in [
+            ("Nissan 33 de n. è.", HebrewMonth::Nisan),
+            ("Iyar 33 de n. è.", HebrewMonth::Iyyar),
+            ("Tamouz 33 de n. è.", HebrewMonth::Tammuz),
+            ("tammouz 33 de n. è.", HebrewMonth::Tammuz),
+            ("Av 33 de n. è.", HebrewMonth::Ab),
+            ("Eloul 33 de n. è.", HebrewMonth::Elul),
+            ("éloul 33 de n. è.", HebrewMonth::Elul),
+            ("Kislev 33 de n. è.", HebrewMonth::Chislev),
+            ("Tevet 33 de n. è.", HebrewMonth::Tebeth),
+            ("tébeth 33 de n. è.", HebrewMonth::Tebeth),
+            ("tishri 33 de n. è.", HebrewMonth::Tishri),
+            ("shebat 33 de n. è.", HebrewMonth::Shebat),
+            ("heshvan 33 de n. è.", HebrewMonth::Heshvan),
+        ] {
+            assert_eq!(read(text).unwrap().hebrew_month, Some(month), "{text}");
+        }
     }
 
     #[test]
@@ -739,12 +822,21 @@ mod tests {
         assert_eq!((d.month, d.day), (Some(3), None));
         // Read apart, sorted alike.
         assert_eq!(
-            read("14 Adar II 33 CE").unwrap().month_name,
-            Some("adar_ii")
+            read("14 Adar II 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarII)
         );
-        assert_eq!(read("14 Adar I 33 CE").unwrap().month_name, Some("adar_i"));
-        assert_eq!(read("Veadar 33 CE").unwrap().month_name, Some("adar_ii"));
-        assert_eq!(read("14 Adar 33 CE").unwrap().month_name, Some("adar"));
+        assert_eq!(
+            read("14 Adar I 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarI)
+        );
+        assert_eq!(
+            read("Veadar 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarII)
+        );
+        assert_eq!(
+            read("14 Adar 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::Adar)
+        );
         assert_eq!(read("14 Adar I 33 CE").unwrap().month, Some(3));
         assert_eq!(read("14 Adar II 33 CE").unwrap().month, Some(3));
         // A bare numeral is not a month.
@@ -790,23 +882,26 @@ mod tests {
             (r.era_year, r.bce, r.approx, r.precision),
             (1513, true, true, Precision::Year)
         );
-        assert_eq!((r.month, r.day, r.month_name), (None, None, None));
+        assert_eq!((r.month, r.day, r.hebrew_month), (None, None, None));
 
         let r = read("Nisan 33 CE").unwrap();
         assert_eq!(
             (r.era_year, r.bce, r.month, r.day, r.precision),
             (33, false, Some(4), None, Precision::Month)
         );
-        assert_eq!(r.month_name, Some("nisan"));
+        assert_eq!(r.hebrew_month, Some(HebrewMonth::Nisan));
 
         let r = read("14 Nisan 33 CE").unwrap();
         assert_eq!(
-            (r.month, r.day, r.month_name, r.precision),
-            (Some(4), Some(14), Some("nisan"), Precision::Day)
+            (r.month, r.day, r.hebrew_month, r.precision),
+            (Some(4), Some(14), Some(HebrewMonth::Nisan), Precision::Day)
         );
         // A civil month has no Hebrew name; Abib is Nisan by another name.
-        assert_eq!(read("1er avril 33 de n. è.").unwrap().month_name, None);
-        assert_eq!(read("Abib 1513 BCE").unwrap().month_name, Some("nisan"));
+        assert_eq!(read("1er avril 33 de n. è.").unwrap().hebrew_month, None);
+        assert_eq!(
+            read("Abib 1513 BCE").unwrap().hebrew_month,
+            Some(HebrewMonth::Nisan)
+        );
     }
 
     #[test]
@@ -838,7 +933,7 @@ mod tests {
     fn reading_serialises_for_the_ui() {
         let ok = serde_json::to_value(read("14 Nisan 33 CE").unwrap()).unwrap();
         assert_eq!(ok["precision"], "day");
-        assert_eq!(ok["month_name"], "nisan");
+        assert_eq!(ok["hebrew_month"], "nisan");
         assert_eq!(ok["reckoning"], "common");
         assert!(ok.get("era").is_none());
         assert!(ok.get("year").is_none());

@@ -1228,10 +1228,17 @@ fn detect_passages(state: State<AppState>, text: String) -> CmdResult<Vec<Detect
     Ok(api::detect_passages(&text, lang))
 }
 
-/// The live preview under a Date field: how the engine reads what is typed.
+/// The live preview under a Date field: how the engine reads what is typed,
+/// worded in `language`.
 #[tauri::command]
-fn read_date(text: String) -> api::DatePreview {
-    api::read_date(&text)
+fn read_date(text: String, language: Lang) -> api::DatePreview {
+    api::read_date(&text, language)
+}
+
+/// The Hebrew months the Date picker lists, named in `language`.
+#[tauri::command]
+fn hebrew_months(language: Lang) -> Vec<api::HebrewMonthEntry> {
+    api::hebrew_months(language)
 }
 
 /// The text a Date picker writes into a Date field.
@@ -1513,6 +1520,7 @@ pub fn run() {
             find_source_by_url,
             detect_passages,
             read_date,
+            hebrew_months,
             write_date,
             books,
             fetch_url_metadata,

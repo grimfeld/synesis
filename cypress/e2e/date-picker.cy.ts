@@ -73,7 +73,10 @@ describe("Date picker", () => {
     cy.get(at("-year")).type("1513");
     cy.get(at("-era-bce")).click();
     cy.get(field).should("have.value", "vers 1513 av. n. è.");
-    cy.get("[data-testid=date-preview-born]").should("have.attr", "data-ok", "true");
+    // The preview words the Date as the picker writes it.
+    cy.get("[data-testid=date-preview-born]")
+      .should("have.attr", "data-ok", "true")
+      .and("contain", "vers 1513 av. n. è. · année");
   });
 
   it("keeps BC and the note when the year changes", () => {
@@ -82,7 +85,7 @@ describe("Date picker", () => {
     // The picker opens on the Date the field holds, in its Reckoning.
     cy.get(at("-year")).should("have.value", "1000");
     cy.get(at("-era-bce")).should("have.attr", "data-state", "on").and("contain", "BC");
-    cy.get(at("-year")).clear().type("1010");
+    cy.get(at("-year")).clear().type("1010{enter}");
     cy.get(field).should("have.value", "1010 BC (1 Sam 16)");
     bornInFile().should("contain", "1010 BC (1 Sam 16)");
   });
@@ -195,6 +198,21 @@ describe("Date picker", () => {
     choose("month", "nisan");
     choose("day", "14");
     cy.get(field).should("have.value", "14 Nissan 33 de n. è.");
+    cy.get("[data-testid=date-preview-born]").should(
+      "contain",
+      "14 Nissan 33 de n. è. · jour",
+    );
+  });
+
+  it("shows the picker's French forms in the preview, whatever spelling was typed", () => {
+    cy.bridge("set_language", { lang: "fr" });
+    noteWithBorn("v. 14 tammouz 33 de n. è.");
+    cy.get("[data-testid=date-preview-born]").should(
+      "contain",
+      "vers 14 Tamouz 33 de n. è. · jour",
+    );
+    // The text stays as typed.
+    cy.get(field).should("have.value", "v. 14 tammouz 33 de n. è.");
   });
 
   it("opens on the Hebrew calendar at Adar II, with days 1 to 30", () => {
@@ -213,9 +231,77 @@ describe("Date picker", () => {
     noteWithBorn("ca. 3 Nissan 33 AD (Jn 19)");
     cy.get(at("-open")).click();
     cy.get(at("-month")).should("contain", "Nisan");
-    cy.get(at("-year")).clear().type("34");
+    cy.get(at("-year")).clear().type("34{enter}");
     cy.get(field).should("have.value", "c. 3 Nisan 34 AD (Jn 19)");
     bornInFile().should("contain", "c. 3 Nisan 34 AD (Jn 19)");
+  });
+
+  it("writes the year when it is committed, not on every digit", () => {
+    noteWithBorn("1000 BC (1 Sam 16)");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "1000").clear().type("1015");
+    // Typing writes nothing: no "1 BC", "10 BC", "101 BC" on the way.
+    cy.wait(800);
+    cy.get(field).should("have.value", "1000 BC (1 Sam 16)");
+    bornInFile().should("contain", "1000 BC (1 Sam 16)");
+    // Enter commits it.
+    cy.get(at("-year")).type("{enter}");
+    cy.get(field).should("have.value", "1015 BC (1 Sam 16)");
+    bornInFile().should("contain", "1015 BC (1 Sam 16)");
+    // So does leaving the segment…
+    cy.get(at("-year")).clear().type("1016").blur();
+    cy.get(field).should("have.value", "1016 BC (1 Sam 16)");
+    bornInFile().should("contain", "1016 BC (1 Sam 16)");
+    // …and closing the picker.
+    cy.get(at("-year")).clear().type("1017");
+    cy.get("body").type("{esc}");
+    cy.get(at()).should("not.exist");
+    cy.get(field).should("have.value", "1017 BC (1 Sam 16)");
+    bornInFile().should("contain", "1017 BC (1 Sam 16)");
+  });
+
+  it("starts afresh when the field is cleared", () => {
+    noteWithBorn("14 March 33 CE");
+    cy.get(field).clear().blur();
+    bornInFile().should("not.contain", "March");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "");
+    cy.get(at("-month")).should("not.contain", "March");
+    cy.get(at("-day")).should("be.disabled");
+    // Touching a segment does not write the old Date back.
+    cy.get(at("-approx")).click();
+    cy.get("body").type("{esc}");
+    cy.wait(800);
+    cy.get(field).should("have.value", "");
+    bornInFile().should("not.contain", "33");
+  });
+
+  it("gives every control a finger's size in the phone Sheet", () => {
+    noteWithBorn("14 March 33 CE", "phone");
+    cy.get(at("-open")).click();
+    cy.get(at()).should("have.attr", "data-shell", "sheet");
+    for (const suffix of [
+      "-year",
+      "-month",
+      "-day",
+      "-era-bce",
+      "-era-ce",
+      "-calendar-civil",
+      "-calendar-hebrew",
+    ]) {
+      cy.get(at(suffix)).then(($el) => {
+        expect($el[0].getBoundingClientRect().height, suffix).to.be.at.least(40);
+      });
+    }
+    cy.get(at("-approx"))
+      .parent()
+      .then(($row) => {
+        expect($row[0].getBoundingClientRect().height, "approx row").to.be.at.least(40);
+      });
+    cy.get(at("-month")).click();
+    cy.get(at("-month-4")).then(($el) => {
+      expect($el[0].getBoundingClientRect().height, "month item").to.be.at.least(40);
+    });
   });
 
   it("opens in a bottom Sheet at phone width", () => {
@@ -257,7 +343,7 @@ describe("Date picker beyond the right panel", () => {
     cy.get(`[data-testid=hub-dates] ${hub("-open")}`).click();
     cy.get(hub()).should("have.attr", "data-shell", "popover");
     cy.get(hub("-year")).should("have.value", "1000");
-    cy.get(hub("-year")).clear().type("1010");
+    cy.get(hub("-year")).clear().type("1010{enter}");
     cy.get("[data-testid=date-input-born]").should("have.value", "1010 BC (1 Sam 16)");
     cy.get("body").type("{esc}");
     cy.get(hub()).should("not.exist");
