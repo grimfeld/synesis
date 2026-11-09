@@ -272,6 +272,9 @@ pub struct DatePick {
     /// Civil month, 1–12.
     #[serde(default, deserialize_with = "civil_month_number")]
     pub month: Option<u8>,
+    /// A Hebrew month instead of a civil one; it wins over `month`.
+    #[serde(default)]
+    pub month_name: Option<HebrewMonth>,
     /// Day of the month, 1–31; written only with a month.
     #[serde(default, deserialize_with = "day_of_month")]
     pub day: Option<u8>,
@@ -314,19 +317,94 @@ impl DatePick {
         if self.approx {
             parts.push(approx.into());
         }
-        if let Some(month) = self.month {
+        let month = match (self.month_name, self.month) {
+            (Some(hebrew), _) => Some(hebrew.name(lang)),
+            (None, Some(civil)) => Some(civil_month_name(lang, civil)),
+            (None, None) => None,
+        };
+        if let Some(month) = month {
             if let Some(day) = self.day {
                 parts.push(match (lang, day) {
                     (Lang::Fr, 1) => "1er".into(),
                     _ => day.to_string(),
                 });
             }
-            parts.push(civil_month_name(lang, month).into());
+            parts.push(month.into());
         }
         parts.push(self.era_year.to_string());
         parts.push(era.into());
         parts.extend(notes(previous).map(String::from));
         parts.join(" ")
+    }
+}
+
+/// A Hebrew month as the picker sets it; a leap year's two Adars are months
+/// of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HebrewMonth {
+    Nisan,
+    Iyyar,
+    Sivan,
+    Tammuz,
+    Ab,
+    Elul,
+    Tishri,
+    Heshvan,
+    Chislev,
+    Tebeth,
+    Shebat,
+    Adar,
+    #[serde(rename = "adar_i")]
+    AdarI,
+    #[serde(rename = "adar_ii")]
+    AdarII,
+}
+
+impl HebrewMonth {
+    /// Every Hebrew month, in the order of the sacred year.
+    pub const ALL: [HebrewMonth; 14] = {
+        use HebrewMonth::*;
+        [
+            Nisan, Iyyar, Sivan, Tammuz, Ab, Elul, Tishri, Heshvan, Chislev, Tebeth, Shebat, Adar,
+            AdarI, AdarII,
+        ]
+    };
+
+    /// The month's name in `lang`, as the picker writes it.
+    pub fn name(self, lang: Lang) -> &'static str {
+        const EN: [&str; 14] = [
+            "Nisan", "Iyyar", "Sivan", "Tammuz", "Ab", "Elul", "Tishri", "Heshvan", "Chislev",
+            "Tebeth", "Shebat", "Adar", "Adar I", "Adar II",
+        ];
+        const FR: [&str; 14] = [
+            "Nissan", "Iyar", "Sivan", "Tamouz", "Av", "Eloul", "Tichri", "Hechvan", "Kislev",
+            "Tevet", "Chevat", "Adar", "Adar I", "Adar II",
+        ];
+        let names = match lang {
+            Lang::En => &EN,
+            Lang::Fr => &FR,
+        };
+        names[self as usize]
+    }
+
+    /// The civil month it usually begins in, as a Date reading it reports.
+    pub fn civil_month(self) -> u8 {
+        use HebrewMonth::*;
+        match self {
+            Tebeth => 1,
+            Shebat => 2,
+            Adar | AdarI | AdarII => 3,
+            Nisan => 4,
+            Iyyar => 5,
+            Sivan => 6,
+            Tammuz => 7,
+            Ab => 8,
+            Elul => 9,
+            Tishri => 10,
+            Heshvan => 11,
+            Chislev => 12,
+        }
     }
 }
 

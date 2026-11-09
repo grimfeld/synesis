@@ -172,6 +172,52 @@ describe("Date picker", () => {
     bornInFile().should("contain", "33 CE").and("not.contain", "March");
   });
 
+  it("writes a day, a Hebrew month and a year", () => {
+    noteWithBorn("");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).type("33");
+    cy.get(at("-era-ce")).click();
+    cy.get(at("-calendar-hebrew")).click();
+    choose("month", "nisan");
+    choose("day", "14");
+    cy.get(field).should("have.value", "14 Nisan 33 CE");
+    cy.get("[data-testid=date-preview-born]").should("have.attr", "data-ok", "true");
+    bornInFile().should("contain", "14 Nisan 33 CE");
+  });
+
+  it("writes the Hebrew month in French in the French form", () => {
+    cy.bridge("set_language", { lang: "fr" });
+    noteWithBorn("");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).type("33");
+    cy.get(at("-era-ce")).click();
+    cy.get(at("-calendar-hebrew")).click();
+    choose("month", "nisan");
+    choose("day", "14");
+    cy.get(field).should("have.value", "14 Nissan 33 de n. è.");
+  });
+
+  it("opens on the Hebrew calendar at Adar II, with days 1 to 30", () => {
+    noteWithBorn("14 Adar II 33 CE");
+    cy.get(at("-open")).click();
+    cy.get(at("-calendar-hebrew")).should("have.attr", "data-state", "on");
+    cy.get(at("-month")).should("contain", "Adar II");
+    cy.get(at("-day")).should("contain", "14").click();
+    cy.get(at("-day-30")).should("exist");
+    cy.get(at("-day-31")).should("not.exist");
+    cy.get(at("-day-30")).click();
+    cy.get(field).should("have.value", "30 Adar II 33 CE");
+  });
+
+  it("regenerates a Hebrew Date in the picker's form when the year changes", () => {
+    noteWithBorn("ca. 3 Nissan 33 AD (Jn 19)");
+    cy.get(at("-open")).click();
+    cy.get(at("-month")).should("contain", "Nisan");
+    cy.get(at("-year")).clear().type("34");
+    cy.get(field).should("have.value", "c. 3 Nisan 34 AD (Jn 19)");
+    bornInFile().should("contain", "c. 3 Nisan 34 AD (Jn 19)");
+  });
+
   it("opens in a bottom Sheet at phone width", () => {
     noteWithBorn("", "phone");
     cy.get(at("-open")).click();

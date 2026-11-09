@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { CalendarClock } from "lucide-react";
-import { api, type DatePick, type Reckoning } from "@/lib/api";
+import { api, type DatePick, type HebrewMonth, type Reckoning } from "@/lib/api";
 import { useLang, useT } from "@/i18n";
 import { PickerShell } from "@/components/PickerShell";
 import { Input } from "@/components/ui/input";
@@ -15,16 +15,32 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { civilMonth } from "@/lib/datePreview";
-import { daysInMonth, withMonth, type MonthDay } from "@/lib/datePick";
+import {
+  HEBREW_MONTHS,
+  daysOf,
+  withCalendar,
+  withHebrewMonth,
+  withMonth,
+  type Calendar,
+  type MonthPick,
+} from "@/lib/datePick";
 
 /** What the segments hold: the year as typed, so a half-typed one is kept. */
-interface Segments extends MonthDay {
+interface Segments extends MonthPick {
   approx: boolean;
   year: string;
   bce: boolean;
 }
 
-const EMPTY: Segments = { approx: false, year: "", bce: true, month: null, day: null };
+const EMPTY: Segments = {
+  approx: false,
+  year: "",
+  bce: true,
+  calendar: "civil",
+  month: null,
+  hebrew: null,
+  day: null,
+};
 
 /** The Select value for an empty month or day segment (Radix forbids ""). */
 const NONE = "none";
@@ -45,8 +61,10 @@ function yearOf(typed: string): number | null {
  * whole Date part back through the engine (`write_date`), keeping the text's
  * Reckoning and notes. Opening and closing it writes nothing.
  *
- * Segments: approximate, day, civil month, year, era. The day waits for a
- * month and offers only the days it has; clearing the month clears the day.
+ * Segments: approximate, day, month, year, era. The month is civil or Hebrew
+ * by a switch; the picker opens on the Hebrew calendar when the text names a
+ * Hebrew month. The day waits for a month and offers only the days it has
+ * (1–30 in a Hebrew month); clearing the month clears the day.
  */
 export function DatePicker({
   text,
@@ -60,7 +78,8 @@ export function DatePicker({
   onPick: (text: string) => void;
   /**
    * The shell's test id; segments are `${testId}-approx`, `-day`, `-month`,
-   * `-year`, `-era`, and the Select items `-month-<1–12|none>`, `-day-<n|none>`.
+   * `-year`, `-era`, `-calendar` (`-calendar-civil`, `-calendar-hebrew`), and
+   * the Select items `-month-<1–12|nisan…adar_ii|none>`, `-day-<n|none>`.
    */
   testId: string;
   disabled?: boolean;
@@ -71,9 +90,6 @@ export function DatePicker({
   const [open, setOpen] = useState(false);
   const [segments, setSegments] = useState<Segments>(EMPTY);
   const [reckoning, setReckoning] = useState<Reckoning>("common");
-  // Hebrew months are not a segment yet (#124): a pick here would turn one
-  // into its civil month, so a Date that names one is shown, not changed.
-  const [hebrew, setHebrew] = useState(false);
   // Only the latest pick's text lands.
   const latest = useRef(0);
   // The texts the picker wrote since it opened. Reading one back would only
@@ -86,10 +102,7 @@ export function DatePicker({
   useEffect(() => {
     let live = true;
     const value = text.trim();
-    if (!value) {
-      setHebrew(false);
-      return;
-    }
+    if (!value) return;
     if (wrote.current.has(text)) return;
     api
       .readDate(value)
@@ -99,11 +112,12 @@ export function DatePicker({
           approx: r.approx,
           year: String(r.era_year),
           bce: r.bce,
-          month: r.month,
+          calendar: r.month_name == null ? "civil" : "hebrew",
+          month: r.month_name == null ? r.month : null,
+          hebrew: r.month_name,
           day: r.month == null ? null : r.day,
         });
         setReckoning(r.reckoning);
-        setHebrew(r.month_name != null);
       })
       .catch(() => {});
     return () => {
@@ -119,8 +133,12 @@ export function DatePicker({
       era_year,
       bce: next.bce,
       approx: next.approx,
-      month: next.month,
-      day: next.month == null ? null : next.day,
+      ...(next.calendar === "hebrew"
+        ? {
+            month_name: next.hebrew,
+            day: next.hebrew == null ? null : next.day,
+          }
+        : { month: next.month, day: next.month == null ? null : next.day }),
     };
     const ticket = ++latest.current;
     const previous = text;
@@ -137,8 +155,29 @@ export function DatePicker({
   const yearInvalid = segments.year !== "" && yearOf(segments.year) == null;
   const eraWords =
     reckoning === "christian" ? { bce: t.bc, ce: t.ad } : { bce: t.bce, ce: t.ce };
-  const locked = hebrew || disabled;
-  const monthName = (m: number) => civilMonth(m, lang);
+  const locked = disabled;
+  const hebrew = segments.calendar === "hebrew";
+  const days = daysOf(segments);
+  const monthValue = hebrew
+    ? (segments.hebrew ?? NONE)
+    : segments.month == null
+      ? NONE
+      : String(segments.month);
+  const months: { value: string; label: string }[] = hebrew
+    ? HEBREW_MONTHS.map((h) => ({
+        value: h,
+        label: t.date_picker.hebrew_months[h],
+      }))
+    : MONTHS.map((m) => ({ value: String(m), label: civilMonth(m, lang) }));
+  const setMonth = (v: string) =>
+    pick(
+      hebrew
+        ? withHebrewMonth(segments, v === NONE ? null : (v as HebrewMonth))
+        : {
+            ...segments,
+            ...withMonth(segments, v === NONE ? null : Number(v)),
+          },
+    );
   return (
     <PickerShell
       label={t.date_picker.open}
@@ -165,6 +204,34 @@ export function DatePicker({
             onCheckedChange={(approx) => pick({ ...segments, approx })}
           />
         </div>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          aria-label={t.date_picker.calendar}
+          data-testid={`${testId}-calendar`}
+          className="w-full min-w-0"
+          value={segments.calendar}
+          disabled={locked}
+          onValueChange={(v) =>
+            v && pick({ ...segments, ...withCalendar(segments, v as Calendar) })
+          }
+        >
+          <ToggleGroupItem
+            value="civil"
+            data-testid={`${testId}-calendar-civil`}
+            className="h-auto min-h-8 min-w-0 flex-1 whitespace-normal"
+          >
+            {t.date_picker.civil}
+          </ToggleGroupItem>
+          <ToggleGroupItem
+            value="hebrew"
+            data-testid={`${testId}-calendar-hebrew`}
+            className="h-auto min-h-8 min-w-0 flex-1 whitespace-normal"
+          >
+            {t.date_picker.hebrew}
+          </ToggleGroupItem>
+        </ToggleGroup>
         <div className="flex min-w-0 flex-wrap items-end gap-3">
           <div className="grid min-w-0 basis-20 gap-1.5">
             <Label htmlFor={`${id}-day`} className="min-w-0 leading-snug">
@@ -172,7 +239,7 @@ export function DatePicker({
             </Label>
             <Select
               value={segments.day == null ? NONE : String(segments.day)}
-              disabled={locked || segments.month == null}
+              disabled={locked || days === 0}
               onValueChange={(v) =>
                 pick({ ...segments, day: v === NONE ? null : Number(v) })
               }
@@ -188,19 +255,16 @@ export function DatePicker({
                 <SelectItem value={NONE} data-testid={`${testId}-day-none`}>
                   {t.date_picker.no_day}
                 </SelectItem>
-                {segments.month != null &&
-                  Array.from({ length: daysInMonth(segments.month) }, (_, i) => i + 1).map(
-                    (d) => (
-                      <SelectItem
-                        key={d}
-                        value={String(d)}
-                        data-testid={`${testId}-day-${d}`}
-                        className="tabular-nums"
-                      >
-                        {d}
-                      </SelectItem>
-                    ),
-                  )}
+                {Array.from({ length: days }, (_, i) => i + 1).map((d) => (
+                  <SelectItem
+                    key={d}
+                    value={String(d)}
+                    data-testid={`${testId}-day-${d}`}
+                    className="tabular-nums"
+                  >
+                    {d}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -208,13 +272,7 @@ export function DatePicker({
             <Label htmlFor={`${id}-month`} className="min-w-0 leading-snug">
               {t.date_picker.month}
             </Label>
-            <Select
-              value={segments.month == null ? NONE : String(segments.month)}
-              disabled={locked}
-              onValueChange={(v) =>
-                pick({ ...segments, ...withMonth(segments, v === NONE ? null : Number(v)) })
-              }
-            >
+            <Select value={monthValue} disabled={locked} onValueChange={setMonth}>
               <SelectTrigger
                 id={`${id}-month`}
                 data-testid={`${testId}-month`}
@@ -226,9 +284,13 @@ export function DatePicker({
                 <SelectItem value={NONE} data-testid={`${testId}-month-none`}>
                   {t.date_picker.no_month}
                 </SelectItem>
-                {MONTHS.map((m) => (
-                  <SelectItem key={m} value={String(m)} data-testid={`${testId}-month-${m}`}>
-                    {monthName(m)}
+                {months.map((m) => (
+                  <SelectItem
+                    key={m.value}
+                    value={m.value}
+                    data-testid={`${testId}-month-${m.value}`}
+                  >
+                    {m.label}
                   </SelectItem>
                 ))}
               </SelectContent>
