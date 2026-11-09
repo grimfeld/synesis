@@ -108,6 +108,8 @@ export const fr: Dict = {
   period_slider_to: "Fin de la Période",
   period_slider_middle: "Déplacer la Période",
   tl_mini_events: "Événements",
+  // The Timeline's axis labels. A Date's written era words come from the
+  // engine (`date_words`), not from here.
   bce: "av. n. è.",
   ce: "de n. è.",
   backlinks: "Liens entrants",

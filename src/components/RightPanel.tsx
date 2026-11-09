@@ -421,7 +421,7 @@ export function Properties({
   return inline ? body : <Section title={t.properties}>{body}</Section>;
 }
 
-/** One Property: widget chosen by its type (ADR 0006); the key opens a menu to retype it. */
+/** The hint an empty Property field shows, by its type. */
 function placeholderFor(
   propType: PropertyType,
   t: ReturnType<typeof useT>,
@@ -438,6 +438,7 @@ function placeholderFor(
   }
 }
 
+/** One Property: widget chosen by its type (ADR 0006); the key opens a menu to retype it. */
 function PropertyRow({
   name,
   value,
@@ -459,7 +460,6 @@ function PropertyRow({
   // What a Date or calendar date field holds as typed, for its preview and
   // picker; the field itself stays uncontrolled and commits on blur like
   // every other Property.
-  // Date and calendar text is tracked as typed, to feed the picker and preview.
   const tracksTyped = propType === "date" || propType === "calendar";
   const [typed, setTyped] = useState(shown);
   useEffect(() => setTyped(shown), [shown]);
