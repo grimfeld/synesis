@@ -214,6 +214,11 @@ export const fr: Dict = {
     url: "URL",
   },
   date_placeholder: "v. 1513 av. n. è.",
+  calendar_picker: {
+    open: "Choisir un jour",
+    today: "Aujourd’hui",
+    clear: "Effacer",
+  },
   date_picker: {
     open: "Choisir une Date",
     approx: "Approximative (vers)",

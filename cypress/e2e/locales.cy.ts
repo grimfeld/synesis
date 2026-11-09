@@ -108,6 +108,34 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The calendar date picker's Sheet sets the month and year dropdowns
+      // ("sept." / 1611), the weekdays ("lun.") and "Aujourd’hui" / "Effacer"
+      // on a 390px screen.
+      it("keeps the calendar date picker inside its Sheet on a phone", () => {
+        cy.bridge("create_document", {
+          docType: "note",
+          title: `Dated ${lang}`,
+          fields: { date: "1611-09-08" },
+        });
+        cy.openApp();
+        // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=sidebar-search]").click();
+        cy.get("[data-testid=palette] input[cmdk-input]").type(`Dated ${lang}`);
+        cy.get("[data-testid=palette] [cmdk-item]").contains(`Dated ${lang}`).click();
+        cy.get("[data-testid=toggle-panel]").click();
+        cy.get("[data-testid=calendar-picker-date-open]").click();
+        cy.get("[data-testid=calendar-picker-date]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get('[data-testid=calendar-picker-date] td[data-day="1611-09-08"]').should(
+          "have.attr",
+          "data-selected",
+          "true",
+        );
+        expectNoOverflow();
+      });
+
       // The New Event dialog sets "Début"/"Fin" in a two-column grid, each
       // field with its picker button beside it, on a 390px screen.
       it("keeps the Event dialog's Date pickers inside the dialog on a phone", () => {
