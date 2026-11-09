@@ -864,20 +864,14 @@ function SpanFields({
       {span.map((name) => (
         <Field key={name} label={propertyLabel(name, t)}>
           {/* Each Date its own picker: a Span is two Dates, never a range. */}
-          <div className="flex min-w-0 items-center gap-1">
-            <Input
-              className="min-w-0 flex-1"
-              value={f[name] ?? ""}
-              onChange={(e) => set(name, e.target.value)}
-              placeholder={t.date_placeholder}
-              data-testid={`new-${name}`}
-            />
-            <DatePicker
-              text={f[name] ?? ""}
-              testId={`new-date-picker-${name}`}
-              onPick={(picked) => set(name, picked)}
-            />
-          </div>
+          <PickerField
+            value={f[name] ?? ""}
+            onChange={(v) => set(name, v)}
+            placeholder={t.date_placeholder}
+            testId={`new-${name}`}
+            Picker={DatePicker}
+            pickerTestId={`new-date-picker-${name}`}
+          />
         </Field>
       ))}
     </div>
@@ -1834,6 +1828,39 @@ export async function pickFolder(): Promise<string | null> {
 }
 
 /**
+ * A text field in a dialog with its picker beside it: the text as typed is
+ * the value, and a pick writes into it.
+ */
+function PickerField({
+  value,
+  onChange,
+  placeholder,
+  testId,
+  Picker,
+  pickerTestId,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  testId: string;
+  Picker: typeof DatePicker | typeof CalendarPicker;
+  pickerTestId: string;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <Input
+        className="min-w-0 flex-1"
+        data-testid={testId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      <Picker text={value} onPick={onChange} testId={pickerTestId} />
+    </div>
+  );
+}
+
+/**
  * A calendar date in a dialog (a Composition's or Source's `date`): the text
  * as typed, with the calendar date picker beside it.
  */
@@ -1844,20 +1871,15 @@ function CalendarDateField({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const t = useT();
   return (
-    <div className="flex min-w-0 items-center gap-1">
-      <Input
-        className="min-w-0 flex-1"
-        data-testid="new-doc-date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="YYYY-MM-DD"
-      />
-      <CalendarPicker
-        text={value}
-        onPick={onChange}
-        testId="new-doc-date-picker"
-      />
-    </div>
+    <PickerField
+      value={value}
+      onChange={onChange}
+      placeholder={t.calendar_placeholder}
+      testId="new-doc-date"
+      Picker={CalendarPicker}
+      pickerTestId="new-doc-date-picker"
+    />
   );
 }
