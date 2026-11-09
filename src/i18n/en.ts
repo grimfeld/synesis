@@ -230,6 +230,7 @@ export const en = {
     open: "Pick a Date",
     approx: "Approximate (c.)",
     year: "Year",
+    year_invalid: "Year must be 1 or more",
     era: "Era",
     month: "Month",
     day: "Day",
