@@ -449,6 +449,11 @@ function PropertyRow({
     propType === "link" || /^\[\[.*\]\]$/.test(shown.trim())
       ? linkTarget(shown)
       : null;
+  /** A picker's pick: the field shows it and it is written at once. */
+  const pickText = (text: string) => {
+    setTyped(text);
+    commit(text);
+  };
   const commit = (val: string) => {
     if (val === shown) return;
     switch (propType) {
@@ -561,7 +566,7 @@ function PropertyRow({
                 : propType === "link"
                   ? "[[…]]"
                   : propType === "calendar"
-                    ? "YYYY-MM-DD"
+                    ? t.calendar_placeholder
                     : undefined
             }
             onChange={
@@ -573,23 +578,13 @@ function PropertyRow({
           />
         )}
         {propType === "date" && (
-          <DatePicker
-            text={typed}
-            testId={`date-picker-${name}`}
-            onPick={(text) => {
-              setTyped(text);
-              commit(text);
-            }}
-          />
+          <DatePicker text={typed} testId={`date-picker-${name}`} onPick={pickText} />
         )}
         {propType === "calendar" && (
           <CalendarPicker
             text={typed}
             testId={`calendar-picker-${name}`}
-            onPick={(text) => {
-              setTyped(text);
-              commit(text);
-            }}
+            onPick={pickText}
           />
         )}
         {link && (

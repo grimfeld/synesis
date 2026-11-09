@@ -316,6 +316,11 @@ export type DateErrorKind =
 export type DatePreview =
   | {
       ok: true;
+      /**
+       * The Date in the picker's form for the app language, in the Reckoning
+       * typed: what the preview shows, and what a pick of it writes.
+       */
+      words: string;
       /** The year as people say it, in the era `bce` names. */
       era_year: number;
       bce: boolean;
@@ -323,7 +328,7 @@ export type DatePreview =
       reckoning: Reckoning;
       month: number | null;
       /** Set when the text named a Hebrew month; null for a civil one. */
-      month_name: HebrewMonth | null;
+      hebrew_month: HebrewMonth | null;
       day: number | null;
       approx: boolean;
       precision: "year" | "month" | "day";
@@ -342,8 +347,19 @@ export interface DatePick {
   approx: boolean;
   month?: number | null;
   /** A Hebrew month instead of a civil one; it wins over `month`. */
-  month_name?: HebrewMonth | null;
+  hebrew_month?: HebrewMonth | null;
   day?: number | null;
+}
+
+/**
+ * One Hebrew month as the Date picker lists it (crates/engine/src/api.rs
+ * `hebrew_months`): its name in the language, as a pick writes it, and the
+ * civil month it usually begins in.
+ */
+export interface HebrewMonthEntry {
+  hebrew_month: HebrewMonth;
+  name: string;
+  civil_month: number;
 }
 
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
@@ -1091,8 +1107,15 @@ export const api = {
     invoke<DocSummary | null>("find_source_by_url", { url }),
   detectPassages: (text: string) =>
     invoke<DetectedRange[]>("detect_passages", { text }),
-  /** How the engine reads a Date as typed, for the preview under its field. */
-  readDate: (text: string) => invoke<DatePreview>("read_date", { text }),
+  /**
+   * How the engine reads a Date as typed, for the preview under its field,
+   * worded in `language`.
+   */
+  readDate: (text: string, language: Lang) =>
+    invoke<DatePreview>("read_date", { text, language }),
+  /** The Hebrew months the Date picker lists, in order, named in `language`. */
+  hebrewMonths: (language: Lang) =>
+    invoke<HebrewMonthEntry[]>("hebrew_months", { language }),
   /**
    * The text a Date picker writes into a Date field: `pick` in the picker's
    * form for `language`, keeping the Reckoning and notes of `previousText`.

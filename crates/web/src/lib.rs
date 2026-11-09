@@ -392,7 +392,11 @@ impl State {
                 &arg::<String>(&a, "text")?,
                 self.lang(),
             )),
-            "read_date" => ok(api::read_date(&arg::<String>(&a, "text")?)),
+            "read_date" => ok(api::read_date(
+                &arg::<String>(&a, "text")?,
+                arg(&a, "language")?,
+            )),
+            "hebrew_months" => ok(api::hebrew_months(arg(&a, "language")?)),
             "write_date" => ok(api::write_date(
                 &arg(&a, "pick")?,
                 arg(&a, "language")?,

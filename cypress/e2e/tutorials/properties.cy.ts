@@ -65,7 +65,7 @@ describe("Tutorial: Properties & Dates", () => {
     cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-error", "span_in_one_value");
     cy.get("[data-testid=property-founded] input").clear().type("c. 1050 BCE");
     // Read as typed, before it is saved.
-    cy.get("[data-testid=date-preview-founded]").should("contain", "≈ 1050 BCE · year");
+    cy.get("[data-testid=date-preview-founded]").should("contain", "c. 1050 BCE · year");
     // Requeried: the Hub can re-render the field while it is typed into.
     cy.get("[data-testid=property-founded] input").blur();
     cy.get("[data-testid=hub-dates] [data-testid=date-founded]", { timeout: 10000 })
@@ -89,7 +89,7 @@ describe("Tutorial: Properties & Dates", () => {
     cy.get("[data-testid=date-picker-founded-month-nisan]").click();
     cy.get("[data-testid=date-picker-founded-day]").click();
     cy.get("[data-testid=date-picker-founded-day-14]").click();
-    cy.get("[data-testid=date-picker-founded-year]").clear().type("1040");
+    cy.get("[data-testid=date-picker-founded-year]").clear().type("1040{enter}");
     cy.get("[data-testid=property-founded] input").should("have.value", "c. 14 Nisan 1040 BC (Acts 19)");
     cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-ok", "true");
     cy.get("body").type("{esc}");

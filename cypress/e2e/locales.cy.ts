@@ -153,7 +153,7 @@ describe("Locale layout", () => {
         cy.get("[data-testid=new-date-picker-start]")
           .should("have.attr", "data-shell", "sheet")
           .and("be.visible");
-        cy.get("[data-testid=new-date-picker-start-year]").type("1513");
+        cy.get("[data-testid=new-date-picker-start-year]").type("1513{enter}");
         cy.get("[data-testid=new-start]").should(
           "have.value",
           lang === "fr" ? "1513 av. n. è." : "1513 BCE",

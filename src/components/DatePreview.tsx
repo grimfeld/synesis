@@ -7,7 +7,7 @@ import { useLang, useT } from "@/i18n";
 
 /**
  * Under a Date field, live as you type: how the app reads the value
- * ("≈ 1513 BCE · year"), or why it is not a Date.
+ * ("c. 1513 BCE · year", as the picker writes it), or why it is not a Date.
  *
  * The engine reads the text (`read_date`); this only writes its answer out in
  * the app language. The field's text is never touched (ADR 0005).
@@ -35,7 +35,7 @@ export function DatePreview({
     let live = true;
     const timer = setTimeout(() => {
       api
-        .readDate(value)
+        .readDate(value, lang)
         .then((r) => live && setReading(r))
         .catch(() => live && setReading(null));
     }, 120);
@@ -43,9 +43,9 @@ export function DatePreview({
       live = false;
       clearTimeout(timer);
     };
-  }, [value]);
+  }, [value, lang]);
   if (!value || !reading) return null;
-  const shown = datePreviewText(reading, t, lang);
+  const shown = datePreviewText(reading, t);
   return (
     <p
       data-testid={testId}

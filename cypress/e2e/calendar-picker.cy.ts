@@ -126,6 +126,18 @@ describe("Calendar date picker", () => {
     );
   });
 
+  it("names the form a calendar date takes in the app language", () => {
+    noteWithDate("");
+    cy.get(field).should("have.attr", "placeholder", "YYYY-MM-DD");
+    cy.get("[data-testid=sidebar-new]").click();
+    cy.get("[data-testid=new-doc-form]").contains("button", "Source").click();
+    cy.get("[data-testid=new-doc-date]").should("have.attr", "placeholder", "YYYY-MM-DD");
+    cy.bridge("set_language", { lang: "fr" });
+    cy.openApp();
+    openNote();
+    cy.get(field).should("have.attr", "placeholder", "AAAA-MM-JJ");
+  });
+
   for (const kind of ["Source", "Composition"])
     it(`sets a new ${kind}'s date from its dialog`, () => {
       const name = `Calendar ${kind}`;
