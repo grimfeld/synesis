@@ -110,8 +110,6 @@ export const fr: Dict = {
   tl_mini_events: "Événements",
   bce: "av. n. è.",
   ce: "de n. è.",
-  bc: "av. J.-C.",
-  ad: "ap. J.-C.",
   backlinks: "Liens entrants",
   no_backlinks: "Rien ne pointe ici pour l’instant.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,

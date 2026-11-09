@@ -71,7 +71,7 @@ describe("Hebrew months", () => {
   });
 });
 
-// The engine's Hebrew months (crates/engine/src/api.rs `hebrew_months`), in
+// The engine's Hebrew months (crates/engine/src/api.rs `date_words`), in
 // its order; the picker takes the order and the civil months from there.
 const MONTHS: HebrewMonthEntry[] = [
   { hebrew_month: "nisan", name: "Nisan", civil_month: 4 },

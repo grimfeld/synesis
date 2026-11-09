@@ -60,7 +60,7 @@ export function withHebrewMonth<T extends MonthPick>(current: T, hebrew: HebrewM
  * calendar's month at the same place in the year (the engine sorts a Hebrew
  * month at the civil month it usually begins in), and a day it lacks becomes
  * its last. `months` are the engine's Hebrew months, in its order
- * (`api.hebrewMonths`): a civil month becomes the first that begins in it.
+ * (`api.dateWords`): a civil month becomes the first that begins in it.
  */
 export function withCalendar(
   current: MonthPick,

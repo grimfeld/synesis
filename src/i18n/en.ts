@@ -109,9 +109,6 @@ export const en = {
   tl_mini_events: "Events",
   bce: "BCE",
   ce: "CE",
-  /** The era markers of a Date written "1513 BC" or "33 AD", answered in kind. */
-  bc: "BC",
-  ad: "AD",
   backlinks: "Backlinks",
   no_backlinks: "Nothing links here yet.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,

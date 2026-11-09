@@ -276,6 +276,17 @@ describe("Date picker", () => {
     bornInFile().should("not.contain", "33");
   });
 
+  it("labels the month and era with the words a pick writes", () => {
+    cy.bridge("set_language", { lang: "fr" });
+    noteWithBorn("70 ap. J.-C.");
+    cy.get(at("-open")).click();
+    cy.get(at("-era-bce")).should("have.text", "av. J.-C.");
+    cy.get(at("-era-ce")).should("have.text", "ap. J.-C.");
+    cy.get(at("-month")).click();
+    cy.get(at("-month-8")).should("have.text", "août").click();
+    cy.get(field).should("have.value", "août 70 ap. J.-C.");
+  });
+
   it("gives every control a finger's size in the phone Sheet", () => {
     noteWithBorn("14 March 33 CE", "phone");
     cy.get(at("-open")).click();
