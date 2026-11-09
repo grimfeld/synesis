@@ -1,7 +1,9 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useReducer,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -60,6 +62,13 @@ function useDateWords(lang: Lang): DateWords | null {
 function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
   const [state, dispatch] = useReducer(datePick, INITIAL_PICK);
   const [open, setOpen] = useState(false);
+  // The state and `onPick` as last rendered, for a write that lands after the
+  // picker is gone: switching Notes unmounts it, and a year committed just
+  // before still reaches the text.
+  const latest = useRef({ state, onPick });
+  useLayoutEffect(() => {
+    latest.current = { state, onPick };
+  });
 
   // Typing in the field updates the picker. Text that is not a Date leaves
   // the segments as they were, so a pick in progress is not lost; an empty
@@ -83,24 +92,31 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
     };
   }, [text, open, lang]);
 
-  // Each write asked for, from the text the field holds as it is asked.
-  const { write, landed } = state;
+  // Each write asked for, from the text the field holds as it is asked. The
+  // reducer says whether it lands (only the latest, once); `onPick` is called
+  // here rather than from a render, so it is called even once unmounted.
+  const { write } = state;
   useEffect(() => {
     if (!write) return;
     const previous = text;
     api
       .writeDate(write.date, lang, previous)
-      .then((written) =>
-        dispatch({ type: "written", ticket: write.ticket, previous, text: written }),
-      )
+      .then((written) => {
+        const action = {
+          type: "written",
+          ticket: write.ticket,
+          previous,
+          text: written,
+        } as const;
+        const before = latest.current.state;
+        const after = datePick(before, action);
+        latest.current = { ...latest.current, state: after };
+        dispatch(action);
+        if (after.landed !== before.landed) latest.current.onPick(written);
+      })
       .catch(() => {});
     // Only a new write asks the engine; `text` and `lang` are read as it is asked.
   }, [write]);
-
-  // The latest write that landed, once.
-  useEffect(() => {
-    if (landed) onPick(landed.text);
-  }, [landed]);
 
   const onOpenChange = (next: boolean) => {
     // Opening reads the field afresh: it may have been typed in since.

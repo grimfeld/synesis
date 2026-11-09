@@ -279,6 +279,31 @@ describe("Date picker", () => {
     bornInFile().should("contain", "1017 BC (1 Sam 16)");
   });
 
+  it("writes a year committed just before switching Notes", () => {
+    const other = `Elsewhere ${made}`;
+    cy.bridge("create_document", { docType: "note", title: other, fields: { born: "70 CE" } });
+    noteWithBorn("1000 BC (1 Sam 16)");
+    const first = title;
+    // The engine answers the write only once the other Note is open.
+    cy.intercept("POST", "**/invoke/write_date", (req) => {
+      req.on("response", (res) => {
+        res.setDelay(3000);
+      });
+    }).as("writeDate");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "1000").clear().type("1010{enter}");
+    cy.get("body").type("{esc}");
+    cy.get(at()).should("not.exist");
+    title = other;
+    openPicked(false);
+    cy.get(field).should("have.value", "70 CE");
+    cy.wait("@writeDate");
+    // Longer than the field's save would take, so the write would be on disk.
+    cy.wait(800);
+    title = first;
+    bornInFile().should("contain", "1010 BC (1 Sam 16)");
+  });
+
   it("starts afresh when the field is cleared", () => {
     noteWithBorn("14 March 33 CE");
     cy.get(field).clear().blur();
