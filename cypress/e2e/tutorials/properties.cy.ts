@@ -1,12 +1,30 @@
 // Walks the Properties & Dates Tutorial (docs/tutorials/properties.en.md)
 // step by step, doing what each step says, so a change to typed Properties,
-// Dates or the Timeline that outdates the Tutorial fails here (PLAN §25.13).
+// Dates, the Date pickers or the Timeline that outdates the Tutorial fails here (PLAN §25.13).
+/**
+ * Open a document from the sidebar's Search button rather than ⌘K, which
+ * Cypress cannot press on macOS (#115).
+ */
+function openByTitle(title: string) {
+  cy.get("[data-testid=sidebar-search]").click();
+  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
+  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
+  cy.get("[data-testid=palette]").should("not.exist");
+}
+
+/** Today as the calendar picker writes it. */
+function todayIso() {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 describe("Tutorial: Properties & Dates", () => {
   beforeEach(() => cy.openApp());
 
   it("can be followed to the end", () => {
     // A Place's page lists this Tutorial.
-    cy.openDoc("Ephesus");
+    openByTitle("Ephesus");
     cy.hubTitle("Ephesus");
     cy.openTutorial("properties");
 
@@ -24,7 +42,7 @@ describe("Tutorial: Properties & Dates", () => {
     cy.get("[role=option]").contains("Date (Bible)").click();
     cy.get("[data-testid=add-property] input").type("{enter}");
     cy.get("[data-testid=property-founded]").should("have.attr", "data-prop-type", "date");
-    cy.openDoc("Corinth");
+    openByTitle("Corinth");
     cy.hubTitle("Corinth");
     cy.get("[data-testid=add-property] input").type("founded");
     cy.get("[data-testid=add-property]").should("contain", "Date (Bible)");
@@ -40,7 +58,7 @@ describe("Tutorial: Properties & Dates", () => {
 
     // 3. A Date written as a reader says it is read, kept as typed, and shown under Dates.
     cy.tutorialStep(2);
-    cy.openDoc("Ephesus");
+    openByTitle("Ephesus");
     cy.hubTitle("Ephesus");
     // Two Dates in one value are not a Date: the preview says a Span is two.
     cy.get("[data-testid=property-founded] input").should("have.attr", "placeholder", "c. 1513 BCE").type("1050–1000 BCE");
@@ -55,12 +73,47 @@ describe("Tutorial: Properties & Dates", () => {
       .and("contain", "c. 1050 BCE");
     cy.tutorialNext();
 
-    // 4. Add Date offers the kind's pair, only its missing half, and a named Date.
+    // 4. The Date picker writes the Date into the field, keeping its era words and note;
+    //    a calendar date has a calendar that writes ISO.
     cy.tutorialStep(3);
+    cy.get("[data-testid=property-founded] input").clear().type("c. 1050 BC (Acts 19)").blur();
+    cy.get("[data-testid=date-picker-founded-open]").click();
+    // It opens on the Date the field holds.
+    cy.get("[data-testid=date-picker-founded-year]").should("have.value", "1050");
+    cy.get("[data-testid=date-picker-founded-approx]").should("have.attr", "data-state", "checked");
+    cy.get("[data-testid=date-picker-founded-era-bce]").should("have.attr", "data-state", "on").and("contain", "BC");
+    // A Hebrew month and a day; the day waits for the month.
+    cy.get("[data-testid=date-picker-founded-day]").should("be.disabled");
+    cy.get("[data-testid=date-picker-founded-calendar-hebrew]").click();
+    cy.get("[data-testid=date-picker-founded-month]").click();
+    cy.get("[data-testid=date-picker-founded-month-nisan]").click();
+    cy.get("[data-testid=date-picker-founded-day]").click();
+    cy.get("[data-testid=date-picker-founded-day-14]").click();
+    cy.get("[data-testid=date-picker-founded-year]").clear().type("1040");
+    cy.get("[data-testid=property-founded] input").should("have.value", "c. 14 Nisan 1040 BC (Acts 19)");
+    cy.get("[data-testid=date-preview-founded]").should("have.attr", "data-ok", "true");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=date-picker-founded]").should("not.exist");
+    cy.get("[data-testid=hub-dates] [data-testid=date-founded]", { timeout: 10000 }).should("contain", "c. 14 Nisan 1040 BC (Acts 19)");
+    // A calendar date: Today writes the day as ISO.
+    cy.get("[data-testid=add-property] input").type("visited");
+    cy.get("[data-testid=add-property] button[aria-label='Property type']").click();
+    cy.get("[role=option]").contains("Calendar date").click();
+    cy.get("[data-testid=add-property] input").type("{enter}");
+    cy.get("[data-testid=property-visited]").should("have.attr", "data-prop-type", "calendar");
+    cy.get("[data-testid=calendar-picker-visited-open]").click();
+    cy.get("[data-testid=calendar-picker-visited-today]").click();
+    cy.get("[data-testid=property-visited] input").should("have.value", todayIso());
+    cy.tutorialNext();
+
+    // 5. Add Date offers the kind's pair, only its missing half, and a named Date.
+    cy.tutorialStep(4);
     cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
     cy.get("[data-testid=add-date-pair]").should("contain", "Add Span").click();
     cy.focused().should("have.attr", "data-testid", "date-input-start");
     cy.get("[data-testid=date-input-end]").should("have.value", "");
+    // Radix keeps pointer events off for a moment after a menu closes.
+    cy.wait(500);
     cy.get("[data-testid=add-date]").click();
     cy.get("[data-testid=add-date-pair]").should("not.exist");
     cy.get("[data-testid=add-date-named]").click();
@@ -71,8 +124,8 @@ describe("Tutorial: Properties & Dates", () => {
     cy.get("[data-testid=date-name-form]").should("not.exist");
     cy.tutorialNext();
 
-    // 5. Do it once: a Character's lifespan, added from Add Date, makes a Span on the Timeline.
-    cy.tutorialStep(4);
+    // 6. Do it once: a Character's lifespan, added from Add Date, typed and picked, makes a Span on the Timeline.
+    cy.tutorialStep(5);
     cy.tutorialCommand("create.character");
     cy.get("[data-testid=new-doc-form]").should("contain", "Character");
     cy.get("[data-testid=new-doc-title]").type("Caleb");
@@ -81,7 +134,12 @@ describe("Tutorial: Properties & Dates", () => {
     cy.get("[data-testid=hub-dates] [data-testid=add-date]").click();
     cy.get("[data-testid=add-date-pair]").should("contain", "Add lifespan").click();
     cy.focused().type("c. 1553 BCE").blur();
-    cy.get("[data-testid=date-input-died]").type("c. 1450 BCE").blur();
+    cy.get("[data-testid=hub-date-picker-died-open]").click();
+    cy.get("[data-testid=hub-date-picker-died-approx]").click();
+    cy.get("[data-testid=hub-date-picker-died-year]").type("1450");
+    cy.get("[data-testid=hub-date-picker-died-era-bce]").click();
+    cy.get("[data-testid=date-input-died]").should("have.value", "c. 1450 BCE");
+    cy.get("body").type("{esc}");
     cy.get("[data-testid=date-born]").should("have.attr", "data-valid", "true");
     cy.get("[data-testid=date-died]").should("have.attr", "data-valid", "true");
     cy.tutorialCommand("nav.timeline");
