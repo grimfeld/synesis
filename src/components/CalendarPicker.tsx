@@ -37,6 +37,9 @@ export function CalendarPicker({
   const t = useT();
   const lang = useLang();
   const [open, setOpen] = useState(false);
+  // The month shown, held here so a re-render of the panel around the
+  // picker never sends it back to the month it opened on.
+  const [month, setMonth] = useState<Date>(() => new Date());
   const selected = readIsoDate(text) ?? undefined;
   const today = new Date();
   const first = new Date(
@@ -59,18 +62,26 @@ export function CalendarPicker({
       icon={<CalendarDays />}
       testId={testId}
       open={open}
-      onOpenChange={setOpen}
+      onOpenChange={(next) => {
+        // Opening shows the field's day, or today's month.
+        if (next) setMonth(selected ?? today);
+        setOpen(next);
+      }}
       disabled={disabled}
       className="w-auto"
     >
       <div className="grid min-w-0 justify-items-center gap-2">
         <Calendar
+          // Larger days for a finger in the phone Sheet; the Sheet's own
+          // background shows through, as the Popover's does.
+          className="bg-transparent [--cell-size:--spacing(10)] md:[--cell-size:--spacing(7)]"
           mode="single"
           // A click on the day already picked keeps it, rather than unpicking.
           required
           captionLayout="dropdown"
           selected={selected}
-          defaultMonth={selected ?? today}
+          month={month}
+          onMonthChange={setMonth}
           startMonth={first}
           endMonth={last}
           locale={lang === "fr" ? fr : enUS}
