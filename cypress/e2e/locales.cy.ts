@@ -136,6 +136,31 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The New Event dialog sets "Début"/"Fin" in a two-column grid, each
+      // field with its picker button beside it, on a 390px screen.
+      it("keeps the Event dialog's Date pickers inside the dialog on a phone", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=sidebar-search]").click();
+        cy.get("[data-testid=palette] input[cmdk-input]").type(">event");
+        cy.get("[data-testid=palette] [cmdk-item][data-value='create.event']")
+          .first()
+          .click();
+        cy.get("[data-testid=new-doc-form]").should("be.visible");
+        cy.get("[data-testid=new-date-picker-start-open]").should("be.visible");
+        cy.get("[data-testid=new-date-picker-end-open]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=new-date-picker-start-open]").click();
+        cy.get("[data-testid=new-date-picker-start]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get("[data-testid=new-date-picker-start-year]").type("1513");
+        cy.get("[data-testid=new-start]").should(
+          "have.value",
+          lang === "fr" ? "1513 av. n. è." : "1513 BCE",
+        );
+        expectNoOverflow();
+      });
+
       // The Period row carries the Period as text ("1100–1000 av. n. è."),
       // "1 non daté non affiché" and "Effacer la Période" side by side on a
       // 390px screen; its popover sets a year field beside an era button.
