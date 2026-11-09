@@ -8,7 +8,7 @@ import {
   writeIsoDate,
 } from "@/lib/calendarDate";
 import { cn } from "cn";
-import { FINGER, PickerShell } from "@/components/PickerShell";
+import { PickerShell, TOUCH_TARGET } from "@/components/PickerShell";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 
@@ -107,7 +107,7 @@ export function CalendarPicker({
             type="button"
             variant="outline"
             size="sm"
-            className={cn("h-auto", FINGER)}
+            className={cn("h-auto", TOUCH_TARGET)}
             data-testid={`${testId}-today`}
             onClick={() => write(writeIsoDate(new Date()))}
           >
@@ -117,7 +117,7 @@ export function CalendarPicker({
             type="button"
             variant="ghost"
             size="sm"
-            className={cn("h-auto", FINGER)}
+            className={cn("h-auto", TOUCH_TARGET)}
             data-testid={`${testId}-clear`}
             disabled={!text.trim()}
             onClick={() => write("")}

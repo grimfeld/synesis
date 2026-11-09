@@ -1,7 +1,9 @@
 import {
   useEffect,
   useId,
+  useLayoutEffect,
   useReducer,
+  useRef,
   useState,
   type Dispatch,
   type ReactNode,
@@ -11,7 +13,12 @@ import { api, type DateWords, type Lang } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "cn";
 import { useLang, useT } from "@/i18n";
-import { FINGER, PickerShell } from "@/components/PickerShell";
+import {
+  PickerShell,
+  TOUCH_TARGET,
+  TOUCH_TARGET_INPUT,
+  TOUCH_TARGET_TRIGGER,
+} from "@/components/PickerShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,7 +35,6 @@ import {
   daysOf,
   INITIAL_PICK,
   yearOf,
-  type Calendar,
   type DateSegments,
   type PickAction,
 } from "@/lib/datePick";
@@ -60,6 +66,13 @@ function useDateWords(lang: Lang): DateWords | null {
 function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
   const [state, dispatch] = useReducer(datePick, INITIAL_PICK);
   const [open, setOpen] = useState(false);
+  // The state and `onPick` as last rendered, for a write that lands after the
+  // picker is gone: switching Notes unmounts it, and a year committed just
+  // before still reaches the text.
+  const latest = useRef({ state, onPick });
+  useLayoutEffect(() => {
+    latest.current = { state, onPick };
+  });
 
   // Typing in the field updates the picker. Text that is not a Date leaves
   // the segments as they were, so a pick in progress is not lost; an empty
@@ -83,24 +96,31 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
     };
   }, [text, open, lang]);
 
-  // Each write asked for, from the text the field holds as it is asked.
-  const { write, landed } = state;
+  // Each write asked for, from the text the field holds as it is asked. The
+  // reducer says whether it lands (only the latest, once); `onPick` is called
+  // here rather than from a render, so it is called even once unmounted.
+  const { write } = state;
   useEffect(() => {
     if (!write) return;
     const previous = text;
     api
       .writeDate(write.date, lang, previous)
-      .then((written) =>
-        dispatch({ type: "written", ticket: write.ticket, previous, text: written }),
-      )
+      .then((written) => {
+        const action = {
+          type: "written",
+          ticket: write.ticket,
+          previous,
+          text: written,
+        } as const;
+        const before = latest.current.state;
+        const after = datePick(before, action);
+        latest.current = { ...latest.current, state: after };
+        dispatch(action);
+        if (after.landed !== before.landed) latest.current.onPick(written);
+      })
       .catch(() => {});
     // Only a new write asks the engine; `text` and `lang` are read as it is asked.
   }, [write]);
-
-  // The latest write that landed, once.
-  useEffect(() => {
-    if (landed) onPick(landed.text);
-  }, [landed]);
 
   const onOpenChange = (next: boolean) => {
     // Opening reads the field afresh: it may have been typed in since.
@@ -112,12 +132,9 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
   return { segments: state.segments, reckoning: state.reckoning, dispatch, open, onOpenChange };
 }
 
-/** A Select trigger's height, overriding its fixed one: the same sizes. */
-const TRIGGER = "data-[size=default]:h-10 md:data-[size=default]:h-8";
-
-/** One choice in a segment's Select. */
-interface SegmentItem {
-  value: string;
+/** One choice in a segment's Select or toggle. */
+interface SegmentItem<T extends string = string> {
+  value: T;
   label: ReactNode;
 }
 
@@ -162,12 +179,12 @@ function SegmentSelect({
         <SelectTrigger
           id={id}
           data-testid={testId}
-          className={cn("w-full min-w-0", numeric && "tabular-nums", TRIGGER)}
+          className={cn("w-full min-w-0", numeric && "tabular-nums", TOUCH_TARGET_TRIGGER)}
         >
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE} data-testid={`${testId}-none`} className={FINGER}>
+          <SelectItem value={NONE} data-testid={`${testId}-none`} className={TOUCH_TARGET}>
             {noneLabel}
           </SelectItem>
           {items.map((item) => (
@@ -175,7 +192,7 @@ function SegmentSelect({
               key={item.value}
               value={item.value}
               data-testid={`${testId}-${item.value}`}
-              className={cn(numeric && "tabular-nums", FINGER)}
+              className={cn(numeric && "tabular-nums", TOUCH_TARGET)}
             >
               {item.label}
             </SelectItem>
@@ -190,6 +207,22 @@ function SegmentSelect({
 function monthValue(s: DateSegments): string | null {
   if (s.calendar === "hebrew") return s.hebrew;
   return s.month == null ? null : String(s.month);
+}
+
+/**
+ * What choosing `value` in the month segment does: the Select hands back an
+ * item's value, read here as the month of the segment's calendar.
+ */
+function monthPicked(
+  s: DateSegments,
+  value: string | null,
+  words: DateWords | null,
+): PickAction {
+  if (s.calendar === "hebrew") {
+    const entry = words?.hebrew_months.find((h) => h.hebrew_month === value);
+    return { type: "hebrewMonth", hebrew: entry?.hebrew_month ?? null };
+  }
+  return { type: "month", month: value == null ? null : Number(value) };
 }
 
 /** The months the month segment offers, in its calendar. */
@@ -209,7 +242,7 @@ function dayItems(s: DateSegments): SegmentItem[] {
 }
 
 /** A two-way toggle segment (calendar, era), each item touch-sized. */
-function SegmentToggle({
+function SegmentToggle<T extends string>({
   label,
   testId,
   value,
@@ -220,9 +253,9 @@ function SegmentToggle({
 }: {
   label: string;
   testId: string;
-  value: string;
-  onChange: (value: string) => void;
-  items: SegmentItem[];
+  value: T;
+  onChange: (value: T) => void;
+  items: SegmentItem<T>[];
   disabled?: boolean;
   /** Fill the row, the items sharing it and wrapping their labels. */
   wide?: boolean;
@@ -237,14 +270,17 @@ function SegmentToggle({
       className={cn(wide && "w-full min-w-0")}
       value={value}
       disabled={disabled}
-      onValueChange={(v) => v && onChange(v)}
+      onValueChange={(v) => {
+        const item = items.find((i) => i.value === v);
+        if (item) onChange(item.value);
+      }}
     >
       {items.map((item) => (
         <ToggleGroupItem
           key={item.value}
           value={item.value}
           data-testid={`${testId}-${item.value}`}
-          className={cn("h-auto", wide && "min-w-0 flex-1 whitespace-normal", FINGER)}
+          className={cn("h-auto", wide && "min-w-0 flex-1 whitespace-normal", TOUCH_TARGET)}
         >
           {item.label}
         </ToggleGroupItem>
@@ -289,7 +325,7 @@ function YearRow({
             inputMode="numeric"
             autoComplete="off"
             maxLength={5}
-            className="h-10 min-w-0 tabular-nums md:h-8"
+            className={cn("min-w-0 tabular-nums", TOUCH_TARGET_INPUT)}
             value={year}
             disabled={disabled}
             aria-invalid={invalid || undefined}
@@ -383,7 +419,7 @@ export function DatePicker({
       disabled={disabled}
     >
       <div className="grid min-w-0 gap-3" data-testid={`${testId}-segments`}>
-        <div className={cn("flex min-w-0 items-center justify-between gap-3", FINGER)}>
+        <div className={cn("flex min-w-0 items-center justify-between gap-3", TOUCH_TARGET)}>
           <Label htmlFor={`${id}-approx`} className="min-w-0 leading-snug">
             {t.date_picker.approx}
           </Label>
@@ -408,7 +444,7 @@ export function DatePicker({
           onChange={(v) =>
             dispatch({
               type: "calendar",
-              calendar: v as Calendar,
+              calendar: v,
               months: words?.hebrew_months ?? [],
             })
           }
@@ -435,7 +471,7 @@ export function DatePicker({
             noneLabel={t.date_picker.no_month}
             items={monthItems(segments, words)}
             disabled={disabled}
-            onChange={(month) => dispatch({ type: "month", month })}
+            onChange={(v) => dispatch(monthPicked(segments, v, words))}
           />
         </div>
         <YearRow

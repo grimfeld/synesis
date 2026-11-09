@@ -242,7 +242,10 @@ pub fn date_words(language: Lang) -> DateWords {
     };
     DateWords {
         civil_months: std::array::from_fn(|i| {
-            civil_month_name(language, u8::try_from(i + 1).unwrap_or(12))
+            civil_month_name(
+                language,
+                u8::try_from(i + 1).expect("twelve months fit in a u8"),
+            )
         }),
         hebrew_months: HebrewMonth::ALL
             .into_iter()

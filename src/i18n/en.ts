@@ -107,6 +107,8 @@ export const en = {
   period_slider_to: "End of the Period",
   period_slider_middle: "Move the Period",
   tl_mini_events: "Events",
+  // The Timeline's axis labels. A Date's written era words come from the
+  // engine (`date_words`), not from here.
   bce: "BCE",
   ce: "CE",
   backlinks: "Backlinks",

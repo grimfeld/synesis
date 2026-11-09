@@ -610,7 +610,7 @@ struct EraWords {
 }
 
 /// Every era marker: the one place an era is named, written and read.
-const ERA_WORDS: [EraWords; 4] = {
+static ERA_WORDS: [EraWords; 4] = {
     use Reckoning::{Christian, Common};
     [
         EraWords {
@@ -681,9 +681,8 @@ impl Reckoning {
 }
 
 /// Era phrases as token sequences, from `ERA_WORDS`: the written names as
-/// `clean` splits them, then the other spellings; whether each means BCE,
-/// and its Reckoning.
-static ERAS: std::sync::LazyLock<Vec<(Vec<String>, bool, Reckoning)>> =
+/// `clean` splits them, then the other spellings, each beside its era.
+static ERAS: std::sync::LazyLock<Vec<(Vec<String>, &'static EraWords)>> =
     std::sync::LazyLock::new(|| {
         ERA_WORDS
             .iter()
@@ -701,7 +700,7 @@ static ERAS: std::sync::LazyLock<Vec<(Vec<String>, bool, Reckoning)>> =
                 written
                     .into_iter()
                     .chain(also)
-                    .map(move |phrase| (phrase, w.bce, w.reckoning))
+                    .map(move |phrase| (phrase, w))
             })
             .collect()
     });
@@ -710,13 +709,13 @@ static ERAS: std::sync::LazyLock<Vec<(Vec<String>, bool, Reckoning)>> =
 /// BCE, its Reckoning, and how many tokens it takes.
 fn era_suffix(tokens: &[&str]) -> Option<(bool, Reckoning, usize)> {
     let mut best: Option<(bool, Reckoning, usize)> = None;
-    for (phrase, bce, reckoning) in ERAS.iter() {
+    for (phrase, era) in ERAS.iter() {
         let n = phrase.len();
         if tokens.len() > n
             && tokens[tokens.len() - n..] == phrase[..]
             && best.is_none_or(|(_, _, b)| n > b)
         {
-            best = Some((*bce, *reckoning, n));
+            best = Some((era.bce, era.reckoning, n));
         }
     }
     best
