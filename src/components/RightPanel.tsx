@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
 import { DatePreview } from "./DatePreview";
+import { CalendarPicker } from "./CalendarPicker";
 import { DatePicker } from "./DatePicker";
 import { PanelTitle } from "./Field";
 
@@ -439,8 +440,9 @@ function PropertyRow({
   const shown = Array.isArray(value)
     ? value.map(fmString).join(", ")
     : fmString(value);
-  // What a Date field holds as typed, for its live preview; the field itself
-  // stays uncontrolled and commits on blur like every other Property.
+  // What a Date or calendar date field holds as typed, for its preview and
+  // picker; the field itself stays uncontrolled and commits on blur like
+  // every other Property.
   const [typed, setTyped] = useState(shown);
   useEffect(() => setTyped(shown), [shown]);
   const link =
@@ -551,23 +553,21 @@ function PropertyRow({
             className="h-7 min-w-0 flex-1 text-xs"
             key={name + shown}
             defaultValue={shown}
-            type={
-              propType === "number"
-                ? "number"
-                : propType === "calendar" && /^(\d{4}-\d{2}-\d{2})?$/.test(shown)
-                  ? "date"
-                  : "text"
-            }
+            type={propType === "number" ? "number" : "text"}
             step={propType === "number" ? "any" : undefined}
             placeholder={
               propType === "date"
                 ? t.date_placeholder
                 : propType === "link"
                   ? "[[…]]"
-                  : undefined
+                  : propType === "calendar"
+                    ? "YYYY-MM-DD"
+                    : undefined
             }
             onChange={
-              propType === "date" ? (e) => setTyped(e.target.value) : undefined
+              propType === "date" || propType === "calendar"
+                ? (e) => setTyped(e.target.value)
+                : undefined
             }
             onBlur={(e) => commit(e.target.value)}
           />
@@ -576,6 +576,16 @@ function PropertyRow({
           <DatePicker
             text={typed}
             testId={`date-picker-${name}`}
+            onPick={(text) => {
+              setTyped(text);
+              commit(text);
+            }}
+          />
+        )}
+        {propType === "calendar" && (
+          <CalendarPicker
+            text={typed}
+            testId={`calendar-picker-${name}`}
             onPick={(text) => {
               setTyped(text);
               commit(text);
