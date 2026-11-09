@@ -3,12 +3,59 @@ import { cn } from "cn"
 import {
   DayPicker,
   getDefaultClassNames,
+  useDayPicker,
+  type CustomComponents,
   type DayButton,
   type Locale,
 } from "react-day-picker"
 
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ChevronLeftIcon, ChevronRightIcon, ChevronDownIcon } from "lucide-react"
+
+// The custom parts are defined once, here, not inline in Calendar: a component
+// defined in render is a new type on every render, so React would remount the
+// whole calendar (its month and year dropdowns included) each time the page
+// around it re-renders, and a pick in progress would land on a detached
+// element (#126).
+const CALENDAR_COMPONENTS: Partial<CustomComponents> = {
+  Root: ({ className, rootRef, ...props }) => {
+    return (
+      <div
+        data-slot="calendar"
+        ref={rootRef}
+        className={cn(className)}
+        {...props}
+      />
+    )
+  },
+  Chevron: ({ className, orientation, ...props }) => {
+    if (orientation === "left") {
+      return <ChevronLeftIcon className={cn("size-4", className)} {...props} />
+    }
+
+    if (orientation === "right") {
+      return <ChevronRightIcon className={cn("size-4", className)} {...props} />
+    }
+
+    return <ChevronDownIcon className={cn("size-4", className)} {...props} />
+  },
+  DayButton: (props) => <LocalizedDayButton {...props} />,
+  WeekNumber: ({ children, ...props }) => {
+    return (
+      <td {...props}>
+        <div className="flex size-(--cell-size) items-center justify-center text-center">
+          {children}
+        </div>
+      </td>
+    )
+  },
+}
+
+/** CalendarDayButton in the Calendar's locale, read from the DayPicker. */
+function LocalizedDayButton(props: React.ComponentProps<typeof DayButton>) {
+  const { dayPickerProps } = useDayPicker()
+  return <CalendarDayButton locale={dayPickerProps.locale} {...props} />
+}
 
 function Calendar({
   className,
@@ -132,45 +179,7 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        Root: ({ className, rootRef, ...props }) => {
-          return (
-            <div
-              data-slot="calendar"
-              ref={rootRef}
-              className={cn(className)}
-              {...props}
-            />
-          )
-        },
-        Chevron: ({ className, orientation, ...props }) => {
-          if (orientation === "left") {
-            return (
-              <ChevronLeftIcon className={cn("size-4", className)} {...props} />
-            )
-          }
-
-          if (orientation === "right") {
-            return (
-              <ChevronRightIcon className={cn("size-4", className)} {...props} />
-            )
-          }
-
-          return (
-            <ChevronDownIcon className={cn("size-4", className)} {...props} />
-          )
-        },
-        DayButton: ({ ...props }) => (
-          <CalendarDayButton locale={locale} {...props} />
-        ),
-        WeekNumber: ({ children, ...props }) => {
-          return (
-            <td {...props}>
-              <div className="flex size-(--cell-size) items-center justify-center text-center">
-                {children}
-              </div>
-            </td>
-          )
-        },
+        ...CALENDAR_COMPONENTS,
         ...components,
       }}
       {...props}
