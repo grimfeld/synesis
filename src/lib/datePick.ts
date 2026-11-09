@@ -1,6 +1,8 @@
-// The Date picker's month and day segments (#123): which days a civil month
-// offers, and what a month change does to the day. Pure, so the rules are
-// tested without the engine.
+// The Date picker's month and day segments (#123, #124): which days a month
+// offers, what a month or calendar change does to the day. Pure, so the rules
+// are tested without the engine.
+
+import type { HebrewMonth } from "@/lib/api";
 
 /** Civil month, 1–12, and day of the month; `null` when the segment is empty. */
 export interface MonthDay {
@@ -25,4 +27,81 @@ export function withMonth(current: MonthDay, month: number | null): MonthDay {
   if (month == null) return { month: null, day: null };
   const day = current.day == null ? null : Math.min(current.day, daysInMonth(month));
   return { month, day };
+}
+
+/** Which calendar the month segment offers. */
+export type Calendar = "civil" | "hebrew";
+
+/**
+ * The month segment: a civil month or a Hebrew one, by `calendar`, and the
+ * day. The other calendar's month is always `null`.
+ */
+export interface MonthPick extends MonthDay {
+  calendar: Calendar;
+  hebrew: HebrewMonth | null;
+}
+
+/** The Hebrew months in the order of the sacred year; a leap year's Adar I and II last. */
+export const HEBREW_MONTHS: readonly HebrewMonth[] = [
+  "nisan",
+  "iyyar",
+  "sivan",
+  "tammuz",
+  "ab",
+  "elul",
+  "tishri",
+  "heshvan",
+  "chislev",
+  "tebeth",
+  "shebat",
+  "adar",
+  "adar_i",
+  "adar_ii",
+];
+
+/** Hebrew months run 1–30 in the picker, whichever month it is. */
+const HEBREW_DAYS = 30;
+
+/** The civil month a Hebrew month usually begins in, as the engine reads it. */
+function civilOf(hebrew: HebrewMonth): number {
+  const i = HEBREW_MONTHS.indexOf(hebrew);
+  // Nisan is April; Tebeth wraps to January; the Adars are all March.
+  return i >= 11 ? 3 : ((i + 3) % 12) + 1;
+}
+
+/** The Hebrew month that usually begins in civil month `month`. */
+function hebrewOf(month: number): HebrewMonth {
+  return HEBREW_MONTHS[(month + 8) % 12];
+}
+
+/** The days the month segment offers: none until a month is chosen. */
+export function daysOf(current: MonthPick): number {
+  if (current.calendar === "hebrew") return current.hebrew == null ? 0 : HEBREW_DAYS;
+  return current.month == null ? 0 : daysInMonth(current.month);
+}
+
+/** The segments after the Hebrew month is set; clearing it clears the day. */
+export function withHebrewMonth<T extends MonthPick>(current: T, hebrew: HebrewMonth | null): T {
+  return { ...current, hebrew, day: hebrew == null ? null : current.day };
+}
+
+/**
+ * The segments after switching calendar: a chosen month becomes the other
+ * calendar's month at the same place in the year (the engine sorts a Hebrew
+ * month at the civil month it usually begins in), and a day it lacks becomes
+ * its last.
+ */
+export function withCalendar(current: MonthPick, calendar: Calendar): MonthPick {
+  if (calendar === current.calendar) return current;
+  if (calendar === "hebrew") {
+    const hebrew = current.month == null ? null : hebrewOf(current.month);
+    const day = hebrew == null || current.day == null ? null : Math.min(current.day, HEBREW_DAYS);
+    return { calendar, month: null, hebrew, day };
+  }
+  const month = current.hebrew == null ? null : civilOf(current.hebrew);
+  return {
+    calendar,
+    hebrew: null,
+    ...withMonth({ month, day: current.day }, month),
+  };
 }
