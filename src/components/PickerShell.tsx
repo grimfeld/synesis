@@ -20,9 +20,15 @@ import { useIsMobile } from "@/hooks/use-mobile";
 /**
  * Touch-sized in the phone Sheet, like the calendar's days; the Popover's
  * compact size from `md` up (the Sheet's breakpoint, `useIsMobile`). Every
- * control inside a picker takes it.
+ * control inside a picker takes it, as a least height so a long label wraps.
+ * The two below are the same sizes for controls whose height is fixed;
+ * Tailwind reads class names from the source, so each is written out whole.
  */
-export const FINGER = "min-h-10 md:min-h-8";
+export const TOUCH_TARGET = "min-h-10 md:min-h-8";
+/** `TOUCH_TARGET` as a fixed height, for a text Input. */
+export const TOUCH_TARGET_INPUT = "h-10 md:h-8";
+/** `TOUCH_TARGET` as a Select trigger's height, overriding its fixed one. */
+export const TOUCH_TARGET_TRIGGER = "data-[size=default]:h-10 md:data-[size=default]:h-8";
 
 /**
  * The button beside a text field that opens a picker, and what it opens in:

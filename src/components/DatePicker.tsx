@@ -13,7 +13,12 @@ import { api, type DateWords, type Lang } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
 import { cn } from "cn";
 import { useLang, useT } from "@/i18n";
-import { FINGER, PickerShell } from "@/components/PickerShell";
+import {
+  PickerShell,
+  TOUCH_TARGET,
+  TOUCH_TARGET_INPUT,
+  TOUCH_TARGET_TRIGGER,
+} from "@/components/PickerShell";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -128,9 +133,6 @@ function useDatePick(text: string, lang: Lang, onPick: (text: string) => void) {
   return { segments: state.segments, reckoning: state.reckoning, dispatch, open, onOpenChange };
 }
 
-/** A Select trigger's height, overriding its fixed one: the same sizes. */
-const TRIGGER = "data-[size=default]:h-10 md:data-[size=default]:h-8";
-
 /** One choice in a segment's Select. */
 interface SegmentItem {
   value: string;
@@ -178,12 +180,12 @@ function SegmentSelect({
         <SelectTrigger
           id={id}
           data-testid={testId}
-          className={cn("w-full min-w-0", numeric && "tabular-nums", TRIGGER)}
+          className={cn("w-full min-w-0", numeric && "tabular-nums", TOUCH_TARGET_TRIGGER)}
         >
           <SelectValue placeholder="—" />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value={NONE} data-testid={`${testId}-none`} className={FINGER}>
+          <SelectItem value={NONE} data-testid={`${testId}-none`} className={TOUCH_TARGET}>
             {noneLabel}
           </SelectItem>
           {items.map((item) => (
@@ -191,7 +193,7 @@ function SegmentSelect({
               key={item.value}
               value={item.value}
               data-testid={`${testId}-${item.value}`}
-              className={cn(numeric && "tabular-nums", FINGER)}
+              className={cn(numeric && "tabular-nums", TOUCH_TARGET)}
             >
               {item.label}
             </SelectItem>
@@ -260,7 +262,7 @@ function SegmentToggle({
           key={item.value}
           value={item.value}
           data-testid={`${testId}-${item.value}`}
-          className={cn("h-auto", wide && "min-w-0 flex-1 whitespace-normal", FINGER)}
+          className={cn("h-auto", wide && "min-w-0 flex-1 whitespace-normal", TOUCH_TARGET)}
         >
           {item.label}
         </ToggleGroupItem>
@@ -305,7 +307,7 @@ function YearRow({
             inputMode="numeric"
             autoComplete="off"
             maxLength={5}
-            className="h-10 min-w-0 tabular-nums md:h-8"
+            className={cn("min-w-0 tabular-nums", TOUCH_TARGET_INPUT)}
             value={year}
             disabled={disabled}
             aria-invalid={invalid || undefined}
@@ -399,7 +401,7 @@ export function DatePicker({
       disabled={disabled}
     >
       <div className="grid min-w-0 gap-3" data-testid={`${testId}-segments`}>
-        <div className={cn("flex min-w-0 items-center justify-between gap-3", FINGER)}>
+        <div className={cn("flex min-w-0 items-center justify-between gap-3", TOUCH_TARGET)}>
           <Label htmlFor={`${id}-approx`} className="min-w-0 leading-snug">
             {t.date_picker.approx}
           </Label>
