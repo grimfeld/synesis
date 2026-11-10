@@ -1,7 +1,10 @@
 {
   "readyLabel": "ready-for-agent",
   "branchRegex": "^(\\d+)(?=[-_/]|$)|(?:^|[-_/])(?:issues?|tickets?|spec|gh|fix|bug|feat|feature)[-_/]?(\\d+)(?=[-_/]|$)",
-  "integrationBranchPrefix": "integration/",
+  "integrationBranchPrefix": [
+    "integration/",
+    "integrate/"
+  ],
   "exclude": {
     "authors": [
       "dependabot"
