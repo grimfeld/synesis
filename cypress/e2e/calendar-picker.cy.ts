@@ -8,10 +8,7 @@
  * Cypress cannot press on macOS (#115).
  */
 function openNote() {
-  cy.get("[data-testid=sidebar-search]").click();
-  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  cy.searchDoc(title);
 }
 
 /** Each test its own Note: the Vault copy is shared by the spec. */

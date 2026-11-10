@@ -14,7 +14,7 @@ describe("Tutorial: Hubs & Backlinks", () => {
     cy.tutorialStep(0);
     cy.tutorialCommand("nav.search");
     cy.get("[data-testid=palette] input[cmdk-input]").type("Antioch");
-    cy.get("[data-testid=palette] [cmdk-item]").contains("Antioch").click();
+    cy.contains("[data-testid=palette] [data-testid=palette-doc]", "Antioch").click();
     cy.get("[data-testid=palette]").should("not.exist");
     cy.hubTitle("Antioch");
     cy.get("[data-testid=hub-header]").should("contain", "Place");

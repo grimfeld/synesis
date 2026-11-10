@@ -1538,6 +1538,7 @@ function Palette({
                       <CommandItem
                         key={d.id}
                         value={"t:" + d.id}
+                        data-testid="palette-doc"
                         onSelect={() => go(d.id)}
                       >
                         <TypeDot type={d.type} />
@@ -1553,6 +1554,7 @@ function Palette({
                       <CommandItem
                         key={n.id + ":" + n.name}
                         value={"n:" + n.id + ":" + n.name}
+                        data-testid="palette-doc"
                         onSelect={() => go(n.id)}
                       >
                         <TypeDot type={n.type} />
@@ -1578,6 +1580,7 @@ function Palette({
                       <CommandItem
                         key={h.doc.id}
                         value={"d:" + h.doc.id}
+                        data-testid="palette-doc"
                         onSelect={() => go(h.doc.id)}
                         className="items-start"
                       >
@@ -1601,6 +1604,7 @@ function Palette({
                   <CommandGroupUi>
                     <CommandItem
                       value="__create__"
+                      data-testid="palette-create"
                       onSelect={() =>
                         s.setDialog({ kind: "new", title: query, type: createType })
                       }
