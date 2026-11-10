@@ -96,9 +96,7 @@ describe("Locale layout", () => {
         cy.openApp();
         // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
         cy.get("[data-sidebar=trigger]").first().click();
-        cy.get("[data-testid=sidebar-search]").click();
-        cy.get("[data-testid=palette] input[cmdk-input]").type(`Picked ${lang}`);
-        cy.get("[data-testid=palette] [cmdk-item]").contains(`Picked ${lang}`).click();
+        cy.searchDoc(`Picked ${lang}`);
         cy.get("[data-testid=toggle-panel]").click();
         cy.get("[data-testid=date-picker-born-open]").click();
         cy.get("[data-testid=date-picker-born]")
@@ -120,9 +118,7 @@ describe("Locale layout", () => {
         cy.openApp();
         // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
         cy.get("[data-sidebar=trigger]").first().click();
-        cy.get("[data-testid=sidebar-search]").click();
-        cy.get("[data-testid=palette] input[cmdk-input]").type(`Dated ${lang}`);
-        cy.get("[data-testid=palette] [cmdk-item]").contains(`Dated ${lang}`).click();
+        cy.searchDoc(`Dated ${lang}`);
         cy.get("[data-testid=toggle-panel]").click();
         cy.get("[data-testid=calendar-picker-date-open]").click();
         cy.get("[data-testid=calendar-picker-date]")

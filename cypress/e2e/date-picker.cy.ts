@@ -9,10 +9,7 @@
  */
 function openPicked(phone: boolean) {
   if (phone) cy.get("[data-sidebar=trigger]").first().click();
-  cy.get("[data-testid=sidebar-search]").click();
-  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  cy.searchDoc(title);
 }
 
 /** Each test its own Note: the Vault copy is shared by the spec. */
@@ -376,11 +373,11 @@ describe("Date picker", () => {
 describe("Date picker beyond the right panel", () => {
   afterEach(() => cy.bridge("set_language", { lang: "en" }));
 
-  /** Open a page, or run a Command (">…"), from the sidebar's Search button. */
-  function search(query: string, pick: string) {
+  /** Run the New Event Command from the sidebar's Search button. */
+  function newEvent() {
     cy.get("[data-testid=sidebar-search]").click();
-    cy.get("[data-testid=palette] input[cmdk-input]").type(query);
-    cy.get("[data-testid=palette] [cmdk-item]").contains(pick).click();
+    cy.get("[data-testid=palette] input[cmdk-input]").type(">New Event");
+    cy.get("[data-testid=palette] [cmdk-item][data-value='create.event']").click();
     cy.get("[data-testid=palette]").should("not.exist");
   }
 
@@ -393,7 +390,7 @@ describe("Date picker beyond the right panel", () => {
     });
     cy.viewport(1280, 800);
     cy.openApp();
-    search(name, name);
+    cy.searchDoc(name);
     const hub = (suffix = "") => `[data-testid=hub-date-picker-born${suffix}]`;
     cy.get(`[data-testid=hub-dates] ${hub("-open")}`).click();
     cy.get(hub()).should("have.attr", "data-shell", "popover");
@@ -414,7 +411,7 @@ describe("Date picker beyond the right panel", () => {
     const name = `Picked Event ${made++}`;
     cy.viewport(1280, 800);
     cy.openApp();
-    search(">New Event", "New Event");
+    newEvent();
     cy.get("[data-testid=new-doc-form] input").first().type(name);
     const start = (suffix = "") => `[data-testid=new-date-picker-start${suffix}]`;
     const end = (suffix = "") => `[data-testid=new-date-picker-end${suffix}]`;
