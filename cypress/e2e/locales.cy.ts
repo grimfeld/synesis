@@ -85,6 +85,78 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The Date picker's Sheet sets "Approximative (vers)" beside its switch
+      // and "av. J.-C." / "ap. J.-C." beside the year on a 390px screen.
+      it("keeps the Date picker inside its Sheet on a phone", () => {
+        cy.bridge("create_document", {
+          docType: "note",
+          title: `Picked ${lang}`,
+          fields: { born: "1000 BC (1 Sam 16)" },
+        });
+        cy.openApp();
+        // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.searchDoc(`Picked ${lang}`);
+        cy.get("[data-testid=toggle-panel]").click();
+        cy.get("[data-testid=date-picker-born-open]").click();
+        cy.get("[data-testid=date-picker-born]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get("[data-testid=date-picker-born-year]").should("have.value", "1000");
+        expectNoOverflow();
+      });
+
+      // The calendar date picker's Sheet sets the month and year dropdowns
+      // ("sept." / 1611), the weekdays ("lun.") and "Aujourd’hui" / "Effacer"
+      // on a 390px screen.
+      it("keeps the calendar date picker inside its Sheet on a phone", () => {
+        cy.bridge("create_document", {
+          docType: "note",
+          title: `Dated ${lang}`,
+          fields: { date: "1611-09-08" },
+        });
+        cy.openApp();
+        // The sidebar's Search button, not ⌘K, which Cypress cannot press on macOS.
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.searchDoc(`Dated ${lang}`);
+        cy.get("[data-testid=toggle-panel]").click();
+        cy.get("[data-testid=calendar-picker-date-open]").click();
+        cy.get("[data-testid=calendar-picker-date]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get('[data-testid=calendar-picker-date] td[data-day="1611-09-08"]').should(
+          "have.attr",
+          "data-selected",
+          "true",
+        );
+        expectNoOverflow();
+      });
+
+      // The New Event dialog sets "Début"/"Fin" in a two-column grid, each
+      // field with its picker button beside it, on a 390px screen.
+      it("keeps the Event dialog's Date pickers inside the dialog on a phone", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=sidebar-search]").click();
+        cy.get("[data-testid=palette] input[cmdk-input]").type(">event");
+        cy.get("[data-testid=palette] [cmdk-item][data-value='create.event']")
+          .first()
+          .click();
+        cy.get("[data-testid=new-doc-form]").should("be.visible");
+        cy.get("[data-testid=new-date-picker-start-open]").should("be.visible");
+        cy.get("[data-testid=new-date-picker-end-open]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=new-date-picker-start-open]").click();
+        cy.get("[data-testid=new-date-picker-start]")
+          .should("have.attr", "data-shell", "sheet")
+          .and("be.visible");
+        cy.get("[data-testid=new-date-picker-start-year]").type("1513{enter}");
+        cy.get("[data-testid=new-start]").should(
+          "have.value",
+          lang === "fr" ? "1513 av. n. è." : "1513 BCE",
+        );
+        expectNoOverflow();
+      });
+
       // The Period row carries the Period as text ("1100–1000 av. n. è."),
       // "1 non daté non affiché" and "Effacer la Période" side by side on a
       // 390px screen; its popover sets a year field beside an era button.

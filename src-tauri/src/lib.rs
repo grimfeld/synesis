@@ -1228,10 +1228,23 @@ fn detect_passages(state: State<AppState>, text: String) -> CmdResult<Vec<Detect
     Ok(api::detect_passages(&text, lang))
 }
 
-/// The live preview under a Date field: how the engine reads what is typed.
+/// The live preview under a Date field: how the engine reads what is typed,
+/// worded in `language`.
 #[tauri::command]
-fn read_date(text: String) -> api::DatePreview {
-    api::read_date(&text)
+fn read_date(text: String, language: Lang) -> api::DatePreview {
+    api::read_date(&text, language)
+}
+
+/// Every word the Date picker labels a segment with, named in `language`.
+#[tauri::command]
+fn date_words(language: Lang) -> api::DateWords {
+    api::date_words(language)
+}
+
+/// The text a Date picker writes into a Date field.
+#[tauri::command]
+fn write_date(pick: engine::dates::DatePick, language: Lang, previous_text: String) -> String {
+    api::write_date(&pick, language, &previous_text)
 }
 
 #[tauri::command]
@@ -1507,6 +1520,8 @@ pub fn run() {
             find_source_by_url,
             detect_passages,
             read_date,
+            date_words,
+            write_date,
             books,
             fetch_url_metadata,
             skin_gallery,

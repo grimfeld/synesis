@@ -1,37 +1,13 @@
-// The live preview under a Date field (ADR 0005): what the engine read,
-// written out in the app language. Built from the parsed parts, never from the
-// user's text — the engine is the only Date parser, and the text stays as typed.
+// The live preview under a Date field (ADR 0005): what the engine read. The
+// engine words the Date in the app language, as the picker writes it
+// (`read_date`), so the preview, the picker and the parser share one table of
+// names; this adds the precision, or says why the text is not a Date.
 
 import type { Dict } from "@/i18n/en";
-import type { DatePreview, Lang } from "./api";
+import type { DatePreview } from "./api";
 
-/** "≈ 1513 BCE · year", "14 nisan 33 de n. è. · jour", or why it is not a Date. */
-export function datePreviewText(
-  p: DatePreview,
-  t: Dict,
-  lang: Lang,
-): { ok: boolean; text: string } {
+/** "c. 1513 BCE · year", "14 Nissan 33 de n. è. · jour", or why it is not a Date. */
+export function datePreviewText(p: DatePreview, t: Dict): { ok: boolean; text: string } {
   if (!p.ok) return { ok: false, text: t.date_errors[p.error] };
-  const month = p.month_name
-    ? t.hebrew_months[p.month_name]
-    : p.month
-      ? civilMonth(p.month, lang)
-      : null;
-  const parts = [
-    p.approx ? t.date_approx : null,
-    p.day != null ? String(p.day) : null,
-    month,
-    String(p.era_year),
-    // The user's own family of markers, in the app language: "1513 BC" is
-    // not answered with "1513 BCE".
-    p.era === "christian" ? (p.bce ? t.bc : t.ad) : p.bce ? t.bce : t.ce,
-  ].filter((x): x is string => x != null);
-  return { ok: true, text: `${parts.join(" ")} · ${t.date_precision[p.precision]}` };
-}
-
-/** "April" or "avril": the month's name in the app language, not the system's. */
-function civilMonth(m: number, lang: Lang): string {
-  return new Intl.DateTimeFormat(lang, { month: "long", timeZone: "UTC" }).format(
-    new Date(Date.UTC(2000, m - 1, 1)),
-  );
+  return { ok: true, text: `${p.words} · ${t.date_precision[p.precision]}` };
 }

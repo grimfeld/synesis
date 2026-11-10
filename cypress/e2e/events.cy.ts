@@ -141,17 +141,14 @@ describe("Events listed elsewhere carry their Date", () => {
 
   it("the palette shows an Event's Date next to its title", () => {
     cy.palette("Paul in Ephesus");
-    cy.get("[data-testid=palette] [cmdk-item]")
-      .contains("[cmdk-item]", "Paul in Ephesus")
+    cy.contains("[data-testid=palette] [data-testid=palette-doc]", "Paul in Ephesus")
       .find("[data-testid=event-date]")
       .should("have.text", "c. 52 CE – c. 55 CE");
   });
 
   it("a Character's own Dates never read as an Event Date", () => {
     cy.palette("David");
-    cy.get("[data-testid=palette] [cmdk-item]")
-      .contains("[cmdk-item]", "David")
-      .first()
+    cy.contains("[data-testid=palette] [data-testid=palette-doc]", "David")
       .find("[data-testid=event-date]")
       .should("not.exist");
   });

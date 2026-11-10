@@ -107,11 +107,10 @@ export const en = {
   period_slider_to: "End of the Period",
   period_slider_middle: "Move the Period",
   tl_mini_events: "Events",
+  // The Timeline's axis labels. A Date's written era words come from the
+  // engine (`date_words`), not from here.
   bce: "BCE",
   ce: "CE",
-  /** The era markers of a Date written "1513 BC" or "33 AD", answered in kind. */
-  bc: "BC",
-  ad: "AD",
   backlinks: "Backlinks",
   no_backlinks: "Nothing links here yet.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -221,6 +220,28 @@ export const en = {
     url: "URL",
   },
   date_placeholder: "c. 1513 BCE",
+  /** A calendar date field's placeholder: the ISO form a pick writes. */
+  calendar_placeholder: "YYYY-MM-DD",
+  /** The Date picker beside a Date field. */
+  calendar_picker: {
+    open: "Pick a day",
+    today: "Today",
+    clear: "Clear",
+  },
+  date_picker: {
+    open: "Pick a Date",
+    approx: "Approximate (c.)",
+    year: "Year",
+    year_invalid: "Year must be 1 or more",
+    era: "Era",
+    month: "Month",
+    day: "Day",
+    no_month: "No month",
+    no_day: "No day",
+    calendar: "Calendar",
+    civil: "Civil",
+    hebrew: "Hebrew",
+  },
   add_date: "Add Date",
   add_lifespan: "Add lifespan",
   add_span: "Add Span",
@@ -232,23 +253,7 @@ export const en = {
     `“${name}” is already a ${type} Property in this vault. A name has one type everywhere; choose another.`,
   date_name_reserved: (name: string) =>
     `“${name}” is reserved and cannot be a Property.`,
-  /** Before an approximate year in the Date preview: "≈ 1513 BCE". */
-  date_approx: "≈",
   date_precision: { year: "year", month: "month", day: "day" },
-  hebrew_months: {
-    nisan: "Nisan",
-    iyyar: "Iyyar",
-    sivan: "Sivan",
-    tammuz: "Tammuz",
-    ab: "Ab",
-    elul: "Elul",
-    tishri: "Tishri",
-    heshvan: "Heshvan",
-    chislev: "Chislev",
-    tebeth: "Tebeth",
-    shebat: "Shebat",
-    adar: "Adar",
-  },
   /** Why a Date field's value is not a Date, under the field as you type. */
   date_errors: {
     no_era: "Not a Date: no era. Add BCE or CE, as in “c. 1513 BCE”.",

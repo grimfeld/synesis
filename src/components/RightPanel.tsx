@@ -68,6 +68,8 @@ import {
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
 import { DatePreview } from "./DatePreview";
+import { CalendarPicker } from "./CalendarPicker";
+import { DatePicker } from "./DatePicker";
 import { PanelTitle } from "./Field";
 
 interface Props {
@@ -419,6 +421,23 @@ export function Properties({
   return inline ? body : <Section title={t.properties}>{body}</Section>;
 }
 
+/** The hint an empty Property field shows, by its type. */
+function placeholderFor(
+  propType: PropertyType,
+  t: ReturnType<typeof useT>,
+): string | undefined {
+  switch (propType) {
+    case "date":
+      return t.date_placeholder;
+    case "calendar":
+      return t.calendar_placeholder;
+    case "link":
+      return "[[…]]";
+    default:
+      return undefined;
+  }
+}
+
 /** One Property: widget chosen by its type (ADR 0006); the key opens a menu to retype it. */
 function PropertyRow({
   name,
@@ -438,14 +457,21 @@ function PropertyRow({
   const shown = Array.isArray(value)
     ? value.map(fmString).join(", ")
     : fmString(value);
-  // What a Date field holds as typed, for its live preview; the field itself
-  // stays uncontrolled and commits on blur like every other Property.
+  // What a Date or calendar date field holds as typed, for its preview and
+  // picker; the field itself stays uncontrolled and commits on blur like
+  // every other Property.
+  const tracksTyped = propType === "date" || propType === "calendar";
   const [typed, setTyped] = useState(shown);
   useEffect(() => setTyped(shown), [shown]);
   const link =
     propType === "link" || /^\[\[.*\]\]$/.test(shown.trim())
       ? linkTarget(shown)
       : null;
+  /** A picker's pick: the field shows it and it is written at once. */
+  const pickText = (text: string) => {
+    setTyped(text);
+    commit(text);
+  };
   const commit = (val: string) => {
     if (val === shown) return;
     switch (propType) {
@@ -550,25 +576,21 @@ function PropertyRow({
             className="h-7 min-w-0 flex-1 text-xs"
             key={name + shown}
             defaultValue={shown}
-            type={
-              propType === "number"
-                ? "number"
-                : propType === "calendar" && /^(\d{4}-\d{2}-\d{2})?$/.test(shown)
-                  ? "date"
-                  : "text"
-            }
+            type={propType === "number" ? "number" : "text"}
             step={propType === "number" ? "any" : undefined}
-            placeholder={
-              propType === "date"
-                ? t.date_placeholder
-                : propType === "link"
-                  ? "[[…]]"
-                  : undefined
-            }
-            onChange={
-              propType === "date" ? (e) => setTyped(e.target.value) : undefined
-            }
+            placeholder={placeholderFor(propType, t)}
+            onChange={tracksTyped ? (e) => setTyped(e.target.value) : undefined}
             onBlur={(e) => commit(e.target.value)}
+          />
+        )}
+        {propType === "date" && (
+          <DatePicker text={typed} testId={`date-picker-${name}`} onPick={pickText} />
+        )}
+        {propType === "calendar" && (
+          <CalendarPicker
+            text={typed}
+            testId={`calendar-picker-${name}`}
+            onPick={pickText}
           />
         )}
         {link && (

@@ -5,7 +5,9 @@
 //! two cannot drift apart. Offsets here are UTF-16, which is what the editor
 //! counts in; the engine itself works in bytes.
 
-use crate::dates::{BibleDate, DateError, DateReading};
+use crate::dates::{
+    civil_month_name, BibleDate, DateError, DatePick, DateReading, HebrewMonth, Reckoning,
+};
 use crate::document::DocType;
 use crate::index::{DocSummary, Linkable};
 use crate::scripture::{Lang, Passage, Unit};
@@ -136,15 +138,21 @@ pub fn detect_passages(text: &str, lang: Lang) -> Vec<DetectedRange> {
         .collect()
 }
 
-/// The live preview under a Date field: `{ ok: true, …parts }` or
+/// The live preview under a Date field: `{ ok: true, words, …parts }` or
 /// `{ ok: false, error }`. The engine is the only Date parser (ADR 0005); the
-/// UI formats the parts and never reads the text itself.
+/// UI never reads the text itself.
 ///
 /// `ok` is written from the variant, so a reading with an error, or an error
 /// with parts, cannot be sent.
 #[derive(Debug, PartialEq, Eq)]
 pub enum DatePreview {
-    Read(DateReading),
+    Read {
+        reading: DateReading,
+        /// The Date in the picker's form for the app language, in the
+        /// Reckoning typed: what the preview shows, and what a pick of the
+        /// same Date writes.
+        words: String,
+    },
     NotADate(DateError),
 }
 
@@ -153,6 +161,7 @@ impl Serialize for DatePreview {
         #[derive(Serialize)]
         struct Read<'a> {
             ok: bool,
+            words: &'a str,
             #[serde(flatten)]
             date: &'a DateReading,
         }
@@ -162,7 +171,12 @@ impl Serialize for DatePreview {
             error: DateError,
         }
         match self {
-            DatePreview::Read(date) => Read { ok: true, date }.serialize(s),
+            DatePreview::Read { reading, words } => Read {
+                ok: true,
+                words,
+                date: reading,
+            }
+            .serialize(s),
             DatePreview::NotADate(error) => NotADate {
                 ok: false,
                 error: *error,
@@ -172,11 +186,88 @@ impl Serialize for DatePreview {
     }
 }
 
-pub fn read_date(text: &str) -> DatePreview {
+/// How the engine reads `text`, with its words in `language`.
+pub fn read_date(text: &str, language: Lang) -> DatePreview {
     match BibleDate::read(text) {
-        Ok(date) => DatePreview::Read(date),
+        Ok(reading) => DatePreview::Read {
+            words: DatePick::from(&reading).words(language, reading.reckoning),
+            reading,
+        },
         Err(error) => DatePreview::NotADate(error),
     }
+}
+
+/// One Hebrew month as the Date picker lists it.
+#[derive(Debug, Serialize)]
+pub struct HebrewMonthEntry {
+    pub hebrew_month: HebrewMonth,
+    /// Its name in the language, as a pick writes it.
+    pub name: &'static str,
+    /// The civil month it usually begins in, where the engine sorts it.
+    pub civil_month: u8,
+}
+
+/// An era marker for each side of year 1, as a pick writes it.
+#[derive(Debug, Serialize)]
+pub struct EraPair {
+    pub bce: &'static str,
+    pub ce: &'static str,
+}
+
+/// The era markers of each Reckoning.
+#[derive(Debug, Serialize)]
+pub struct Eras {
+    pub common: EraPair,
+    pub christian: EraPair,
+}
+
+/// Every word the Date picker labels a segment with, in one language.
+#[derive(Debug, Serialize)]
+pub struct DateWords {
+    /// The civil months, January first.
+    pub civil_months: [&'static str; 12],
+    /// The Hebrew months in the order of the sacred year, Adar I and II last.
+    pub hebrew_months: Vec<HebrewMonthEntry>,
+    pub eras: Eras,
+}
+
+/// The words the Date picker offers, named in `language`: each is the word
+/// `write_date` writes for that pick. The UI takes the months' order and
+/// names, the Hebrew months' civil months and the era markers from here,
+/// never from a table of its own.
+pub fn date_words(language: Lang) -> DateWords {
+    let eras = |reckoning: Reckoning| EraPair {
+        bce: reckoning.era(true, language),
+        ce: reckoning.era(false, language),
+    };
+    DateWords {
+        civil_months: std::array::from_fn(|i| {
+            civil_month_name(
+                language,
+                u8::try_from(i + 1).expect("twelve months fit in a u8"),
+            )
+        }),
+        hebrew_months: HebrewMonth::ALL
+            .into_iter()
+            .map(|hebrew_month| HebrewMonthEntry {
+                hebrew_month,
+                name: hebrew_month.name(language),
+                civil_month: hebrew_month.civil_month(),
+            })
+            .collect(),
+        eras: Eras {
+            common: eras(Reckoning::Common),
+            christian: eras(Reckoning::Christian),
+        },
+    }
+}
+
+/// The text a Date picker writes into a Date field (#120): `pick` in the
+/// picker's form for `language`, keeping the Reckoning and the notes in
+/// brackets of `previous_text`, the field's text before the pick. Its
+/// `read_date` gives `pick` back. The user's act, never the app's (ADR 0005).
+pub fn write_date(pick: &DatePick, language: Lang, previous_text: &str) -> String {
+    pick.write(language, previous_text)
 }
 
 #[derive(Serialize)]
@@ -518,17 +609,370 @@ mod tests {
 
     #[test]
     fn read_date_answers_parts_or_an_error_kind() {
-        let v = serde_json::to_value(read_date("c. 1513 BCE")).unwrap();
+        let v = serde_json::to_value(read_date("c. 1513 BCE", Lang::En)).unwrap();
         assert_eq!(v["ok"], true);
         assert_eq!(v["era_year"], 1513);
         assert_eq!(v["bce"], true);
         assert_eq!(v["approx"], true);
         assert_eq!(v["precision"], "year");
-        assert_eq!(v["era"], "common");
+        assert_eq!(v["reckoning"], "common");
         assert_eq!(v["month"], serde_json::Value::Null);
         assert_eq!(
-            serde_json::to_value(read_date("1513–1473 BCE")).unwrap(),
+            serde_json::to_value(read_date("1513–1473 BCE", Lang::En)).unwrap(),
             json!({ "ok": false, "error": "span_in_one_value" })
+        );
+    }
+
+    #[test]
+    fn read_date_words_the_date_as_the_picker_writes_it_in_the_language() {
+        let words = |text: &str, lang: Lang| {
+            serde_json::to_value(read_date(text, lang)).unwrap()["words"].clone()
+        };
+        // The French forms, whatever spelling was typed.
+        assert_eq!(words("v. 1513 av. n. è.", Lang::Fr), "vers 1513 av. n. è.");
+        assert_eq!(words("14 nisan 33 CE", Lang::Fr), "14 Nissan 33 de n. è.");
+        assert_eq!(words("tammouz 33 CE", Lang::Fr), "Tamouz 33 de n. è.");
+        assert_eq!(
+            words("14 adar II 33 CE", Lang::Fr),
+            "14 Adar II 33 de n. è."
+        );
+        assert_eq!(words("1 avril 33 CE", Lang::Fr), "1er avril 33 de n. è.");
+        assert_eq!(words("~1513 BCE", Lang::En), "c. 1513 BCE");
+        // The Reckoning typed, and no notes: the words are the Date alone.
+        assert_eq!(
+            words("ca. 3 Nissan 33 AD (Jn 19)", Lang::En),
+            "c. 3 Nisan 33 AD"
+        );
+        assert_eq!(words("70 ap. J.-C.", Lang::En), "70 AD");
+        assert_eq!(
+            serde_json::to_value(read_date("1513", Lang::En)).unwrap(),
+            json!({ "ok": false, "error": "no_era" })
+        );
+    }
+
+    #[test]
+    fn date_words_lists_the_sacred_year_with_names_and_civil_months() {
+        let fr = serde_json::to_value(date_words(Lang::Fr)).unwrap();
+        let hebrew = &fr["hebrew_months"];
+        assert_eq!(hebrew.as_array().unwrap().len(), 14);
+        assert_eq!(
+            hebrew[0],
+            json!({ "hebrew_month": "nisan", "name": "Nissan", "civil_month": 4 })
+        );
+        assert_eq!(
+            hebrew[9],
+            json!({ "hebrew_month": "tebeth", "name": "Tevet", "civil_month": 1 })
+        );
+        assert_eq!(
+            hebrew[13],
+            json!({ "hebrew_month": "adar_ii", "name": "Adar II", "civil_month": 3 })
+        );
+        assert_eq!(fr["civil_months"][3], "avril");
+        assert_eq!(
+            fr["eras"],
+            json!({
+                "common": { "bce": "av. n. è.", "ce": "de n. è." },
+                "christian": { "bce": "av. J.-C.", "ce": "ap. J.-C." },
+            })
+        );
+        let en = serde_json::to_value(date_words(Lang::En)).unwrap();
+        assert_eq!(en["hebrew_months"][4]["name"], "Ab");
+        assert_eq!(en["civil_months"][0], "January");
+        assert_eq!(en["eras"]["christian"]["bce"], "BC");
+    }
+
+    /// Every word `date_words` lists is exactly the word `write_date` writes
+    /// for that pick, so the picker labels its segments with what it writes.
+    #[test]
+    fn date_words_are_the_words_a_pick_writes() {
+        for lang in every_language() {
+            let words = date_words(lang);
+            let common = &words.eras.common;
+            for (previous, eras) in [("", common), ("70 AD", &words.eras.christian)] {
+                for (bce, era) in [(true, eras.bce), (false, eras.ce)] {
+                    let pick = year(33, bce, false);
+                    assert_eq!(write_date(&pick, lang, previous), format!("33 {era}"));
+                }
+            }
+            assert_eq!(words.civil_months.len(), 12);
+            for (i, name) in words.civil_months.iter().enumerate() {
+                let month = u8::try_from(i + 1).unwrap();
+                let pick = on(year(33, false, false), Some(month), None);
+                let text = write_date(&pick, lang, "");
+                assert_eq!(text, format!("{name} 33 {}", common.ce));
+                let v = serde_json::to_value(read_date(&text, lang)).unwrap();
+                assert_eq!(v["month"], month, "{text}");
+            }
+            assert_eq!(words.hebrew_months.len(), HebrewMonth::ALL.len());
+            for entry in &words.hebrew_months {
+                let pick = in_hebrew(year(33, false, false), entry.hebrew_month, None);
+                let text = write_date(&pick, lang, "");
+                assert_eq!(text, format!("{} 33 {}", entry.name, common.ce));
+                let v = serde_json::to_value(read_date(&text, lang)).unwrap();
+                assert_eq!(v["month"], entry.civil_month, "{text}");
+            }
+        }
+    }
+
+    fn year(era_year: u32, bce: bool, approx: bool) -> DatePick {
+        DatePick {
+            era_year: std::num::NonZeroU32::new(era_year).unwrap(),
+            bce,
+            approx,
+            month: None,
+            hebrew_month: None,
+            day: None,
+        }
+    }
+
+    /// `pick` set to the Hebrew month `name` and `day`.
+    fn in_hebrew(pick: DatePick, name: HebrewMonth, day: Option<u8>) -> DatePick {
+        DatePick {
+            hebrew_month: Some(name),
+            day,
+            ..pick
+        }
+    }
+
+    #[test]
+    fn write_date_writes_the_hebrew_month_in_the_language() {
+        let pick = in_hebrew(year(33, false, false), HebrewMonth::Nisan, Some(14));
+        assert_eq!(write_date(&pick, Lang::En, ""), "14 Nisan 33 CE");
+        assert_eq!(write_date(&pick, Lang::Fr, ""), "14 Nissan 33 de n. è.");
+        let adar = in_hebrew(year(33, false, false), HebrewMonth::AdarII, Some(30));
+        assert_eq!(write_date(&adar, Lang::En, ""), "30 Adar II 33 CE");
+        let elul = in_hebrew(year(1513, true, true), HebrewMonth::Elul, Some(1));
+        assert_eq!(
+            write_date(&elul, Lang::Fr, ""),
+            "vers 1er Eloul 1513 av. n. è."
+        );
+        // A pick regenerates the whole Date part in the picker's form.
+        let pick = in_hebrew(year(34, false, true), HebrewMonth::Nisan, Some(3));
+        assert_eq!(
+            write_date(&pick, Lang::En, "ca. 3 Nissan 33 AD (Jn 19)"),
+            "c. 3 Nisan 34 AD (Jn 19)"
+        );
+    }
+
+    #[test]
+    fn write_date_writes_every_hebrew_month_as_the_spec_spells_it() {
+        let en = [
+            "Nisan", "Iyyar", "Sivan", "Tammuz", "Ab", "Elul", "Tishri", "Heshvan", "Chislev",
+            "Tebeth", "Shebat", "Adar", "Adar I", "Adar II",
+        ];
+        let fr = [
+            "Nissan", "Iyar", "Sivan", "Tamouz", "Av", "Eloul", "Tichri", "Hechvan", "Kislev",
+            "Tevet", "Chevat", "Adar", "Adar I", "Adar II",
+        ];
+        for (i, name) in HebrewMonth::ALL.into_iter().enumerate() {
+            let pick = in_hebrew(year(33, false, false), name, None);
+            assert_eq!(write_date(&pick, Lang::En, ""), format!("{} 33 CE", en[i]));
+            assert_eq!(
+                write_date(&pick, Lang::Fr, ""),
+                format!("{} 33 de n. è.", fr[i])
+            );
+        }
+    }
+
+    /// The round trip over everything the picker can set: what `write_date`
+    /// writes reads back as the pick, in every language and Reckoning, at
+    /// every precision, approximate or not, in either calendar. A language the
+    /// parser cannot read fails here.
+    #[test]
+    fn write_date_round_trips_every_pick() {
+        let civil = (1..=12u8).map(|m| (Some(m), None));
+        let hebrew = HebrewMonth::ALL.into_iter().map(|h| (None, Some(h)));
+        let months: Vec<(Option<u8>, Option<HebrewMonth>)> = std::iter::once((None, None))
+            .chain(civil)
+            .chain(hebrew)
+            .collect();
+        for lang in every_language() {
+            for (previous, reckoning) in [("", "common"), ("70 ap. J.-C.", "christian")] {
+                for (era_year, bce) in [(1513, true), (1, true), (1, false), (33, false)] {
+                    for approx in [false, true] {
+                        for &(month, hebrew_month) in &months {
+                            let days: &[Option<u8>] = match (month, hebrew_month) {
+                                (None, None) => &[None],
+                                (_, Some(_)) => &[None, Some(1), Some(14), Some(30)],
+                                _ => &[None, Some(1), Some(14), Some(31)],
+                            };
+                            for &day in days {
+                                let pick = DatePick {
+                                    month,
+                                    hebrew_month,
+                                    day,
+                                    ..year(era_year, bce, approx)
+                                };
+                                let text = write_date(&pick, lang, previous);
+                                let v = serde_json::to_value(read_date(&text, lang)).unwrap();
+                                let case = format!("{lang:?} {pick:?} -> {text:?}");
+                                assert_eq!(v["ok"], true, "{case}");
+                                assert_eq!(v["era_year"], era_year, "{case}");
+                                assert_eq!(v["bce"], bce, "{case}");
+                                assert_eq!(v["approx"], approx, "{case}");
+                                assert_eq!(v["reckoning"], reckoning, "{case}");
+                                assert_eq!(v["hebrew_month"], json!(hebrew_month), "{case}");
+                                let civil = month.or(hebrew_month.map(HebrewMonth::civil_month));
+                                assert_eq!(v["month"], json!(civil), "{case}");
+                                assert_eq!(v["day"], json!(day), "{case}");
+                                let precision = match (civil, day) {
+                                    (None, _) => "year",
+                                    (Some(_), None) => "month",
+                                    _ => "day",
+                                };
+                                assert_eq!(v["precision"], precision, "{case}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// `pick` set to `month` (1–12) and `day`.
+    fn on(pick: DatePick, month: Option<u8>, day: Option<u8>) -> DatePick {
+        DatePick { month, day, ..pick }
+    }
+
+    #[test]
+    fn write_date_writes_the_civil_month_and_day_in_the_language() {
+        let pick = on(year(33, false, false), Some(3), Some(14));
+        assert_eq!(write_date(&pick, Lang::En, ""), "14 March 33 CE");
+        assert_eq!(write_date(&pick, Lang::Fr, ""), "14 mars 33 de n. è.");
+        let month = on(year(1513, true, true), Some(4), None);
+        assert_eq!(write_date(&month, Lang::En, ""), "c. April 1513 BCE");
+        assert_eq!(
+            write_date(&month, Lang::Fr, ""),
+            "vers avril 1513 av. n. è."
+        );
+        // French writes the first of the month as "1er".
+        let first = on(year(33, false, false), Some(8), Some(1));
+        assert_eq!(write_date(&first, Lang::Fr, ""), "1er août 33 de n. è.");
+        assert_eq!(write_date(&first, Lang::En, ""), "1 August 33 CE");
+        // A day without a month is not a Date the picker writes.
+        let stray = on(year(33, false, false), None, Some(14));
+        assert_eq!(write_date(&stray, Lang::En, ""), "33 CE");
+    }
+
+    #[test]
+    fn write_date_on_empty_text_writes_the_common_era_in_the_language() {
+        assert_eq!(
+            write_date(&year(1513, true, true), Lang::En, ""),
+            "c. 1513 BCE"
+        );
+        assert_eq!(
+            write_date(&year(1513, true, true), Lang::Fr, ""),
+            "vers 1513 av. n. è."
+        );
+        assert_eq!(write_date(&year(33, false, false), Lang::En, ""), "33 CE");
+        assert_eq!(
+            write_date(&year(33, false, false), Lang::Fr, "  "),
+            "33 de n. è."
+        );
+    }
+
+    /// Every app language. A new one stops this compiling, so the round trip
+    /// below covers it before the picker can write in it.
+    fn every_language() -> [Lang; 2] {
+        match Lang::En {
+            Lang::En | Lang::Fr => [Lang::En, Lang::Fr],
+        }
+    }
+
+    #[test]
+    fn write_date_reads_back_as_the_pick() {
+        for lang in every_language() {
+            for (previous, reckoning) in [
+                ("", "common"),
+                ("1000 BC (1 Sam 16)", "christian"),
+                ("33 de n. è.", "common"),
+                ("70 ap. J.-C.", "christian"),
+            ] {
+                for (era_year, bce) in [(1513, true), (1, true), (1, false), (2026, false)] {
+                    for approx in [false, true] {
+                        let text = write_date(&year(era_year, bce, approx), lang, previous);
+                        let v = serde_json::to_value(read_date(&text, lang)).unwrap();
+                        let case = format!("{lang:?} {previous:?} -> {text:?}");
+                        assert_eq!(v["ok"], true, "{case}");
+                        assert_eq!(v["era_year"], era_year, "{case}");
+                        assert_eq!(v["bce"], bce, "{case}");
+                        assert_eq!(v["approx"], approx, "{case}");
+                        assert_eq!(v["reckoning"], reckoning, "{case}");
+                        assert_eq!(v["precision"], "year", "{case}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn write_date_takes_the_pick_as_the_ui_sends_it() {
+        let pick: DatePick =
+            serde_json::from_value(json!({ "era_year": 1513, "bce": true, "approx": true }))
+                .unwrap();
+        assert_eq!(pick, year(1513, true, true));
+        let pick: DatePick =
+            serde_json::from_value(json!({ "era_year": 33, "bce": false, "month": 3, "day": 14 }))
+                .unwrap();
+        assert_eq!(pick, on(year(33, false, false), Some(3), Some(14)));
+        // No month 13, no day 32.
+        assert!(serde_json::from_value::<DatePick>(
+            json!({ "era_year": 1, "bce": false, "month": 13 })
+        )
+        .is_err());
+        assert!(serde_json::from_value::<DatePick>(
+            json!({ "era_year": 1, "bce": false, "month": 1, "day": 32 })
+        )
+        .is_err());
+        let pick: DatePick = serde_json::from_value(
+            json!({ "era_year": 33, "bce": false, "hebrew_month": "adar_ii", "day": 14 }),
+        )
+        .unwrap();
+        assert_eq!(
+            pick,
+            in_hebrew(year(33, false, false), HebrewMonth::AdarII, Some(14))
+        );
+        assert!(serde_json::from_value::<DatePick>(
+            json!({ "era_year": 1, "bce": false, "hebrew_month": "january" })
+        )
+        .is_err());
+        // There is no year 0.
+        assert!(serde_json::from_value::<DatePick>(json!({ "era_year": 0, "bce": true })).is_err());
+    }
+
+    #[test]
+    fn write_date_keeps_the_reckoning_and_the_note() {
+        let y = |n| year(n, true, false);
+        assert_eq!(
+            write_date(&y(1010), Lang::En, "1000 BC (1 Sam 16)"),
+            "1010 BC (1 Sam 16)"
+        );
+        assert_eq!(
+            write_date(&y(1010), Lang::Fr, "1000 BC (1 Sam 16)"),
+            "1010 av. J.-C. (1 Sam 16)"
+        );
+        assert_eq!(
+            write_date(&year(34, false, true), Lang::En, "33 apr. J.-C."),
+            "c. 34 AD"
+        );
+        assert_eq!(
+            write_date(&year(34, false, false), Lang::Fr, "c. 33 C.E."),
+            "34 de n. è."
+        );
+        // The picker's own form replaces the Date part, whatever spelling was
+        // typed; a note before it moves after it.
+        assert_eq!(
+            write_date(&year(34, false, true), Lang::En, "(Jn 19) ca. 33 A.D."),
+            "c. 34 AD (Jn 19)"
+        );
+        // Text that names no Reckoning gets the Common Era, and its notes stay.
+        assert_eq!(
+            write_date(&y(1513), Lang::En, "1513 (Ex 12-13)"),
+            "1513 BCE (Ex 12-13)"
+        );
+        assert_eq!(
+            write_date(&y(1513), Lang::En, "(a) whatever (b)"),
+            "1513 BCE (a) (b)"
         );
     }
 }

@@ -16,6 +16,7 @@ import {
   Plus,
   X,
 } from "lucide-react";
+import { CalendarPicker } from "@/components/CalendarPicker";
 import { cn } from "cn";
 import {
   api,
@@ -91,6 +92,7 @@ import { Field } from "./Field";
 import { SyncSetup } from "./SyncSetup";
 import { PairingPanel } from "./Pairing";
 import { EventDate, TypeDot } from "./DocLink";
+import { DatePicker } from "./DatePicker";
 
 export function Dialogs() {
   const s = useStore();
@@ -861,11 +863,19 @@ function SpanFields({
     <div className="grid grid-cols-2 gap-3">
       {span.map((name) => (
         <Field key={name} label={propertyLabel(name, t)}>
-          <Input
+          {/* Each Date its own picker: a Span is two Dates, never a range. */}
+          <PickerField
             value={f[name] ?? ""}
-            onChange={(e) => set(name, e.target.value)}
+            onChange={(v) => set(name, v)}
             placeholder={t.date_placeholder}
-            data-testid={`new-${name}`}
+            testId={`new-${name}`}
+            picker={
+              <DatePicker
+                text={f[name] ?? ""}
+                onPick={(v) => set(name, v)}
+                testId={`new-date-picker-${name}`}
+              />
+            }
           />
         </Field>
       ))}
@@ -914,9 +924,9 @@ const TYPE_FIELDS: Record<
         />
       </Field>
       <Field label={t.date}>
-        <Input
+        <CalendarDateField
           value={f.date ?? ""}
-          onChange={(e) => set("date", e.target.value)}
+          onChange={(v) => set("date", v)}
         />
       </Field>
     </div>
@@ -1150,10 +1160,9 @@ function NewDocument({
         <KindSelect value={f.kind} onChange={(v) => set("kind", v)} />
       </Field>
       <Field label={t.date}>
-        <Input
+        <CalendarDateField
           value={f.date ?? ""}
-          onChange={(e) => set("date", e.target.value)}
-          placeholder="2026-09-08"
+          onChange={(v) => set("date", v)}
         />
       </Field>
     </div>
@@ -1529,6 +1538,7 @@ function Palette({
                       <CommandItem
                         key={d.id}
                         value={"t:" + d.id}
+                        data-testid="palette-doc"
                         onSelect={() => go(d.id)}
                       >
                         <TypeDot type={d.type} />
@@ -1544,6 +1554,7 @@ function Palette({
                       <CommandItem
                         key={n.id + ":" + n.name}
                         value={"n:" + n.id + ":" + n.name}
+                        data-testid="palette-doc"
                         onSelect={() => go(n.id)}
                       >
                         <TypeDot type={n.type} />
@@ -1569,6 +1580,7 @@ function Palette({
                       <CommandItem
                         key={h.doc.id}
                         value={"d:" + h.doc.id}
+                        data-testid="palette-doc"
                         onSelect={() => go(h.doc.id)}
                         className="items-start"
                       >
@@ -1592,6 +1604,7 @@ function Palette({
                   <CommandGroupUi>
                     <CommandItem
                       value="__create__"
+                      data-testid="palette-create"
                       onSelect={() =>
                         s.setDialog({ kind: "new", title: query, type: createType })
                       }
@@ -1821,4 +1834,65 @@ function ConfirmDelete({ id, onClose }: { id: string; onClose: () => void }) {
 export async function pickFolder(): Promise<string | null> {
   const dir = await openDialog({ directory: true, multiple: false });
   return typeof dir === "string" ? dir : null;
+}
+
+/**
+ * A text field in a dialog with its picker beside it: the text as typed is
+ * the value, and the picker, given the same value and `onChange`, writes
+ * into it.
+ */
+function PickerField({
+  value,
+  onChange,
+  placeholder,
+  testId,
+  picker,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  testId: string;
+  picker: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 items-center gap-1">
+      <Input
+        className="min-w-0 flex-1"
+        data-testid={testId}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+      />
+      {picker}
+    </div>
+  );
+}
+
+/**
+ * A calendar date in a dialog (a Composition's or Source's `date`): the text
+ * as typed, with the calendar date picker beside it.
+ */
+function CalendarDateField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const t = useT();
+  return (
+    <PickerField
+      value={value}
+      onChange={onChange}
+      placeholder={t.calendar_placeholder}
+      testId="new-doc-date"
+      picker={
+        <CalendarPicker
+          text={value}
+          onPick={onChange}
+          testId="new-doc-date-picker"
+        />
+      }
+    />
+  );
 }

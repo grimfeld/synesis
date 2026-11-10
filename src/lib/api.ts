@@ -292,7 +292,15 @@ export type HebrewMonth =
   | "chislev"
   | "tebeth"
   | "shebat"
-  | "adar";
+  | "adar"
+  | "adar_i"
+  | "adar_ii";
+
+/**
+ * The Reckoning a Date is written in: BCE/CE or av./de n. è. ("common"),
+ * BC/AD or av./ap. J.-C. ("christian").
+ */
+export type Reckoning = "common" | "christian";
 
 /** Why a text is not a Date (crates/engine/src/dates.rs `DateError`). */
 export type DateErrorKind =
@@ -308,23 +316,64 @@ export type DateErrorKind =
 export type DatePreview =
   | {
       ok: true;
+      /**
+       * The Date in the picker's form for the app language, in the Reckoning
+       * typed: what the preview shows, and what a pick of it writes.
+       */
+      words: string;
       /** The year as people say it, in the era `bce` names. */
       era_year: number;
       bce: boolean;
-      /**
-       * The era markers the text was written with: BCE/CE or av./de n. è.
-       * ("common"), BC/AD or av./ap. J.-C. ("christian"). The preview answers
-       * in the same family.
-       */
-      era: "common" | "christian";
+      /** The Reckoning the text was written in; the preview answers in it. */
+      reckoning: Reckoning;
       month: number | null;
       /** Set when the text named a Hebrew month; null for a civil one. */
-      month_name: HebrewMonth | null;
+      hebrew_month: HebrewMonth | null;
       day: number | null;
       approx: boolean;
       precision: "year" | "month" | "day";
     }
   | { ok: false; error: DateErrorKind };
+
+/**
+ * A Date as the picker sets it (crates/engine/src/dates.rs `DatePick`): the
+ * year as people say it (never 0), its era, whether it is approximate, and
+ * optionally a civil month (1–12) or a Hebrew month, and a day (1–31,
+ * written only with a month).
+ */
+export interface DatePick {
+  era_year: number;
+  bce: boolean;
+  approx: boolean;
+  month?: number | null;
+  /** A Hebrew month instead of a civil one; it wins over `month`. */
+  hebrew_month?: HebrewMonth | null;
+  day?: number | null;
+}
+
+/**
+ * One Hebrew month as the Date picker lists it (crates/engine/src/api.rs
+ * `date_words`): its name in the language, as a pick writes it, and the
+ * civil month it usually begins in.
+ */
+export interface HebrewMonthEntry {
+  hebrew_month: HebrewMonth;
+  name: string;
+  civil_month: number;
+}
+
+/**
+ * Every word the Date picker labels a segment with, in one language
+ * (crates/engine/src/api.rs `date_words`): each is the word a pick writes.
+ */
+export interface DateWords {
+  /** The civil months, January first. */
+  civil_months: string[];
+  /** The Hebrew months in the order of the sacred year, Adar I and II last. */
+  hebrew_months: HebrewMonthEntry[];
+  /** The era markers of each Reckoning. */
+  eras: Record<Reckoning, { bce: string; ce: string }>;
+}
 
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
 export interface DatedProperty {
@@ -1071,8 +1120,20 @@ export const api = {
     invoke<DocSummary | null>("find_source_by_url", { url }),
   detectPassages: (text: string) =>
     invoke<DetectedRange[]>("detect_passages", { text }),
-  /** How the engine reads a Date as typed, for the preview under its field. */
-  readDate: (text: string) => invoke<DatePreview>("read_date", { text }),
+  /**
+   * How the engine reads a Date as typed, for the preview under its field,
+   * worded in `language`.
+   */
+  readDate: (text: string, language: Lang) =>
+    invoke<DatePreview>("read_date", { text, language }),
+  /** Every word the Date picker labels a segment with, named in `language`. */
+  dateWords: (language: Lang) => invoke<DateWords>("date_words", { language }),
+  /**
+   * The text a Date picker writes into a Date field: `pick` in the picker's
+   * form for `language`, keeping the Reckoning and notes of `previousText`.
+   */
+  writeDate: (pick: DatePick, language: Lang, previousText: string) =>
+    invoke<string>("write_date", { pick, language, previousText }),
   books: () => invoke<BookMeta[]>("books"),
   fetchUrlMetadata: (url: string) =>
     invoke<UrlMeta>("fetch_url_metadata", { url }),

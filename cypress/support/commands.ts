@@ -13,6 +13,11 @@ declare global {
       palette(query: string): Chainable<JQuery<HTMLElement>>;
       /** Navigate to a document by title through the palette. */
       openDoc(title: string): Chainable<void>;
+      /**
+       * Open a document by title from the sidebar's Search button, which
+       * works where ⌘K cannot be pressed (Cypress on macOS, #115).
+       */
+      searchDoc(title: string): Chainable<void>;
       /** Run a Command by its palette title. */
       runCommand(title: string): Chainable<void>;
       /** Press a shortcut on the body: "{ctrl}k", "{ctrl}e"… */
@@ -42,9 +47,49 @@ declare global {
 
 const bridge = Cypress.env("bridge") as string;
 
-Cypress.Commands.add("bridge", (cmd, args = {}) =>
-  cy.request({ method: "POST", url: `${bridge}/invoke/${cmd}`, body: args, headers: { "content-type": "application/json" } }).then((r) => r.body),
-);
+const invoke = (cmd: string, args: Record<string, unknown> = {}) =>
+  cy.request({ method: "POST", url: `${bridge}/invoke/${cmd}`, body: args, headers: { "content-type": "application/json" } }).then((r) => r.body);
+
+/**
+ * The commands the support hooks run around a spec, before the test copy is
+ * open and after it is let go (cypress/support/e2e.ts). They touch settings,
+ * not a Vault's files; every other command is refused unless a test copy is
+ * the open Vault.
+ */
+const AROUND_A_SPEC = new Set([
+  "get_settings",
+  "set_language",
+  "set_map_filters",
+  "open_vault",
+  "close_vault",
+  "forget_vault",
+]);
+
+/**
+ * Fail the run at once unless the open Vault is a marked test copy
+ * (scripts/test-vaults.mjs). The dev app shares the installed app's settings:
+ * if it restarts mid-run it reopens the developer's own Vault, and a spec must
+ * never write to, or even drive the UI over, one of those. With `orNone`, no
+ * Vault open at all also passes (the onboarding wizard's specs close it).
+ */
+function refuseUnlessTestVault(orNone = false) {
+  return invoke("get_settings").then((s: { vault_path: string | null }) =>
+    cy.task<string[]>("vault:testVaults", s.vault_path ? [s.vault_path] : []).then((test) => {
+      if (test.length > 0 || (orNone && !s.vault_path)) return;
+      // Stop the whole run, not only this test: every later spec would meet
+      // the same Vault.
+      (Cypress as unknown as { stop?: () => void }).stop?.();
+      throw new Error(
+        `Refusing to run: the open Vault is not a test copy (${s.vault_path ?? "none"}).`,
+      );
+    }),
+  );
+}
+
+Cypress.Commands.add("bridge", (cmd, args = {}) => {
+  if (AROUND_A_SPEC.has(cmd)) return invoke(cmd, args);
+  return refuseUnlessTestVault(true).then(() => invoke(cmd, args));
+});
 
 // Every read goes through the one `query` command, so a spec asks the same way
 // the app does; `Answer` is a tagged union and the value is what the caller wants.
@@ -53,8 +98,11 @@ Cypress.Commands.add("query", (q) =>
 );
 
 Cypress.Commands.add("openApp", () => {
+  refuseUnlessTestVault();
   cy.visit("/");
   cy.get("[data-testid=home-recent]", { timeout: 15000 }).should("exist");
+  // Once more with the page up: the app may have restarted while it loaded.
+  refuseUnlessTestVault();
 });
 
 Cypress.Commands.add("palette", (query) => {
@@ -63,10 +111,25 @@ Cypress.Commands.add("palette", (query) => {
   return cy.get("[data-testid=palette] input[cmdk-input]").clear().type(query);
 });
 
+/**
+ * Click the document hit with this title. Only document hits, not any item:
+ * the "New · <query>" item holds the typed title too and shows before the
+ * search answers, so a plain `[cmdk-item]` match could land on it.
+ */
+function pickDoc(title: string) {
+  cy.contains("[data-testid=palette] [data-testid=palette-doc]", title).click();
+  cy.get("[data-testid=palette]").should("not.exist");
+}
+
 Cypress.Commands.add("openDoc", (title) => {
   cy.palette(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  pickDoc(title);
+});
+
+Cypress.Commands.add("searchDoc", (title) => {
+  cy.get("[data-testid=sidebar-search]").click();
+  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
+  pickDoc(title);
 });
 
 Cypress.Commands.add("runCommand", (title) => {

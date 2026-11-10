@@ -90,6 +90,7 @@ import { DocLink } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { MiniTimeline } from "@/components/MiniTimeline";
 import { DatePreview } from "@/components/DatePreview";
+import { DatePicker } from "@/components/DatePicker";
 import { Alert, AlertAction, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -1470,23 +1471,34 @@ function SpanDate({
   // saved value is not a Date; the red border marks what is saved.
   return (
     <div className="min-w-0 flex-1 space-y-0.5">
-      <Input
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") e.currentTarget.blur();
-          if (e.key === "Escape") setText(value);
-        }}
-        placeholder={t.date_placeholder}
-        aria-label={propertyLabel(name, t)}
-        data-testid={`date-input-${name}`}
-        autoFocus={autoFocus}
-        className={cn(
-          "h-7 max-w-52 text-sm tabular-nums",
-          invalid && "border-destructive text-destructive",
-        )}
-      />
+      <div className="flex min-w-0 items-center gap-1">
+        <Input
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") e.currentTarget.blur();
+            if (e.key === "Escape") setText(value);
+          }}
+          placeholder={t.date_placeholder}
+          aria-label={propertyLabel(name, t)}
+          data-testid={`date-input-${name}`}
+          autoFocus={autoFocus}
+          className={cn(
+            "h-7 max-w-52 min-w-0 text-sm tabular-nums",
+            invalid && "border-destructive text-destructive",
+          )}
+        />
+        {/* A pick is written at once, as the right panel's is. */}
+        <DatePicker
+          text={text}
+          testId={`hub-date-picker-${name}`}
+          onPick={(picked) => {
+            setText(picked);
+            if (picked.trim() !== value.trim()) onWrite(picked.trim() || null);
+          }}
+        />
+      </div>
       <DatePreview text={text} testId={`date-preview-${name}`} />
     </div>
   );
@@ -1749,6 +1761,15 @@ function DatesSection({
 }
 
 /**
+ * Run `f` once the menu that chose it has closed. While the menu is open it
+ * traps focus, and a field mounted with `autoFocus` in the same render would
+ * have its focus taken back by the closing menu, which then leaves it nowhere.
+ */
+function afterMenu(f: () => void) {
+  setTimeout(f, 0);
+}
+
+/**
  * The Dates section's "Add Date" menu, and the name field its "Date…" opens.
  *
  * Naming follows the Properties panel's rule (`checkNewProperty`) with the
@@ -1808,7 +1829,7 @@ function AddDate({
               <DropdownMenuItem
                 key="pair"
                 data-testid="add-date-pair"
-                onSelect={() => onAdd(o.names)}
+                onSelect={() => afterMenu(() => onAdd(o.names))}
               >
                 {o.label === "lifespan" ? t.add_lifespan : t.add_span}
               </DropdownMenuItem>
@@ -1817,7 +1838,7 @@ function AddDate({
                 key="half"
                 data-testid="add-date-half"
                 data-name={o.name}
-                onSelect={() => onAdd([o.name])}
+                onSelect={() => afterMenu(() => onAdd([o.name]))}
               >
                 {t.add_date_half(propertyLabel(o.name, t))}
               </DropdownMenuItem>
@@ -1825,7 +1846,7 @@ function AddDate({
               <DropdownMenuItem
                 key="named"
                 data-testid="add-date-named"
-                onSelect={() => setNaming(true)}
+                onSelect={() => afterMenu(() => setNaming(true))}
               >
                 {t.add_date_named}
               </DropdownMenuItem>

@@ -6,6 +6,7 @@
 //! Astronomical years: 1 CE = 1, 1 BCE = 0, 2 BCE = -1. An era marker is
 //! required, so bare numbers never become Dates.
 
+use crate::scripture::Lang;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,16 +65,16 @@ impl BibleDate {
     pub fn read(text: &str) -> Result<DateReading, DateError> {
         let Parsed {
             date,
-            month_name,
-            era,
+            hebrew_month,
+            reckoning,
         } = Self::parse_parts(text)?;
         let (era_year, bce) = date.era_year();
         Ok(DateReading {
             era_year,
             bce,
-            era,
+            reckoning,
             month: date.month,
-            month_name,
+            hebrew_month,
             day: date.day,
             approx: date.approx,
             precision: date.precision(),
@@ -87,11 +88,11 @@ impl BibleDate {
         let cleaned = clean(&text);
         let tokens = join_adar(cleaned.split_whitespace().collect());
         let read = match era_suffix(&tokens) {
-            Some((bce, era, n)) => {
-                read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, month_name)| Parsed {
+            Some((bce, reckoning, n)) => {
+                read_tokens(&tokens[..tokens.len() - n], bce).map(|(date, hebrew_month)| Parsed {
                     date,
-                    month_name,
-                    era,
+                    hebrew_month,
+                    reckoning,
                 })
             }
             None => Err(no_era(&tokens)),
@@ -110,9 +111,9 @@ impl BibleDate {
 
 struct Parsed {
     date: BibleDate,
-    /// The Hebrew month's one name, when the text named one.
-    month_name: Option<&'static str>,
-    era: EraStyle,
+    /// The Hebrew month, when the text named one.
+    hebrew_month: Option<HebrewMonth>,
+    reckoning: Reckoning,
 }
 
 /// "Adar I" and "Adar II" as one month token each. Only after "adar": a bare
@@ -139,7 +140,7 @@ fn join_adar(tokens: Vec<&str>) -> Vec<&str> {
 
 /// The Date in what comes before the era marker: an optional "c.", an
 /// optional day and month in either order, then the year.
-fn read_tokens(tokens: &[&str], bce: bool) -> Result<(BibleDate, Option<&'static str>), DateError> {
+fn read_tokens(tokens: &[&str], bce: bool) -> Result<(BibleDate, Option<HebrewMonth>), DateError> {
     let mut tokens = tokens.to_vec();
     let approx = take_approx(&mut tokens);
     // The year is the last token: digits only.
@@ -234,28 +235,311 @@ pub struct DateReading {
     /// The year as people say it, with `bce` for its era: 1513 and true for 1513 BCE.
     pub era_year: i32,
     pub bce: bool,
-    /// Which pair of era markers the text used, so the preview answers in it.
-    pub era: EraStyle,
+    /// The Reckoning the text was written in, so the preview answers in it.
+    pub reckoning: Reckoning,
     /// Civil month, 1–12.
     pub month: Option<u8>,
-    /// The Hebrew month the text named ("nisan", "tishri"…), under one name
-    /// whatever spelling was typed; `None` for a civil month.
-    pub month_name: Option<&'static str>,
+    /// The Hebrew month the text named, whatever spelling was typed; `None`
+    /// for a civil month.
+    pub hebrew_month: Option<HebrewMonth>,
     pub day: Option<u8>,
     pub approx: bool,
     pub precision: Precision,
 }
 
-/// The pair of era markers a Date was written with. The preview echoes the
-/// user's own family in the app language: "1513 BC" reads back as "1513 BC"
-/// (or "1513 av. J.-C."), not "1513 BCE".
+/// The Reckoning a Date was written in: which pair of era markers it uses.
+/// The preview echoes the user's own Reckoning in the app language: "1513 BC"
+/// reads back as "1513 BC" (or "1513 av. J.-C."), not "1513 BCE".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum EraStyle {
+pub enum Reckoning {
     /// BCE/CE, av. n. è./de n. è.
     Common,
     /// BC/AD, av. J.-C./ap. J.-C.
     Christian,
+}
+
+/// A Date as the picker sets it: the year as people say it, its era, whether
+/// it is approximate, and optionally a civil month and a day. Later segments
+/// join this as optional fields, so `write` keeps its shape as the picker grows.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct DatePick {
+    /// The year as people say it; there is no year 0.
+    pub era_year: std::num::NonZeroU32,
+    pub bce: bool,
+    #[serde(default)]
+    pub approx: bool,
+    /// Civil month, 1–12.
+    #[serde(default, deserialize_with = "civil_month_number")]
+    pub month: Option<u8>,
+    /// A Hebrew month instead of a civil one; it wins over `month`.
+    #[serde(default)]
+    pub hebrew_month: Option<HebrewMonth>,
+    /// Day of the month, 1–31; written only with a month.
+    #[serde(default, deserialize_with = "day_of_month")]
+    pub day: Option<u8>,
+}
+
+fn civil_month_number<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    in_range(d, 1..=12, "a month from 1 to 12")
+}
+
+fn day_of_month<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<u8>, D::Error> {
+    in_range(d, 1..=31, "a day from 1 to 31")
+}
+
+fn in_range<'de, D: serde::Deserializer<'de>>(
+    d: D,
+    range: std::ops::RangeInclusive<u8>,
+    what: &'static str,
+) -> Result<Option<u8>, D::Error> {
+    let n = Option::<u8>::deserialize(d)?;
+    match n {
+        Some(n) if !range.contains(&n) => Err(serde::de::Error::invalid_value(
+            serde::de::Unexpected::Unsigned(n.into()),
+            &what,
+        )),
+        _ => Ok(n),
+    }
+}
+
+impl DatePick {
+    /// The Date part in the picker's own form for `lang`: what a pick writes
+    /// into the field. `previous` is the field's text before the pick, whose
+    /// Reckoning is kept; the Common Era when it has none.
+    pub fn write(&self, lang: Lang, previous: &str) -> String {
+        let reckoning = reckoning_of(previous).unwrap_or(Reckoning::Common);
+        let mut parts = vec![self.words(lang, reckoning)];
+        parts.extend(notes(previous).map(String::from));
+        parts.join(" ")
+    }
+
+    /// The Date alone in the picker's form for `lang`, in `reckoning`: what
+    /// the picker writes, and what the preview under a Date field shows.
+    pub fn words(&self, lang: Lang, reckoning: Reckoning) -> String {
+        let approx = match lang {
+            Lang::En => "c.",
+            Lang::Fr => "vers",
+        };
+        let era = reckoning.era(self.bce, lang);
+        let mut parts: Vec<String> = Vec::new();
+        if self.approx {
+            parts.push(approx.into());
+        }
+        let month = match (self.hebrew_month, self.month) {
+            (Some(hebrew), _) => Some(hebrew.name(lang)),
+            (None, Some(civil)) => Some(civil_month_name(lang, civil)),
+            (None, None) => None,
+        };
+        if let Some(month) = month {
+            if let Some(day) = self.day {
+                parts.push(match (lang, day) {
+                    (Lang::Fr, 1) => "1er".into(),
+                    _ => day.to_string(),
+                });
+            }
+            parts.push(month.into());
+        }
+        parts.push(self.era_year.to_string());
+        parts.push(era.into());
+        parts.join(" ")
+    }
+}
+
+impl From<&DateReading> for DatePick {
+    /// The pick that writes the Date `reading` read.
+    fn from(reading: &DateReading) -> DatePick {
+        DatePick {
+            era_year: std::num::NonZeroU32::new(reading.era_year.unsigned_abs())
+                .expect("the parser reads no year 0"),
+            bce: reading.bce,
+            approx: reading.approx,
+            month: reading.month.filter(|_| reading.hebrew_month.is_none()),
+            hebrew_month: reading.hebrew_month,
+            day: reading.day,
+        }
+    }
+}
+
+/// A Hebrew month as the picker sets it; a leap year's two Adars are months
+/// of their own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HebrewMonth {
+    Nisan,
+    Iyyar,
+    Sivan,
+    Tammuz,
+    Ab,
+    Elul,
+    Tishri,
+    Heshvan,
+    Chislev,
+    Tebeth,
+    Shebat,
+    Adar,
+    #[serde(rename = "adar_i")]
+    AdarI,
+    #[serde(rename = "adar_ii")]
+    AdarII,
+}
+
+/// A Hebrew month's words: its civil month, its names as the picker writes
+/// them, and the other spellings the parser reads.
+struct HebrewMonthWords {
+    month: HebrewMonth,
+    /// The civil month it usually begins in, as a Date reading it reports.
+    civil: u8,
+    en: &'static str,
+    fr: &'static str,
+    /// Other spellings, lowercase; the names above are read too.
+    also: &'static [&'static str],
+}
+
+/// Every Hebrew month in the order of the sacred year, Adar I and II last:
+/// the one place a Hebrew month is named, ordered and set in the civil year.
+/// The picker lists them from here (`api::date_words`).
+const HEBREW_MONTHS: [HebrewMonthWords; 14] = {
+    use HebrewMonth::*;
+    const fn m(
+        month: HebrewMonth,
+        civil: u8,
+        en: &'static str,
+        fr: &'static str,
+        also: &'static [&'static str],
+    ) -> HebrewMonthWords {
+        HebrewMonthWords {
+            month,
+            civil,
+            en,
+            fr,
+            also,
+        }
+    }
+    [
+        m(Nisan, 4, "Nisan", "Nissan", &["abib"]),
+        m(Iyyar, 5, "Iyyar", "Iyar", &["ziv"]),
+        m(Sivan, 6, "Sivan", "Sivan", &["siwan"]),
+        m(Tammuz, 7, "Tammuz", "Tamouz", &["tammouz"]),
+        m(Ab, 8, "Ab", "Av", &[]),
+        m(Elul, 9, "Elul", "Eloul", &["éloul"]),
+        m(
+            Tishri,
+            10,
+            "Tishri",
+            "Tichri",
+            &["tishrei", "ethanim", "tisri"],
+        ),
+        m(
+            Heshvan,
+            11,
+            "Heshvan",
+            "Hechvan",
+            &["cheshvan", "marheshvan", "bul"],
+        ),
+        m(Chislev, 12, "Chislev", "Kislev", &["kislew"]),
+        m(Tebeth, 1, "Tebeth", "Tevet", &["tébeth"]),
+        m(Shebat, 2, "Shebat", "Chevat", &["shevat", "schebat"]),
+        // A leap year's two Adars read apart but sort as the same civil month.
+        m(Adar, 3, "Adar", "Adar", &[]),
+        m(AdarI, 3, "Adar I", "Adar I", &[]),
+        m(AdarII, 3, "Adar II", "Adar II", &["veadar"]),
+    ]
+};
+
+impl HebrewMonth {
+    /// Every Hebrew month, in the order of the sacred year.
+    pub const ALL: [HebrewMonth; 14] = {
+        let mut all = [HebrewMonth::Nisan; 14];
+        let mut i = 0;
+        while i < all.len() {
+            all[i] = HEBREW_MONTHS[i].month;
+            i += 1;
+        }
+        all
+    };
+
+    fn words(self) -> &'static HebrewMonthWords {
+        HEBREW_MONTHS
+            .iter()
+            .find(|w| w.month == self)
+            .expect("every Hebrew month is in HEBREW_MONTHS")
+    }
+
+    /// The month's name in `lang`, as the picker writes it.
+    pub fn name(self, lang: Lang) -> &'static str {
+        let w = self.words();
+        match lang {
+            Lang::En => w.en,
+            Lang::Fr => w.fr,
+        }
+    }
+
+    /// The civil month it usually begins in, as a Date reading it reports.
+    pub fn civil_month(self) -> u8 {
+        self.words().civil
+    }
+
+    /// The Hebrew month `s` (lowercase) names, in any spelling the parser reads.
+    fn read(s: &str) -> Option<HebrewMonth> {
+        HEBREW_MONTHS
+            .iter()
+            .find(|w| w.en.to_lowercase() == s || w.fr.to_lowercase() == s || w.also.contains(&s))
+            .map(|w| w.month)
+    }
+}
+
+/// The civil month's name in `lang`, as the picker writes it. `month` is 1 to
+/// 12, as `DatePick`'s deserializer checks; any other is a bug and panics.
+pub fn civil_month_name(lang: Lang, month: u8) -> &'static str {
+    const EN: [&str; 12] = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+    ];
+    const FR: [&str; 12] = [
+        "janvier",
+        "février",
+        "mars",
+        "avril",
+        "mai",
+        "juin",
+        "juillet",
+        "août",
+        "septembre",
+        "octobre",
+        "novembre",
+        "décembre",
+    ];
+    let names = match lang {
+        Lang::En => &EN,
+        Lang::Fr => &FR,
+    };
+    usize::from(month)
+        .checked_sub(1)
+        .and_then(|i| names.get(i))
+        .expect("a civil month is 1 to 12")
+}
+
+/// The Reckoning `text` ends in, whether or not the rest of it is a Date.
+fn reckoning_of(text: &str) -> Option<Reckoning> {
+    let cleaned = clean(&without_notes(text));
+    let tokens: Vec<&str> = cleaned.split_whitespace().collect();
+    era_suffix(&tokens).map(|(_, reckoning, _)| reckoning)
+}
+
+/// The notes in brackets in `text`, in order.
+fn notes(text: &str) -> impl Iterator<Item = &str> {
+    NOTE.find_iter(text).map(|m| m.as_str())
 }
 
 /// Why a text is not a Date, so the preview can say how to fix it.
@@ -276,11 +560,12 @@ pub enum DateError {
 /// The text without its notes in brackets: "c. 1513 BCE (Ex 12-13)" is
 /// "c. 1513 BCE" with a reference beside it.
 fn without_notes(text: &str) -> std::borrow::Cow<'_, str> {
-    use std::sync::LazyLock;
-    static NOTE: LazyLock<regex::Regex> =
-        LazyLock::new(|| regex::Regex::new(r"\([^()]*\)").unwrap());
     NOTE.replace_all(text, " ")
 }
+
+/// A note in brackets beside a Date.
+static NOTE: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"\([^()]*\)").unwrap());
 
 /// Lowercased, with the separators a Date may use turned to spaces.
 fn clean(text: &str) -> String {
@@ -312,51 +597,125 @@ const APPROX: &[&str] = &[
     "c", "ca", "circa", "v", "vers", "env", "environ", "about", "abt", "approx",
 ];
 
-/// Era phrases as token sequences (dots, commas and dashes already turned to
-/// spaces): the words, whether they mean BCE, and the family they belong to.
-const ERAS: &[(&[&str], bool, EraStyle)] = {
-    use EraStyle::{Christian as X, Common as C};
-    &[
-        (&["bce"], true, C),
-        (&["b", "c", "e"], true, C),
-        (&["bc"], true, X),
-        (&["b", "c"], true, X),
-        (&["ce"], false, C),
-        (&["c", "e"], false, C),
-        (&["ad"], false, X),
-        (&["a", "d"], false, X),
-        (&["av", "j", "c"], true, X),
-        (&["av", "jc"], true, X),
-        (&["av", "n", "è"], true, C),
-        (&["av", "n", "e"], true, C),
-        (&["avant", "notre", "ère"], true, C),
-        (&["avant", "notre", "ere"], true, C),
-        (&["avant", "jésus", "christ"], true, X),
-        (&["avant", "jesus", "christ"], true, X),
-        (&["ap", "j", "c"], false, X),
-        (&["apr", "j", "c"], false, X),
-        (&["ap", "jc"], false, X),
-        (&["apr", "jc"], false, X),
-        (&["de", "n", "è"], false, C),
-        (&["de", "n", "e"], false, C),
-        (&["de", "notre", "ère"], false, C),
-        (&["de", "notre", "ere"], false, C),
-        (&["après", "jésus", "christ"], false, X),
-        (&["apres", "jesus", "christ"], false, X),
+/// An era's words: its Reckoning, whether it means BCE, its names as the
+/// picker writes them, and the other spellings the parser reads.
+struct EraWords {
+    reckoning: Reckoning,
+    bce: bool,
+    en: &'static str,
+    fr: &'static str,
+    /// Other spellings as token sequences (lowercase, dots, commas and dashes
+    /// already turned to spaces); the names above are read too.
+    also: &'static [&'static [&'static str]],
+}
+
+/// Every era marker: the one place an era is named, written and read.
+static ERA_WORDS: [EraWords; 4] = {
+    use Reckoning::{Christian, Common};
+    [
+        EraWords {
+            reckoning: Common,
+            bce: true,
+            en: "BCE",
+            fr: "av. n. è.",
+            also: &[
+                &["b", "c", "e"],
+                &["av", "n", "e"],
+                &["avant", "notre", "ère"],
+                &["avant", "notre", "ere"],
+            ],
+        },
+        EraWords {
+            reckoning: Common,
+            bce: false,
+            en: "CE",
+            fr: "de n. è.",
+            also: &[
+                &["c", "e"],
+                &["de", "n", "e"],
+                &["de", "notre", "ère"],
+                &["de", "notre", "ere"],
+            ],
+        },
+        EraWords {
+            reckoning: Christian,
+            bce: true,
+            en: "BC",
+            fr: "av. J.-C.",
+            also: &[
+                &["b", "c"],
+                &["av", "jc"],
+                &["avant", "jésus", "christ"],
+                &["avant", "jesus", "christ"],
+            ],
+        },
+        EraWords {
+            reckoning: Christian,
+            bce: false,
+            en: "AD",
+            fr: "ap. J.-C.",
+            also: &[
+                &["a", "d"],
+                &["apr", "j", "c"],
+                &["ap", "jc"],
+                &["apr", "jc"],
+                &["après", "jésus", "christ"],
+                &["apres", "jesus", "christ"],
+            ],
+        },
     ]
 };
 
+impl Reckoning {
+    /// The era marker for `bce` in this Reckoning, as the picker writes it in `lang`.
+    pub fn era(self, bce: bool, lang: Lang) -> &'static str {
+        let w = ERA_WORDS
+            .iter()
+            .find(|w| w.reckoning == self && w.bce == bce)
+            .expect("every era is in ERA_WORDS");
+        match lang {
+            Lang::En => w.en,
+            Lang::Fr => w.fr,
+        }
+    }
+}
+
+/// Era phrases as token sequences, from `ERA_WORDS`: the written names as
+/// `clean` splits them, then the other spellings, each beside its era.
+static ERAS: std::sync::LazyLock<Vec<(Vec<String>, &'static EraWords)>> =
+    std::sync::LazyLock::new(|| {
+        ERA_WORDS
+            .iter()
+            .flat_map(|w| {
+                let written = [w.en, w.fr].map(|name| {
+                    clean(name)
+                        .split_whitespace()
+                        .map(String::from)
+                        .collect::<Vec<_>>()
+                });
+                let also = w
+                    .also
+                    .iter()
+                    .map(|phrase| phrase.iter().map(|t| String::from(*t)).collect::<Vec<_>>());
+                written
+                    .into_iter()
+                    .chain(also)
+                    .map(move |phrase| (phrase, w))
+            })
+            .collect()
+    });
+
 /// The era marker ending `tokens`, the longest that fits: whether it means
-/// BCE, its family, and how many tokens it takes.
-fn era_suffix(tokens: &[&str]) -> Option<(bool, EraStyle, usize)> {
-    let mut best: Option<(bool, EraStyle, usize)> = None;
-    for (phrase, bce, style) in ERAS {
+/// BCE, its Reckoning, and how many tokens it takes.
+fn era_suffix(tokens: &[&str]) -> Option<(bool, Reckoning, usize)> {
+    let mut best: Option<(bool, Reckoning, usize)> = None;
+    for (phrase, era) in ERAS.iter() {
         let n = phrase.len();
         if tokens.len() > n
-            && tokens[tokens.len() - n..] == **phrase
+            && tokens[tokens.len() - n..] == phrase[..]
             && best.is_none_or(|(_, _, b)| n > b)
         {
-            best = Some((*bce, *style, n));
+            best = Some((era.bce, era.reckoning, n));
         }
     }
     best
@@ -371,36 +730,16 @@ fn day_number(s: &str) -> Option<u8> {
     s.parse().ok().filter(|d| (1..=31).contains(d))
 }
 
-/// A civil month, 1–12, and the Hebrew month's one name when the text named one.
-type Month = (Option<u8>, Option<&'static str>);
+/// A civil month, 1–12, and the Hebrew month when the text named one.
+type Month = (Option<u8>, Option<HebrewMonth>);
 
-/// Civil month for an English, French or Hebrew month name (or abbreviation),
-/// with the Hebrew month's one name when it is one.
+/// Civil month for an English, French or Hebrew month name (or
+/// abbreviation), with the Hebrew month when it is one.
 fn month_of(s: &str) -> Option<Month> {
-    if let Some((m, name)) = hebrew_month(s) {
-        return Some((Some(m), Some(name)));
+    if let Some(hebrew) = HebrewMonth::read(s) {
+        return Some((Some(hebrew.civil_month()), Some(hebrew)));
     }
     civil_month(s).map(|m| (Some(m), None))
-}
-
-/// A Hebrew month, at the civil month it usually begins in, under one name
-/// whatever spelling was typed.
-fn hebrew_month(s: &str) -> Option<(u8, &'static str)> {
-    Some(match s {
-        "nisan" | "nissan" | "abib" => (4, "nisan"),
-        "iyyar" | "iyar" | "ziv" => (5, "iyyar"),
-        "sivan" | "siwan" => (6, "sivan"),
-        "tammuz" | "tamouz" => (7, "tammuz"),
-        "ab" | "av" => (8, "ab"),
-        "elul" | "eloul" => (9, "elul"),
-        "tishri" | "tishrei" | "ethanim" | "tisri" => (10, "tishri"),
-        "heshvan" | "cheshvan" | "marheshvan" | "bul" => (11, "heshvan"),
-        "chislev" | "kislev" | "kislew" => (12, "chislev"),
-        "tebeth" | "tevet" | "tébeth" => (1, "tebeth"),
-        "shebat" | "shevat" | "schebat" => (2, "shebat"),
-        "adar" | "veadar" | "adar i" | "adar ii" => (3, "adar"),
-        _ => return None,
-    })
 }
 
 fn civil_month(s: &str) -> Option<u8> {
@@ -494,6 +833,44 @@ mod tests {
     }
 
     #[test]
+    fn french_hebrew_month_spellings() {
+        let r = read("14 Tichri 33 de n. è.").unwrap();
+        assert_eq!(
+            (r.day, r.month, r.hebrew_month),
+            (Some(14), Some(10), Some(HebrewMonth::Tishri))
+        );
+        let r = read("Hechvan 33 de n. è.").unwrap();
+        assert_eq!(
+            (r.month, r.hebrew_month),
+            (Some(11), Some(HebrewMonth::Heshvan))
+        );
+        let r = read("Chevat 33 de n. è.").unwrap();
+        assert_eq!(
+            (r.month, r.hebrew_month),
+            (Some(2), Some(HebrewMonth::Shebat))
+        );
+        // Every French name the picker writes, and the spellings the preview
+        // once showed, still read.
+        for (text, month) in [
+            ("Nissan 33 de n. è.", HebrewMonth::Nisan),
+            ("Iyar 33 de n. è.", HebrewMonth::Iyyar),
+            ("Tamouz 33 de n. è.", HebrewMonth::Tammuz),
+            ("tammouz 33 de n. è.", HebrewMonth::Tammuz),
+            ("Av 33 de n. è.", HebrewMonth::Ab),
+            ("Eloul 33 de n. è.", HebrewMonth::Elul),
+            ("éloul 33 de n. è.", HebrewMonth::Elul),
+            ("Kislev 33 de n. è.", HebrewMonth::Chislev),
+            ("Tevet 33 de n. è.", HebrewMonth::Tebeth),
+            ("tébeth 33 de n. è.", HebrewMonth::Tebeth),
+            ("tishri 33 de n. è.", HebrewMonth::Tishri),
+            ("shebat 33 de n. è.", HebrewMonth::Shebat),
+            ("heshvan 33 de n. è.", HebrewMonth::Heshvan),
+        ] {
+            assert_eq!(read(text).unwrap().hebrew_month, Some(month), "{text}");
+        }
+    }
+
+    #[test]
     fn adar_i_and_adar_ii_are_months() {
         let d = p("Adar II 33 CE").unwrap();
         assert_eq!((d.month, d.day), (Some(3), None));
@@ -503,7 +880,25 @@ mod tests {
         assert_eq!((d.month, d.day), (Some(3), Some(14)));
         let d = p("Adar I 33 CE").unwrap();
         assert_eq!((d.month, d.day), (Some(3), None));
-        assert_eq!(read("14 Adar II 33 CE").unwrap().month_name, Some("adar"));
+        // Read apart, sorted alike.
+        assert_eq!(
+            read("14 Adar II 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarII)
+        );
+        assert_eq!(
+            read("14 Adar I 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarI)
+        );
+        assert_eq!(
+            read("Veadar 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::AdarII)
+        );
+        assert_eq!(
+            read("14 Adar 33 CE").unwrap().hebrew_month,
+            Some(HebrewMonth::Adar)
+        );
+        assert_eq!(read("14 Adar I 33 CE").unwrap().month, Some(3));
+        assert_eq!(read("14 Adar II 33 CE").unwrap().month, Some(3));
         // A bare numeral is not a month.
         assert_eq!(p("II 33 CE"), None);
         assert_eq!(read("14 Adar II 33"), Err(DateError::NoEra));
@@ -547,23 +942,26 @@ mod tests {
             (r.era_year, r.bce, r.approx, r.precision),
             (1513, true, true, Precision::Year)
         );
-        assert_eq!((r.month, r.day, r.month_name), (None, None, None));
+        assert_eq!((r.month, r.day, r.hebrew_month), (None, None, None));
 
         let r = read("Nisan 33 CE").unwrap();
         assert_eq!(
             (r.era_year, r.bce, r.month, r.day, r.precision),
             (33, false, Some(4), None, Precision::Month)
         );
-        assert_eq!(r.month_name, Some("nisan"));
+        assert_eq!(r.hebrew_month, Some(HebrewMonth::Nisan));
 
         let r = read("14 Nisan 33 CE").unwrap();
         assert_eq!(
-            (r.month, r.day, r.month_name, r.precision),
-            (Some(4), Some(14), Some("nisan"), Precision::Day)
+            (r.month, r.day, r.hebrew_month, r.precision),
+            (Some(4), Some(14), Some(HebrewMonth::Nisan), Precision::Day)
         );
         // A civil month has no Hebrew name; Abib is Nisan by another name.
-        assert_eq!(read("1er avril 33 de n. è.").unwrap().month_name, None);
-        assert_eq!(read("Abib 1513 BCE").unwrap().month_name, Some("nisan"));
+        assert_eq!(read("1er avril 33 de n. è.").unwrap().hebrew_month, None);
+        assert_eq!(
+            read("Abib 1513 BCE").unwrap().hebrew_month,
+            Some(HebrewMonth::Nisan)
+        );
     }
 
     #[test]
@@ -595,8 +993,9 @@ mod tests {
     fn reading_serialises_for_the_ui() {
         let ok = serde_json::to_value(read("14 Nisan 33 CE").unwrap()).unwrap();
         assert_eq!(ok["precision"], "day");
-        assert_eq!(ok["month_name"], "nisan");
-        assert_eq!(ok["era"], "common");
+        assert_eq!(ok["hebrew_month"], "nisan");
+        assert_eq!(ok["reckoning"], "common");
+        assert!(ok.get("era").is_none());
         assert!(ok.get("year").is_none());
         assert_eq!(
             serde_json::to_value(DateError::SpanInOneValue).unwrap(),
@@ -616,9 +1015,9 @@ mod tests {
     }
 
     #[test]
-    fn reading_keeps_the_era_family_typed() {
-        use EraStyle::*;
-        for (text, style) in [
+    fn reading_keeps_the_reckoning_typed() {
+        use Reckoning::*;
+        for (text, reckoning) in [
             ("1513 BCE", Common),
             ("33 C.E.", Common),
             ("1513 av. n. è.", Common),
@@ -629,7 +1028,13 @@ mod tests {
             ("33 apr. J.-C.", Christian),
             ("607 avant Jésus-Christ", Christian),
         ] {
-            assert_eq!(read(text).unwrap().era, style, "{text}");
+            assert_eq!(read(text).unwrap().reckoning, reckoning, "{text}");
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "a civil month is 1 to 12")]
+    fn civil_month_name_refuses_a_month_out_of_range() {
+        civil_month_name(Lang::En, 13);
     }
 }

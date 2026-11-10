@@ -392,7 +392,16 @@ impl State {
                 &arg::<String>(&a, "text")?,
                 self.lang(),
             )),
-            "read_date" => ok(api::read_date(&arg::<String>(&a, "text")?)),
+            "read_date" => ok(api::read_date(
+                &arg::<String>(&a, "text")?,
+                arg(&a, "language")?,
+            )),
+            "date_words" => ok(api::date_words(arg(&a, "language")?)),
+            "write_date" => ok(api::write_date(
+                &arg(&a, "pick")?,
+                arg(&a, "language")?,
+                &arg::<String>(&a, "previousText")?,
+            )),
             "books" => ok(api::books(self.lang())),
             "hidden_dir" => ok(engine::vault::HIDDEN_DIR),
             "ui_log" => ok(()),
