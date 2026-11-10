@@ -1,0 +1,133 @@
+name: Audit
+
+# Known vulnerabilities in what ships: the Rust dependencies (accepted ones
+# are listed with a reason in .cargo/audit.toml) and the production npm
+# dependencies of the app and the landing page.
+#
+# A new advisory is news about a dependency, not about a pull request, so a
+# pull request is audited only when it changes what is audited (#136). The
+# weekly run on `main` catches advisories published since, and opens (or
+# updates) one issue listing them: fix each one, or accept it in
+# .cargo/audit.toml with a reason.
+#
+# Not part of ci.yml on purpose: the Release workflow waits for ci.yml, and a
+# fresh advisory should not hold up a release; the issue tracks it.
+#
+# Every third-party action is pinned to a full commit SHA, as in ci.yml.
+
+on:
+  pull_request:
+    paths:
+      - Cargo.lock
+      - package-lock.json
+      - site/package-lock.json
+      - .cargo/audit.toml
+      - .github/workflows/audit.yml
+  schedule:
+    - cron: "17 6 * * 1" # Mondays, 06:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-22.04
+    outputs:
+      report: ${{ steps.report.outputs.report }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      # A prebuilt cargo-audit, checksum-verified by the action.
+      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
+        with:
+          tool: cargo-audit
+
+      # Each audit writes JSON and never stops the job, so every one runs and
+      # the next step can list everything that was found in one place.
+      - name: cargo audit
+        run: cargo audit --json > cargo-audit.json || true
+      - name: npm audit (app)
+        run: npm audit --omit=dev --audit-level=high --json > npm-audit.json || true
+      - name: npm audit (landing page)
+        working-directory: site
+        run: npm audit --omit=dev --audit-level=high --json > ../site-npm-audit.json || true
+
+      - name: Report
+        id: report
+        run: |
+          set -o pipefail
+          # An audit that could not run (no advisory database, no registry)
+          # leaves no report: fail rather than pass with nothing to list.
+          for f in cargo-audit.json npm-audit.json site-npm-audit.json; do
+            jq -e 'has("vulnerabilities")' "$f" > /dev/null \
+              || { echo "::error::$f is not an audit report:"; cat "$f"; exit 1; }
+          done
+          # Rust: every vulnerability not ignored in .cargo/audit.toml.
+          # npm: high and critical ones, as --audit-level=high.
+          {
+            jq -r '.vulnerabilities.list[]
+              | "- [\(.advisory.id)](https://rustsec.org/advisories/\(.advisory.id)) `\(.package.name)` \(.package.version): \(.advisory.title)"' cargo-audit.json
+            for f in npm-audit.json site-npm-audit.json; do
+              where=$([ "$f" = npm-audit.json ] && echo "app" || echo "site")
+              jq -r --arg where "$where" '.vulnerabilities // {} | .[] | .via[] | objects
+                | select(.severity == "high" or .severity == "critical")
+                | "- [\(.url | split("/") | last)](\(.url)) `\(.name)` (npm, \($where), \(.severity)): \(.title)"' "$f"
+            done
+          } | sort -u > report.md
+          if [ ! -s report.md ]; then
+            echo "No known vulnerabilities."
+            exit 0
+          fi
+          cat report.md | tee -a "$GITHUB_STEP_SUMMARY"
+          {
+            echo "report<<REPORT_EOF"
+            cat report.md
+            echo "REPORT_EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "::error::Known vulnerabilities found; see the list above."
+          exit 1
+
+  # On `main`, a failed audit becomes one open issue rather than a red run
+  # nobody looks at.
+  issue:
+    name: Open or update the audit issue
+    needs: audit
+    if: always() && github.event_name != 'pull_request' && needs.audit.result == 'failure'
+    runs-on: ubuntu-22.04
+    permissions:
+      issues: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          REPORT: ${{ needs.audit.outputs.report }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Dependency audit fails on main"
+          if [ -z "$REPORT" ]; then
+            REPORT="The audit job failed before it could list advisories; see the run."
+          fi
+          body=$(printf '%s\n\n%s\n\n%s\n' \
+            "The scheduled dependency audit ([run]($RUN_URL)) found known vulnerabilities:" \
+            "$REPORT" \
+            "Fix each one (upgrade the dependency), or accept it in \`.cargo/audit.toml\` with a reason and when to drop it. This issue is updated by each failing run; close it once the audit passes.")
+          number=$(gh issue list --state open --search "in:title \"$title\"" --json number,title \
+            --jq "map(select(.title == \"$title\")) | first | .number // empty")
+          if [ -n "$number" ]; then
+            gh issue edit "$number" --body "$body"
+            gh issue comment "$number" --body "Still failing: [run]($RUN_URL)."
+          else
+            gh issue create --title "$title" --label dependencies --body "$body"
+          fi

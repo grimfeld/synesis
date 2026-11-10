@@ -62,30 +62,7 @@ jobs:
       - run: npm run licenses -- --check
       - run: node scripts/release.mjs --check "$(node -p 'require("./package.json").version')"
 
-  # Known vulnerabilities in what ships: the Rust dependencies (accepted ones
-  # are listed with a reason in .cargo/audit.toml) and the production npm
-  # dependencies of the app and the landing page.
-  audit:
-    name: Dependency audit
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-
-      # A prebuilt cargo-audit, checksum-verified by the action.
-      - uses: taiki-e/install-action@b80e2bb2635f28eb98b9fce1e2f0887e1535c6b2 # v2.90.0
-        with:
-          tool: cargo-audit
-
-      - run: cargo audit
-      - run: npm audit --omit=dev --audit-level=high
-      - run: npm audit --omit=dev --audit-level=high
-        working-directory: site
+  # The dependency audit is audit.yml: on lockfile changes and weekly.
 
   web:
     name: Web test build

@@ -62,7 +62,7 @@ Each desktop job signs its updater bundle with the updater key, and tauri-action
 
 A local `npm run tauri build` needs `TAURI_SIGNING_PRIVATE_KEY` set too, since `bundle.createUpdaterArtifacts` is on.
 
-The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, unit tests, UI build, `cargo fmt --check`, the engine and desktop-shell tests, clippy, licences, and a dependency audit: `cargo audit`, with accepted advisories in [.cargo/audit.toml](.cargo/audit.toml), and `npm audit --omit=dev --audit-level=high` for the app and the landing page), and a Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
+The workflow refuses a version that differs from those files, or one whose tag already exists on another commit. Every push and pull request also runs [ci.yml](.github/workflows/ci.yml) (typecheck, unit tests, UI build, `cargo fmt --check`, the engine and desktop-shell tests, clippy, licences). The dependency audit, [audit.yml](.github/workflows/audit.yml) (`cargo audit`, with accepted advisories in [.cargo/audit.toml](.cargo/audit.toml), and `npm audit --omit=dev --audit-level=high` for the app and the landing page), runs on pull requests that change a lockfile and weekly on `main`, where a failure opens or updates one issue listing the advisories, so a new advisory never fails an unrelated pull request or holds up a release. A Husky pre-commit hook runs `npm run typecheck` and `cargo check --workspace` so a commit that does not compile is refused.
 
 ## Licence
 

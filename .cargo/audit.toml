@@ -1,4 +1,4 @@
-# `cargo audit` (CI's audit job) fails on any known vulnerability not listed
+# `cargo audit` (.github/workflows/audit.yml) fails on any known vulnerability not listed
 # here. Each entry says why it is accepted and when to drop it.
 [advisories]
 ignore = [
