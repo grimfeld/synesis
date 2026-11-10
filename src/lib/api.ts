@@ -353,13 +353,26 @@ export interface DatePick {
 
 /**
  * One Hebrew month as the Date picker lists it (crates/engine/src/api.rs
- * `hebrew_months`): its name in the language, as a pick writes it, and the
+ * `date_words`): its name in the language, as a pick writes it, and the
  * civil month it usually begins in.
  */
 export interface HebrewMonthEntry {
   hebrew_month: HebrewMonth;
   name: string;
   civil_month: number;
+}
+
+/**
+ * Every word the Date picker labels a segment with, in one language
+ * (crates/engine/src/api.rs `date_words`): each is the word a pick writes.
+ */
+export interface DateWords {
+  /** The civil months, January first. */
+  civil_months: string[];
+  /** The Hebrew months in the order of the sacred year, Adar I and II last. */
+  hebrew_months: HebrewMonthEntry[];
+  /** The era markers of each Reckoning. */
+  eras: Record<Reckoning, { bce: string; ce: string }>;
 }
 
 /** One Date-typed Property on a document; `date` is null when the text did not parse. */
@@ -1113,9 +1126,8 @@ export const api = {
    */
   readDate: (text: string, language: Lang) =>
     invoke<DatePreview>("read_date", { text, language }),
-  /** The Hebrew months the Date picker lists, in order, named in `language`. */
-  hebrewMonths: (language: Lang) =>
-    invoke<HebrewMonthEntry[]>("hebrew_months", { language }),
+  /** Every word the Date picker labels a segment with, named in `language`. */
+  dateWords: (language: Lang) => invoke<DateWords>("date_words", { language }),
   /**
    * The text a Date picker writes into a Date field: `pick` in the picker's
    * form for `language`, keeping the Reckoning and notes of `previousText`.

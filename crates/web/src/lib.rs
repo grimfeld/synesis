@@ -396,7 +396,7 @@ impl State {
                 &arg::<String>(&a, "text")?,
                 arg(&a, "language")?,
             )),
-            "hebrew_months" => ok(api::hebrew_months(arg(&a, "language")?)),
+            "date_words" => ok(api::date_words(arg(&a, "language")?)),
             "write_date" => ok(api::write_date(
                 &arg(&a, "pick")?,
                 arg(&a, "language")?,

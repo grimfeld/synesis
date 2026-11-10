@@ -13,6 +13,11 @@ declare global {
       palette(query: string): Chainable<JQuery<HTMLElement>>;
       /** Navigate to a document by title through the palette. */
       openDoc(title: string): Chainable<void>;
+      /**
+       * Open a document by title from the sidebar's Search button, which
+       * works where ⌘K cannot be pressed (Cypress on macOS, #115).
+       */
+      searchDoc(title: string): Chainable<void>;
       /** Run a Command by its palette title. */
       runCommand(title: string): Chainable<void>;
       /** Press a shortcut on the body: "{ctrl}k", "{ctrl}e"… */
@@ -106,10 +111,25 @@ Cypress.Commands.add("palette", (query) => {
   return cy.get("[data-testid=palette] input[cmdk-input]").clear().type(query);
 });
 
+/**
+ * Click the document hit with this title. Only document hits, not any item:
+ * the "New · <query>" item holds the typed title too and shows before the
+ * search answers, so a plain `[cmdk-item]` match could land on it.
+ */
+function pickDoc(title: string) {
+  cy.contains("[data-testid=palette] [data-testid=palette-doc]", title).click();
+  cy.get("[data-testid=palette]").should("not.exist");
+}
+
 Cypress.Commands.add("openDoc", (title) => {
   cy.palette(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  pickDoc(title);
+});
+
+Cypress.Commands.add("searchDoc", (title) => {
+  cy.get("[data-testid=sidebar-search]").click();
+  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
+  pickDoc(title);
 });
 
 Cypress.Commands.add("runCommand", (title) => {

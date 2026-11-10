@@ -107,11 +107,10 @@ export const en = {
   period_slider_to: "End of the Period",
   period_slider_middle: "Move the Period",
   tl_mini_events: "Events",
+  // The Timeline's axis labels. A Date's written era words come from the
+  // engine (`date_words`), not from here.
   bce: "BCE",
   ce: "CE",
-  /** The era markers of a Date written "1513 BC" or "33 AD", answered in kind. */
-  bc: "BC",
-  ad: "AD",
   backlinks: "Backlinks",
   no_backlinks: "Nothing links here yet.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -233,6 +232,7 @@ export const en = {
     open: "Pick a Date",
     approx: "Approximate (c.)",
     year: "Year",
+    year_invalid: "Year must be 1 or more",
     era: "Era",
     month: "Month",
     day: "Day",

@@ -108,10 +108,10 @@ export const fr: Dict = {
   period_slider_to: "Fin de la Période",
   period_slider_middle: "Déplacer la Période",
   tl_mini_events: "Événements",
+  // The Timeline's axis labels. A Date's written era words come from the
+  // engine (`date_words`), not from here.
   bce: "av. n. è.",
   ce: "de n. è.",
-  bc: "av. J.-C.",
-  ad: "ap. J.-C.",
   backlinks: "Liens entrants",
   no_backlinks: "Rien ne pointe ici pour l’instant.",
   backlink_mentions: (n: number) => `${n} mention${n === 1 ? "" : "s"}`,
@@ -224,6 +224,7 @@ export const fr: Dict = {
     open: "Choisir une Date",
     approx: "Approximative (vers)",
     year: "Année",
+    year_invalid: "L’année doit être 1 ou plus",
     era: "Ère",
     month: "Mois",
     day: "Jour",

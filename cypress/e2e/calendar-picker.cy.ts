@@ -8,10 +8,7 @@
  * Cypress cannot press on macOS (#115).
  */
 function openNote() {
-  cy.get("[data-testid=sidebar-search]").click();
-  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  cy.searchDoc(title);
 }
 
 /** Each test its own Note: the Vault copy is shared by the spec. */
@@ -19,12 +16,15 @@ let title = "";
 let made = 0;
 
 /** A Note with one `date` (a calendar date), open with the right panel showing it. */
-function noteWithDate(date: string) {
+function noteWithDate(date: string, phone = false) {
   title = `Dated ${String.fromCharCode(65 + made++)}`;
   cy.bridge("create_document", { docType: "note", title, fields: { date } });
-  cy.viewport(1280, 800);
+  if (phone) cy.viewport(390, 844);
+  else cy.viewport(1280, 800);
   cy.openApp();
+  if (phone) cy.get("[data-sidebar=trigger]").first().click();
   openNote();
+  if (phone) cy.get("[data-testid=toggle-panel]").click();
   cy.get("[data-testid=right-panel] [data-testid=property-date]").should(
     "have.attr",
     "data-prop-type",
@@ -124,6 +124,32 @@ describe("Calendar date picker", () => {
       "have.text",
       "sept.",
     );
+    // The dropdowns and the month buttons are named in French too, from
+    // react-day-picker's `fr` locale.
+    for (const [part, name] of [
+      ["select.rdp-months_dropdown", "Choisir le mois"],
+      ["select.rdp-years_dropdown", "Choisir l'année"],
+      ["button.rdp-button_previous", "Aller au mois précédent"],
+      ["button.rdp-button_next", "Aller au mois suivant"],
+    ])
+      cy.get(`${at()} ${part}`).should("have.attr", "aria-label", name);
+  });
+
+  it("gives Today and Clear a finger's size in the phone Sheet, the trigger 28px on a desktop", () => {
+    noteWithDate("2024-03-14");
+    cy.get(at("-open")).then(($el) => {
+      const r = $el[0].getBoundingClientRect();
+      expect(r.height, "trigger height").to.be.at.least(28);
+      expect(r.width, "trigger width").to.be.at.least(28);
+    });
+    noteWithDate("2024-03-14", true);
+    cy.get(at("-open")).click();
+    cy.get(at()).should("have.attr", "data-shell", "sheet");
+    for (const suffix of ["-today", "-clear"]) {
+      cy.get(at(suffix)).then(($el) => {
+        expect($el[0].getBoundingClientRect().height, suffix).to.be.at.least(40);
+      });
+    }
   });
 
   it("names the form a calendar date takes in the app language", () => {

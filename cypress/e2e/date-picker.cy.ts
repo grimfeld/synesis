@@ -9,10 +9,7 @@
  */
 function openPicked(phone: boolean) {
   if (phone) cy.get("[data-sidebar=trigger]").first().click();
-  cy.get("[data-testid=sidebar-search]").click();
-  cy.get("[data-testid=palette] input[cmdk-input]").type(title);
-  cy.get("[data-testid=palette] [cmdk-item]").contains(title).click();
-  cy.get("[data-testid=palette]").should("not.exist");
+  cy.searchDoc(title);
 }
 
 /** Each test its own Note: the Vault copy is shared by the spec. */
@@ -88,6 +85,25 @@ describe("Date picker", () => {
     cy.get(at("-year")).clear().type("1010{enter}");
     cy.get(field).should("have.value", "1010 BC (1 Sam 16)");
     bornInFile().should("contain", "1010 BC (1 Sam 16)");
+  });
+
+  it("flags year 0 with a hint and leaves the text as it was", () => {
+    noteWithBorn("1000 BC (1 Sam 16)");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "1000");
+    cy.get(at("-year-hint")).should("not.exist");
+    cy.get(at("-year")).clear().type("0{enter}");
+    cy.get(at("-year")).should("have.attr", "aria-invalid", "true");
+    cy.get(at("-year-hint"))
+      .should("be.visible")
+      .invoke("attr", "id")
+      .then((hint) => cy.get(at("-year")).should("have.attr", "aria-describedby", hint));
+    cy.get("body").type("{esc}");
+    cy.get(at()).should("not.exist");
+    cy.get(field).should("have.value", "1000 BC (1 Sam 16)");
+    // Longer than the field's save would take, so a write would be on disk.
+    cy.wait(800);
+    bornInFile().should("contain", "1000 BC (1 Sam 16)");
   });
 
   it("follows what is typed in the field", () => {
@@ -260,6 +276,31 @@ describe("Date picker", () => {
     bornInFile().should("contain", "1017 BC (1 Sam 16)");
   });
 
+  it("writes a year committed just before switching Notes", () => {
+    const other = `Elsewhere ${made}`;
+    cy.bridge("create_document", { docType: "note", title: other, fields: { born: "70 CE" } });
+    noteWithBorn("1000 BC (1 Sam 16)");
+    const first = title;
+    // The engine answers the write only once the other Note is open.
+    cy.intercept("POST", "**/invoke/write_date", (req) => {
+      req.on("response", (res) => {
+        res.setDelay(3000);
+      });
+    }).as("writeDate");
+    cy.get(at("-open")).click();
+    cy.get(at("-year")).should("have.value", "1000").clear().type("1010{enter}");
+    cy.get("body").type("{esc}");
+    cy.get(at()).should("not.exist");
+    title = other;
+    openPicked(false);
+    cy.get(field).should("have.value", "70 CE");
+    cy.wait("@writeDate");
+    // Longer than the field's save would take, so the write would be on disk.
+    cy.wait(800);
+    title = first;
+    bornInFile().should("contain", "1010 BC (1 Sam 16)");
+  });
+
   it("starts afresh when the field is cleared", () => {
     noteWithBorn("14 March 33 CE");
     cy.get(field).clear().blur();
@@ -274,6 +315,17 @@ describe("Date picker", () => {
     cy.wait(800);
     cy.get(field).should("have.value", "");
     bornInFile().should("not.contain", "33");
+  });
+
+  it("labels the month and era with the words a pick writes", () => {
+    cy.bridge("set_language", { lang: "fr" });
+    noteWithBorn("70 ap. J.-C.");
+    cy.get(at("-open")).click();
+    cy.get(at("-era-bce")).should("have.text", "av. J.-C.");
+    cy.get(at("-era-ce")).should("have.text", "ap. J.-C.");
+    cy.get(at("-month")).click();
+    cy.get(at("-month-8")).should("have.text", "août").click();
+    cy.get(field).should("have.value", "août 70 ap. J.-C.");
   });
 
   it("gives every control a finger's size in the phone Sheet", () => {
@@ -321,11 +373,11 @@ describe("Date picker", () => {
 describe("Date picker beyond the right panel", () => {
   afterEach(() => cy.bridge("set_language", { lang: "en" }));
 
-  /** Open a page, or run a Command (">…"), from the sidebar's Search button. */
-  function search(query: string, pick: string) {
+  /** Run the New Event Command from the sidebar's Search button. */
+  function newEvent() {
     cy.get("[data-testid=sidebar-search]").click();
-    cy.get("[data-testid=palette] input[cmdk-input]").type(query);
-    cy.get("[data-testid=palette] [cmdk-item]").contains(pick).click();
+    cy.get("[data-testid=palette] input[cmdk-input]").type(">New Event");
+    cy.get("[data-testid=palette] [cmdk-item][data-value='create.event']").click();
     cy.get("[data-testid=palette]").should("not.exist");
   }
 
@@ -338,7 +390,7 @@ describe("Date picker beyond the right panel", () => {
     });
     cy.viewport(1280, 800);
     cy.openApp();
-    search(name, name);
+    cy.searchDoc(name);
     const hub = (suffix = "") => `[data-testid=hub-date-picker-born${suffix}]`;
     cy.get(`[data-testid=hub-dates] ${hub("-open")}`).click();
     cy.get(hub()).should("have.attr", "data-shell", "popover");
@@ -359,7 +411,7 @@ describe("Date picker beyond the right panel", () => {
     const name = `Picked Event ${made++}`;
     cy.viewport(1280, 800);
     cy.openApp();
-    search(">New Event", "New Event");
+    newEvent();
     cy.get("[data-testid=new-doc-form] input").first().type(name);
     const start = (suffix = "") => `[data-testid=new-date-picker-start${suffix}]`;
     const end = (suffix = "") => `[data-testid=new-date-picker-end${suffix}]`;
