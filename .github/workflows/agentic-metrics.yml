@@ -1,0 +1,23 @@
+# Installed by `agentic-metrics init`. The inputs mirror .agentic-metrics.json;
+# change both together.
+name: agentic-metrics
+on:
+  pull_request:
+    types: [opened, edited, reopened]
+  issues:
+    types: [opened, edited, labeled]
+  issue_comment:
+    types: [created]
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+jobs:
+  conventions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: grimfeld/agentic-metrics/action@759d4af7a65ec5b89958833a55b2744b8ce26d52 # v0.4.0
+        with:
+          branch-regex: '^(\d+)(?=[-_/]|$)|(?:^|[-_/])(?:issues?|tickets?|spec|gh|fix|bug|feat|feature)[-_/]?(\d+)(?=[-_/]|$)'
+          bug-label: 'bug'
+          ready-label: 'ready-for-agent'
