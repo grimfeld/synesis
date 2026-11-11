@@ -59,3 +59,7 @@ shrink below its content is simply clipped. When adding UI:
 ## UI smoke testing without the Tauri window
 
 In debug builds the app starts an HTTP bridge on `127.0.0.1:4321` (`src-tauri/src/devbridge.rs`); `src/lib/devbridge.ts` routes `invoke` to it when the page runs in a plain browser. So with `npm run tauri dev` running, open `http://localhost:1420` in Chrome, or drive it headless with `node scripts/ui-smoke.mjs '<json steps>'` (screenshots + console errors). Webview errors are also forwarded to the terminal as `[ui:…]` lines.
+
+## Workflow metrics (agentic-metrics)
+
+This repo is measured by [agentic-metrics](https://github.com/grimfeld/agentic-metrics); its settings are in `.agentic-metrics.json`. The conventions (an `estimate: 2d` comment before work starts, a `caused-by: #N` reply on a bug once its cause is found, `autonomy:*` labels to correct a ticket's level, a "Notable intervention" line in a PR when the user stepped in) are in the plugin's `agentic-metrics:conventions` skill. The `agentic-metrics` workflow adds `Closes #N` from the branch name and the `regression` label from a `caused-by:` reply, so agents don't have to. The recorder hook (`.agentic-metrics/recorder.mjs`, registered in `.claude/settings.json`) adds a `Session-Record:` trailer to the commits a Claude Code session makes; leave it in place when amending or rewording a commit.
