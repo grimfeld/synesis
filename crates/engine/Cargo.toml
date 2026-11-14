@@ -37,7 +37,7 @@ image = { version = "0.25", default-features = false, features = [
   "webp",
 ] }
 rand = "0.8"
-base64 = "0.22"
+base64 = "0.23"
 
 [target.'cfg(not(target_os = "wasi"))'.dependencies]
 hostname = "0.4"

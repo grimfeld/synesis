@@ -1399,7 +1399,7 @@ name = "engine"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "hex",
  "hostname",
@@ -6097,7 +6097,7 @@ dependencies = [
 name = "synesis"
 version = "0.0.25"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "engine",
  "hex",
  "jni 0.21.1",
@@ -7390,7 +7390,7 @@ dependencies = [
 name = "web"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "engine",
  "serde",
  "serde_json",
