@@ -54,7 +54,7 @@ describe("Capture on a Source Hub", () => {
         expect(kept[0].path).to.contain("keep enduring with joy par. 7");
         cy.task<string>(
           "file:read",
-          `${Cypress.env("vault")}/${kept[0].path}`,
+          `${Cypress.expose("vault")}/${kept[0].path}`,
         ).then((text) => {
           expect(text).to.contain("> Borrowed words, kept as-is.");
           expect(text).to.contain("locator: par. 7");

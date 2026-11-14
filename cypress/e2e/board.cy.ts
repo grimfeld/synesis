@@ -511,7 +511,7 @@ describe("Board", () => {
             .query<{ id: string }[]>({ kind: "boardsReferencing", id: note.id })
             .then((docs) => docs.some((d) => d.id === talk.id));
         onBoards().should("equal", false);
-        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        const file = `${Cypress.expose("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
         cy.task<string>("file:read", file).then((text) => {
           const board = JSON.parse(text);
           board.nodes.push({

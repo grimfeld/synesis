@@ -171,7 +171,7 @@ describe("A Cover is named after its Source", () => {
     // write `untitled.jpg`. A refusal is a 500, so the request is made raw.
     cy.request({
       method: "POST",
-      url: `${Cypress.env("bridge")}/invoke/attach_image`,
+      url: `${Cypress.expose("bridge")}/invoke/attach_image`,
       body: { title: "", path: "cover.png" },
       headers: { "content-type": "application/json" },
       failOnStatusCode: false,

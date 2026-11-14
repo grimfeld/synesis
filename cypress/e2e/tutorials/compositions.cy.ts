@@ -45,7 +45,7 @@ describe("Tutorial: Compositions & Embeds", () => {
     cy.get(".cm-embed-box").should("contain", "Endurance is not merely putting up");
     cy.wait(1000);
     cy.docByTitle("A Talk of My Own").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.contain("Trials can be faced with joy.");
         expect(text).to.match(/!\[\[Keep enduring with joy par\. 12[^\]]*\]\]/i);
       });

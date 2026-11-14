@@ -50,7 +50,7 @@ describe("Tutorial: Hubs & Backlinks", () => {
     cy.get("[data-testid=hub-about] .cm-passage").should("contain", "Ac 16:1");
     cy.wait(1000); // the Hub's save is debounced
     cy.docByTitle("Timothy").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) =>
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) =>
         expect(text).to.contain("Paul's companion from Lystra"),
       );
     });

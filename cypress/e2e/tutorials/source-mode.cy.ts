@@ -43,7 +43,7 @@ describe("Tutorial: Live Preview & Source mode", () => {
     // The file holds exactly what was typed: switching modes changed nothing.
     cy.wait(1000);
     cy.docByTitle("Trying Source mode").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.contain("## A heading\n**some bold words**");
       });
     });

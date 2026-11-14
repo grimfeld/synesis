@@ -191,7 +191,7 @@ describe("Map", () => {
     });
     cy.wait(1000);
     cy.docByTitle("The Exodus route").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.match(/places: \[.*"\[\[Babylon\]\]"\]/);
       });
     });
@@ -205,7 +205,7 @@ describe("Map", () => {
     cy.get("[data-testid=journey-stop]").last().should("contain", "Philippi").and("have.attr", "data-status", "ok");
     cy.docByTitle("Philippi").then((d) => {
       expect(d.type).to.equal("place");
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.match(/lat: 4\d\./);
         expect(text).to.match(/lon: 2\d\./);
       });
@@ -322,12 +322,12 @@ describe("Map", () => {
     cy.get("[data-testid=kind-picker]").should("have.attr", "data-kind", "Harbour");
     cy.wait(1000);
     cy.docByTitle("Corinth").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.match(/^kind: Harbour$/m);
       });
     });
     // Kept in the Vault's config, so Paired Devices draw the same pin (§27.4).
-    cy.task<string>("file:read", `${Cypress.env("vault")}/.bible-study/place-kinds.json`).then((text) => {
+    cy.task<string>("file:read", `${Cypress.expose("vault")}/.bible-study/place-kinds.json`).then((text) => {
       expect(JSON.parse(text).kinds).to.deep.equal([{ name: "Harbour", label: "Harbour", icon: "anchor" }]);
     });
     cy.runCommand("Go to Map");
@@ -342,7 +342,7 @@ describe("Map", () => {
     cy.runCommand("Go to Map");
     cy.contains("[data-testid=map-pin]", "Corinth").should("have.attr", "data-kind", "").find(".map-pin-dot").should("exist");
     cy.docByTitle("Corinth").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.match(/^kind: Harbour$/m);
       });
     });
@@ -376,7 +376,7 @@ describe("Map", () => {
     cy.contains("[data-testid=map-pin]", "Tarsus").should("have.attr", "data-kind", "settlement");
     cy.get("[data-testid=map-fill-kinds]").should("not.exist");
     cy.docByTitle("Tarsus").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then((text) => {
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then((text) => {
         expect(text).to.match(/^kind: settlement$/m);
       });
     });

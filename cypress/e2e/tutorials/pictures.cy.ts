@@ -42,7 +42,7 @@ describe("Tutorial: Pictures", () => {
     cy.tutorialCommand("editor.picture");
     cy.get("[data-testid=picture-input]").selectFile("cypress/fixtures/athens.png", { force: true });
     cy.get("[data-testid=picture][data-state=shown]").should("exist");
-    cy.task<boolean>("file:exists", `${Cypress.env("vault")}/Attachments/trying pictures a35094.png`).should("eq", true);
+    cy.task<boolean>("file:exists", `${Cypress.expose("vault")}/Attachments/trying pictures a35094.png`).should("eq", true);
     cy.tutorialDone();
   });
 });

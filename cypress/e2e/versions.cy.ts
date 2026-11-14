@@ -33,7 +33,7 @@ describe("Versions", () => {
     cy.get(".cm-content").should("not.contain", "Added later.");
     cy.wait(1000);
     cy.docByTitle("Talk on endurance").then((d) => {
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`).then(
+      cy.task<string>("file:read", `${Cypress.expose("vault")}/${d.path}`).then(
         (text) => {
           expect(text).not.to.contain("Added later.");
         },

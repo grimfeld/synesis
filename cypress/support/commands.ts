@@ -45,7 +45,7 @@ declare global {
   }
 }
 
-const bridge = Cypress.env("bridge") as string;
+const bridge = Cypress.expose("bridge") as string;
 
 const invoke = (cmd: string, args: Record<string, unknown> = {}) =>
   cy.request({ method: "POST", url: `${bridge}/invoke/${cmd}`, body: args, headers: { "content-type": "application/json" } }).then((r) => r.body);

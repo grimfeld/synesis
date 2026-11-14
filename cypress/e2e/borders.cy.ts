@@ -20,7 +20,7 @@ describe("Borders", () => {
     cy.openApp();
   });
 
-  const vaultFile = (rel: string) => `${Cypress.env("vault")}/${rel}`;
+  const vaultFile = (rel: string) => `${Cypress.expose("vault")}/${rel}`;
 
   /** Place three corners around the middle of the Map and double-click a fourth. */
   const drawSquare = () => {

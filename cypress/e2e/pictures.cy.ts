@@ -3,7 +3,7 @@
 // line and drawn in Live Preview.
 // `a35094` in a stored name: the first hex digits of the fixture's SHA-256.
 // It is 64×40, so it is stored byte for byte (ADR 0019).
-const vaultFile = (rel: string) => `${Cypress.env("vault")}/${rel}`;
+const vaultFile = (rel: string) => `${Cypress.expose("vault")}/${rel}`;
 
 /** The stored text of a document, once the save has landed. */
 function fileOf(title: string) {
