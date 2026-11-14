@@ -37,7 +37,7 @@ tauri-plugin-barcode-scanner = "2"
 # System bars that follow the Skin (src/system_bars.rs), through the webview
 # handles Tauri exposes: the same jni and objc2 versions wry uses.
 [target.'cfg(target_os = "android")'.dependencies]
-jni = "0.21"
+jni = "0.22"
 
 # iCloud (src/icloud.rs): the ubiquity container on iOS, and asking for evicted
 # files on both Apple platforms; objc2 also drives the iOS status bar
