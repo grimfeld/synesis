@@ -534,7 +534,10 @@ impl Vault {
                         .is_some_and(|m| mtime_of(&abs) > m);
                 if file_newer {
                     if let Some(sync) = self.sync.as_mut() {
-                        sync.record_local(&c.id, &on_disk, &here)?;
+                        // Where the document will be: `rel`, unless another
+                        // document holds it and this one stays put.
+                        let dest = if held { &here } else { &rel };
+                        sync.record_local(&c.id, &on_disk, dest)?;
                     }
                 } else {
                     write_atomic(&abs, &c.text)?;
