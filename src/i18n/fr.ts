@@ -186,6 +186,7 @@ export const fr: Dict = {
       `${child} a déjà un père : ${existing}. Rien n’a été écrit.`,
     refused_mother: (child: string, existing: string) =>
       `${child} a déjà une mère : ${existing}. Rien n’a été écrit.`,
+    save_failed: "La modification n’a pas pu être enregistrée. Elle est gardée ici et le sera à votre prochaine modification.",
   },
   start: "Début",
   end: "Fin",
@@ -436,6 +437,7 @@ export const fr: Dict = {
   add_many_confirm: (n: number) => `Créer ${n} Sources ?`,
   add_many_hint: "Collez une liste de titres pour les créer d'un coup.",
   create_named: (n: string) => `Créer « ${n} »`,
+  picker_excluded: "Indisponible ici",
   child_count: (n: number) => (n === 1 ? "1 partie" : `${n} parties`),
   scroll_left: "Défiler à gauche",
   scroll_right: "Défiler à droite",

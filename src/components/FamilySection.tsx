@@ -4,7 +4,7 @@
 // with a Character picker and cleared, Spouses added and removed, all in this
 // Character's own front matter; "Add child" writes the child's `father` or
 // `mother`, never anything on this Character. Nothing is written but by a
-// pick, a clear or a remove.
+// pick, a clear, a remove or Add child.
 import { useCallback, useMemo, useState, type ComponentProps, type ReactNode } from "react";
 import { CircleAlert, Plus, X } from "lucide-react";
 import { toast } from "sonner";
@@ -23,7 +23,7 @@ import {
   type KinGraph,
   type WrittenLink,
 } from "@/lib/kinship";
-import { joinFrontmatter, removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
+import { joinFrontmatter, readField, removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { live } from "@/lib/live";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
@@ -53,6 +53,12 @@ async function resolveWritten(v: unknown): Promise<WrittenLink[]> {
     return { text, doc: d ? { id: d.id, title: d.title } : null };
   });
 }
+
+/**
+ * A remove or clear X beside a chip: a finger-sized hit area on a phone
+ * (as `TOUCH_TARGET`), the glyph at its desktop size.
+ */
+const REMOVE_BUTTON = "size-10 shrink-0 text-muted-foreground md:size-6";
 
 /** One Character, as a chip that opens their Hub. Long names wrap. */
 function KinChip({ doc }: { doc: DocSummary }) {
@@ -98,7 +104,7 @@ function Chips({
                 size="icon-xs"
                 data-testid="family-remove"
                 data-id={d.id}
-                className="text-muted-foreground"
+                className={REMOVE_BUTTON}
                 onClick={() => onRemove!(d)}
               >
                 <X />
@@ -239,7 +245,7 @@ function ParentSlot({
           label={role === "father" ? t.family.clear_father : t.family.clear_mother}
           size="icon-xs"
           data-testid={`family-${role}-clear`}
-          className="text-muted-foreground"
+          className={REMOVE_BUTTON}
           onClick={onClear}
         >
           <X />
@@ -467,12 +473,28 @@ export function FamilySection({
   );
   if (!family || !graph) return null;
 
-  const written = (role: string) => writtenLinks(doc.frontmatter[role]).length > 0;
+  // A Kinship Property as the live front matter holds it (what is shown and
+  // written), the saved one only for a form `readField` does not take.
+  const current = (key: string): unknown => {
+    const v = readField(fm, key);
+    return v === undefined ? doc.frontmatter[key] : v;
+  };
+  const written = (role: string) => writtenLinks(current(role)).length > 0;
+  // Every write from this section: saved at once, and a failure said with a
+  // toast besides the header's mark (the slots follow the index, so they stay
+  // as they were).
+  const write = async (next: string) => {
+    onFmChange(next);
+    const d = live.peek(id);
+    if (!d) return;
+    await d.flush();
+    if (d.snapshot().status === "error") toast.error(t.family.save_failed, { id: "family-save-failed" });
+  };
   const setSpouses = async (next: (current: WrittenLink[]) => string[] | null, touched: boolean) => {
     try {
-      const value = next(await resolveWritten(doc.frontmatter.spouses));
+      const value = next(await resolveWritten(current("spouses")));
       if (value === null && !touched) return;
-      onFmChange(setField(fm, "spouses", value));
+      await write(setField(fm, "spouses", value));
     } catch (e) {
       toast.error(String(e));
     }
@@ -504,8 +526,8 @@ export function FamilySection({
               kin={family[role]}
               written={written(role)}
               self={id}
-              onChoose={(d) => onFmChange(setField(fm, role, linkTo(d)))}
-              onClear={() => onFmChange(removeField(fm, role))}
+              onChoose={(d) => void write(setField(fm, role, linkTo(d)))}
+              onClear={() => void write(removeField(fm, role))}
             />
           </Row>
         ))}
