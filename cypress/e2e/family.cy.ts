@@ -456,6 +456,49 @@ describe("Family tree", () => {
     cy.get("[data-testid=family-tree]").should("be.visible");
   });
 
+  // #154 opened the Hub on Enter; since #155 Enter opens the card, as a click does.
+  it("opens a person's card with Enter after the drawing was dragged", () => {
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree]")
+      .trigger("pointerdown", 20, 20, { pointerId: 1, button: 0, pointerType: "mouse" })
+      .trigger("pointermove", 60, 30, { pointerId: 1, pointerType: "mouse" })
+      .trigger("pointermove", 100, 40, { pointerId: 1, pointerType: "mouse" })
+      .trigger("pointerup", 100, 40, { pointerId: 1, pointerType: "mouse" });
+    // The drag ended no click, and the keyboard is no drag.
+    ids("Jacob").then(([jacob]) => {
+      person(jacob).focus();
+      cy.focused().should("have.attr", "data-id", jacob);
+    });
+    cy.press(Cypress.Keyboard.Keys.ENTER);
+    ids("Jacob").then(([jacob]) => cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob));
+    cy.get("[data-testid=family-tree-card-open]").click();
+    cy.hubTitle("Jacob");
+  });
+
+  it("brings a person reached by Tab into view", () => {
+    cy.runCommand("Go to Family tree");
+    // Close in, so that most of the drawing is out of the box.
+    for (let i = 0; i < 4; i++) cy.get("[data-testid=family-tree-zoom-in]").click();
+    cy.get("[data-testid=family-tree]").then(($c) => {
+      const box = $c[0].getBoundingClientRect();
+      const inside = (r: DOMRect) =>
+        r.left >= box.left - 1 && r.right <= box.right + 1 && r.top >= box.top - 1 && r.bottom <= box.bottom + 1;
+      cy.get("[data-testid=family-tree-person]").then(($p) => {
+        const all = [...$p];
+        const target = all.findIndex((e, i) => i > 0 && !inside(e.getBoundingClientRect()));
+        expect(target, "a person out of view").to.be.greaterThan(0);
+        const id = all[target].getAttribute("data-id")!;
+        cy.wrap(all[target - 1]).focus();
+        cy.press(Cypress.Keyboard.Keys.TAB);
+        cy.focused().should("have.attr", "data-id", id);
+        person(id).should(($q) => {
+          const r = $q[0].getBoundingClientRect();
+          expect(inside(r), `${id} in view: ${JSON.stringify(r)} / ${JSON.stringify(box)}`).to.equal(true);
+        });
+      });
+    });
+  });
+
   it("skips a cycle and draws the rest", () => {
     cy.bridge("create_document", { docType: "character", title: "Cain", fields: { father: "[[Enoch]]" }, body: "" });
     cy.bridge("create_document", { docType: "character", title: "Enoch", fields: { father: "[[Cain]]" }, body: "" });

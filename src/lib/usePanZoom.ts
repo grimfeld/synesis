@@ -18,6 +18,19 @@ export interface Bounds {
   height: number;
 }
 
+/**
+ * The view panned the least that shows `b` (world units) in a `w` × `h` box
+ * with `pad` of room, at the same zoom; `v` itself when `b` is already in view.
+ * Too large to fit, its top-left corner shows.
+ */
+export function revealed(v: Viewport, b: Bounds, w: number, h: number, pad = 16): Viewport {
+  const shift = (lo: number, hi: number, size: number) =>
+    hi - lo > size - pad * 2 || lo < pad ? pad - lo : hi > size - pad ? size - pad - hi : 0;
+  const dx = shift(b.x * v.k + v.x, (b.x + b.width) * v.k + v.x, w);
+  const dy = shift(b.y * v.k + v.y, (b.y + b.height) * v.k + v.y, h);
+  return dx || dy ? { ...v, x: v.x + dx, y: v.y + dy } : v;
+}
+
 /** A drag shorter than this is a click. */
 const CLICK_SLOP = 4;
 
@@ -100,6 +113,19 @@ export function usePanZoom({ min = 0.05, max = 3 }: { min?: number; max?: number
     [clamp],
   );
 
+  /**
+   * Pan the least that brings `b` (world units) into the box with some room,
+   * at the same zoom: a person focused from the keyboard, off-screen.
+   */
+  const reveal = useCallback((b: Bounds) => {
+    const el = box.current;
+    if (!el) return;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    if (w === 0 || h === 0) return;
+    setView((v) => revealed(v, b, w, h));
+  }, []);
+
   const local = (e: { clientX: number; clientY: number }) => {
     const r = box.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -172,6 +198,7 @@ export function usePanZoom({ min = 0.05, max = 3 }: { min?: number; max?: number
     zoomBy,
     fit,
     centre,
+    reveal,
     /** Whether the gesture that just ended panned or pinched, so a click it ends in is ignored. */
     dragged: wasDragged,
     handlers: {

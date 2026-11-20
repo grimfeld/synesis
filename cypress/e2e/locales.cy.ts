@@ -456,7 +456,7 @@ describe("Locale layout", () => {
       // The focused Family tree (#155) at 390px: "Arbre généalogique : Judah (son
       // of Jacob)" in the header, the search box, "Ancêtres" and "Descendants"
       // with their selects and "Tout le monde" in the toolbar, then the card with
-      // the longest title in the demo's tree, "Recentrer ici" and "Ouvrir le Hub".
+      // the longest title in the demo's tree, "Recentrer ici" and "Ouvrir la page".
       it("keeps the focused Family tree's generation controls and card inside the screen", () => {
         cy.openDoc("Judah (son of Jacob)", { exact: true });
         cy.get("[data-testid=hub-family-tree]").click();

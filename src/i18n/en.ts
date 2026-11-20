@@ -232,6 +232,7 @@ export const en = {
     empty: "No Character has kin yet. Name a Character's father, mother or spouses under Family on their Hub, and their family is drawn here.",
     empty_tutorial: "Show me how",
     load_failed: "The Family tree could not be read from the Vault.",
+    draw_failed: "The family tree could not be drawn.",
     retry: "Try again",
   },
   start: "Start",

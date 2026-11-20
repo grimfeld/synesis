@@ -42,6 +42,14 @@ function fitted(title: string, width: number): string {
   return title.length <= max ? title : `${title.slice(0, max - 1)}…`;
 }
 
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
+
 /** The drawing itself, in world units: lines, then bars, then the boxes over them. */
 function Drawing({
   layout,
@@ -51,14 +59,17 @@ function Drawing({
   label,
   onSelect,
   onOpen,
+  onFocus,
 }: {
   layout: FamilyLayout;
   names: boolean;
   focus: string | undefined;
   selected: string | null;
   label: (name: string) => string;
-  onSelect: (id: string) => void;
+  /** `keyboard`: Enter or Space, which no pan can have preceded. */
+  onSelect: (id: string, keyboard: boolean) => void;
   onOpen: (id: string, other: boolean) => void;
+  onFocus: (p: PersonBox) => void;
 }) {
   return (
     <>
@@ -71,7 +82,6 @@ function Drawing({
           points={l.points.map(([x, y]) => `${x},${y}`).join(" ")}
           fill="none"
           style={{ stroke: "var(--muted-foreground)" }}
-          strokeOpacity={0.7}
           strokeWidth={1.5}
           vectorEffect="non-scaling-stroke"
         />
@@ -108,18 +118,36 @@ function Drawing({
             tabIndex={0}
             aria-haspopup="dialog"
             aria-label={label(p.doc.title)}
-            className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-[3]"
+            className="group cursor-pointer outline-none"
             transform={`translate(${p.x},${p.y})`}
-            onClick={() => onSelect(p.id)}
+            onClick={() => onSelect(p.id, false)}
             onDoubleClick={(e) => onOpen(p.id, otherPane(e))}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                onSelect(p.id);
+                onSelect(p.id, true);
               }
+            }}
+            onFocus={(e) => {
+              // A box focused by Tab is brought into view; one clicked is already there.
+              if (focusVisible(e.currentTarget)) onFocus(p);
             }}
           >
             <title>{p.doc.title}</title>
+            {/* The focus ring: an outer ring in the theme's ring colour, shown on keyboard focus. */}
+            <rect
+              data-testid="family-tree-focus-ring"
+              x={-4}
+              y={-4}
+              width={p.width + 8}
+              height={p.height + 8}
+              rx={11}
+              fill="none"
+              className="opacity-0 group-focus-visible:opacity-100"
+              style={{ stroke: "var(--ring)" }}
+              strokeWidth={2.5}
+              vectorEffect="non-scaling-stroke"
+            />
             <rect
               width={p.width}
               height={p.height}
@@ -380,7 +408,19 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const up = view.up ?? DEFAULT_GENERATIONS;
   const down = view.down ?? DEFAULT_GENERATIONS;
   const focus = useMemo<Focus | undefined>(() => (focusId ? { id: focusId, up, down } : undefined), [focusId, up, down]);
-  const layout = useMemo(() => (data ? familyLayout(kinGraph(data), { focus }) : null), [data, focus]);
+  // The layout never throws on bad data (familyTree.test.ts); should it all
+  // the same, the view shows its error state rather than taking the app down,
+  // since a saved layout reopens this view on every launch.
+  const built = useMemo((): { layout: FamilyLayout | null; failed: boolean } => {
+    if (!data) return { layout: null, failed: false };
+    try {
+      return { layout: familyLayout(kinGraph(data), { focus }), failed: false };
+    } catch (e) {
+      console.error("family tree layout failed", e);
+      return { layout: null, failed: true };
+    }
+  }, [data, focus]);
+  const layout = built.layout;
   const pz = usePanZoom();
   const names = pz.view.k >= NAMES_FROM_ZOOM;
   const [selected, setSelected] = useState<string | null>(null);
@@ -425,14 +465,16 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   // Read from refs, so the drawing is not rebuilt on every pan.
   const live = useRef({ s, dragged: pz.dragged });
   live.current = { s, dragged: pz.dragged };
-  const select = useCallback((id: string) => {
-    if (live.current.dragged()) return;
+  const select = useCallback((id: string, keyboard: boolean) => {
+    if (!keyboard && live.current.dragged()) return;
     setSelected(id);
   }, []);
   const open = useCallback((id: string, other: boolean) => {
     if (live.current.dragged()) return;
     live.current.s.openDoc(id, other);
   }, []);
+  const reveal = pz.reveal;
+  const revealBox = useCallback((p: PersonBox) => reveal(p), [reveal]);
   const drawing = useMemo(
     () =>
       layout && (
@@ -444,9 +486,10 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
           label={t.family_tree.person}
           onSelect={select}
           onOpen={open}
+          onFocus={revealBox}
         />
       ),
-    [layout, names, focusId, shown, t, select, open],
+    [layout, names, focusId, shown, t, select, open, revealBox],
   );
 
   const showTutorial = () => tutorials.show("family-tree", tutorial("family-tree", lang)?.steps.length ?? 1);
@@ -555,7 +598,17 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
           )}
         </div>
       )}
-      {!data && status === "error" ? (
+      {built.failed ? (
+        // The data was read but could not be drawn: reading it again would not help.
+        <div
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+          role="alert"
+          data-testid="family-tree-draw-failed"
+        >
+          <CircleAlert className="size-5 shrink-0 text-destructive" />
+          <p className="max-w-sm text-sm text-muted-foreground">{t.family_tree.draw_failed}</p>
+        </div>
+      ) : !data && status === "error" ? (
         <div
           className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
           role="alert"
