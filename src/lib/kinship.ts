@@ -23,6 +23,8 @@ export interface KinGraph {
 /** One parent's children who share the same other parent (`null`: not named). */
 export interface ChildGroup {
   other: DocSummary | null;
+  /** What the other parent is to these children: the mother on a father's Hub. */
+  otherRole: "father" | "mother";
   children: DocSummary[];
 }
 
@@ -91,21 +93,22 @@ export function familyOf(g: KinGraph, id: string): Family {
 
   // Children, grouped by the other parent each names: under the spouses in
   // their order, then any other parent by title, then those naming no one.
-  const groups = new Map<string | null, DocSummary[]>();
+  const groups = new Map<string, ChildGroup>();
   for (const c of g.children.get(id) ?? []) {
-    const other =
-      g.father.get(c) === id ? (g.mother.get(c) ?? null) : (g.father.get(c) ?? null);
-    const list = groups.get(other) ?? [];
-    list.push(g.docs.get(c)!);
-    groups.set(other, list);
+    const otherRole = g.father.get(c) === id ? "mother" : "father";
+    const other = (otherRole === "mother" ? g.mother : g.father).get(c) ?? null;
+    const key = other ?? `\0${otherRole}`;
+    const group = groups.get(key) ?? { other: doc(other ?? undefined), otherRole, children: [] };
+    group.children.push(g.docs.get(c)!);
+    groups.set(key, group);
   }
   const otherRank = (other: string | null) => {
     if (other === null) return Number.MAX_SAFE_INTEGER;
     const i = spouseIds.indexOf(other);
     return i < 0 ? spouseIds.length : i;
   };
-  const children: ChildGroup[] = [...groups.entries()]
-    .map(([other, list]) => ({ other: doc(other ?? undefined), children: list.sort(byTitle) }))
+  const children: ChildGroup[] = [...groups.values()]
+    .map((c) => ({ ...c, children: c.children.sort(byTitle) }))
     .sort((a, b) => {
       const ra = otherRank(a.other?.id ?? null);
       const rb = otherRank(b.other?.id ?? null);

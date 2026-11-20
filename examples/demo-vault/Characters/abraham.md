@@ -7,5 +7,7 @@ aliases: ["Abram"]
 born: "2018 BCE"
 crossed_euphrates: "c. 1943 BCE"
 died: "1843 BCE"
+father: "[[Terah]]"
+spouses: ["[[Sarah]]", "[[Hagar]]"]
 ---
 Father of those having faith (Ro 4:11). Crossed the Euphrates at 75 (Ge 12:4).
