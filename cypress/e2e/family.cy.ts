@@ -238,6 +238,56 @@ describe("Editing Kinship", () => {
       characterFile("Jacob").should("equal", jacobBefore);
     });
   });
+
+  it("offers no Create for an existing Character the picker leaves out", () => {
+    cy.openDoc("Isaac", { exact: true });
+    cy.get("[data-testid=family-add-child]").click();
+    // Esau is already Isaac's child: not offered, and not to be made twice.
+    cy.get("[data-testid=family-picker-input]").type("Esau");
+    cy.get("[data-testid=picker-excluded]").should("be.visible").and("contain", "Esau");
+    cy.get("[data-testid=picker-option]").should("not.exist");
+    cy.get("[data-testid=picker-create]").should("not.exist");
+    cy.get("[data-testid=family-picker-input]").type("{enter}");
+    cy.query<{ title: string }[]>({ kind: "list", docType: null }).then((docs) =>
+      expect(docs.filter((d) => d.title.startsWith("Esau"))).to.have.length(1),
+    );
+  });
+
+  it("picks the second match with ArrowDown and Enter", () => {
+    cy.openDoc("Paul", { exact: true });
+    cy.get("[data-testid=family-add-spouse]").click();
+    cy.get("[data-testid=family-picker-input]").type("Jo");
+    cy.get("[data-testid=picker-option]").should("have.length.greaterThan", 1);
+    cy.get("[data-testid=picker-option]")
+      .eq(1)
+      .invoke("attr", "data-id")
+      .then((second) => {
+        cy.get("[data-testid=family-picker-input]").type("{downarrow}{downarrow}");
+        cy.get("[data-testid=picker-option]").eq(1).should("have.attr", "aria-selected", "true");
+        cy.get("[data-testid=family-picker-input]")
+          .invoke("attr", "aria-activedescendant")
+          .then((active) => cy.get("[data-testid=picker-option]").eq(1).should("have.attr", "id", active));
+        cy.get("[data-testid=family-picker-input]").type("{enter}");
+        cy.get("[data-testid=family-picker]").should("not.exist");
+        kin("spouses").should("have.length", 1).and("have.attr", "data-id", second);
+      });
+  });
+
+  it("Enter with several matches and no exact title creates nothing", () => {
+    characterFile("Paul").then((paulBefore) => {
+      cy.openDoc("Paul", { exact: true });
+      cy.get("[data-testid=family-add-spouse]").click();
+      cy.get("[data-testid=family-picker-input]").type("Jo");
+      cy.get("[data-testid=picker-option]").should("have.length.greaterThan", 1);
+      cy.get("[data-testid=picker-create]").should("exist");
+      cy.get("[data-testid=family-picker-input]").type("{enter}");
+      cy.get("[data-testid=family-picker]").should("be.visible");
+      cy.query<{ title: string }[]>({ kind: "list", docType: null }).then((docs) =>
+        expect(docs.map((d) => d.title)).not.to.include("Jo"),
+      );
+      characterFile("Paul").should("equal", paulBefore);
+    });
+  });
 });
 
 // Relations (#153; CONTEXT.md, Relation): a link Property between Characters

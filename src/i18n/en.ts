@@ -201,6 +201,8 @@ export const en = {
       `${child} already has a father: ${existing}. Nothing was written.`,
     refused_mother: (child: string, existing: string) =>
       `${child} already has a mother: ${existing}. Nothing was written.`,
+    /** A Father, Mother or Spouse change the file did not take. */
+    save_failed: "The change could not be saved. It is kept here and will be saved with your next edit.",
   },
   start: "Start",
   end: "End",
@@ -457,6 +459,8 @@ export const en = {
   add_many_confirm: (n: number) => `Create ${n} Sources?`,
   add_many_hint: "Paste a list of titles to create them all at once.",
   create_named: (n: string) => `Create “${n}”`,
+  /** A picker's row for a document with the typed name that cannot be chosen here. */
+  picker_excluded: "Not available here",
   child_count: (n: number) => (n === 1 ? "1 part" : `${n} parts`),
   scroll_left: "Scroll left",
   scroll_right: "Scroll right",

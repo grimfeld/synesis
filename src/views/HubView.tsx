@@ -743,10 +743,11 @@ function HubHeader({
   );
 }
 
-// Every Topical Subject may go by other names. Scripture generates its own,
-// and a Source's other names are not something it links by.
+// A Character's Kinship as written in its front matter (ADR 0024).
 const KINSHIP_PROPERTIES = ["father", "mother", "spouses"];
 
+// Every Topical Subject may go by other names. Scripture generates its own,
+// and a Source's other names are not something it links by.
 const HAS_ALIASES: readonly DocType[] = ["place", "character", "concept", "event", "journey"];
 
 /**
