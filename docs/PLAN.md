@@ -1229,3 +1229,34 @@ The Timeline knew *when* but not *where*, the Map *where* but not *when* (§19.6
 ### Open
 
 - Containment is planar, in degrees. Fine at the scale of the Bible's regions; a Border crossing the antimeridian would need splitting.
+
+## 32. Kinship and the Family tree (night build, 2026-11-20)
+
+Nothing in the app said that Jacob's father was Isaac, that Leah and Rachel were his wives, or which of his sons were Rachel's: a `father: "[[Isaac]]"` was a backlink labelled "father" and nothing more, so the genealogies a Bible student studies could only be read as prose. Issue #144, built in parts; this section opens with #151 (tickets #160, #162, #169), and the later parts add their decisions below. Vocabulary in [CONTEXT.md](../CONTEXT.md): **Kinship** is new, **Character** is updated. Storage is ADR 0024.
+
+### Decided
+
+1. **Kinship is three built-in Properties on a Character** (#160, ADR 0024): `father` and `mother`, one link each, and `spouses`, a list of links, written in front matter as ordinary links (`father: "[[Isaac]]"`, `spouses: ["[[Leah]]", "[[Rachel]]"]`), so ADR 0003 holds and Obsidian reads them as links. They join the engine's `BUILTIN` list (ADR 0006); their labels are localised like every built-in, the names in files stay English. The Character template is unchanged: a new Character does not start with empty Kinship fields. A Vault whose schema declares one of the names with another type keeps it; the Kinship query reads the links in the value whatever the type.
+2. **Stored once, derived the other way** (ADR 0024). A tie is written on the child (`father`, `mother`) or on either spouse; children and siblings are never written. The app reads the other direction at read time and never writes a file to keep two ends in step: Isaac's Hub lists Jacob and Esau among his Children from their `father`, and Leah's lists Jacob among her Spouses because Jacob names her. A spouse named on both sides is one tie.
+3. **One engine query, one derivation module.** The engine answers `Query::Kinship` with every Kinship edge in the Vault as written (`character` names `kin` as its `father`, `mother` or `spouse`), read from the links table, plus warnings (`crates/engine/src/kinship.rs`, `Index::kinship`). No new Tauri command: it goes through `engine::api` like every read, so the web build shares it. The whole graph goes to the UI (a Vault holds hundreds of Characters, not millions), where `src/lib/kinship.ts` indexes it both ways and derives one Character's Family. The Family tree builds on the same module.
+4. **Derived relations** (`familyOf`):
+   - a parent's **Children** are grouped under the other parent each child names, the spouses' order first, then any other parent, then the children naming no other parent, who stand under this parent alone (no heading when they are the only group);
+   - **Siblings** are the Characters sharing a father or a mother, half-siblings included, grouped by the parents they share: both parents first, then the father's side, then the mother's;
+   - **Spouses** are those the Character names, in the order written, then those naming them.
+5. **Bad data is reported, never rewritten** (#162). On a Character's Hub the Family section shows, inline, a Kinship Property naming something that is not a Character (a Place), a `father` or `mother` holding more than one link, and a Character who is their own ancestor, with the path of the cycle. The bad tie is left out and the rest is shown: of two fathers neither is used, and the parent ties on a cycle are dropped so whatever walks the tree ends. A link to a page that does not exist is no warning: following it creates the page as before, and it joins Kinship once its type is Character. Kinship on a page that is not a Character is ignored.
+6. **The Family section** (#160) on a Character's Hub, after Dates and before Places, is read-only in this part: `father`, `mother` and `spouses` stay ordinary Property rows. Rows: Father and Mother always, an empty slot reading "Not named" when unset; Spouses, Children and Siblings only when not empty. Every Character is a chip that opens their Hub; chips wrap, and long names wrap inside the chip. Each row puts its label above its chips at every width, so a phone, a narrow Pane and a desktop read alike (one column).
+7. **The demo Vault** gains the patriarchs with their Kinship: Terah, Abraham (already there), Sarah, Hagar, Ishmael, Isaac, Rebekah, Esau, Jacob, Leah, Rachel, Bilhah, Zilpah, Joseph, Benjamin and Judah, plus Dan and Gad so each of Jacob's four wives has a child. Every one is dated, so the demo's Characters stay all dated (the Timeline's undated count). Judah is titled "Judah (son of Jacob)", because the region Judah already holds that title and a shared title is ambiguous to links.
+8. **Tutorial**: `family-tree` (en, fr, the `family-tree` diagram) is listed first on a Character's Hub; its walk reads Jacob's, Isaac's and Joseph's Family. Cypress: `family.cy.ts`, `tutorials/family-tree.cy.ts`, and a Family case in `locales.cy.ts`.
+
+### Declined
+
+- A sidecar file or custom syntax for richer ties (ADR 0024).
+- Storing both directions (`children` on the parent): two files must agree, and the app would rewrite one the user did not touch.
+- User-declared kinship kinds, and `children` or `siblings` written by hand: always derived.
+- Legal, adoptive and skipped-generation parenthood as Kinship: one `father` and one `mother`; the nuance goes in the About body.
+- A `sex` or gender Property.
+
+### Open
+
+- Editing Kinship from the Family section, and hiding the three Property rows (#152).
+- Relations between Characters (#153); the Family tree view (#154, #155).
