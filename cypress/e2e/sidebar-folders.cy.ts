@@ -44,6 +44,16 @@ describe("Sidebar Folders", () => {
     cy.get(row("Sermons/2026")).should("have.attr", "aria-expanded", "true");
   });
 
+  it("remembers open Folders in both groups", () => {
+    cy.task("dir:make", `${Cypress.env("vault")}/Compositions/Talks`);
+    cy.reload();
+    cy.get(row("Sermons")).click();
+    cy.get('[data-testid=folder-tree-composition] [data-folder="Talks"] > [data-testid=folder-row]').click();
+    cy.openApp();
+    cy.get(row("Sermons")).should("have.attr", "aria-expanded", "true");
+    cy.get('[data-testid=folder-tree-composition] [data-folder="Talks"] > [data-testid=folder-row]').should("have.attr", "aria-expanded", "true");
+  });
+
   it("leaves a Folder the reader folded folded while the open document is saved", () => {
     cy.openDoc("Week 2");
     cy.get(row("Sermons")).should("have.attr", "aria-expanded", "true").click();

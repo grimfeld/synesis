@@ -136,16 +136,21 @@ export function foldersHolding(tree: FolderTree, id: string): string[] {
 // ---- open Folders, per Device (PLAN §31): which Folders the reader unfolded,
 // kept across restarts. UI state, never Vault content.
 
-/** Kept per Vault, as the Pane layout is (`panes.ts`): two Vaults may both hold a `Sermons`. */
-const openKey = (vault: string) => `synesis.sidebar.folders:${vault}`;
+/**
+ * Kept per Vault, as the Pane layout is (`panes.ts`): two Vaults may both hold
+ * a `Sermons`. And per type: the Notes and Compositions trees each own their
+ * entry, so neither writes over the other's.
+ */
+const openKey = (vault: string, type: string) => `synesis.sidebar.folders:${vault}:${type}`;
 
-/** A Folder's entry in the open set: `<type>:<key>`. */
-export const openEntry = (type: string, key: string) => `${type}:${key}`;
-
-/** The open Folders of a Vault, as `openEntry` strings. */
-export function loadOpenFolders(vault: string, storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): Set<string> {
+/** The open Folders of one type in a Vault, by `FolderNode.key`. */
+export function loadOpenFolders(
+  vault: string,
+  type: string,
+  storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage,
+): Set<string> {
   try {
-    const raw = storage?.getItem(openKey(vault));
+    const raw = storage?.getItem(openKey(vault, type));
     const v: unknown = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   } catch {
@@ -153,9 +158,14 @@ export function loadOpenFolders(vault: string, storage: Pick<Storage, "getItem">
   }
 }
 
-export function saveOpenFolders(vault: string, open: ReadonlySet<string>, storage: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
+export function saveOpenFolders(
+  vault: string,
+  type: string,
+  open: ReadonlySet<string>,
+  storage: Pick<Storage, "setItem"> | undefined = globalThis.localStorage,
+): void {
   try {
-    storage?.setItem(openKey(vault), JSON.stringify([...open]));
+    storage?.setItem(openKey(vault, type), JSON.stringify([...open]));
   } catch {
     // Private mode or a full disk: remembering is a convenience.
   }

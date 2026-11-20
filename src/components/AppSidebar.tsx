@@ -37,7 +37,6 @@ import {
   folderTree,
   foldersHolding,
   loadOpenFolders,
-  openEntry,
   saveOpenFolders,
   type FolderNode,
 } from "@/lib/folders";
@@ -424,17 +423,16 @@ function FolderTreeView({
   });
   const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "note" ? "Notes" : "Compositions");
   const tree = useMemo(() => folderTree(top, data ?? [], docs), [top, data, docs]);
-  // Remembered per Vault on this Device; the two groups share one set.
+  // Remembered on this Device, per Vault and per type.
   const vault = s.info?.meta.id ?? s.info?.root ?? "";
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => loadOpenFolders(vault));
-  useEffect(() => setOpen(loadOpenFolders(vault)), [vault]);
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => loadOpenFolders(vault, type));
+  useEffect(() => setOpen(loadOpenFolders(vault, type)), [vault, type]);
   const toggle = (key: string) =>
     setOpen((o) => {
       const n = new Set(o);
-      const k = openEntry(type, key);
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
-      saveOpenFolders(vault, n);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      saveOpenFolders(vault, type, n);
       return n;
     });
   // Unfold the way to a document when it is opened, so its row is in sight.
@@ -446,12 +444,12 @@ function FolderTreeView({
     if (!activeId || unfoldedFor.current === activeId) return;
     if (!docs.some((d) => d.id === activeId)) return;
     unfoldedFor.current = activeId;
-    const want = foldersHolding(tree, activeId).map((k) => openEntry(type, k));
+    const want = foldersHolding(tree, activeId);
     if (!want.length) return;
     setOpen((o) => {
       if (want.every((k) => o.has(k))) return o;
       const n = new Set([...o, ...want]);
-      saveOpenFolders(vault, n);
+      saveOpenFolders(vault, type, n);
       return n;
     });
   }, [activeId, tree, type, docs, vault]);
@@ -484,7 +482,7 @@ function FolderLevel({
   return (
     <>
       {folders.map((f) => {
-        const isOpen = open.has(openEntry(type, f.key));
+        const isOpen = open.has(f.key);
         const Icon = isOpen ? FolderOpen : Folder;
         return (
           <SidebarMenuItem key={f.key} className="min-w-0" data-testid="folder" data-folder={f.key}>

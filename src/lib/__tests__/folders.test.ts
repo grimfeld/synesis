@@ -65,13 +65,16 @@ describe("open Folders", () => {
   it("round-trips through storage and survives junk", () => {
     const store = new Map<string, string>();
     const s = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
-    saveOpenFolders("v1", new Set(["note:Sermons", "composition:Talks"]), s);
-    expect([...loadOpenFolders("v1", s)].sort()).toEqual(["composition:Talks", "note:Sermons"]);
+    saveOpenFolders("v1", "note", new Set(["Sermons", "Sermons/2026"]), s);
+    // The other type saving afterwards leaves Notes' entry alone.
+    saveOpenFolders("v1", "composition", new Set(["Talks"]), s);
+    expect([...loadOpenFolders("v1", "note", s)].sort()).toEqual(["Sermons", "Sermons/2026"]);
+    expect([...loadOpenFolders("v1", "composition", s)]).toEqual(["Talks"]);
     // Another Vault keeps its own.
-    expect(loadOpenFolders("v2", s).size).toBe(0);
-    store.set("synesis.sidebar.folders:v1", "{not json");
-    expect(loadOpenFolders("v1", s).size).toBe(0);
-    store.set("synesis.sidebar.folders:v1", JSON.stringify({ a: 1 }));
-    expect(loadOpenFolders("v1", s).size).toBe(0);
+    expect(loadOpenFolders("v2", "note", s).size).toBe(0);
+    store.set("synesis.sidebar.folders:v1:note", "{not json");
+    expect(loadOpenFolders("v1", "note", s).size).toBe(0);
+    store.set("synesis.sidebar.folders:v1:note", JSON.stringify({ a: 1 }));
+    expect(loadOpenFolders("v1", "note", s).size).toBe(0);
   });
 });
