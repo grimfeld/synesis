@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation } from "../api";
 import { kinGraph } from "../kinship";
-import { BOX_HEIGHT, familyLayout, packRow, type FamilyLayout } from "../familyTree";
+import { BOX_HEIGHT, COUPLE_GAP, familyLayout, packRow, type FamilyLayout } from "../familyTree";
 
 function doc(title: string): DocSummary {
   return {
@@ -173,8 +173,9 @@ describe("familyLayout", () => {
     for (const p of c.people) expect(Number.isFinite(p.x) && Number.isFinite(p.y)).toBe(true);
   });
 
-  it("keeps a spouse in another row joined to their partner", () => {
-    // Tamar married Er, then bore Judah's sons: two rows, both bars drawn.
+  it("stands a spouse with no parents in their partner's row, even when they bore another's child", () => {
+    // Tamar married Er, then bore Judah's son Perez: she stands beside Er, the
+    // marriage bar level, and the bar to Judah slopes.
     const t = layout([
       ["Er", "father", "Judah"],
       ["Er", "spouse", "Tamar"],
@@ -182,10 +183,123 @@ describe("familyLayout", () => {
       ["Perez", "mother", "Tamar"],
     ]);
     expect(new Set(t.people.map((p) => p.id)).size).toBe(t.people.length);
-    expect(t.couples.filter((c) => c.a === "tamar" || c.b === "tamar")).toHaveLength(2);
+    const gen = (id: string) => box(t, id).generation;
+    expect(gen("judah")).toBe(0);
+    expect(gen("er")).toBe(1);
+    expect(gen("tamar")).toBe(1);
+    expect(gen("perez")).toBe(2);
+    const bars = t.couples.filter((c) => c.a === "tamar" || c.b === "tamar");
+    expect(bars).toHaveLength(2);
+    const marriage = bars.find((c) => c.named)!;
+    expect(marriage.y1).toBe(marriage.y2);
     const perez = lineTo(t, "perez");
     expect(perez.parents.sort()).toEqual(["judah", "tamar"]);
     expect(perez.points.at(-1)![1]).toBe(box(t, "perez").y);
+  });
+
+  it("stands a chain of spouses with no parents in the row of the one who has them", () => {
+    // A marries B, B marries C, C marries Isaac: all three in Isaac's row.
+    const t = layout([
+      ["Isaac", "father", "Abraham"],
+      ["Cee", "spouse", "Isaac"],
+      ["Bee", "spouse", "Cee"],
+      ["Ay", "spouse", "Bee"],
+    ]);
+    const gen = (id: string) => box(t, id).generation;
+    expect([gen("ay"), gen("bee"), gen("cee")]).toEqual([1, 1, 1]);
+    expect(gen("isaac")).toBe(1);
+  });
+
+  it("draws a child whose father and mother name the same Character, from that one parent", () => {
+    const t = layout([
+      ["Obed", "father", "Boaz"],
+      ["Obed", "mother", "Boaz"],
+      ["Jesse", "father", "Obed"],
+    ]);
+    expect(t.people.map((p) => p.id).sort()).toEqual(["boaz", "jesse", "obed"]);
+    expect(lineTo(t, "obed").parents).toEqual(["boaz"]);
+    const [x] = lineTo(t, "obed").points[0];
+    expect(x).toBeCloseTo(center(t, "boaz"));
+    for (const p of t.people) expect(Number.isFinite(p.x)).toBe(true);
+  });
+
+  it("joins a wife with two husbands to each by a bar spanning only the two of them", () => {
+    // Ruth married Mahlon, then Boaz; a child of each marriage (the first made up).
+    const r = layout([
+      ["Ruth", "spouse", "Mahlon"],
+      ["Ruth", "spouse", "Boaz"],
+      ["Obed", "father", "Boaz"],
+      ["Obed", "mother", "Ruth"],
+      ["Mara", "father", "Mahlon"],
+      ["Mara", "mother", "Ruth"],
+    ]);
+    const rowOf = (id: string) => r.people.filter((p) => p.y === box(r, id).y);
+    for (const [husband, child] of [
+      ["boaz", "obed"],
+      ["mahlon", "mara"],
+    ]) {
+      const [lo, hi] = [box(r, "ruth"), box(r, husband)].sort((a, b) => a.x - b.x);
+      // No box stands between Ruth and this husband.
+      expect(rowOf("ruth").filter((p) => p.x > lo.x && p.x < hi.x), husband).toEqual([]);
+      // The child drops in the gap between them.
+      const [x] = lineTo(r, child).points[0];
+      expect(x, child).toBeGreaterThan(lo.x + lo.width);
+      expect(x, child).toBeLessThan(hi.x);
+    }
+  });
+
+  it("puts every wife's children in the gap on her husband's side when he has many wives", () => {
+    const j = layout([
+      ["Jacob", "spouse", "Leah"],
+      ["Jacob", "spouse", "Rachel"],
+      ["Jacob", "spouse", "Bilhah"],
+      ["Jacob", "spouse", "Zilpah"],
+      ["Reuben", "father", "Jacob"],
+      ["Reuben", "mother", "Leah"],
+      ["Joseph", "father", "Jacob"],
+      ["Joseph", "mother", "Rachel"],
+      ["Dan", "father", "Jacob"],
+      ["Dan", "mother", "Bilhah"],
+      ["Gad", "father", "Jacob"],
+      ["Gad", "mother", "Zilpah"],
+    ]);
+    const jacob = center(j, "jacob");
+    const drops = new Set<number>();
+    for (const [wife, child] of [
+      ["leah", "reuben"],
+      ["rachel", "joseph"],
+      ["bilhah", "dan"],
+      ["zilpah", "gad"],
+    ]) {
+      const w = box(j, wife);
+      const [x] = lineTo(j, child).points[0];
+      drops.add(x);
+      // Between Jacob and her, right next to her box.
+      if (w.x > jacob) {
+        expect(x, wife).toBeGreaterThan(jacob);
+        expect(x, wife).toBeLessThan(w.x);
+        expect(w.x - x, wife).toBeLessThanOrEqual(COUPLE_GAP);
+      } else {
+        expect(x, wife).toBeLessThan(jacob);
+        expect(x, wife).toBeGreaterThan(w.x + w.width);
+        expect(x - (w.x + w.width), wife).toBeLessThanOrEqual(COUPLE_GAP);
+      }
+    }
+    expect(drops.size).toBe(4);
+  });
+
+  it("never throws on bad edges", () => {
+    expect(() =>
+      layout([
+        ["Abel", "father", "Abel"],
+        ["Abel", "mother", "Abel"],
+        ["Abel", "spouse", "Abel"],
+        ["Seth", "father", "Adam"],
+        ["Seth", "mother", "Adam"],
+        ["Adam", "spouse", "Seth"],
+        ["Adam", "father", "Seth"],
+      ]),
+    ).not.toThrow();
   });
 
   it("is quick for hundreds of Characters", () => {

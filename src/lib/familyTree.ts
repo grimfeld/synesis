@@ -150,8 +150,10 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
   const ids = [...g.docs.keys()].sort(byTitle);
 
   // ---- parent ties, with any cycle broken (a back edge of a depth-first walk).
-  const named = (c: string) =>
-    [g.father.get(c), g.mother.get(c)].filter((p): p is string => !!p && p !== c && g.docs.has(p));
+  // A father and a mother naming the same Character is one parent: a bad edge, drawn once.
+  const named = (c: string) => [
+    ...new Set([g.father.get(c), g.mother.get(c)].filter((p): p is string => !!p && p !== c && g.docs.has(p))),
+  ];
   const kids = new Map<string, string[]>();
   for (const c of ids) for (const p of named(c)) kids.set(p, [...(kids.get(p) ?? []), c]);
   for (const list of kids.values()) list.sort(byTitle);
@@ -216,25 +218,56 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
   for (const { a, b } of pairs.values()) uf.union(a, b);
 
   // ---- generations: from parent links only, never from Dates.
-  const gen = new Map<string, number>();
+  // Characters with no parents drawn, joined by marriages among themselves,
+  // stand together in one row: the row of a spouse who has parents (Tamar
+  // beside Er, Rebekah beside Isaac, however long the chain of spouses), or
+  // else just above the nearest child of any of them. A child is always below
+  // every parent, so a spouse's row can push their children down; repeated
+  // until nothing moves.
+  const roots = ids.filter((id) => parentsOf.get(id)!.length === 0);
+  const isRoot = new Set(roots);
+  const marriedRoots = new UnionFind();
+  for (const id of roots)
+    for (const s of g.spouses.get(id) ?? []) if (isRoot.has(s) && s !== id) marriedRoots.union(id, s);
+  const rootGroups = new Map<string, string[]>();
+  for (const id of roots) {
+    const r = marriedRoots.find(id);
+    rootGroups.set(r, [...(rootGroups.get(r) ?? []), id]);
+  }
+  const groups = [...rootGroups.values()].map((group) => ({
+    group,
+    anchors: [...new Set(group.flatMap((id) => (g.spouses.get(id) ?? []).filter((s) => g.docs.has(s) && !isRoot.has(s))))],
+    children: [...new Set(group.flatMap((id) => childrenOf.get(id) ?? []))],
+  }));
+  const gen = new Map<string, number>(ids.map((id) => [id, 0]));
+  // Each step only moves rows down; a marriage that loops back into one's own
+  // descendants could push forever, so it stops after as many steps as people.
+  for (let step = 0; step <= ids.length; step++) {
+    let moved = false;
+    const set = (id: string, n: number) => {
+      if (gen.get(id) !== n) moved = true;
+      gen.set(id, n);
+    };
+    for (const id of topo) {
+      const ps = parentsOf.get(id)!;
+      if (ps.length) set(id, Math.max(...ps.map((p) => gen.get(p)! + 1)));
+    }
+    for (const { group, anchors, children } of groups) {
+      const n = anchors.length
+        ? Math.min(...anchors.map((a) => gen.get(a)!))
+        : children.length
+          ? Math.min(...children.map((c) => gen.get(c)!)) - 1
+          : 0;
+      // Never above where it stood: a row only ever moves down.
+      for (const id of group) set(id, Math.max(gen.get(id)!, n));
+    }
+    if (!moved) break;
+  }
+  // Whatever stopped the loop, every child stands below its parents.
   for (const id of topo) {
     const ps = parentsOf.get(id)!;
-    gen.set(id, ps.length ? Math.max(...ps.map((p) => gen.get(p)! + 1)) : 0);
+    if (ps.length) gen.set(id, Math.max(gen.get(id)!, ...ps.map((p) => gen.get(p)! + 1)));
   }
-  // A Character with no parents drawn sits just above their nearest child,
-  // or, with no child, in the row of a partner: Rebekah beside Isaac.
-  const roots = ids.filter((id) => parentsOf.get(id)!.length === 0);
-  for (const id of roots) {
-    const cs = childrenOf.get(id) ?? [];
-    if (cs.length) gen.set(id, Math.min(...cs.map((c) => gen.get(c)!)) - 1);
-  }
-  for (let pass = 0; pass < 2; pass++)
-    for (const id of roots) {
-      if ((childrenOf.get(id) ?? []).length) continue;
-      const p = (partners.get(id) ?? []).find((x) => parentsOf.get(x)!.length || (childrenOf.get(x) ?? []).length);
-      const q = p ?? (partners.get(id) ?? [])[0];
-      if (q !== undefined) gen.set(id, gen.get(q)!);
-    }
 
   // ---- each family on its own.
   const families = new Map<string, string[]>();
@@ -259,9 +292,13 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
     for (let r = 0; r < rows.length; r++) rows[r] ??= [];
     maxGen = Math.max(maxGen, rows.length - 1);
 
-    // Units: spouses (and co-parents) in the same row, side by side. The one
-    // with the most partners first, then theirs in the order written.
+    // Units: spouses (and co-parents) in the same row, side by side, so each
+    // bar spans as few boxes as it can. The one with the most partners is the
+    // hub: their partners, in the order written, stand right, left, right…
+    // of them (Mahlon, Ruth, Boaz: two bars, each touching only its couple),
+    // and a partner's own other partners stand further out on that side.
     const unitOf = new Map<string, Unit>();
+    const degree = new Map<string, number>();
     const rowUnits: Unit[][] = rows.map((row) => {
       const units: Unit[] = [];
       const seen = new Set<string>();
@@ -271,20 +308,21 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
           (p) => pairs.has(pairKey(id, p)) && rowOf.get(p) === rowOf.get(id),
         );
       const ranked = [...row].sort((a, b) => sameRow(b).length - sameRow(a).length || byTitle(a, b));
+      for (const id of row) degree.set(id, sameRow(id).length);
+      /** `x` and the partners not yet placed, on `side` of it (both sides for the hub). */
+      const spread = (x: string, side: "left" | "right" | null): string[] => {
+        const next = sameRow(x).filter((p) => !seen.has(p));
+        for (const p of next) seen.add(p);
+        if (side === "right") return [x, ...next.flatMap((p) => spread(p, "right"))];
+        if (side === "left") return [...next.map((p) => spread(p, "left")).reverse().flat(), x];
+        const right = next.filter((_, i) => i % 2 === 0).map((p) => spread(p, "right"));
+        const left = next.filter((_, i) => i % 2 === 1).map((p) => spread(p, "left"));
+        return [...left.reverse().flat(), x, ...right.flat()];
+      };
       for (const start of ranked) {
         if (seen.has(start)) continue;
-        const list: string[] = [];
-        const queue = [start];
         seen.add(start);
-        while (queue.length) {
-          const x = queue.shift()!;
-          list.push(x);
-          for (const p of sameRow(x))
-            if (!seen.has(p)) {
-              seen.add(p);
-              queue.push(p);
-            }
-        }
+        const list = spread(start, null);
         const at: number[] = [];
         let w = 0;
         for (const m of list) {
@@ -303,16 +341,24 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
       return u.x + u.at[u.members.indexOf(id)];
     };
     const centerOf = (id: string) => leftOf(id) + widthOf(g.docs.get(id)!) / 2;
+    /** The middle of the gap after the `i`th member of `u`. */
+    const gapAfter = (u: Unit, i: number) => u.x + (u.at[i] + widthOf(g.docs.get(u.members[i])!) + u.at[i + 1]) / 2;
     /** Where a child of these parents hangs from: the bar between them, or the one parent's box. */
     const drop = (ps: string[]): number => {
-      if (ps.length === 1) return centerOf(ps[0]);
       const [a, b] = ps;
+      if (b === undefined || a === b) return centerOf(a);
       const u = unitOf.get(a)!;
       if (u === unitOf.get(b)) {
-        // The gap just before the later of the two: each wife's own spot on the bar.
-        const j = Math.max(u.members.indexOf(a), u.members.indexOf(b));
-        const prev = u.members[j - 1];
-        return u.x + (u.at[j - 1] + widthOf(g.docs.get(prev)!) + u.at[j]) / 2;
+        const ia = u.members.indexOf(a);
+        const ib = u.members.indexOf(b);
+        if (Math.abs(ia - ib) === 1) return gapAfter(u, Math.min(ia, ib));
+        // A bar that passes behind other boxes: the gap next to the partner
+        // with fewer partners, on the hub's side, so each wife has her own
+        // spot on the husband's bar.
+        const da = degree.get(a) ?? 0;
+        const db = degree.get(b) ?? 0;
+        const [spoke, hub] = da < db || (da === db && ia > ib) ? [ia, ib] : [ib, ia];
+        return gapAfter(u, spoke > hub ? spoke - 1 : spoke);
       }
       return (centerOf(a) + centerOf(b)) / 2;
     };
