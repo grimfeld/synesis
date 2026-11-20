@@ -643,8 +643,6 @@ export const fr: Dict = {
     new_folder: "Nouveau dossier",
     new_folder_in: (name: string) => `Nouveau dossier dans « ${name} »`,
     name: "Nom",
-    create: "Créer",
-    cancel: "Annuler",
     delete: "Supprimer le dossier",
     new_here: { note: "Nouvelle note ici", composition: "Nouvelle composition ici" },
     in_folder: (name: string) => `Dans « ${name} »`,

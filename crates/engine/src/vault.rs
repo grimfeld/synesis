@@ -275,9 +275,12 @@ const OS_CLUTTER: [&str; 2] = [".DS_Store", "Thumbs.db"];
 
 /// A Folder name as typed, checked: not empty, not starting with a dot, and
 /// free of what a file name cannot hold on some system (`/ \ : * ? " < > |`,
-/// control characters). Spaces around it are dropped; its case is kept.
+/// control characters) and of what breaks a `[[link]]` through its path, as
+/// `sanitize_title` drops for a title (`# ^ [ ]`). Spaces around it are
+/// dropped and runs of spaces inside become one; its case is kept.
 pub fn check_folder_name(name: &str) -> Result<String> {
-    let name = name.trim();
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = name.as_str();
     if name.is_empty() {
         return Err(Error::Invalid("a Folder needs a name".into()));
     }
@@ -288,7 +291,7 @@ pub fn check_folder_name(name: &str) -> Result<String> {
     }
     if let Some(c) = name
         .chars()
-        .find(|c| "/\\:*?\"<>|".contains(*c) || c.is_control())
+        .find(|c| "/\\:*?\"<>|#^[]".contains(*c) || c.is_control())
     {
         return Err(Error::Invalid(format!("a Folder name cannot hold “{c}”")));
     }
@@ -1080,6 +1083,19 @@ impl Vault {
         }
         let rel = format!("{top}/{path}");
         self.abs(&rel)?;
+        // A link anywhere on the way, even one leading elsewhere inside the
+        // Vault (`Notes/Sync -> ../.bible-study`), is not a Folder: Folders
+        // are real directories under the type's folder, as `folders` lists them.
+        let mut at = self.root.join(top);
+        if crate::vault_path::is_link(&at) {
+            return Err(Error::Invalid(format!("not a Folder: {path}")));
+        }
+        for seg in path.split('/') {
+            at = at.join(seg);
+            if crate::vault_path::is_link(&at) {
+                return Err(Error::Invalid(format!("not a Folder: {path}")));
+            }
+        }
         Ok(rel)
     }
 
@@ -1104,7 +1120,17 @@ impl Vault {
             return Err(Error::Invalid(format!("“{clash}” is already there")));
         }
         let rel = format!("{parent_rel}/{name}");
-        fs::create_dir_all(self.abs(&rel)?)?;
+        fs::create_dir_all(&parent_abs)?;
+        // `create_dir`, not `create_dir_all`: a name the disk takes for an
+        // existing Folder's (a trailing dot on Windows, another Unicode
+        // spelling on macOS) is refused rather than reported as made.
+        match fs::create_dir(self.abs(&rel)?) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(Error::Invalid(format!("“{name}” is already there")));
+            }
+            Err(e) => return Err(e.into()),
+        }
         let top = Self::folder_root(doc_type)?;
         Ok(rel[top.len() + 1..].to_string())
     }
@@ -3287,8 +3313,25 @@ Antioch is where they met.
         v.create_folder(DocType::Note, "", "Sermons").unwrap();
         let before = fs::read_dir(dir.path().join("Notes")).unwrap().count();
         for bad in [
-            "", "   ", ".hidden", "a/b", "a\\b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b",
-            "SERMONS", "sermons",
+            "",
+            "   ",
+            ".hidden",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "a*b",
+            "a?b",
+            "a\"b",
+            "a<b",
+            "a>b",
+            "a|b",
+            "a#b",
+            "a^b",
+            "a[b",
+            "a]b",
+            "SERMONS",
+            "sermons",
+            " Sermons ",
         ] {
             assert!(v.create_folder(DocType::Note, "", bad).is_err(), "{bad:?}");
         }
@@ -3327,6 +3370,19 @@ Antioch is where they met.
             .create_in(DocType::Note, Some("../.."), "N", &fields, "")
             .is_err());
         assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        // A link that stays inside the Vault is not a Folder either.
+        fs::create_dir_all(dir.path().join(".bible-study")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join(".bible-study"),
+            dir.path().join("Notes/Sync"),
+        )
+        .unwrap();
+        assert!(v.create_folder(DocType::Note, "Sync", "sub").is_err());
+        assert!(v
+            .create_in(DocType::Note, Some("Sync"), "N", &Map::new(), "")
+            .is_err());
+        assert!(v.delete_folder(DocType::Note, "Sync").is_err());
+        assert!(!dir.path().join(".bible-study/sub").exists());
     }
 
     #[test]
@@ -3351,6 +3407,25 @@ Antioch is where they met.
             notes.join("Full/.DS_Store").exists(),
             "nothing deleted on a refusal"
         );
+        // A file iCloud evicted is still a document: its hidden placeholder counts.
+        fs::create_dir_all(notes.join("Evicted")).unwrap();
+        fs::write(notes.join("Evicted/.week 3.md.icloud"), "x").unwrap();
+        assert_eq!(
+            v.delete_folder(DocType::Note, "Evicted").unwrap(),
+            vec![".week 3.md.icloud"]
+        );
+        assert!(notes.join("Evicted").exists());
+        // So does a link, which is never followed nor removed.
+        #[cfg(unix)]
+        {
+            fs::create_dir_all(notes.join("Linking")).unwrap();
+            std::os::unix::fs::symlink(notes.join("Full"), notes.join("Linking/to-full")).unwrap();
+            assert_eq!(
+                v.delete_folder(DocType::Note, "Linking").unwrap(),
+                vec!["to-full"]
+            );
+            assert!(notes.join("Full/a.md").exists());
+        }
         // The type's own folder is never a Folder to delete.
         assert!(v.delete_folder(DocType::Note, "").is_err());
         assert!(v.delete_folder(DocType::Note, "Nowhere").is_err());

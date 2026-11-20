@@ -647,8 +647,6 @@ export const en = {
     new_folder: "New folder",
     new_folder_in: (name: string) => `New folder in “${name}”`,
     name: "Name",
-    create: "Create",
-    cancel: "Cancel",
     delete: "Delete folder",
     new_here: { note: "New Note here", composition: "New Composition here" } as Record<"note" | "composition", string>,
     in_folder: (name: string) => `In “${name}”`,

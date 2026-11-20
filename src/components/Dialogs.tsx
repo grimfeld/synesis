@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { leaf } from "@/lib/folders";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText,
@@ -1196,7 +1197,7 @@ function NewDocument({
         <TypePicker value={type} onChange={setType} />
         {inFolder && (
           <p data-testid="new-doc-folder" className="min-w-0 text-sm break-words text-muted-foreground">
-            {t.folders.in_folder(inFolder.split("/").pop()!)}
+            {t.folders.in_folder(leaf(inFolder))}
           </p>
         )}
         {/* A Clipping has no title: naming someone else's words is the user's

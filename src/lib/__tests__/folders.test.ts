@@ -83,7 +83,7 @@ describe("folderNameProblem", () => {
   it("refuses what the engine refuses", () => {
     expect(folderNameProblem("  ", [])).toEqual({ kind: "empty" });
     expect(folderNameProblem(".git", [])).toEqual({ kind: "dot" });
-    for (const c of ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]) expect(folderNameProblem(`a${c}b`, [])).toEqual({ kind: "char", char: c });
+    for (const c of ["/", "\\", ":", "*", "?", '"', "<", ">", "|", "#", "^", "[", "]"]) expect(folderNameProblem(`a${c}b`, [])).toEqual({ kind: "char", char: c });
     expect(folderNameProblem("sermons", ["Sermons"])).toEqual({ kind: "taken", name: "Sermons" });
     expect(folderNameProblem(" Sermons 2026 ", ["Sermons"])).toBeNull();
   });
