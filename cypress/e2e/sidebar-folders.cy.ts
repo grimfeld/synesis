@@ -195,8 +195,22 @@ describe("Moving documents into Folders", () => {
     // The Compositions group is no target for a Note.
     cy.get("[data-testid=folder-tree-composition]").trigger("dragover", { dataTransfer: data });
     cy.get("[data-testid=folder-tree-composition]").should("not.have.attr", "data-drop-target");
+    // Dropped on Compositions, nothing happens: it is no target.
+    cy.get("[data-testid=folder-tree-composition]").trigger("drop", { dataTransfer: data });
+    cy.docByTitle("Reading plan").its("path").should("equal", "Notes/reading plan.md");
     cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"]').trigger("drop", { dataTransfer: data });
     cy.docByTitle("Reading plan").its("path").should("equal", "Notes/Sermons/reading plan.md");
+  });
+
+  it("moves a Note back to the top by dropping it on its group", () => {
+    cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"] > [data-testid=folder-row]').click();
+    cy.get('[data-testid=folder-tree-note] [data-folder="Sermons/2026"] > [data-testid=folder-row]').click();
+    const data = new DataTransfer();
+    docRow("Week 2").trigger("dragstart", { dataTransfer: data });
+    cy.get("[data-testid=folder-tree-note]").trigger("dragover", { dataTransfer: data });
+    cy.get("[data-testid=folder-tree-note]").should("have.attr", "data-drop-target", "true");
+    cy.get("[data-testid=folder-tree-note]").trigger("drop", { dataTransfer: data });
+    cy.docByTitle("Week 2").its("path").should("equal", "Notes/week 2.md");
   });
 
   it("moves a Composition with its Board", () => {
