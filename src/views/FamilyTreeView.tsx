@@ -13,8 +13,10 @@ import { ViewHeader } from "@/components/ViewHeader";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-/** Below this zoom the names are too small to read: the boxes stay, the names go. */
-export const NAMES_FROM_ZOOM = 0.4;
+/** Below this zoom the names are too small to read (12px drawn at under 7px): the boxes stay, the names go. */
+export const NAMES_FROM_ZOOM = 0.6;
+/** The least zoom the first drawing opens at: names at about 10px. */
+const OPEN_AT_LEAST = 0.8;
 
 /** A title cut to what its box holds at the view's font size. */
 function fitted(title: string, width: number): string {
@@ -141,11 +143,17 @@ export function FamilyTreeView() {
     [layout],
   );
   // The first drawing frames itself; later ones leave the view where the reader put it.
+  // Too large to frame with the names readable (a phone, hundreds of people),
+  // it opens at the top of the largest family, names readable, instead.
   const framed = useRef(false);
   const fit = pz.fit;
   useLayoutEffect(() => {
-    if (!framed.current && bounds && bounds.width > 0) framed.current = fit(bounds);
-  }, [bounds, fit]);
+    if (framed.current || !layout || !bounds || bounds.width <= 0) return;
+    const first = layout.people.filter((p) => p.family === 0);
+    const x0 = Math.min(...first.map((p) => p.x));
+    const x1 = Math.max(...first.map((p) => p.x + p.width));
+    framed.current = fit(bounds, { minK: OPEN_AT_LEAST, start: { x: x0, y: 0, width: x1 - x0, height: 0 } });
+  }, [layout, bounds, fit]);
 
   // Opening is read from refs, so the drawing is not rebuilt on every pan.
   const live = useRef({ s, dragged: pz.dragged });

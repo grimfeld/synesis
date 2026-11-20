@@ -60,17 +60,24 @@ export function usePanZoom({ min = 0.05, max = 3 }: { min?: number; max?: number
 
   /**
    * Frame `b` (world units) in the box, with some room, never larger than
-   * life. False when the box has no size yet (a Pane not laid out).
+   * life. With `minK`, never smaller than that either: what does not fit then
+   * shows the top of `start` (by default `b`), centred. False when the box has
+   * no size yet (a Pane not laid out).
    */
   const fit = useCallback(
-    (b: Bounds, pad = 32): boolean => {
+    (b: Bounds, opts: { minK?: number; start?: Bounds } = {}): boolean => {
+      const pad = 32;
       const el = box.current;
       if (!el || b.width <= 0) return false;
       const w = el.clientWidth;
       const h = el.clientHeight;
       if (w === 0 || h === 0) return false;
       const k = clamp(Math.min(1, (w - pad * 2) / b.width, (h - pad * 2) / Math.max(1, b.height)));
-      setView({ k, x: w / 2 - (b.x + b.width / 2) * k, y: h / 2 - (b.y + b.height / 2) * k });
+      if (opts.minK !== undefined && k < opts.minK) {
+        const s = opts.start ?? b;
+        const k2 = clamp(opts.minK);
+        setView({ k: k2, x: w / 2 - (s.x + s.width / 2) * k2, y: pad - s.y * k2 });
+      } else setView({ k, x: w / 2 - (b.x + b.width / 2) * k, y: h / 2 - (b.y + b.height / 2) * k });
       return true;
     },
     [clamp],
