@@ -356,3 +356,130 @@ describe("Relations section", () => {
     cy.get("[data-testid=hub-relations]").should("not.exist");
   });
 });
+
+// The Family tree view (#154): every family at once, from the same Kinship.
+describe("Family tree", () => {
+  beforeEach(() => cy.openApp());
+
+  const person = (id: string) => cy.get(`[data-testid=family-tree-person][data-id="${id}"]`);
+  const ids = (...titles: string[]) =>
+    cy
+      .query<{ id: string; title: string }[]>({ kind: "list", docType: "character" })
+      .then((docs) => titles.map((t) => docs.find((d) => d.title === t)!.id));
+
+  it("Go to Family tree draws every Character with kin once, in rows by generation", () => {
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree]").should("be.visible").and("have.attr", "data-families", "1");
+    // No Character is drawn twice.
+    cy.get("[data-testid=family-tree-person]").then(($p) => {
+      const all = [...$p].map((p) => p.getAttribute("data-id"));
+      expect(new Set(all).size).to.equal(all.length);
+    });
+    ids("Terah", "Abraham", "Sarah", "Jacob", "Rachel", "Joseph", "Paul").then(
+      ([terah, abraham, sarah, jacob, rachel, joseph, paul]) => {
+        // Abraham and Sarah, half-siblings through Terah and spouses: once each,
+        // a line from Terah to both, side by side in one row.
+        person(abraham).should("have.length", 1).and("have.attr", "data-generation", "1");
+        person(sarah).should("have.length", 1).and("have.attr", "data-generation", "1");
+        person(terah).should("have.attr", "data-generation", "0");
+        cy.get(`[data-testid=family-tree-line][data-child="${abraham}"]`).should("have.attr", "data-parents", terah);
+        cy.get(`[data-testid=family-tree-line][data-child="${sarah}"]`).should("have.attr", "data-parents", terah);
+        cy.get("[data-testid=family-tree-bar]")
+          .filter((_, e) => [e.dataset.a, e.dataset.b].sort().join() === [abraham, sarah].sort().join())
+          .should("have.length", 1);
+        // Joseph hangs from the bar of Jacob and Rachel.
+        cy.get(`[data-testid=family-tree-line][data-child="${joseph}"]`).should(
+          "have.attr",
+          "data-parents",
+          `${jacob} ${rachel}`,
+        );
+        // A Character with no kin is not drawn.
+        person(paul).should("not.exist");
+      },
+    );
+    cy.get("[data-testid=family-tree-counts]").should("contain", "Characters").and("contain", "1 family");
+  });
+
+  it("opens from the sidebar, and a person opens their Hub", () => {
+    cy.get("[data-testid=nav-family-tree]").click();
+    cy.get("[data-testid=family-tree]").should("be.visible");
+    ids("Jacob").then(([jacob]) => person(jacob).click());
+    cy.hubTitle("Jacob");
+  });
+
+  it("draws an unrelated family as its own tree, side by side", () => {
+    cy.bridge("create_document", { docType: "character", title: "Elkanah", fields: { spouses: ["[[Hannah]]"] }, body: "" });
+    cy.bridge("create_document", { docType: "character", title: "Hannah", fields: {}, body: "" });
+    cy.bridge("create_document", {
+      docType: "character",
+      title: "Samuel",
+      fields: { father: "[[Elkanah]]", mother: "[[Hannah]]" },
+      body: "",
+    });
+    cy.openApp();
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree]").should("have.attr", "data-families", "2");
+    cy.get("[data-testid=family-tree-person][data-family=0]").then(($a) =>
+      cy.get("[data-testid=family-tree-person][data-family=1]").then(($b) => {
+        const right = Math.max(...[...$a].map((e) => e.getBoundingClientRect().right));
+        const left = Math.min(...[...$b].map((e) => e.getBoundingClientRect().left));
+        expect(left).to.be.greaterThan(right);
+        expect([...$b].map((e) => e.getAttribute("data-generation")).sort()).to.deep.equal(["0", "0", "1"]);
+      }),
+    );
+  });
+
+  it("pans and zooms, and hides the names far out", () => {
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree]").invoke("attr", "data-zoom").then((before) => {
+      cy.get("[data-testid=family-tree]").trigger("wheel", { deltaY: -400 });
+      cy.get("[data-testid=family-tree]").should("not.have.attr", "data-zoom", before);
+    });
+    for (let i = 0; i < 8; i++) cy.get("[data-testid=family-tree-zoom-out]").click();
+    cy.get("[data-testid=family-tree]").should("have.attr", "data-names", "hidden");
+    cy.get("[data-testid=family-tree-name]").should("not.exist");
+    cy.get("[data-testid=family-tree-person]").should("have.length.greaterThan", 10);
+    cy.get("[data-testid=family-tree-fit]").click();
+    cy.get("[data-testid=family-tree]").should("have.attr", "data-names", "shown");
+    // A drag moves the drawing and opens no one.
+    cy.get("[data-testid=family-tree-person]").first().then(($p) => {
+      const x0 = $p[0].getBoundingClientRect().left;
+      cy.get("[data-testid=family-tree]")
+        .trigger("pointerdown", 20, 20, { pointerId: 1, button: 0, pointerType: "mouse" })
+        .trigger("pointermove", 80, 40, { pointerId: 1, pointerType: "mouse" })
+        .trigger("pointermove", 140, 60, { pointerId: 1, pointerType: "mouse" })
+        .trigger("pointerup", 140, 60, { pointerId: 1, pointerType: "mouse" });
+      cy.get("[data-testid=family-tree-person]")
+        .first()
+        .should(($q) => expect($q[0].getBoundingClientRect().left).to.be.closeTo(x0 + 120, 2));
+    });
+    cy.get("[data-testid=family-tree]").should("be.visible");
+  });
+
+  it("skips a cycle and draws the rest", () => {
+    cy.bridge("create_document", { docType: "character", title: "Cain", fields: { father: "[[Enoch]]" }, body: "" });
+    cy.bridge("create_document", { docType: "character", title: "Enoch", fields: { father: "[[Cain]]" }, body: "" });
+    cy.openApp();
+    cy.runCommand("Go to Family tree");
+    ids("Cain", "Enoch", "Jacob").then(([cain, enoch, jacob]) => {
+      person(jacob).should("have.length", 1);
+      // The cycle's ties are left out: no line between the two.
+      cy.get(`[data-testid=family-tree-line][data-child="${cain}"]`).should("not.exist");
+      cy.get(`[data-testid=family-tree-line][data-child="${enoch}"]`).should("not.exist");
+    });
+  });
+
+  it("shows an empty state with the Tutorial in a Vault where no Character has kin", () => {
+    // The engine's answer for such a Vault: no edge, no warning, no Relation.
+    cy.intercept("POST", "**/invoke/query", (req) => {
+      if (req.body?.query?.kind === "kinship")
+        req.reply({ body: { kind: "kinship", value: { edges: [], warnings: [], relations: [] } } });
+      else req.continue();
+    });
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree-empty]").should("be.visible");
+    cy.get("[data-testid=family-tree]").should("not.exist");
+    cy.get("[data-testid=family-tree-empty-tutorial]").click();
+    cy.get("[data-testid=tutorial-body]").should("have.attr", "data-id", "family-tree");
+  });
+});

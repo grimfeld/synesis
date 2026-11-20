@@ -281,7 +281,7 @@ describe("Locale layout", () => {
       });
 
       it("keeps every view inside the screen", () => {
-        for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map"]) {
+        for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map", "family-tree"]) {
           cy.get("[data-sidebar=trigger]").first().click();
           cy.get(`[data-testid=nav-${view}]`).click();
           cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
@@ -421,6 +421,30 @@ describe("Locale layout", () => {
         cy.openApp();
         cy.openDoc("Elisha", { exact: true });
         cy.get("[data-testid=hub-relation]").should("have.length", 2);
+        expectNoOverflow();
+      });
+
+      // The Family tree (#154) at 390px: "Arbre généalogique", the counts
+      // ("18 Personnages · 1 famille") and three zoom buttons share one header,
+      // and the empty state's message and "Me montrer comment" sit in the pane.
+      it("keeps the Family tree's controls and empty state inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-family-tree]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=family-tree]").should("be.visible");
+        cy.get("[data-testid=family-tree-counts]").should("be.visible");
+        cy.get("[data-testid=family-tree-fit]").should("be.visible");
+        expectNoOverflow();
+        cy.intercept("POST", "**/invoke/query", (req) => {
+          if (req.body?.query?.kind === "kinship")
+            req.reply({ body: { kind: "kinship", value: { edges: [], warnings: [], relations: [] } } });
+          else req.continue();
+        });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-family-tree]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=family-tree-empty-tutorial]").should("be.visible");
         expectNoOverflow();
       });
 
