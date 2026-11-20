@@ -229,6 +229,24 @@ fn remove_owned(root: &Path, files: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// Where a move of a document was decided, for [`Vault::relocate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// By this Device: a rename, or a move into a Folder.
+    Here,
+    /// By another Device, arriving through Pairing.
+    Remote,
+}
+
+/// Move a file, making the folder it goes into.
+fn move_file(from: &Path, to: &Path) -> Result<()> {
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(from, to)?;
+    Ok(())
+}
+
 fn write_atomic(path: &Path, text: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -491,9 +509,13 @@ impl Vault {
                 }
             }
             // Relocated even when the provider already moved the file: the
-            // index and other Boards' cards still name the old path.
+            // index and other Boards' cards still name the old path. A path
+            // another document holds here is never written over: the
+            // document stays where it is, its text merged, and this Device's
+            // next save puts its own path back.
             let summary = match moved_from {
-                Some(old) => self.relocate(&c.id, &old, &rel, false, true)?,
+                Some(old) if self.held_by_other(&c.id, &rel)? => self.index_file(&old)?,
+                Some(old) => self.relocate(&c.id, &old, &rel, false, Origin::Remote)?,
                 None => self.index_file(&rel)?,
             };
             if let Some(d) = summary {
@@ -1325,7 +1347,7 @@ impl Vault {
         if written {
             write_atomic(&p, &updated)?;
         }
-        self.relocate(id, &summary.path, &new_rel, written, false)?;
+        self.relocate(id, &summary.path, &new_rel, written, Origin::Here)?;
         // Update links in every document that pointed at the old title.
         let old = regex::escape(&summary.title);
         let re = Regex::new(&format!(
@@ -1356,8 +1378,8 @@ impl Vault {
 
     /// Move the document `id` from `from` to `to`, with everything keyed by
     /// its path, and index it there. Every change of a document's path goes
-    /// through here: [`Vault::rename`], [`Vault::apply_remote`], and moving a
-    /// document into a Folder. `from` and `to` may be equal (a rename that
+    /// through here: [`Vault::rename`] and [`Vault::apply_remote`] now, and
+    /// moving a document into a Folder (#149) must too. `from` and `to` may be equal (a rename that
     /// only changes the title's capitalisation): then nothing moves.
     ///
     /// The path-keyed companions of a document:
@@ -1373,22 +1395,22 @@ impl Vault {
     ///   must carry the Border here too.
     ///
     /// A source already gone is not an error: on a synced Vault the provider
-    /// may have moved the file before this Device's snapshot arrived. A Board
-    /// already at `to` is left alone rather than overwritten.
+    /// may have moved the file before this Device's snapshot arrived. A `to`
+    /// that holds another document is refused, never written over.
     ///
-    /// `own_write` is passed to the index as `index_file_as` takes it.
-    /// `prune` removes the folders this move left empty, deepest first, but
-    /// never a type's own folder or the Vault root. Only a move that arrived
-    /// from another Device prunes: there the user did not choose to keep the
-    /// old folder, and empty folders are not carried by Pairing. A folder that
-    /// was already empty is never touched, because nothing left it.
+    /// `own_write` is passed to the index as `index_file_as` takes it. A move
+    /// from `Origin::Remote` keeps a Board the provider already put at `to`,
+    /// and removes the folders it left empty, deepest first, but never a
+    /// type's own folder or the Vault root: there the user did not choose to
+    /// keep the old folder, and empty folders are not carried by Pairing. A
+    /// folder that was already empty is never touched, because nothing left it.
     fn relocate(
         &mut self,
         id: &str,
         from: &str,
         to: &str,
         own_write: bool,
-        prune: bool,
+        origin: Origin,
     ) -> Result<Option<DocSummary>> {
         if from != to {
             let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
@@ -1396,23 +1418,35 @@ impl Vault {
                 self.abs(&canvas::board_path(from))?,
                 self.abs(&canvas::board_path(to))?,
             );
+            if self.held_by_other(id, to)? {
+                return Err(Error::Invalid(format!(
+                    "{to} already holds another document"
+                )));
+            }
+            // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
+            // Note is the user's own Obsidian canvas and stays where it is.
+            let has_board = self
+                .index
+                .get(id)?
+                .is_some_and(|d| d.doc_type == DocType::Composition);
+            // A rename that only changes case names one file twice on a
+            // case-insensitive disk, so the Board "already there" is itself.
+            let same_file = from.to_lowercase() == to.to_lowercase();
             let mut moved = false;
             if old_md.exists() {
-                if let Some(parent) = new_md.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::rename(&old_md, &new_md)?;
+                move_file(&old_md, &new_md)?;
                 moved = true;
             }
-            if old_board.exists() && !new_board.exists() {
-                if let Some(parent) = new_board.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                fs::rename(&old_board, &new_board)?;
+            // A Board already at `to` that came from elsewhere (another
+            // Device's provider got there first) is kept; a move made here
+            // carries the Board as `rename` always has.
+            let board_free = origin == Origin::Here || same_file || !new_board.exists();
+            if has_board && old_board.exists() && board_free {
+                move_file(&old_board, &new_board)?;
                 moved = true;
             }
             self.index.remove_path(from)?;
-            if prune && moved {
+            if origin == Origin::Remote && moved {
                 self.prune_emptied(&old_md);
             }
         }
@@ -1427,6 +1461,29 @@ impl Vault {
             self.rewrite_boards(id, from, to)?;
         }
         Ok(summary)
+    }
+
+    /// Whether `to` is a file other than the document `id`: indexed as
+    /// another document, or a file whose own `id` is not this one. A file
+    /// that is `id` itself (the provider delivered it first) is not other,
+    /// and neither is `to` when it differs from where `id` is only by case.
+    fn held_by_other(&self, id: &str, to: &str) -> Result<bool> {
+        let abs = self.abs(to)?;
+        if !abs.exists() {
+            return Ok(false);
+        }
+        if let Some(d) = self.index.get_by_path(to)? {
+            return Ok(d.id != id);
+        }
+        let mine = self
+            .index
+            .get(id)?
+            .is_some_and(|d| d.path.to_lowercase() == to.to_lowercase());
+        if mine {
+            return Ok(false);
+        }
+        let text = fs::read_to_string(&abs).unwrap_or_default();
+        Ok(document::parse(to, &text).id.as_deref() != Some(id))
     }
 
     /// Remove the folder that held `file`, and each parent above it, while

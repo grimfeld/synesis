@@ -358,6 +358,98 @@ fn a_renamed_composition_arrives_with_its_board() {
     assert!(root.join("Compositions").is_dir());
 }
 
+/// A move from another Device never writes over a different document that
+/// already holds the target path here: both stay, each with its own words.
+#[test]
+fn a_move_never_overwrites_another_document() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let moved = a
+        .create(DocType::Note, "Seed", &Map::new(), "A's seed.")
+        .unwrap()
+        .summary;
+    let mut b = open(&root, &tmp.path().join("devB"));
+    let old_md = fs::read_to_string(root.join(&moved.path)).unwrap();
+
+    // A moves its Note into `Later/`.
+    fs::create_dir_all(root.join("Notes/Later")).unwrap();
+    fs::rename(root.join(&moved.path), root.join("Notes/Later/seed.md")).unwrap();
+    a.scan().unwrap();
+    // On B, the move has not arrived, and B has a Note of its own there.
+    fs::remove_dir_all(root.join("Notes/Later")).unwrap();
+    fs::write(root.join(&moved.path), &old_md).unwrap();
+    fs::create_dir_all(root.join("Notes/Later")).unwrap();
+    fs::write(root.join("Notes/Later/seed.md"), "B's own seed.\n").unwrap();
+    b.scan().unwrap();
+    let mine = b.get_by_path("Notes/Later/seed.md").unwrap().unwrap();
+    assert_ne!(mine.id, moved.id);
+
+    b.apply_remote().unwrap();
+    assert!(b.read(&mine.id).unwrap().text.contains("B's own seed."));
+    assert_eq!(b.get(&moved.id).unwrap().unwrap().path, moved.path);
+    assert!(b.read(&moved.id).unwrap().text.contains("A's seed."));
+}
+
+/// The provider delivered the moved `.md` before its Board: the Board still
+/// follows, and the Folder they both left is removed. A `.canvas` beside a
+/// Note is the user's own and never travels with it.
+#[test]
+fn a_board_left_behind_by_the_provider_still_follows() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    fs::create_dir_all(root.join("Compositions/Old")).unwrap();
+    fs::write(
+        root.join("Compositions/Old/talk.md"),
+        "---\ntype: composition\n---\nBody.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("Notes/Drafts")).unwrap();
+    fs::write(root.join("Notes/Drafts/plan.md"), "A plan.\n").unwrap();
+    fs::write(
+        root.join("Notes/Drafts/plan.canvas"),
+        r#"{"nodes":[],"edges":[]}"#,
+    )
+    .unwrap();
+    a.scan().unwrap();
+    let talk = a.get_by_path("Compositions/Old/talk.md").unwrap().unwrap();
+    let plan = a.get_by_path("Notes/Drafts/plan.md").unwrap().unwrap();
+    let mut own = Canvas::default();
+    own.nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+    a.write_board(&talk.id, &own).unwrap();
+    let mut b = open(&root, &tmp.path().join("devB"));
+    assert!(b.get(&plan.id).unwrap().is_some());
+
+    // A moves both; the provider has carried the `.md` files but not the Board.
+    fs::create_dir_all(root.join("Compositions/New")).unwrap();
+    fs::rename(
+        root.join("Compositions/Old/talk.md"),
+        root.join("Compositions/New/talk.md"),
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("Notes/Done")).unwrap();
+    fs::rename(
+        root.join("Notes/Drafts/plan.md"),
+        root.join("Notes/Done/plan.md"),
+    )
+    .unwrap();
+    a.scan().unwrap();
+
+    b.apply_remote().unwrap();
+    assert!(root.join("Compositions/New/talk.canvas").exists());
+    assert!(!root.join("Compositions/Old").exists());
+    assert_eq!(b.read_board(&talk.id).unwrap().unwrap().nodes.len(), 1);
+    // The Note's neighbouring canvas is not a Board: it stays, and so does
+    // the Folder holding it.
+    assert_eq!(b.get(&plan.id).unwrap().unwrap().path, "Notes/Done/plan.md");
+    assert!(root.join("Notes/Drafts/plan.canvas").exists());
+    assert!(!root.join("Notes/Done/plan.canvas").exists());
+}
+
 #[test]
 fn stale_file_is_replaced_by_newer_snapshot() {
     let tmp = tempfile::tempdir().unwrap();

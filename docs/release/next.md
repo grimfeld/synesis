@@ -1,7 +1,8 @@
 # Release notes: next version
 
 What changes for people using the app, in the next release. Each change adds a line to its
-section as it lands; the release copies this into the GitHub Release and starts the file again.
+section as it lands. Whoever runs `npm run release` pastes this into the draft GitHub Release by
+hand, then empties the sections for the version after.
 
 ## Sync
 
