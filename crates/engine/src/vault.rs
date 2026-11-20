@@ -3830,14 +3830,26 @@ Antioch is where they met.
         // it: the move must not take that for another document's file.
         let (dir, mut v) = vault();
         fs::create_dir_all(dir.path().join("Notes/Odd")).unwrap();
-        fs::write(dir.path().join("Notes/Odd/list.md"), "---\n- a\n- b\n---\nBody.\n").unwrap();
+        fs::write(
+            dir.path().join("Notes/Odd/list.md"),
+            "---\n- a\n- b\n---\nBody.\n",
+        )
+        .unwrap();
         fs::write(dir.path().join("Notes/Odd/plain.md"), "Plain.\n").unwrap();
         fs::create_dir_all(dir.path().join("Notes/Elsewhere")).unwrap();
         // The same for a Composition, whose Board moves beside it.
         fs::create_dir_all(dir.path().join("Compositions/Odd")).unwrap();
         fs::create_dir_all(dir.path().join("Compositions/Given")).unwrap();
-        fs::write(dir.path().join("Compositions/Odd/talk.md"), "---\n- a\n---\nTalk.\n").unwrap();
-        fs::write(dir.path().join("Compositions/Odd/talk.canvas"), "{\"nodes\":[],\"edges\":[]}").unwrap();
+        fs::write(
+            dir.path().join("Compositions/Odd/talk.md"),
+            "---\n- a\n---\nTalk.\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Compositions/Odd/talk.canvas"),
+            "{\"nodes\":[],\"edges\":[]}",
+        )
+        .unwrap();
         v.scan().unwrap();
         let count = v.list(None).unwrap().len();
 
@@ -3845,22 +3857,38 @@ Antioch is where they met.
             v.move_folder(DocType::Note, "Odd", "Elsewhere").unwrap(),
             "Elsewhere/Odd"
         );
-        assert!(v.get_by_path("Notes/Elsewhere/Odd/list.md").unwrap().is_some());
-        assert!(v.get_by_path("Notes/Elsewhere/Odd/plain.md").unwrap().is_some());
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Odd/list.md")
+            .unwrap()
+            .is_some());
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Odd/plain.md")
+            .unwrap()
+            .is_some());
         assert!(v.get_by_path("Notes/Odd/list.md").unwrap().is_none());
         assert_eq!(v.list(None).unwrap().len(), count);
         assert_eq!(
-            v.rename_folder(DocType::Note, "Elsewhere/Odd", "Even").unwrap(),
+            v.rename_folder(DocType::Note, "Elsewhere/Odd", "Even")
+                .unwrap(),
             "Elsewhere/Even"
         );
-        assert!(v.get_by_path("Notes/Elsewhere/Even/list.md").unwrap().is_some());
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Even/list.md")
+            .unwrap()
+            .is_some());
         assert_eq!(v.list(None).unwrap().len(), count);
         assert_eq!(
             v.move_folder(DocType::Composition, "Odd", "Given").unwrap(),
             "Given/Odd"
         );
-        let talk = v.get_by_path("Compositions/Given/Odd/talk.md").unwrap().unwrap();
-        assert!(dir.path().join("Compositions/Given/Odd/talk.canvas").exists());
+        let talk = v
+            .get_by_path("Compositions/Given/Odd/talk.md")
+            .unwrap()
+            .unwrap();
+        assert!(dir
+            .path()
+            .join("Compositions/Given/Odd/talk.canvas")
+            .exists());
         v.read_board(&talk.id).unwrap();
         assert_eq!(v.list(None).unwrap().len(), count);
     }
