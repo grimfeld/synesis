@@ -292,7 +292,6 @@ describe("Locale layout", () => {
       it("keeps the sidebar's Folder tree inside the screen", () => {
         // Folder rows carry a chevron, an icon, a name and a count, nested
         // two deep, beside the group's "?" and "+" (PLAN §31).
-        cy.window().then((w) => w.localStorage.removeItem("synesis.sidebar.folders"));
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"] > [data-testid=folder-row]').click();
         cy.get('[data-testid=folder-tree-note] [data-folder="Sermons/2026"] > [data-testid=folder-row]').click();

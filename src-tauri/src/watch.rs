@@ -28,12 +28,15 @@ pub struct ChangedPayload {
     pub folders: Vec<String>,
 }
 
-/// Whether `rel` names a Folder: a path with no extension under a type that
-/// has Folders. A Folder whose name has a dot in it is still caught by the
-/// `is_dir` check of an existing one; a deleted one is caught here.
+/// Whether `rel` may name a Folder under a type that has Folders: a
+/// directory, or a path that is gone and was not a file this app reads (a
+/// gone `Acts 2.1` is a Folder as much as a gone `Sermons`). A gone path that
+/// was not a Folder costs `folder_changed` one look at the index.
 fn is_folder_event(rel: &str, p: &std::path::Path) -> bool {
     let under = rel.starts_with("Notes/") || rel.starts_with("Compositions/");
-    under && (p.is_dir() || (!p.exists() && p.extension().is_none()))
+    let ext = p.extension().and_then(|x| x.to_str()).unwrap_or_default();
+    let document = ext == "md" || ext == "canvas" || ext == engine::border::EXT;
+    under && (p.is_dir() || (!p.exists() && !document))
 }
 
 impl Watcher {

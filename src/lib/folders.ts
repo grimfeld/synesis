@@ -30,6 +30,11 @@ export interface FolderNode<D extends FolderDoc = FolderDoc> {
   docs: D[];
   /** Documents inside it, nested ones included. */
   count: number;
+  /**
+   * A top-level Folder outside the type's folder, labelled with its path
+   * from the Vault root (`/Study`, or `/` for the Vault root itself).
+   */
+  outside: boolean;
 }
 
 export interface FolderTree<D extends FolderDoc = FolderDoc> {
@@ -62,7 +67,15 @@ export function folderTree<D extends FolderDoc>(top: string, folders: string[], 
       const key = outside ? `/${rel}` : rel;
       let node = byKey.get(key);
       if (!node) {
-        node = { name: segments[i], key, path: outside ? rel : `${top}/${rel}`, folders: [], docs: [], count: 0 };
+        node = {
+          name: segments[i],
+          key,
+          path: outside ? rel : `${top}/${rel}`,
+          folders: [],
+          docs: [],
+          count: 0,
+          outside: outside && i === 0,
+        };
         byKey.set(key, node);
         at.folders.push(node);
       }
@@ -80,12 +93,23 @@ export function folderTree<D extends FolderDoc>(top: string, folders: string[], 
     const inside = d.path.startsWith(prefix);
     const segments = (inside ? d.path.slice(prefix.length) : d.path).split("/").filter(Boolean);
     segments.pop(); // the file itself
+    if (!inside && !segments.length) {
+      // At the Vault root: under a `/` Folder, never beside the type's own documents.
+      let rootNode = byKey.get("/");
+      if (!rootNode) {
+        rootNode = { name: "", key: "/", path: "", folders: [], docs: [], count: 0, outside: true };
+        byKey.set("/", rootNode);
+        root.folders.push(rootNode);
+      }
+      rootNode.docs.push(d);
+      continue;
+    }
     nodeFor(segments, !inside).docs.push(d);
   }
 
   const settle = (t: FolderTree<D> | FolderNode<D>): number => {
     // The type's own Folders before those found outside it, each in natural order.
-    t.folders.sort((a, b) => Number(a.key.startsWith("/")) - Number(b.key.startsWith("/")) || naturalCompare(a.name, b.name));
+    t.folders.sort((a, b) => Number(a.outside) - Number(b.outside) || naturalCompare(a.name, b.name));
     t.docs.sort((a, b) => naturalCompare(a.label, b.label));
     const n = t.docs.length + t.folders.reduce((sum, f) => sum + settle(f), 0);
     if ("count" in t) t.count = n;
@@ -112,12 +136,16 @@ export function foldersHolding(tree: FolderTree, id: string): string[] {
 // ---- open Folders, per Device (PLAN §31): which Folders the reader unfolded,
 // kept across restarts. UI state, never Vault content.
 
-const OPEN_KEY = "synesis.sidebar.folders";
+/** Kept per Vault, as the Pane layout is (`panes.ts`): two Vaults may both hold a `Sermons`. */
+const openKey = (vault: string) => `synesis.sidebar.folders:${vault}`;
 
-/** The open Folders, as `<type>:<key>` strings. */
-export function loadOpenFolders(storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): Set<string> {
+/** A Folder's entry in the open set: `<type>:<key>`. */
+export const openEntry = (type: string, key: string) => `${type}:${key}`;
+
+/** The open Folders of a Vault, as `openEntry` strings. */
+export function loadOpenFolders(vault: string, storage: Pick<Storage, "getItem"> | undefined = globalThis.localStorage): Set<string> {
   try {
-    const raw = storage?.getItem(OPEN_KEY);
+    const raw = storage?.getItem(openKey(vault));
     const v: unknown = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
   } catch {
@@ -125,9 +153,9 @@ export function loadOpenFolders(storage: Pick<Storage, "getItem"> | undefined = 
   }
 }
 
-export function saveOpenFolders(open: ReadonlySet<string>, storage: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
+export function saveOpenFolders(vault: string, open: ReadonlySet<string>, storage: Pick<Storage, "setItem"> | undefined = globalThis.localStorage): void {
   try {
-    storage?.setItem(OPEN_KEY, JSON.stringify([...open]));
+    storage?.setItem(openKey(vault), JSON.stringify([...open]));
   } catch {
     // Private mode or a full disk: remembering is a convenience.
   }

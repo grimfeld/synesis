@@ -27,12 +27,15 @@ export function TutorialButton({
   deviceKind,
   className,
   testId = "tutorial-button",
+  label,
 }: {
   place: TutorialPlace;
   deviceKind?: DeviceKind;
   className?: string;
   /** A "?" outside a view's header (the sidebar's) is told apart from the view's own. */
   testId?: string;
+  /** The button's name, when "open Tutorials" alone would not say for what. */
+  label?: string;
 }) {
   const t = useT();
   const s = useStore();
@@ -50,7 +53,7 @@ export function TutorialButton({
   }, [grows, ids.join(",")]);
   if (!ids.length) return null;
   return (
-    <IconButton label={t.tutorials.open} data-testid={testId} className={className} onClick={() => tut.showList(ids, total)}>
+    <IconButton label={label ?? t.tutorials.open} data-testid={testId} className={className} onClick={() => tut.showList(ids, total)}>
       <CircleHelp />
     </IconButton>
   );
