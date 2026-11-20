@@ -2,6 +2,8 @@
 
 Read `docs/PLAN.md` for the design and `CONTEXT.md` for vocabulary before changing anything. Use the glossary's terms in code and UI (Note, Clipping, Composition, Source, Locator, Subject, Book, Chapter, Verse, Passage, Mention, Tag, Place, Character, Concept, Embed).
 
+How work ships: `docs/agents/shipping.md`.
+
 ## Hard constraints
 
 - The vault must stay Obsidian-compatible (ADR 0003). No custom syntax in markdown files.
