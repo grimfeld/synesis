@@ -211,12 +211,18 @@ impl State {
             "create_folder" => {
                 let (doc_type, parent, name): (engine::document::DocType, String, String) =
                     (arg(&a, "docType")?, arg(&a, "parent")?, arg(&a, "name")?);
-                ok(self.vault_mut()?.create_folder(doc_type, &parent, &name).map_err(err)?)
+                ok(self
+                    .vault_mut()?
+                    .create_folder(doc_type, &parent, &name)
+                    .map_err(err)?)
             }
             "delete_folder" => {
                 let (doc_type, path): (engine::document::DocType, String) =
                     (arg(&a, "docType")?, arg(&a, "path")?);
-                ok(self.vault_mut()?.delete_folder(doc_type, &path).map_err(err)?)
+                ok(self
+                    .vault_mut()?
+                    .delete_folder(doc_type, &path)
+                    .map_err(err)?)
             }
             "get_document" => {
                 let v = self.vault()?;

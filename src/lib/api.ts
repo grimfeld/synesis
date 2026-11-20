@@ -957,6 +957,14 @@ export const api = {
    * ones included, as paths relative to the type's folder (`Sermons/2026`).
    */
   listFolders: (docType: "note" | "composition") => invoke<string[]>("list_folders", { docType }),
+  /** Make the Folder `name` inside `parent` (`""` for the top); returns its path. */
+  createFolder: (docType: "note" | "composition", parent: string, name: string) =>
+    invoke<string>("create_folder", { docType, parent, name }),
+  /**
+   * Delete an empty Folder. Returns what stopped it (paths inside it); an
+   * empty list means it is gone. OS clutter does not count.
+   */
+  deleteFolder: (docType: "note" | "composition", path: string) => invoke<string[]>("delete_folder", { docType, path }),
   saveDocument: (id: string, text: string) =>
     invoke<DocumentPayload>("save_document", { id, text }),
   createDocument: (
@@ -964,12 +972,15 @@ export const api = {
     title: string,
     fields?: Frontmatter,
     body?: string,
+    /** A Folder inside the type's folder ("New Note here", PLAN §31). */
+    folder?: string,
   ) =>
     invoke<DocumentPayload>("create_document", {
       docType,
       title,
       fields: fields ?? null,
       body: body ?? null,
+      folder: folder ?? null,
     }),
   renameDocument: (id: string, title: string) =>
     invoke<DocumentPayload>("rename_document", { id, title }),

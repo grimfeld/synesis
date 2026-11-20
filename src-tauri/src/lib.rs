@@ -713,7 +713,11 @@ fn create_folder(
 
 /// Delete an empty Folder; returns what stopped it, empty once it is gone.
 #[tauri::command]
-fn delete_folder(state: State<AppState>, doc_type: DocType, path: String) -> CmdResult<Vec<String>> {
+fn delete_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+) -> CmdResult<Vec<String>> {
     state.with_vault_mut(|v| v.delete_folder(doc_type, &path))
 }
 

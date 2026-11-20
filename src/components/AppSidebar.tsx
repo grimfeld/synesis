@@ -1,10 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BookOpenText,
   CalendarRange,
   ChevronRight,
-  Folder,
-  FolderOpen,
   Hash,
   House,
   LayoutGrid,
@@ -33,13 +31,6 @@ import {
   type SourceFolder,
   type SourceNode,
 } from "@/lib/library";
-import {
-  folderTree,
-  foldersHolding,
-  loadOpenFolders,
-  saveOpenFolders,
-  type FolderNode,
-} from "@/lib/folders";
 import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
@@ -78,6 +69,7 @@ import {
 } from "@/components/ui/tooltip";
 import { TypeDot } from "./DocLink";
 import { TutorialButton } from "./TutorialPanel";
+import { FolderTreeView, GroupFolderMenu, useFolderActions } from "./SidebarFolders";
 
 // Clipping is absent deliberately: it has no title to list, and it belongs to
 // its Source rather than to a folder of its own (ADR 0013). Clippings are
@@ -224,6 +216,7 @@ export function AppSidebar() {
 function DocumentsTab() {
   const s = useStore();
   const t = useT();
+  const folderActions = useFolderActions();
   const [open, setOpen] = useState<Record<string, boolean>>({
     note: true,
     composition: true,
@@ -249,7 +242,7 @@ function DocumentsTab() {
   useEffect(() => {
     if (activeIsSource) setOpen((o) => (o.source ? o : { ...o, source: true }));
   }, [active, activeIsSource]);
-  return (
+  return folderActions.provider(
     <>
       {ORDER.map((type) => {
         const list = byType.get(type) ?? [];
@@ -264,6 +257,13 @@ function DocumentsTab() {
             dot={<TypeDot type={type} />}
             action={
               <>
+                {hasFolders(type) && (
+                  <GroupFolderMenu
+                    type={type}
+                    label={t.types_plural[type]}
+                    className="absolute top-2 right-[3.75rem]"
+                  />
+                )}
                 {hasFolders(type) && (
                   <TutorialButton
                     place={{ kind: "sidebar" }}
@@ -318,7 +318,7 @@ function DocumentsTab() {
       />
       <Unresolved />
       <AmbiguousTitles />
-    </>
+    </>,
   );
 }
 
@@ -395,149 +395,6 @@ function SourceTree({ activeId }: { activeId: string | null }) {
 
 function hasFolders(type: DocType): type is "note" | "composition" {
   return type === "note" || type === "composition";
-}
-
-/** How far a nested row moves right; deeper rows stop moving, so labels keep room. */
-const indent = (depth: number) => `${Math.min(depth, 4) * 0.75 + 0.75}rem`;
-
-/**
- * Notes or Compositions as their Folders (PLAN §31): Folders first, then
- * documents, natural-sorted at every level. Read-only here: a Folder row only
- * folds, a document row opens. Which Folders are open is remembered on this
- * Device, and the Folders holding the open document unfold on their own.
- */
-function FolderTreeView({
-  type,
-  docs,
-  activeId,
-}: {
-  type: "note" | "composition";
-  docs: DocSummary[];
-  activeId: string | null;
-}) {
-  const s = useStore();
-  const { data } = useQuery<string[]>({
-    key: ["sidebar-folders", type],
-    deps: { types: [type] },
-    fetch: () => api.listFolders(type),
-  });
-  const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "note" ? "Notes" : "Compositions");
-  const tree = useMemo(() => folderTree(top, data ?? [], docs), [top, data, docs]);
-  // Remembered on this Device, per Vault and per type.
-  const vault = s.info?.meta.id ?? s.info?.root ?? "";
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => loadOpenFolders(vault, type));
-  useEffect(() => setOpen(loadOpenFolders(vault, type)), [vault, type]);
-  const toggle = (key: string) =>
-    setOpen((o) => {
-      const n = new Set(o);
-      if (n.has(key)) n.delete(key);
-      else n.add(key);
-      saveOpenFolders(vault, type, n);
-      return n;
-    });
-  // Unfold the way to a document when it is opened, so its row is in sight.
-  // Once per opening: the tree is rebuilt on every save, and a Folder the
-  // reader folds afterwards stays folded. Only adds, and is remembered like
-  // a fold the reader made.
-  const unfoldedFor = useRef<string | null>(null);
-  useEffect(() => {
-    if (!activeId || unfoldedFor.current === activeId) return;
-    if (!docs.some((d) => d.id === activeId)) return;
-    unfoldedFor.current = activeId;
-    const want = foldersHolding(tree, activeId);
-    if (!want.length) return;
-    setOpen((o) => {
-      if (want.every((k) => o.has(k))) return o;
-      const n = new Set([...o, ...want]);
-      saveOpenFolders(vault, type, n);
-      return n;
-    });
-  }, [activeId, tree, type, docs, vault]);
-  return (
-    <SidebarMenu data-testid={`folder-tree-${type}`}>
-      <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
-    </SidebarMenu>
-  );
-}
-
-function FolderLevel({
-  folders,
-  docs,
-  depth,
-  type,
-  open,
-  toggle,
-  activeId,
-}: {
-  folders: FolderNode<DocSummary>[];
-  docs: DocSummary[];
-  depth: number;
-  type: string;
-  open: ReadonlySet<string>;
-  toggle: (key: string) => void;
-  activeId: string | null;
-}) {
-  const s = useStore();
-  const t = useT();
-  return (
-    <>
-      {folders.map((f) => {
-        const isOpen = open.has(f.key);
-        const Icon = isOpen ? FolderOpen : Folder;
-        return (
-          <SidebarMenuItem key={f.key} className="min-w-0" data-testid="folder" data-folder={f.key}>
-            <SidebarMenuButton
-              data-testid="folder-row"
-              size="sm"
-              aria-expanded={isOpen}
-              className="pr-8"
-              style={{ paddingLeft: indent(depth) }}
-              title={f.path}
-              onClick={() => toggle(f.key)}
-            >
-              <ChevronRight
-                className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")}
-              />
-              <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">{f.outside ? `/${f.name}` : f.name}</span>
-              <span className="sr-only">{t.documents(f.count)}</span>
-            </SidebarMenuButton>
-            <SidebarMenuBadge data-testid="folder-count" aria-hidden>
-              {f.count}
-            </SidebarMenuBadge>
-            {isOpen && (
-              <ul className="flex min-w-0 flex-col gap-0.5 pt-0.5">
-                <FolderLevel
-                  folders={f.folders}
-                  docs={f.docs}
-                  depth={depth + 1}
-                  type={type}
-                  open={open}
-                  toggle={toggle}
-                  activeId={activeId}
-                />
-              </ul>
-            )}
-          </SidebarMenuItem>
-        );
-      })}
-      {docs.map((d) => (
-        <li key={d.id} className="min-w-0">
-          <SidebarMenuButton
-            data-testid="doc-item"
-            size="sm"
-            style={{ paddingLeft: depth === 0 ? "2rem" : `calc(${indent(depth)} + 1.25rem)` }}
-            isActive={activeId === d.id}
-            onClick={s.openDocOnClick(d.id)}
-            title={d.path}
-          >
-            <TypeDot type={d.type} className="ml-0.5" />
-            <span className="min-w-0 truncate">{d.label}</span>
-          </SidebarMenuButton>
-        </li>
-      ))}
-    </>
-  );
 }
 
 function holds(n: SourceNode, id: string): boolean {
@@ -708,7 +565,7 @@ function CollapsibleGroup({
             data-testid={testId}
             className={cn(
               "w-full gap-2 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              action && (wideAction ? "pr-16" : "pr-8"),
+              action && (wideAction ? "pr-24" : "pr-8"),
             )}
           >
             <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90" />

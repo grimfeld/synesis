@@ -75,3 +75,81 @@ describe("Sidebar Folders", () => {
     cy.get(`${folder("Kept empty")} > [data-testid=folder-count]`).should("have.text", "0");
   });
 });
+
+describe("Making and deleting Folders", () => {
+  beforeEach(() => cy.openApp());
+  const vaultDir = (rel: string) => `${Cypress.env("vault")}/${rel}`;
+  const nameIt = (name: string) => {
+    cy.get("[data-testid=folder-name-input]").clear().type(name);
+    cy.get("[data-testid=folder-name-submit]").click();
+  };
+
+  it("makes a Folder from the group's menu, keeping its capitals", () => {
+    cy.get("[data-testid=group-menu-note]").click();
+    cy.get("[data-testid=group-menu-new-folder]").click();
+    nameIt("Sermons 2026");
+    cy.get("[data-testid=folder-name-dialog]").should("not.exist");
+    cy.get(row("Sermons 2026")).should("exist");
+    cy.get(`${folder("Sermons 2026")} > [data-testid=folder-count]`).should("have.text", "0");
+    cy.task("file:exists", vaultDir("Notes/Sermons 2026")).should("equal", true);
+  });
+
+  it("makes a Folder inside a Folder, from its menu and by right-click", () => {
+    cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-new-folder]").click();
+    nameIt("Advent");
+    cy.get(row("Sermons")).click();
+    cy.get(row("Sermons/Advent")).should("exist");
+    cy.get(row("Sermons/Advent")).rightclick();
+    cy.get("[data-testid=folder-menu-new-folder]").should("be.visible");
+  });
+
+  it("refuses a bad name with a message and writes nothing", () => {
+    cy.get("[data-testid=group-menu-note]").click();
+    cy.get("[data-testid=group-menu-new-folder]").click();
+    for (const bad of [".hidden", "a/b", "a:b", "SERMONS"]) {
+      nameIt(bad);
+      cy.get("[data-testid=folder-name-error]").should("be.visible");
+    }
+    cy.get("[data-testid=folder-name-input]").clear();
+    cy.get("[data-testid=folder-name-submit]").click();
+    cy.get("[data-testid=folder-name-error]").should("be.visible");
+    cy.task("file:exists", vaultDir("Notes/.hidden")).should("equal", false);
+    cy.task("file:exists", vaultDir("Notes/SERMONS")).then((exists) => {
+      // On a case-insensitive disk `SERMONS` is `Sermons`, which is there.
+      if (exists) cy.task("file:exists", vaultDir("Notes/Sermons")).should("equal", true);
+    });
+  });
+
+  it("deletes an empty Folder and refuses one that holds anything", () => {
+    cy.task("dir:make", vaultDir("Notes/Tidy"));
+    cy.task("file:write", { path: vaultDir("Notes/Tidy/.DS_Store"), text: "x" });
+    cy.reload();
+    cy.get(`${folder("Tidy")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-delete]").click();
+    cy.get(row("Tidy")).should("not.exist");
+    cy.task("file:exists", vaultDir("Notes/Tidy")).should("equal", false);
+
+    cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-delete]").click();
+    cy.contains("[data-sonner-toast]", "week 10.md").should("be.visible");
+    cy.get(row("Sermons")).should("exist");
+    cy.task("file:exists", vaultDir("Notes/Sermons/2026/week 2.md")).should("equal", true);
+  });
+
+  it("writes a new Note inside a Folder from its +, and at the top from New", () => {
+    cy.get(row("Sermons")).click();
+    cy.get(`${folder("Sermons/2026")} > [data-testid=folder-new-here]`).click();
+    cy.get("[data-testid=new-doc-folder]").should("contain", "2026");
+    cy.get("[data-testid=new-doc-form] [data-testid=new-doc-title]").type("Week 11");
+    cy.get("[data-testid=submit-doc]").click();
+    cy.get("[data-testid=doc-title]").should("have.value", "Week 11");
+    cy.docByTitle("Week 11").its("path").should("equal", "Notes/Sermons/2026/week 11.md");
+
+    cy.get("[data-testid=sidebar-new]").click();
+    cy.get("[data-testid=new-doc-folder]").should("not.exist");
+    cy.get("[data-testid=new-doc-form] [data-testid=new-doc-title]").type("Loose thought");
+    cy.get("[data-testid=submit-doc]").click();
+    cy.docByTitle("Loose thought").its("path").should("equal", "Notes/loose thought.md");
+  });
+});

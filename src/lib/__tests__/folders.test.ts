@@ -1,7 +1,7 @@
 // Folders (PLAN §31): the sidebar's tree for Notes and Compositions — its
 // order, its counts, and where a document outside its type's folder lands.
 import { describe, expect, it } from "vitest";
-import { folderTree, foldersHolding, loadOpenFolders, naturalCompare, saveOpenFolders } from "../folders";
+import { childNames, folderNameProblem, folderTree, foldersHolding, loadOpenFolders, naturalCompare, saveOpenFolders } from "../folders";
 
 const doc = (path: string, label = path.split("/").pop()!.replace(/\.md$/, "")) => ({ id: path, path, label });
 
@@ -76,5 +76,22 @@ describe("open Folders", () => {
     expect(loadOpenFolders("v1", "note", s).size).toBe(0);
     store.set("synesis.sidebar.folders:v1:note", JSON.stringify({ a: 1 }));
     expect(loadOpenFolders("v1", "note", s).size).toBe(0);
+  });
+});
+
+describe("folderNameProblem", () => {
+  it("refuses what the engine refuses", () => {
+    expect(folderNameProblem("  ", [])).toEqual({ kind: "empty" });
+    expect(folderNameProblem(".git", [])).toEqual({ kind: "dot" });
+    for (const c of ["/", "\\", ":", "*", "?", '"', "<", ">", "|"]) expect(folderNameProblem(`a${c}b`, [])).toEqual({ kind: "char", char: c });
+    expect(folderNameProblem("sermons", ["Sermons"])).toEqual({ kind: "taken", name: "Sermons" });
+    expect(folderNameProblem(" Sermons 2026 ", ["Sermons"])).toBeNull();
+  });
+
+  it("finds the siblings of a parent", () => {
+    const all = ["A", "A/B", "A/B/C", "A/D", "E"];
+    expect(childNames(all, "")).toEqual(["A", "E"]);
+    expect(childNames(all, "A")).toEqual(["B", "D"]);
+    expect(childNames(all, "A/B")).toEqual(["C"]);
   });
 });
