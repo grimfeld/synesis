@@ -295,6 +295,17 @@ export function useCommands(): Command[] {
         keywords: "graph local neighbours links connections network",
         run: () => s.navigate({ kind: "graph", focus: id }),
       });
+      // The Family tree focused on this Character (#155). Offered on every
+      // Character: one with no kin opens on a tree that says so.
+      if (s.docsById.get(id)?.type === "character")
+        list.push({
+          id: "doc.show_in_family_tree",
+          title: t.family_tree.show_in,
+          group: "navigate",
+          icon: Network,
+          keywords: "family tree genealogy ancestors descendants parents children kin kinship",
+          run: () => s.navigate({ kind: "family-tree", focus: id }),
+        });
     }
     // The Board of the Composition being read. Named "Board" per the glossary,
     // with "mind map" in the keywords so the palette finds it either way.
@@ -504,6 +515,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.split",
     "doc.deliver",
     "doc.local_graph",
+    "doc.show_in_family_tree",
     "board.export",
     "doc.duplicate",
     "doc.capture",

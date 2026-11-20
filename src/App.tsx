@@ -104,7 +104,7 @@ function PaneView() {
     case "coverage":
       return <CoverageView />;
     case "family-tree":
-      return <FamilyTreeView />;
+      return <FamilyTreeView view={s.view} />;
     case "settings":
       return <SettingsView />;
     default: {

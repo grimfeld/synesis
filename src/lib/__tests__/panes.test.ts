@@ -1,6 +1,7 @@
 // The Pane model (Vitest, jsdom): `npm run test:unit`.
 import { describe, expect, it } from "vitest";
 import {
+  activePane,
   initialPanes,
   keepLayout,
   otherPane,
@@ -265,6 +266,27 @@ describe("saving and restoring the layout", () => {
     expect(back?.panes[0].view).toEqual({ kind: "home" });
   });
 
+  it("restores a Family tree focused on a Character, with its generations", () => {
+    const tree = { kind: "family-tree", focus: "a", up: 5, down: "all" } as const;
+    const s = run({ type: "open", view: doc("b") }, { type: "openInOther", view: tree });
+    const back = restoreLayout(JSON.parse(JSON.stringify(savedLayout(s))), all);
+    expect(back?.panes[1]?.view).toEqual(tree);
+    // Unreadable generations read as the default, 3.
+    const odd = restoreLayout({ views: [{ kind: "family-tree", focus: "a", up: 0, down: "x" }, doc("b")] }, all);
+    expect(odd?.panes[0].view).toEqual({ kind: "family-tree", focus: "a", up: 3, down: 3 });
+  });
+
+  it("shows everyone in place of a Family tree whose focus is gone", () => {
+    const s = run(
+      { type: "open", view: doc("b") },
+      { type: "openInOther", view: { kind: "family-tree", focus: "a", up: 2, down: 2 } },
+    );
+    const back = restoreLayout(savedLayout(s), (id) => id === "b");
+    expect(back?.panes[1]?.view).toEqual({ kind: "family-tree" });
+    const notAnId = restoreLayout({ views: [{ kind: "family-tree", focus: 7 }, doc("b")] }, all);
+    expect(notAnId?.panes[0].view).toEqual({ kind: "family-tree" });
+  });
+
   it("refuses a view that is not one: no kind, a document with no id, an inherited name", () => {
     for (const bad of [5, { id: "a" }, { kind: "doc" }, { kind: "doc", id: 4 }, { kind: "toString" }])
       expect(restoreLayout({ views: [bad, doc("a")] }, all)).toBeNull();
@@ -290,6 +312,19 @@ describe("saving and restoring the layout", () => {
     const back = restoreLayout({ views: [doc("a"), doc("b")], lastUsed: 7, ratio: "wide" }, all);
     expect(back?.lastUsed).toBe(0);
     expect(back?.ratio).toBe(0.5);
+  });
+});
+
+describe("replacing a Pane's view", () => {
+  it("changes the view without a step of history, so Back returns past it", () => {
+    const s = run(
+      { type: "open", view: { kind: "family-tree", focus: "a" } },
+      { type: "open", view: { kind: "family-tree", focus: "b" } },
+      { type: "replace", view: { kind: "family-tree", focus: "b", up: 5 } },
+    );
+    expect(activePane(s).view).toEqual({ kind: "family-tree", focus: "b", up: 5 });
+    expect(activePane(s).back.at(-1)).toEqual({ kind: "family-tree", focus: "a" });
+    expect(activePane(panesReducer(s, { type: "back" })).view).toEqual({ kind: "family-tree", focus: "a" });
   });
 });
 

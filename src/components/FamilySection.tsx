@@ -6,7 +6,7 @@
 // `mother`, never anything on this Character. Nothing is written but by a
 // pick, a clear, a remove or Add child.
 import { useCallback, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { CircleAlert, Plus, X } from "lucide-react";
+import { CircleAlert, Network, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { api, type DocSummary, type DocumentPayload, type KinshipWarning } from "@/lib/api";
@@ -432,6 +432,37 @@ function warningText(w: KinshipWarning, t: Dict): string {
     case "cycle":
       return t.family.warn_cycle(w.path.map((d) => d.title).join(" → "));
   }
+}
+
+/**
+ * The Hub header's "Show in Family tree" button (#155): the Family tree
+ * focused on this Character. Only on a Character with kin: one with none
+ * would open on an empty tree.
+ */
+export function FamilyTreeButton({ id, mtime }: { id: string; mtime: number }) {
+  const s = useStore();
+  const t = useT();
+  const { data } = useQuery({
+    key: ["kinship", id, mtime],
+    // As the Family section: any page can become, or stop being, a Character.
+    deps: { any: true },
+    fetch: () => api.kinship(),
+    quiet: true,
+  });
+  const hasKin = useMemo(
+    () => !!data?.edges.some((e) => e.character.id === id || e.kin.id === id),
+    [data, id],
+  );
+  if (!hasKin) return null;
+  return (
+    <IconButton
+      label={t.family_tree.show_in}
+      data-testid="hub-family-tree"
+      onClick={() => s.navigate({ kind: "family-tree", focus: id })}
+    >
+      <Network />
+    </IconButton>
+  );
 }
 
 export function FamilySection({

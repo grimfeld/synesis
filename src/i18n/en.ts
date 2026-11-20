@@ -209,8 +209,26 @@ export const en = {
   family_tree: {
     counts: (people: number, families: number) =>
       `${people} ${people === 1 ? "Character" : "Characters"} · ${families} ${families === 1 ? "family" : "families"}`,
-    /** A person's box, for a screen reader. */
-    open: (name: string) => `Open ${name}'s Hub`,
+    /** A person's box, for a screen reader: it opens their card. */
+    person: (name: string) => `${name}: show the card`,
+    /** The Command and the Hub's button (#155). */
+    show_in: "Show in Family tree",
+    focus_title: (name: string) => `Family tree: ${name}`,
+    up: "Ancestors",
+    down: "Descendants",
+    up_label: "Generations of ancestors",
+    down_label: "Generations of descendants",
+    all: "All",
+    everyone: "Everyone",
+    focus_here: "Focus here",
+    open_hub: "Open Hub",
+    born: (date: string) => `born ${date}`,
+    died: (date: string) => `died ${date}`,
+    search: "Find a Character",
+    search_none: "No one by that name in this tree.",
+    no_kin: (name: string) =>
+      `${name} has no kin yet. Name their father, mother or spouses under Family on their Hub, and their line is drawn here.`,
+    gone: "This Character is no longer in the Vault.",
     empty: "No Character has kin yet. Name a Character's father, mother or spouses under Family on their Hub, and their family is drawn here.",
     empty_tutorial: "Show me how",
     load_failed: "The Family tree could not be read from the Vault.",

@@ -83,6 +83,23 @@ export function usePanZoom({ min = 0.05, max = 3 }: { min?: number; max?: number
     [clamp],
   );
 
+  /**
+   * Put the middle of `b` (world units) in the middle of the box, at zoom `k`
+   * (the current one by default). False when the box has no size yet.
+   */
+  const centre = useCallback(
+    (b: Bounds, k?: number): boolean => {
+      const el = box.current;
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return false;
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      const k2 = clamp(k ?? live.current.k);
+      setView({ k: k2, x: w / 2 - (b.x + b.width / 2) * k2, y: h / 2 - (b.y + b.height / 2) * k2 });
+      return true;
+    },
+    [clamp],
+  );
+
   const local = (e: { clientX: number; clientY: number }) => {
     const r = box.current!.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
@@ -154,6 +171,7 @@ export function usePanZoom({ min = 0.05, max = 3 }: { min?: number; max?: number
     box,
     zoomBy,
     fit,
+    centre,
     /** Whether the gesture that just ended panned or pinched, so a click it ends in is ignored. */
     dragged: wasDragged,
     handlers: {

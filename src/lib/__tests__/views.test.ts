@@ -23,10 +23,18 @@ describe("the view registry", () => {
   it("restores a kind alone only when it carries no data", () => {
     expect(isSimpleKind("home")).toBe(true);
     expect(isSimpleKind("settings")).toBe(true);
-    expect(isSimpleKind("family-tree")).toBe(true);
     expect(isSimpleKind("graph")).toBe(false);
+    // It carries a focus since #155: restored by hand, like the graph.
+    expect(isSimpleKind("family-tree")).toBe(false);
     expect(isSimpleKind("doc")).toBe(false);
     expect(isSimpleKind("toString")).toBe(false);
     expect(VIEW_REGISTRY.graph.simple).toBe(false);
+    expect(VIEW_REGISTRY["family-tree"].simple).toBe(false);
+  });
+
+  it("knows the Family tree's Command on a Character, beside the local graph's", () => {
+    const known = new Set(knownCommandIds());
+    expect(known.has("doc.show_in_family_tree")).toBe(true);
+    expect(known.has("doc.local_graph")).toBe(true);
   });
 });
