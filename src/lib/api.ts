@@ -433,10 +433,21 @@ export type KinshipWarning =
     }
   | { kind: "cycle"; character: DocSummary; path: DocSummary[] };
 
-/** Every Kinship edge in the Vault, and every warning (ADR 0024). */
+/**
+ * One Relation as written (CONTEXT.md, Relation; PLAN §32): `character`'s
+ * `property`, in the user's own word, names `other` ("Elisha's mentor is Elijah").
+ */
+export interface CharacterRelation {
+  character: DocSummary;
+  property: string;
+  other: DocSummary;
+}
+
+/** Every Kinship edge in the Vault, every warning (ADR 0024), and every Relation. */
 export interface Kinship {
   edges: KinshipEdge[];
   warnings: KinshipWarning[];
+  relations: CharacterRelation[];
 }
 
 /** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17). */
@@ -1073,7 +1084,7 @@ export const api = {
   /** Every Character↔Place tie, or only those touching one Character or Place. */
   placeTies: (id: string | null = null) =>
     query<PlaceTie[]>({ kind: "placeTies", id }),
-  /** Every Kinship edge as written, with warnings; derive with `src/lib/kinship.ts`. */
+  /** Every Kinship edge and Relation as written, with warnings; derive with `src/lib/kinship.ts`. */
   kinship: () => query<Kinship>({ kind: "kinship" }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
   /** Places without a kind the gazetteer can name (PLAN §27.13). */

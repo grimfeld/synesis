@@ -150,6 +150,14 @@ export const en = {
   ties_characters: "Characters here",
   ties_places: "Places",
   tie_lifelong: "Whole life",
+  /** A Character's Hub, Relations section (CONTEXT.md, Relation; PLAN §32). */
+  relations: {
+    title: "Relations",
+    /** "mentor:" on the Character naming the other; the label is the Property's own word. */
+    named: (label: string) => `${label}:`,
+    /** "mentor of:" on the Character named. */
+    named_by: (label: string) => `${label} of:`,
+  },
   /** A Character's Hub, Family section (ADR 0024). */
   family: {
     title: "Family",
