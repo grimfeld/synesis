@@ -213,7 +213,7 @@ export const fr: Dict = {
     search: "Trouver un Personnage",
     search_none: "Personne de ce nom dans cet arbre.",
     no_kin: (name: string) =>
-      `${name} n’a pas encore de famille. Indiquez son père, sa mère ou ses conjoints sous Famille, sur son Hub, et sa lignée s’affiche ici.`,
+      `${name} n’a pas encore de famille. Indiquez son père, sa mère ou ses conjoints sous Famille, sur son Hub, et sa famille s’affiche ici.`,
     gone: "Ce Personnage n’est plus dans le Coffre.",
     empty: "Aucun Personnage n’a encore de famille. Indiquez le père, la mère ou les conjoints d’un Personnage sous Famille, sur son Hub, et sa famille s’affiche ici.",
     empty_tutorial: "Me montrer comment",

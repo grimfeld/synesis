@@ -227,7 +227,7 @@ export const en = {
     search: "Find a Character",
     search_none: "No one by that name in this tree.",
     no_kin: (name: string) =>
-      `${name} has no kin yet. Name their father, mother or spouses under Family on their Hub, and their line is drawn here.`,
+      `${name} has no kin yet. Name their father, mother or spouses under Family on their Hub, and their family is drawn here.`,
     gone: "This Character is no longer in the Vault.",
     empty: "No Character has kin yet. Name a Character's father, mother or spouses under Family on their Hub, and their family is drawn here.",
     empty_tutorial: "Show me how",

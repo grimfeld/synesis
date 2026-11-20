@@ -1,7 +1,8 @@
 // Walks the Family Tutorial (docs/tutorials/family-tree.en.md) step by step
 // on the demo vault, so a change to Kinship that outdates the Tutorial fails
 // here (PLAN §25.13). Steps 4 and 5 edit Kinship (#152), step 6 reads a
-// Relation (#153), step 7 reads the Family tree (#154).
+// Relation (#153), step 7 reads the Family tree (#154), steps 8 and 9 focus
+// it on one Character (#155).
 describe("Tutorial: Family", () => {
   beforeEach(() => cy.openApp());
 
@@ -115,12 +116,51 @@ describe("Tutorial: Family", () => {
         }),
       ),
     );
-    cy.docByTitle("Jacob").then((jacob) => cy.get(`[data-testid=family-tree-person][data-id="${jacob.id}"]`).click());
+    cy.docByTitle("Jacob").then((jacob) => cy.get(`[data-testid=family-tree-person][data-id="${jacob.id}"]`).dblclick());
     cy.hubTitle("Jacob");
     cy.tutorialNext();
 
-    // 8. Do it once: set a Character's Father, then find them among his Children, and in the tree.
+    // 8. Show in Family tree on Jacob: his line alone, then the generations.
+    const person = (id: string) => cy.get(`[data-testid=family-tree-person][data-id="${id}"]`);
     cy.tutorialStep(7);
+    cy.query<{ id: string; title: string }[]>({ kind: "list", docType: "character" }).then((docs) => {
+      const id = (t: string) => docs.find((d) => d.title === t)!.id;
+      cy.tutorialCommand("doc.show_in_family_tree");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", id("Jacob"));
+      person(id("Isaac")).should("exist");
+      person(id("Joseph")).should("exist");
+      person(id("Leah")).should("exist");
+      person(id("Esau")).should("not.exist");
+      cy.get("[data-testid=family-tree-up]").click();
+      cy.get("[data-testid=family-tree-up-1]").click();
+      person(id("Isaac")).should("exist");
+      person(id("Rebekah")).should("exist");
+      person(id("Abraham")).should("not.exist");
+      cy.get("[data-testid=family-tree-up]").click();
+      cy.get("[data-testid=family-tree-up-all]").click();
+      person(id("Terah")).should("exist");
+      cy.tutorialNext();
+
+      // 9. Joseph's card, Focus here, Back, the search box, Everyone.
+      cy.tutorialStep(8);
+      person(id("Joseph")).click();
+      cy.get("[data-testid=family-tree-card-name]").should("have.text", "Joseph");
+      cy.get("[data-testid=family-tree-card-span]").should("exist");
+      cy.get("[data-testid=family-tree-card-focus]").click();
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", id("Joseph"));
+      cy.tutorialCommand("nav.back");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", id("Jacob"));
+      cy.get("[data-testid=family-tree-search]").type("Benjamin");
+      cy.get(`[data-testid=family-tree-search-result][data-id="${id("Benjamin")}"]`).click();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", id("Benjamin"));
+      cy.get("[data-testid=family-tree-everyone]").click();
+      cy.get("[data-testid=family-tree]").should("not.have.attr", "data-focus");
+      person(id("Esau")).should("exist");
+    });
+    cy.tutorialNext();
+
+    // 10. Do it once: set a Character's Father, then find them among his Children, and below him in his line.
+    cy.tutorialStep(9);
     cy.openDoc("Timothy", { exact: true });
     cy.hubTitle("Timothy");
     cy.get("[data-testid=family-father-choose]").click();
@@ -129,11 +169,12 @@ describe("Tutorial: Family", () => {
     kin("father").should("contain", "Paul").click();
     cy.hubTitle("Paul");
     kin("children").should("contain", "Timothy");
-    cy.tutorialCommand("nav.family-tree");
+    cy.tutorialCommand("doc.show_in_family_tree");
     cy.docByTitle("Paul").then((paul) =>
-      cy.docByTitle("Timothy").then((timothy) =>
-        cy.get(`[data-testid=family-tree-line][data-child="${timothy.id}"]`).should("have.attr", "data-parents", paul.id),
-      ),
+      cy.docByTitle("Timothy").then((timothy) => {
+        cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", paul.id);
+        cy.get(`[data-testid=family-tree-line][data-child="${timothy.id}"]`).should("have.attr", "data-parents", paul.id);
+      }),
     );
     cy.tutorialDone();
   });
