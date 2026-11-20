@@ -1243,6 +1243,99 @@ impl Vault {
         self.read(id)
     }
 
+    /// Rename the Folder `path` (relative to the type's folder) to `name`,
+    /// by [`Vault::move_folder_to`]: its documents stay inside it, with their
+    /// titles and every `[[link]]` to them as they were (a link names a
+    /// title, not a path). Refused for a bad name (#148's rules) and for a
+    /// name a sibling already has, ignoring case: never merged. Returns the
+    /// Folder's new path.
+    pub fn rename_folder(&mut self, doc_type: DocType, path: &str, name: &str) -> Result<String> {
+        let name = check_folder_name(name)?;
+        let path = path.trim_matches('/');
+        let parent = path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        self.move_folder_to(doc_type, path, parent, &name)
+    }
+
+    /// Move the Folder `path` into the Folder `into` (both relative to the
+    /// type's folder, `""` for the top), by [`Vault::move_folder_to`].
+    /// Refused into itself or one of its own Folders. Returns its new path.
+    pub fn move_folder(&mut self, doc_type: DocType, path: &str, into: &str) -> Result<String> {
+        let path = path.trim_matches('/');
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
+        self.move_folder_to(doc_type, path, into.trim_matches('/'), &name)
+    }
+
+    /// Move the Folder `path` to `into/name`, everything in it included, and
+    /// every document inside through [`Vault::relocate_all`], so Boards stay
+    /// beside their Compositions and other Boards' cards follow (PLAN §31).
+    /// Refused, with nothing moved, when the place is taken (ignoring case,
+    /// unless it is the Folder itself: a rename that only changes case), when
+    /// `into` is the Folder or inside it, or when a file inside is still
+    /// downloading from the cloud.
+    fn move_folder_to(
+        &mut self,
+        doc_type: DocType,
+        path: &str,
+        into: &str,
+        name: &str,
+    ) -> Result<String> {
+        if path.is_empty() {
+            return Err(Error::Invalid("a type's own folder is not a Folder".into()));
+        }
+        let from_rel = self.folder_rel(doc_type, path)?;
+        let from_abs = self.abs(&from_rel)?;
+        if !from_abs.is_dir() || crate::vault_path::is_link(&from_abs) {
+            return Err(Error::NotFound(path.to_string()));
+        }
+        if into == path || into.starts_with(&format!("{path}/")) {
+            return Err(Error::Invalid(format!("“{path}” cannot go inside itself")));
+        }
+        let into_rel = self.folder_rel(doc_type, into)?;
+        let into_abs = self.abs(&into_rel)?;
+        if !into_abs.is_dir() || crate::vault_path::is_link(&into_abs) {
+            return Err(Error::NotFound(into.to_string()));
+        }
+        let to_path = if into.is_empty() {
+            name.to_string()
+        } else {
+            format!("{into}/{name}")
+        };
+        if to_path == path {
+            return Ok(to_path);
+        }
+        let own_parent = path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        let own_name = path.rsplit('/').next().unwrap_or(path);
+        if let Some(clash) = sibling_named(&into_abs, name) {
+            if !(into == own_parent && clash == own_name) {
+                return Err(Error::Invalid(format!("“{clash}” is already there")));
+            }
+        }
+        let evicted = walkdir::WalkDir::new(&from_abs)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .find(|e| cloud::is_placeholder(e.path()));
+        if let Some(e) = evicted {
+            let original = cloud::original_of(e.path()).unwrap_or_else(|| e.path().to_path_buf());
+            return Err(cloud::downloading(&original));
+        }
+        let to_rel = format!("{}/{to_path}", Self::folder_root(doc_type)?);
+        let to_abs = self.abs(&to_rel)?;
+        let prefix = format!("{from_rel}/");
+        let moves: Vec<(String, String, String)> = self
+            .index
+            .list(None)?
+            .into_iter()
+            .filter_map(|d| {
+                let rest = d.path.strip_prefix(&prefix)?.to_string();
+                Some((d.id, d.path, format!("{to_rel}/{rest}")))
+            })
+            .collect();
+        fs::rename(&from_abs, &to_abs)?;
+        self.relocate_all(&moves, false, Origin::Here)?;
+        Ok(to_path)
+    }
+
     /// The type's own folder, for a type that has Folders.
     fn folder_root(doc_type: DocType) -> Result<&'static str> {
         match doc_type {
@@ -1770,55 +1863,103 @@ impl Vault {
         own_write: bool,
         origin: Origin,
     ) -> Result<Option<DocSummary>> {
-        if from != to {
-            let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
-            let (old_board, new_board) = (
-                self.abs(&canvas::board_path(from))?,
-                self.abs(&canvas::board_path(to))?,
-            );
-            if self.held_by_other(id, to)? {
-                return Err(Error::Invalid(format!(
-                    "{to} already holds another document"
-                )));
-            }
-            // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
-            // Note is the user's own Obsidian canvas and stays where it is.
-            let has_board = self
-                .index
-                .get(id)?
-                .is_some_and(|d| d.doc_type == DocType::Composition);
-            // A rename that only changes case names one file twice on a
-            // case-insensitive disk, so the Board "already there" is itself.
-            let same_board = same_file(&old_board, &new_board);
-            let mut moved = false;
-            if old_md.exists() {
-                move_file(&old_md, &new_md)?;
-                moved = true;
-            }
-            // A Board already at `to` that came from elsewhere (another
-            // Device's provider got there first) is kept; a move made here
-            // carries the Board as `rename` always has.
-            let board_free = origin == Origin::Here || same_board || !new_board.exists();
-            if has_board && old_board.exists() && board_free {
-                move_file(&old_board, &new_board)?;
-                moved = true;
-            }
-            self.index.remove_path(from)?;
-            if origin == Origin::Remote && moved {
-                self.prune_emptied(&old_md);
+        let mut out = self.relocate_all(
+            &[(id.to_string(), from.to_string(), to.to_string())],
+            own_write,
+            origin,
+        )?;
+        Ok(out.pop().flatten())
+    }
+
+    /// [`Vault::relocate`] for several documents that move together, as a
+    /// Folder's do. Each step runs for all of them before the next: the files
+    /// move, then every document is indexed at its new path, then other
+    /// Boards' cards are rewritten, then each moved Composition's own Board
+    /// refs are recorded again. A Board's refs resolve by path, so rewriting
+    /// one Board before all its targets are indexed would drop the cards
+    /// pointing at the ones not indexed yet.
+    fn relocate_all(
+        &mut self,
+        moves: &[(String, String, String)],
+        own_write: bool,
+        origin: Origin,
+    ) -> Result<Vec<Option<DocSummary>>> {
+        for (id, from, to) in moves {
+            if from != to {
+                self.relocate_files(id, from, to, origin)?;
             }
         }
-        let summary = self.index_file_as(to, own_write)?;
-        if summary
-            .as_ref()
-            .is_some_and(|d| d.doc_type == DocType::Place)
-        {
-            self.note_border_names()?;
+        let mut out = Vec::with_capacity(moves.len());
+        for (_, _, to) in moves {
+            let summary = self.index_file_as(to, own_write)?;
+            if summary
+                .as_ref()
+                .is_some_and(|d| d.doc_type == DocType::Place)
+            {
+                self.note_border_names()?;
+            }
+            out.push(summary);
         }
-        if from != to {
-            self.rewrite_boards(id, from, to)?;
+        for (id, from, to) in moves {
+            if from != to {
+                self.rewrite_boards(id, from, to)?;
+            }
         }
-        Ok(summary)
+        // Indexing a document anew forgets what its own Board holds; reading
+        // the Board at its new path records it again.
+        for ((id, from, to), summary) in moves.iter().zip(&out) {
+            if from != to
+                && summary
+                    .as_ref()
+                    .is_some_and(|d| d.doc_type == DocType::Composition)
+            {
+                let _ = self.read_board(id)?;
+            }
+        }
+        Ok(out)
+    }
+
+    /// The file half of a relocation: the `.md` and a Composition's Board
+    /// move (each only if still at `from`), the old path leaves the index, and
+    /// a move from another Device tidies the folders it emptied.
+    fn relocate_files(&mut self, id: &str, from: &str, to: &str, origin: Origin) -> Result<()> {
+        let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
+        let (old_board, new_board) = (
+            self.abs(&canvas::board_path(from))?,
+            self.abs(&canvas::board_path(to))?,
+        );
+        if self.held_by_other(id, to)? {
+            return Err(Error::Invalid(format!(
+                "{to} already holds another document"
+            )));
+        }
+        // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
+        // Note is the user's own Obsidian canvas and stays where it is.
+        let has_board = self
+            .index
+            .get(id)?
+            .is_some_and(|d| d.doc_type == DocType::Composition);
+        // A rename that only changes case names one file twice on a
+        // case-insensitive disk, so the Board "already there" is itself.
+        let same_board = same_file(&old_board, &new_board);
+        let mut moved = false;
+        if old_md.exists() {
+            move_file(&old_md, &new_md)?;
+            moved = true;
+        }
+        // A Board already at `to` that came from elsewhere (another
+        // Device's provider got there first) is kept; a move made here
+        // carries the Board as `rename` always has.
+        let board_free = origin == Origin::Here || same_board || !new_board.exists();
+        if has_board && old_board.exists() && board_free {
+            move_file(&old_board, &new_board)?;
+            moved = true;
+        }
+        self.index.remove_path(from)?;
+        if origin == Origin::Remote && moved {
+            self.prune_emptied(&old_md);
+        }
+        Ok(())
     }
 
     /// Whether `to` is a file other than the document `id`: indexed as
@@ -3588,6 +3729,177 @@ Antioch is where they met.
         assert_eq!(
             after.node("c1").unwrap().file.as_deref(),
             Some("Compositions/Talks/talk.md")
+        );
+    }
+
+    #[test]
+    fn a_renamed_folder_keeps_its_documents_titles_and_links() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Sermons/2026")).unwrap();
+        fs::write(
+            dir.path().join("Notes/Sermons/2026/week 2.md"),
+            "---\ntitle: Week 2\n---\nShepherd.\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("Notes/Sermons/pic.png"), "png").unwrap();
+        fs::write(dir.path().join("Notes/linker.md"), "See [[Week 2]].\n").unwrap();
+        v.scan().unwrap();
+        let week = v
+            .get_by_path("Notes/Sermons/2026/week 2.md")
+            .unwrap()
+            .unwrap();
+        let linker = v.get_by_path("Notes/linker.md").unwrap().unwrap();
+        let count = v.list(None).unwrap().len();
+
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Sermons", "Talks").unwrap(),
+            "Talks"
+        );
+        let after = v.get(&week.id).unwrap().unwrap();
+        assert_eq!(after.path, "Notes/Talks/2026/week 2.md");
+        assert_eq!(after.title, "Week 2");
+        assert!(
+            dir.path().join("Notes/Talks/pic.png").exists(),
+            "everything in it moves"
+        );
+        assert!(!dir.path().join("Notes/Sermons").exists());
+        assert!(v.read(&linker.id).unwrap().text.ends_with("See [[Week 2]].\n"));
+        assert_eq!(v.backlinks(&week.id).unwrap().len(), 1);
+        assert_eq!(v.list(None).unwrap().len(), count);
+        // A case-only rename is not a clash with itself.
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Talks", "TALKS").unwrap(),
+            "TALKS"
+        );
+        assert_eq!(
+            v.get(&week.id).unwrap().unwrap().path,
+            "Notes/TALKS/2026/week 2.md"
+        );
+    }
+
+    #[test]
+    fn a_folder_is_never_renamed_onto_a_sibling_nor_moved_into_itself() {
+        let (dir, mut v) = vault();
+        for f in ["Notes/A/B/C", "Notes/D"] {
+            fs::create_dir_all(dir.path().join(f)).unwrap();
+        }
+        fs::write(dir.path().join("Notes/A/x.md"), "X\n").unwrap();
+        v.scan().unwrap();
+        assert!(v.rename_folder(DocType::Note, "A", "d").is_err());
+        assert!(v.rename_folder(DocType::Note, "A", ".hidden").is_err());
+        assert!(v.rename_folder(DocType::Note, "A", "a/b").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A/B").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A/B/C").is_err());
+        assert!(v.move_folder(DocType::Note, "", "D").is_err());
+        assert!(dir.path().join("Notes/A/x.md").exists());
+        // Into a sibling, and back to the top.
+        assert_eq!(v.move_folder(DocType::Note, "A/B", "D").unwrap(), "D/B");
+        assert!(dir.path().join("Notes/D/B/C").is_dir());
+        assert_eq!(v.move_folder(DocType::Note, "D/B", "").unwrap(), "B");
+        // A Folder of the same name already at the destination refuses it.
+        fs::create_dir_all(dir.path().join("Notes/D/b")).unwrap();
+        assert!(v.move_folder(DocType::Note, "B", "D").is_err());
+        assert!(dir.path().join("Notes/B/C").is_dir());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_is_not_renamed_or_moved_through_a_link() {
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes/A")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.move_folder(DocType::Note, "A", "Linked").is_err());
+        assert!(v.move_folder(DocType::Note, "Linked", "A").is_err());
+        assert!(v.rename_folder(DocType::Note, "Linked", "X").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "../..").is_err());
+        assert!(dir.path().join("Notes/A").is_dir());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_folder_still_downloading_is_not_moved() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/A")).unwrap();
+        fs::write(dir.path().join("Notes/A/.away.md.icloud"), "x").unwrap();
+        assert!(v.rename_folder(DocType::Note, "A", "B").is_err());
+        assert!(dir.path().join("Notes/A").is_dir());
+    }
+
+    #[test]
+    fn a_moved_folder_keeps_boards_beside_their_compositions_and_other_boards_follow() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Composition, "", "Old").unwrap();
+        v.create_folder(DocType::Composition, "", "New").unwrap();
+        let talk = v
+            .create_in(
+                DocType::Composition,
+                Some("Old"),
+                "Talk",
+                &Map::new(),
+                "Body.",
+            )
+            .unwrap()
+            .summary;
+        let note = v
+            .create(DocType::Note, "Seed", &Map::new(), "A thought.")
+            .unwrap()
+            .summary;
+        // The Talk's own Board holds a card for the Note.
+        let mut own = Canvas::default();
+        let mut card = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+        card.file = Some(note.path.clone());
+        own.nodes.push(card);
+        v.write_board(&talk.id, &own).unwrap();
+        // Another Board holds a card for the Talk.
+        let series = v
+            .create(DocType::Composition, "Series", &Map::new(), "")
+            .unwrap()
+            .summary;
+        let mut board = Canvas::default();
+        let mut c = Node::new("c1", NodeKind::File, 0, 0, 300, 120);
+        c.file = Some(talk.path.clone());
+        board.nodes.push(c);
+        v.write_board(&series.id, &board).unwrap();
+
+        assert_eq!(
+            v.move_folder(DocType::Composition, "Old", "New").unwrap(),
+            "New/Old"
+        );
+        let moved = v.get(&talk.id).unwrap().unwrap();
+        assert_eq!(moved.path, "Compositions/New/Old/talk.md");
+        assert!(dir.path().join("Compositions/New/Old/talk.canvas").exists());
+        assert!(!dir.path().join("Compositions/Old").exists());
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/New/Old/talk.md")
+        );
+        // The Talk's own Board still counts the Note as on it.
+        assert_eq!(v.read_board(&talk.id).unwrap().unwrap().nodes.len(), 1);
+        let on_board: Vec<String> = v
+            .query(Query::BoardsReferencing {
+                id: note.id.clone(),
+            })
+            .map(|a| match a {
+                Answer::Docs(d) => d.into_iter().map(|d| d.id).collect(),
+                _ => vec![],
+            })
+            .unwrap();
+        assert_eq!(on_board, vec![talk.id.clone()]);
+        // Renaming it does the same.
+        v.rename_folder(DocType::Composition, "New/Old", "Renamed")
+            .unwrap();
+        assert!(dir
+            .path()
+            .join("Compositions/New/Renamed/talk.canvas")
+            .exists());
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/New/Renamed/talk.md")
         );
     }
 }
