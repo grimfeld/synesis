@@ -171,6 +171,21 @@ export const fr: Dict = {
       `${property} contient plus d’un lien (${targets}). Un Personnage n’en a qu’un : aucun n’est montré.`,
     warn_cycle: (path: string) =>
       `Ce Personnage est son propre ancêtre : ${path}. Ces liens sont laissés hors de la famille.`,
+    choose: "Choisir…",
+    choose_father: "Choisir le père",
+    choose_mother: "Choisir la mère",
+    clear_father: "Retirer le père",
+    clear_mother: "Retirer la mère",
+    add_spouse: "Ajouter un conjoint",
+    add_child: "Ajouter un enfant",
+    remove_spouse: (name: string) => `Retirer ${name} des conjoints`,
+    search: "Chercher un Personnage…",
+    create_character: (name: string) => `Créer le Personnage «\u202f${name}\u202f»`,
+    role_question: (parent: string, child: string) => `Qui est ${parent} pour ${child} : le père ou la mère ?`,
+    refused_father: (child: string, existing: string) =>
+      `${child} a déjà un père : ${existing}. Rien n’a été écrit.`,
+    refused_mother: (child: string, existing: string) =>
+      `${child} a déjà une mère : ${existing}. Rien n’a été écrit.`,
   },
   start: "Début",
   end: "Fin",

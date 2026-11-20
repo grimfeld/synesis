@@ -153,3 +153,72 @@ export function familyOf(g: KinGraph, id: string): Family {
     warnings: g.warnings.filter((w) => w.character.id === id),
   };
 }
+
+// ------------------------------------------------------------- editing (#152)
+
+/**
+ * What this Character already is to their children, the default for "Add
+ * child": the father of one, so the father of the next. `null` asks: no child
+ * yet, or the father of one and the mother of another (bad data), every time.
+ */
+export function parentRoleOf(g: KinGraph, id: string): "father" | "mother" | null {
+  let father = false;
+  let mother = false;
+  for (const c of g.children.get(id) ?? []) {
+    if (g.father.get(c) === id) father = true;
+    if (g.mother.get(c) === id) mother = true;
+  }
+  if (father === mother) return null;
+  return father ? "father" : "mother";
+}
+
+/** A link of a Kinship Property as written, and the Character it names, if any. */
+export interface WrittenLink {
+  /** As written: `[[Isaac]]`. */
+  text: string;
+  doc: { id: string; title: string } | null;
+}
+
+/**
+ * What "Add child" may do with the child's `father` (or `mother`) as written:
+ * write it when unset, nothing when it already names this parent, and refuse,
+ * naming what it holds, when it names anyone else. Never overwritten.
+ */
+export type AddChildCheck =
+  | { kind: "write" }
+  | { kind: "already" }
+  | { kind: "refused"; existing: string };
+
+export function checkAddChild(current: WrittenLink[], parentId: string): AddChildCheck {
+  if (current.length === 0) return { kind: "write" };
+  const others = current.filter((l) => l.doc?.id !== parentId);
+  if (others.length === 0) return { kind: "already" };
+  return { kind: "refused", existing: others.map((l) => l.doc?.title ?? bareLink(l.text)).join(", ") };
+}
+
+/** `[[Isaac|the son]]` → `Isaac`; anything else as written. */
+export function bareLink(text: string): string {
+  const m = /^\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$/.exec(text.trim());
+  return m ? m[1].trim() : text.trim();
+}
+
+/** A Kinship Property's value as a list of what it holds, as written: a list, or one value. */
+export function writtenLinks(v: unknown): string[] {
+  const all = Array.isArray(v) ? v : v == null ? [] : [v];
+  return all
+    .filter((x): x is string | number => typeof x === "string" || typeof x === "number")
+    .map((x) => String(x).trim())
+    .filter(Boolean);
+}
+
+/** `spouses` with `link` added at the end, unless one entry already names that Character. */
+export function withSpouse(current: WrittenLink[], link: string, id: string): string[] | null {
+  if (current.some((l) => l.doc?.id === id)) return null;
+  return [...current.map((l) => l.text), link];
+}
+
+/** `spouses` without the entries naming `id`; `null` when none is left, so the Property goes. */
+export function withoutSpouse(current: WrittenLink[], id: string): string[] | null {
+  const kept = current.filter((l) => l.doc?.id !== id).map((l) => l.text);
+  return kept.length ? kept : null;
+}

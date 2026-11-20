@@ -13,8 +13,9 @@ import {
   matchShortcut,
   toCodeMirrorKey,
 } from "../keys";
-import { NameIndex, norm } from "../names";
+import { matchByName, NameIndex, norm } from "../names";
 import { recommend } from "../syncRules";
+import type { DocSummary } from "../api";
 
 describe("frontmatter helpers", () => {
   const text = "---\nid: X\ntype: note\ntags: [a, b]\n---\nBody line\n";
@@ -121,6 +122,31 @@ describe("NameIndex", () => {
     expect(idx.suggest("pa", 10, ["note"]).map((e) => e.name)).to.deep.equal([
       "Paul in Ephesus",
     ]);
+  });
+});
+
+describe("matchByName", () => {
+  const d = (id: string, title: string) =>
+    ({ id, title, label: title, type: "character", path: `${title}.md` }) as unknown as DocSummary;
+  const docs = [d("jacob", "Jacob"), d("isaac", "Isaac"), d("esau", "Ésaü")];
+  const entries = [
+    { name: "Israel", id: "jacob", type: "character" as const, alias: true },
+    { name: "Edom", id: "esau", type: "character" as const, alias: true },
+  ];
+
+  it("finds by title, accent-insensitive, then by Alias", () => {
+    expect(matchByName(docs, entries, "esau").matches.map((m) => m.doc.id)).toEqual(["esau"]);
+    const isr = matchByName(docs, entries, "isr");
+    expect(isr.matches).toEqual([{ doc: docs[0], alias: "Israel" }]);
+    expect(isr.exact).toBeNull();
+    // "is" is in Isaac's title and Israel's Alias: title first, each once.
+    expect(matchByName(docs, entries, "is").matches.map((m) => m.doc.id)).toEqual(["isaac", "jacob"]);
+  });
+
+  it("tells an exact title or Alias, so no Create is offered", () => {
+    expect(matchByName(docs, entries, "israel").exact?.doc.id).toBe("jacob");
+    expect(matchByName(docs, entries, " jacob ").exact?.doc.id).toBe("jacob");
+    expect(matchByName(docs, entries, "Joseph")).toEqual({ matches: [], exact: null });
   });
 });
 

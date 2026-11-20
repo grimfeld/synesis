@@ -744,6 +744,8 @@ function HubHeader({
 
 // Every Topical Subject may go by other names. Scripture generates its own,
 // and a Source's other names are not something it links by.
+const KINSHIP_PROPERTIES = ["father", "mother", "spouses"];
+
 const HAS_ALIASES: readonly DocType[] = ["place", "character", "concept", "event", "journey"];
 
 /**
@@ -758,6 +760,9 @@ function ownedProperties(type: DocType): string[] {
     // Source's (§28.1), with its Cover and its "Part of" (§28.3).
     ...(type === "place" ? ["kind", "border"] : []),
     ...(type === "source" ? ["kind", "cover", "parent"] : []),
+    // A Character's Kinship is edited in the Family section (PLAN §32), never
+    // as raw front matter rows.
+    ...(type === "character" ? KINSHIP_PROPERTIES : []),
   ];
 }
 
@@ -1114,7 +1119,7 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
   character: ({ doc, fm, onFmChange }) => (
     <>
       <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
-      <FamilySection doc={doc} />
+      <FamilySection doc={doc} fm={fm} onFmChange={onFmChange} />
       <TiesSection doc={doc} />
     </>
   ),

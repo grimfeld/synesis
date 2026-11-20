@@ -173,6 +173,26 @@ export const en = {
       `${property} holds more than one link (${targets}). A Character has only one, so neither is shown.`,
     warn_cycle: (path: string) =>
       `This Character is their own ancestor: ${path}. Those ties are left out of the family.`,
+    // Editing (#152).
+    /** An empty Father or Mother slot's button, opening the Character picker. */
+    choose: "Choose…",
+    choose_father: "Choose the father",
+    choose_mother: "Choose the mother",
+    clear_father: "Clear the father",
+    clear_mother: "Clear the mother",
+    add_spouse: "Add spouse",
+    add_child: "Add child",
+    remove_spouse: (name: string) => `Remove ${name} from the spouses`,
+    /** The Character picker's search box. */
+    search: "Search Characters…",
+    /** The picker's row when no Character has the typed name. */
+    create_character: (name: string) => `Create Character “${name}”`,
+    /** Add child, the first time: which parent this Character is. */
+    role_question: (parent: string, child: string) => `Is ${parent} the father or the mother of ${child}?`,
+    refused_father: (child: string, existing: string) =>
+      `${child} already has a father: ${existing}. Nothing was written.`,
+    refused_mother: (child: string, existing: string) =>
+      `${child} already has a mother: ${existing}. Nothing was written.`,
   },
   start: "Start",
   end: "End",

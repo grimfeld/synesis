@@ -35,7 +35,7 @@ import { useCommands, type Command, type CommandGroup } from "@/lib/commands";
 import { formatShortcut, shortcut } from "@/lib/keys";
 import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
-import { NameIndex } from "@/lib/names";
+import { matchByName, NameIndex } from "@/lib/names";
 import {
   parsePaletteQuery,
   toggleTypeFilter,
@@ -566,6 +566,9 @@ export function DocPicker({
   testId,
   filter,
   autoFocus,
+  aliases,
+  createLabel,
+  inlineList,
 }: {
   types: DocType[];
   /** Narrows the candidates further, e.g. a Source never inside itself. */
@@ -578,6 +581,18 @@ export function DocPicker({
   placeholder?: string;
   disabled?: boolean;
   testId?: string;
+  /**
+   * Also find a document by its Aliases, accent-insensitive (`matchByName`):
+   * "Israel" finds Jacob. Off, the title alone is searched, as it always was.
+   */
+  aliases?: boolean;
+  /** The words of the "Create" row; `Create “X”` when not given. */
+  createLabel?: (title: string) => string;
+  /**
+   * The candidates below the box in the flow, not floating over what follows:
+   * inside a Popover or a phone Sheet, which then grows to hold them.
+   */
+  inlineList?: boolean;
 }) {
   const s = useStore();
   const t = useT();
@@ -590,15 +605,24 @@ export function DocPicker({
   const [draft, setDraft] = useState(value);
   const [focus, setFocus] = useState(false);
   useEffect(() => setDraft(value), [value]);
+  const [names, setNames] = useState<NameEntry[]>([]);
+  useEffect(() => {
+    if (!aliases) return;
+    namesApi.names().then(setNames).catch(console.error);
+  }, [aliases, s.docs]);
 
   const q = draft.trim();
-  const matches = useMemo(() => {
+  const found = useMemo(() => {
+    if (aliases) return matchByName(list, names, q);
     const f = q.toLowerCase();
-    return list
+    const matches = list
       .filter((d) => !f || d.title.toLowerCase().includes(f))
-      .slice(0, 8);
-  }, [list, q]);
-  const exact = matches.find((d) => d.title.toLowerCase() === q.toLowerCase());
+      .slice(0, 8)
+      .map((doc) => ({ doc, alias: null as string | null }));
+    return { matches, exact: matches.find((m) => m.doc.title.toLowerCase() === f) ?? null };
+  }, [aliases, list, names, q]);
+  const matches = found.matches.map((m) => m.doc);
+  const exact = found.exact?.doc;
   const canCreate = !!onCreate && q.length > 0 && !exact;
 
   const pick = (d: DocSummary) => {
@@ -637,16 +661,24 @@ export function DocPicker({
         }}
       />
       {focus && (matches.length > 0 || canCreate) && (
-        <ul className="absolute z-20 mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground shadow-md">
-          {matches.map((d) => (
+        <ul
+          className={cn(
+            "mt-1 max-h-48 w-full overflow-auto rounded-lg border bg-popover p-1 text-popover-foreground",
+            inlineList ? "min-w-0" : "absolute z-20 shadow-md",
+          )}
+        >
+          {found.matches.map(({ doc: d, alias }) => (
             <li key={d.id}>
               <button
                 type="button"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                data-testid="picker-option"
+                data-id={d.id}
+                className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                 onMouseDown={() => pick(d)}
               >
                 <TypeDot type={d.type} />
                 <span className="truncate">{d.label}</span>
+                {alias && <span className="min-w-0 truncate text-xs text-muted-foreground">{alias}</span>}
               </button>
             </li>
           ))}
@@ -659,7 +691,7 @@ export function DocPicker({
                 onMouseDown={create}
               >
                 <Plus className="size-3.5 shrink-0" />
-                <span className="truncate">{t.create_named(q)}</span>
+                <span className="truncate">{(createLabel ?? t.create_named)(q)}</span>
               </button>
             </li>
           )}
