@@ -9,7 +9,8 @@ A Character's Hub shows their Kinship under **Family**: their father, mother and
 3. Look at Isaac's **Siblings**: they are grouped by the parents they share. Ishmael stands under Abraham alone, a half-brother; a full brother or sister would stand under both parents. Come back with [Back](command:nav.back).
 4. Open Leah's Hub with [Search](command:nav.search). No father is named: under **Father**, press **Choose…** and type Laban. No Character has that name, so choose **Create Character “Laban”**: Laban is created and Leah's file now names him as her `father`. The × beside a parent clears it, and the × beside a spouse removes them, from this Character's file only.
 5. Open Joseph's Hub and press **Add child**, then create Manasseh the same way. Joseph is nobody's parent yet, so you are asked whether he is the father or the mother: choose **Father**. Manasseh's file now names Joseph as his `father`; Joseph's file is left as it was. The next **Add child** on Joseph does not ask again.
-6. Try it once: open the Hub of a Character you study and, under **Father**, press **Choose…** and pick their father, or create him. Open the father's Hub: the Character is now among his **Children**.
+6. Open Elisha's Hub with [Search](command:nav.search). Under **Relations** stands "mentor: Elijah": Elisha's file names Elijah as his `mentor`, a Property named in its own word, which is neither a parent nor a spouse. Click Elijah: his file names no one, and his **Relations** read the same tie the other way, "mentor of: Elisha".
+7. Try it once: open the Hub of a Character you study and, under **Father**, press **Choose…** and pick their father, or create him. Open the father's Hub: the Character is now among his **Children**.
 
 ## Good to know
 
@@ -19,4 +20,5 @@ A Character's Hub shows their Kinship under **Family**: their father, mother and
 - The picker finds a Character by title or by Alias: Abram finds Abraham. A Character you create from it starts like any new Character.
 - `father`, `mother` and `spouses` are not listed under **Properties**: **Family** is where they are edited.
 - A Character has one father and one mother. A legal or adoptive father, or a genealogy that skips generations, belongs in the About of the Hub.
+- Any other link Property on a Character that names a Character is a Relation: `mentor`, `master`, `servants`, in whatever word you choose. Write it in **Properties** like any Property; it shows under **Relations** on both Hubs, as "mentor" on one and "mentor of" on the other. A link to a Place, or `aliases`, is not a Relation. Relations show on the Hub only, never in the family itself.
 - When a tie cannot be read, the Family section says why and leaves it out: a `father` that names a Place, a `father` holding two links, or a Character who would be their own ancestor. The file is left as you wrote it; choose the right one under **Family**, or clear it with ×.
