@@ -652,6 +652,7 @@ export const en = {
     in_folder: (name: string) => `In “${name}”`,
     move_command: "Move to folder…",
     move_title: (title: string) => `Move “${title}” to…`,
+    move_none_found: "No folder has that name.",
     move_find: "Find a folder",
     move_here: "where it is",
     move_clash: (name: string, folder: string) => `“${folder}” already holds “${name}”.`,

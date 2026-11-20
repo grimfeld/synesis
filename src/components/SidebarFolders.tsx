@@ -10,6 +10,7 @@ import { api, type DocSummary } from "@/lib/api";
 import {
   childNames,
   folderNameProblem,
+  folderOf,
   leaf,
   folderTree,
   foldersHolding,
@@ -20,7 +21,7 @@ import {
 } from "@/lib/folders";
 import { useQuery } from "@/lib/useQuery";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { folderOf } from "./FolderPicker";
+
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -64,16 +65,15 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
   const t = useT();
   const [version, setVersion] = useState(0);
   const [naming, setNaming] = useState<{ type: FolderType; parent: string } | null>(null);
+  const moveDocument = useMoveDocument();
 
   const act = (a: FolderAct) => {
     if (a.kind === "new-folder") setNaming({ type: a.type, parent: a.parent });
     else if (a.kind === "new-here") s.setDialog({ kind: "new", type: a.type, folder: a.folder });
-    else if (a.kind === "move")
-      api
-        .moveDocument(a.id, a.into)
-        .then(() => s.announceChanged([a.id]))
-        .then(() => setVersion((v) => v + 1))
-        .catch((e) => toast.error(String(e)));
+    else if (a.kind === "move") {
+      const doc = s.docsById.get(a.id);
+      if (doc) void moveDocument(doc, a.into).then((ok) => ok && setVersion((v) => v + 1));
+    }
     else
       api
         .deleteFolder(a.type, a.folder)
@@ -109,6 +109,36 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
         )}
       </FolderActionsContext.Provider>
     ),
+  };
+}
+
+/**
+ * Move a document into a Folder of its type, the one way the picker and a
+ * drop both take: a clash the sidebar can see is said in the app's language
+ * before the engine is asked (it checks again, and its refusal shows as it
+ * says it). Resolves with whether the document moved.
+ */
+export function useMoveDocument() {
+  const s = useStore();
+  const t = useT();
+  return async (doc: DocSummary, into: string): Promise<boolean> => {
+    const type = doc.type === "composition" ? "composition" : "note";
+    const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "note" ? "Notes" : "Compositions");
+    const name = doc.path.split("/").pop() ?? "";
+    const target = `${into ? `${top}/${into}` : top}/${name}`.toLowerCase();
+    const clash = s.docs.find((d) => d.id !== doc.id && d.path.toLowerCase() === target);
+    if (clash) {
+      toast.error(t.folders.move_clash(leaf(clash.path), into ? leaf(into) : t.types_plural[type]));
+      return false;
+    }
+    try {
+      await api.moveDocument(doc.id, into);
+      await s.announceChanged([doc.id]);
+      return true;
+    } catch (e) {
+      toast.error(String(e));
+      return false;
+    }
   };
 }
 
@@ -428,7 +458,7 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
               <DropdownMenuItem data-testid="folder-menu-new-here" onSelect={() => act({ kind: "new-here", type, folder: folder.key })}>
                 {t.folders.new_here[type]}
               </DropdownMenuItem>
@@ -507,7 +537,7 @@ export function GroupFolderMenu({ type, label, className }: { type: FolderType; 
           <MoreHorizontal />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
+      <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
         <DropdownMenuItem data-testid="group-menu-new-folder" onSelect={() => act({ kind: "new-folder", type, parent: "" })}>
           {t.folders.new_folder}
         </DropdownMenuItem>

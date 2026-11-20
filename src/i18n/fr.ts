@@ -648,6 +648,7 @@ export const fr: Dict = {
     in_folder: (name: string) => `Dans « ${name} »`,
     move_command: "Déplacer vers un dossier…",
     move_title: (title: string) => `Déplacer « ${title} » vers…`,
+    move_none_found: "Aucun dossier ne porte ce nom.",
     move_find: "Trouver un dossier",
     move_here: "là où elle est",
     move_clash: (name: string, folder: string) => `« ${folder} » contient déjà « ${name} ».`,

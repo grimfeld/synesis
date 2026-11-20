@@ -1074,6 +1074,9 @@ impl Vault {
     fn folder_rel(&self, doc_type: DocType, path: &str) -> Result<String> {
         let top = Self::folder_root(doc_type)?;
         let path = path.trim_matches('/');
+        if crate::vault_path::is_link(&self.root.join(top)) {
+            return Err(Error::Invalid(format!("not a Folder: {top}")));
+        }
         if path.is_empty() {
             self.abs(top)?;
             return Ok(top.to_string());
@@ -3763,7 +3766,11 @@ Antioch is where they met.
             "everything in it moves"
         );
         assert!(!dir.path().join("Notes/Sermons").exists());
-        assert!(v.read(&linker.id).unwrap().text.ends_with("See [[Week 2]].\n"));
+        assert!(v
+            .read(&linker.id)
+            .unwrap()
+            .text
+            .ends_with("See [[Week 2]].\n"));
         assert_eq!(v.backlinks(&week.id).unwrap().len(), 1);
         assert_eq!(v.list(None).unwrap().len(), count);
         // A case-only rename is not a clash with itself.
@@ -3801,6 +3808,34 @@ Antioch is where they met.
         fs::create_dir_all(dir.path().join("Notes/D/b")).unwrap();
         assert!(v.move_folder(DocType::Note, "B", "D").is_err());
         assert!(dir.path().join("Notes/B/C").is_dir());
+    }
+
+    #[test]
+    fn a_composition_is_not_moved_onto_another_board() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        let talk = v
+            .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+            .unwrap()
+            .summary;
+        let mut own = Canvas::default();
+        own.nodes
+            .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+        v.write_board(&talk.id, &own).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        fs::write(
+            dir.path().join("Compositions/Talks/TALK.canvas"),
+            "{\"nodes\":[]}",
+        )
+        .unwrap();
+        let err = v.move_document(&talk.id, "Talks").unwrap_err().to_string();
+        assert!(err.contains("TALK.canvas"), "{err}");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("Compositions/Talks/TALK.canvas")).unwrap(),
+            "{\"nodes\":[]}"
+        );
+        assert!(dir.path().join("Compositions/talk.md").exists());
+        assert!(dir.path().join("Compositions/talk.canvas").exists());
     }
 
     #[cfg(unix)]
@@ -3901,5 +3936,27 @@ Antioch is where they met.
             after.node("c1").unwrap().file.as_deref(),
             Some("Compositions/New/Renamed/talk.md")
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_type_folder_takes_no_move() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Study")).unwrap();
+        fs::write(
+            dir.path().join("Study/loose.md"),
+            "---\ntype: composition\n---\nX\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join(".bible-study/elsewhere")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join(".bible-study/elsewhere"),
+            dir.path().join("Compositions"),
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Study/loose.md").unwrap().unwrap().id;
+        assert!(v.move_document(&id, "").is_err());
+        assert!(dir.path().join("Study/loose.md").exists());
     }
 }

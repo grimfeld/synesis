@@ -6,20 +6,13 @@ import { toast } from "sonner";
 import { Folder, FolderRoot } from "lucide-react";
 import { cn } from "cn";
 import { api } from "@/lib/api";
-import { leaf, naturalCompare } from "@/lib/folders";
+import { folderOf, leaf, naturalCompare } from "@/lib/folders";
+import { useMoveDocument } from "@/components/SidebarFolders";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Input } from "@/components/ui/input";
 import { PickerShell, TOUCH_TARGET, TOUCH_TARGET_INPUT } from "@/components/PickerShell";
-
-/** Where a document is, as a Folder key relative to its type's folder (`""` for the top). */
-export function folderOf(path: string, top: string): string | null {
-  if (!path.startsWith(`${top}/`)) return null;
-  const inner = path.slice(top.length + 1);
-  const i = inner.lastIndexOf("/");
-  return i < 0 ? "" : inner.slice(0, i);
-}
 
 export function FolderPicker({ id, onClose }: { id: string; onClose: () => void }) {
   const s = useStore();
@@ -28,6 +21,7 @@ export function FolderPicker({ id, onClose }: { id: string; onClose: () => void 
   const type = doc?.type === "note" || doc?.type === "composition" ? doc.type : null;
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
+  const moveDocument = useMoveDocument();
   const { data } = useQuery<string[]>({
     key: ["folder-picker", type],
     deps: { none: true },
@@ -52,21 +46,9 @@ export function FolderPicker({ id, onClose }: { id: string; onClose: () => void 
   if (!doc || !type) return null;
   const label = (key: string) => (key ? leaf(key) : t.types_plural[type]);
   const move = async (into: string) => {
-    const name = doc.path.split("/").pop() ?? "";
-    const target = into ? `${top}/${into}/` : `${top}/`;
-    // Said in the app's language before the engine is asked; it checks again.
-    const clash = s.docs.find((d) => d.id !== id && d.path.toLowerCase() === `${target}${name}`.toLowerCase());
-    if (clash) {
-      toast.error(t.folders.move_clash(clash.path.split("/").pop() ?? name, label(into)));
-      return;
-    }
     setBusy(true);
     try {
-      await api.moveDocument(id, into);
-      await s.announceChanged([id]);
-      onClose();
-    } catch (e) {
-      toast.error(String(e));
+      if (await moveDocument(doc, into)) onClose();
     } finally {
       setBusy(false);
     }
@@ -99,12 +81,14 @@ export function FolderPicker({ id, onClose }: { id: string; onClose: () => void 
                 type="button"
                 data-testid="folder-pick"
                 data-folder={key}
-                disabled={isHere || busy}
+                aria-disabled={isHere || busy || undefined}
+                aria-current={isHere || undefined}
+                aria-label={key ? `${key.split("/").join(" / ")}${isHere ? ` (${t.folders.move_here})` : ""}` : undefined}
                 title={key ? `${top}/${key}` : top}
-                onClick={() => move(key)}
+                onClick={() => !isHere && !busy && move(key)}
                 className={cn(
                   TOUCH_TARGET,
-                  "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-accent disabled:opacity-60 disabled:hover:bg-transparent",
+                  "flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-sm hover:bg-accent aria-disabled:opacity-60 aria-disabled:hover:bg-transparent",
                 )}
                 style={{ paddingLeft: `${Math.min(depth, 4) * 0.75 + 0.5}rem` }}
               >
@@ -116,6 +100,11 @@ export function FolderPicker({ id, onClose }: { id: string; onClose: () => void 
           );
         })}
       </ul>
+      {options.length === 0 && (
+        <p role="status" data-testid="folder-picker-none" className="px-2 text-sm text-muted-foreground">
+          {t.folders.move_none_found}
+        </p>
+      )}
     </PickerShell>
   );
 }
