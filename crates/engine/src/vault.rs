@@ -963,6 +963,88 @@ impl Vault {
         Ok(true)
     }
 
+    /// The Folders inside a type's own folder (PLAN §31): every directory
+    /// under `Notes/` or `Compositions/`, nested ones and empty ones
+    /// included, as paths relative to that folder (`Sermons/2026`), sorted.
+    ///
+    /// Only Notes and Compositions have Folders. Hidden directories are
+    /// skipped as the scan skips them, and a link is never followed, nor
+    /// listed: a Folder that leads out of the Vault cannot be shown, so
+    /// nothing can be created or moved into it (#87).
+    pub fn folders(&self, doc_type: DocType) -> Result<Vec<String>> {
+        let top = Self::folder_root(doc_type)?;
+        let base = self.abs(top)?;
+        if !base.is_dir() || crate::vault_path::is_link(&base) {
+            return Ok(vec![]);
+        }
+        let mut out: Vec<String> = walkdir::WalkDir::new(&base)
+            .follow_links(false)
+            .min_depth(1)
+            .into_iter()
+            .filter_entry(is_walked)
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_dir())
+            .filter_map(|e| {
+                let rel = e.path().strip_prefix(&base).ok()?;
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                // Checked as any path from the UI is: the shape, and no link
+                // on the way out of the Vault.
+                self.abs(&format!("{top}/{rel}")).ok()?;
+                Some(rel)
+            })
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    /// The type's own folder, for a type that has Folders.
+    fn folder_root(doc_type: DocType) -> Result<&'static str> {
+        match doc_type {
+            DocType::Note | DocType::Composition => Ok(doc_type.default_folder()),
+            _ => Err(Error::Invalid(format!(
+                "a {} has no Folders",
+                doc_type.default_folder()
+            ))),
+        }
+    }
+
+    /// A folder appeared, was renamed or went away outside the app (Finder,
+    /// Obsidian). A folder's own event is often all the watcher hears: the
+    /// files moved with it raise none. So the documents indexed under `rel`
+    /// that are gone are forgotten, and the documents now under it are
+    /// indexed, each keeping its id, so a renamed Folder's documents move
+    /// rather than appear twice. Returns what changed and the paths removed.
+    pub fn folder_changed(&mut self, rel: &str) -> Result<(Vec<DocSummary>, Vec<String>)> {
+        let abs = self.abs(rel)?;
+        let prefix = format!("{rel}/");
+        let mut removed = Vec::new();
+        for d in self.index.list(None)? {
+            if d.path.starts_with(&prefix)
+                && !self.abs(&d.path).is_ok_and(|p| cloud::occupied(&p))
+                && self.vanished(&d.path)?
+            {
+                removed.push(d.path);
+            }
+        }
+        let mut changed = Vec::new();
+        if abs.is_dir() && !crate::vault_path::is_link(&abs) {
+            let files: Vec<String> = walkdir::WalkDir::new(&abs)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(is_walked)
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file() && is_markdown(e.path()))
+                .filter_map(|e| self.rel(e.path()))
+                .collect();
+            for f in files {
+                if let Some(d) = self.index_file(&f)? {
+                    changed.push(d);
+                }
+            }
+        }
+        Ok((changed, removed))
+    }
+
     /// Everything under the Vault that iCloud has evicted, by the path it
     /// will have once downloaded: documents, Boards, attachments and the sync
     /// snapshots alike. The shell asks iCloud for each.
@@ -2871,5 +2953,64 @@ Antioch is where they met.
         assert!(v.fold_board_file("Notes/loose.canvas").unwrap().is_none());
         fs::write(dir.path().join(rel), "not json").unwrap();
         assert!(v.fold_board_file(rel).unwrap().is_none());
+    }
+
+    #[test]
+    fn folders_lists_nested_and_empty_folders() {
+        let (dir, v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Sermons/2026")).unwrap();
+        fs::write(dir.path().join("Notes/Sermons/2026/week 2.md"), "x\n").unwrap();
+        fs::create_dir_all(dir.path().join("Notes/Empty")).unwrap();
+        fs::create_dir_all(dir.path().join("Notes/.hidden")).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        assert_eq!(
+            v.folders(DocType::Note).unwrap(),
+            vec!["Empty", "Sermons", "Sermons/2026"]
+        );
+        assert_eq!(v.folders(DocType::Composition).unwrap(), vec!["Talks"]);
+        // Only Notes and Compositions have Folders.
+        assert!(v.folders(DocType::Source).is_err());
+        // A type whose folder does not exist yet simply has none.
+        fs::remove_dir_all(dir.path().join("Compositions")).unwrap();
+        assert!(v.folders(DocType::Composition).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_is_never_listed() {
+        // #87: a Folder the UI could create or move into must be inside the Vault.
+        let (dir, v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(outside.path().join("Private")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.folders(DocType::Note).unwrap().is_empty());
+        // A type folder that is itself a link out of the Vault is refused.
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Compositions")).unwrap();
+        assert!(v.folders(DocType::Composition).is_err());
+    }
+
+    #[test]
+    fn a_folder_renamed_outside_the_app_moves_its_documents_once() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Old/Deep")).unwrap();
+        fs::write(dir.path().join("Notes/Old/a.md"), "A\n").unwrap();
+        fs::write(dir.path().join("Notes/Old/Deep/b.md"), "B\n").unwrap();
+        v.scan().unwrap();
+        let a = v.get_by_path("Notes/Old/a.md").unwrap().unwrap().id;
+        let count = v.list(None).unwrap().len();
+        fs::rename(dir.path().join("Notes/Old"), dir.path().join("Notes/New")).unwrap();
+        // The watcher hears both names, in either order.
+        let (_, removed) = v.folder_changed("Notes/Old").unwrap();
+        let (changed, _) = v.folder_changed("Notes/New").unwrap();
+        assert_eq!(removed.len(), 2);
+        assert_eq!(changed.len(), 2);
+        assert_eq!(v.get(&a).unwrap().unwrap().path, "Notes/New/a.md");
+        assert_eq!(v.list(None).unwrap().len(), count);
+        // And the other way round: the new name first.
+        fs::rename(dir.path().join("Notes/New"), dir.path().join("Notes/Newer")).unwrap();
+        v.folder_changed("Notes/Newer").unwrap();
+        v.folder_changed("Notes/New").unwrap();
+        assert_eq!(v.get(&a).unwrap().unwrap().path, "Notes/Newer/a.md");
+        assert_eq!(v.list(None).unwrap().len(), count);
     }
 }

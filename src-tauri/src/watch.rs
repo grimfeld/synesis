@@ -22,6 +22,18 @@ pub struct ChangedPayload {
     /// Board is not a document, so it is not in `changed`: naming the
     /// Composition there would read as an edit to its text.
     pub boards: Vec<String>,
+    /// Folders inside `Notes/` or `Compositions/` that appeared, were
+    /// renamed or went away outside the app (PLAN §31), so the sidebar's
+    /// Folder tree asks again even when no document changed (an empty one).
+    pub folders: Vec<String>,
+}
+
+/// Whether `rel` names a Folder: a path with no extension under a type that
+/// has Folders. A Folder whose name has a dot in it is still caught by the
+/// `is_dir` check of an existing one; a deleted one is caught here.
+fn is_folder_event(rel: &str, p: &std::path::Path) -> bool {
+    let under = rel.starts_with("Notes/") || rel.starts_with("Compositions/");
+    under && (p.is_dir() || (!p.exists() && p.extension().is_none()))
 }
 
 impl Watcher {
@@ -38,6 +50,7 @@ impl Watcher {
                 let mut changed = Vec::new();
                 let mut removed = Vec::new();
                 let mut boards = Vec::new();
+                let mut folders = Vec::new();
                 let mut guard = match state.vault.lock() {
                     Ok(g) => g,
                     Err(_) => return,
@@ -66,6 +79,23 @@ impl Watcher {
                     }
                     if rel.starts_with(&format!("{HIDDEN_DIR}/sync/")) {
                         sync_touched = true;
+                        continue;
+                    }
+                    // A Folder made, renamed or removed in Finder or Obsidian:
+                    // its own event is often all there is, so the documents
+                    // under it are found again, each keeping its id.
+                    if is_folder_event(&rel, &p) {
+                        if rel.split('/').any(|seg| seg.starts_with('.'))
+                            || engine::vault_path::is_link(&p)
+                            || !seen.insert(rel.clone())
+                        {
+                            continue;
+                        }
+                        if let Ok((c, r)) = vault.folder_changed(&rel) {
+                            changed.extend(c);
+                            removed.extend(r);
+                        }
+                        folders.push(rel);
                         continue;
                     }
                     let ext = p.extension().and_then(|x| x.to_str()).unwrap_or_default();
@@ -122,13 +152,18 @@ impl Watcher {
                     }
                 }
                 drop(guard);
-                if !changed.is_empty() || !removed.is_empty() || !boards.is_empty() {
+                if !changed.is_empty()
+                    || !removed.is_empty()
+                    || !boards.is_empty()
+                    || !folders.is_empty()
+                {
                     let _ = app.emit(
                         "vault:changed",
                         ChangedPayload {
                             changed,
                             removed,
                             boards,
+                            folders,
                         },
                     );
                 }

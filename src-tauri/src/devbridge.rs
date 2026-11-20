@@ -279,6 +279,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         // `Query` variant, not another line here that someone forgets.
         "query" => ok(query(state, arg(&a, "query")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
+        "list_folders" => ok(list_folders(state, arg(&a, "docType")?)?),
         "save_document" => ok(save_document(
             state,
             app.state::<crate::windows::WindowState>(),

@@ -163,6 +163,10 @@ _Avoid_: Library, workspace, database
 What makes a Vault itself rather than whatever folder it happens to sit in. Written once when the Vault comes into being and never changed, so a Device joining one can refuse a folder that already holds another. A Vault that predates ids is given one the first time it is opened.
 _Avoid_: Folder name, path (both change per Device and per whim)
 
+**Folder**:
+A folder the user makes inside Notes or Compositions to arrange them, nested as deep as they like. Arrangement only: a Folder means nothing, so nothing but the sidebar reads it; what a document is about is said by its Tags and Mentions. Not a Shelf, which arranges Sources by kind.
+_Avoid_: Collection, Category, Notebook, Group
+
 **Known Vault**:
 A Vault this Device holds: its name, its id, and where it sits here. The user adds one by making it or by joining it, and removes it deliberately; it is what the Vault switcher lists. Not a history of what was opened lately, which is why opening something else can never push a Vault out of the list.
 _Avoid_: Recent, workspace list

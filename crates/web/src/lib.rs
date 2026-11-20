@@ -207,6 +207,7 @@ impl State {
             "vault_info" => ok(self.vault()?.info().map_err(err)?),
             "rescan" => ok(self.vault_mut()?.scan().map_err(err)?),
             "query" => ok(self.vault()?.query(arg(&a, "query")?).map_err(err)?),
+            "list_folders" => ok(self.vault()?.folders(arg(&a, "docType")?).map_err(err)?),
             "get_document" => {
                 let v = self.vault()?;
                 let view = v.read(&arg::<String>(&a, "id")?).map_err(err)?;
