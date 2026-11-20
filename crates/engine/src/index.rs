@@ -1676,8 +1676,9 @@ impl Index {
     }
 
     /// Every Kinship edge in the Vault, as written, with what cannot be read
-    /// as one (ADR 0024; `kinship::read`). Read from the links table, so a
-    /// `father` the schema types as text still yields its edge.
+    /// as one (ADR 0024; `kinship::read`), and every Relation
+    /// (`kinship::read_relations`). Read from the links table, so a `father`
+    /// (or a `mentor`) the schema types as text still yields its edge.
     pub fn kinship(&self) -> Result<crate::kinship::Kinship> {
         let mut st = self.conn.prepare(&format!(
             "SELECT {SUMMARY_COLS}, l.property, l.target FROM links l JOIN documents d ON d.id = l.from_id \
@@ -1694,14 +1695,34 @@ impl Index {
             })?
             .collect::<rusqlite::Result<_>>()?;
         let mut memo: HashMap<String, Option<DocSummary>> = HashMap::new();
-        crate::kinship::read(links, |target| {
+        let mut resolve = |target: &str| -> Result<Option<DocSummary>> {
             if let Some(d) = memo.get(target) {
                 return Ok(d.clone());
             }
             let d = self.resolve(target)?;
             memo.insert(target.to_string(), d.clone());
             Ok(d)
-        })
+        };
+        let mut kinship = crate::kinship::read(links, &mut resolve)?;
+        // Relations (PLAN §32): every other front-matter link on a Character;
+        // `read_relations` keeps those naming a Character.
+        let mut st = self.conn.prepare(&format!(
+            "SELECT {SUMMARY_COLS}, l.property, l.target FROM links l JOIN documents d ON d.id = l.from_id \
+             WHERE d.type = 'character' AND l.kind = 'prose' AND l.property IS NOT NULL \
+             AND l.property NOT IN ('father', 'mother', 'spouses', 'aliases') \
+             ORDER BY lower(d.title), d.id, l.start"
+        ))?;
+        let links: Vec<crate::kinship::NamedKin> = st
+            .query_map([], |r| {
+                Ok(crate::kinship::NamedKin {
+                    character: row_summary(r)?,
+                    property: r.get("property")?,
+                    target: r.get("target")?,
+                })
+            })?
+            .collect::<rusqlite::Result<_>>()?;
+        kinship.relations = crate::kinship::read_relations(links, &mut resolve)?;
+        Ok(kinship)
     }
 
     fn events_by_title(&self) -> Result<Vec<DocSummary>> {
@@ -3608,6 +3629,76 @@ tags: [judgment]
                 ("isaac", vec!["isaac", "abe", "isaac"]),
             ]
         );
+    }
+
+    /// (Character, Property, other) for every Relation.
+    fn relation_rows(k: &crate::kinship::Kinship) -> Vec<(&str, &str, &str)> {
+        k.relations
+            .iter()
+            .map(|r| {
+                (
+                    r.character.id.as_str(),
+                    r.property.as_str(),
+                    r.other.id.as_str(),
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_relation_is_a_link_property_naming_a_character_given_once_as_written() {
+        // Elisha names Elijah his mentor; Elijah names no one. Both ends see
+        // the one row: the UI reads "mentor of" from it on Elijah's Hub.
+        let k = idx_with(&[
+            (
+                "elijah",
+                "Characters/Elijah.md",
+                "---\ntype: character\n---\n",
+            ),
+            (
+                "elisha",
+                "Characters/Elisha.md",
+                "---\ntype: character\nmentor: \"[[Elijah]]\"\nservants: [\"[[Gehazi]]\", \"[[Elijah]]\", \"[[Elijah]]\"]\n---\n",
+            ),
+            (
+                "gehazi",
+                "Characters/Gehazi.md",
+                "---\ntype: character\n---\n",
+            ),
+        ])
+        .kinship()
+        .unwrap();
+        assert_eq!(
+            relation_rows(&k),
+            vec![
+                // In the order written; a Character named twice under one
+                // Property is one Relation.
+                ("elisha", "mentor", "elijah"),
+                ("elisha", "servants", "gehazi"),
+                ("elisha", "servants", "elijah"),
+            ]
+        );
+        assert!(k.edges.is_empty() && k.warnings.is_empty());
+    }
+
+    #[test]
+    fn kinship_aliases_places_and_non_characters_are_not_relations() {
+        let k = kin_vault(&[
+            (
+                "lot",
+                "Characters/Lot.md",
+                // Kinship, `aliases`, a Place, a page not yet written, the
+                // Character himself, and a link in the prose: none a Relation.
+                "---\ntype: character\nfather: \"[[Abraham]]\"\naliases: [\"[[Isaac]]\"]\nplaces: [\"[[Ur]]\"]\nhome: \"[[Ur]]\"\nfriend: \"[[Nobody yet]]\"\nself: \"[[Lot]]\"\nuncle: \"[[Abraham]]\"\n---\nLot walked with [[Isaac]].\n",
+            ),
+            // A Place naming a Character is no Relation: both ends are Characters.
+            ("sodom", "Places/Sodom.md", "---\ntype: place\nruler: \"[[Lot]]\"\n---\n"),
+        ])
+        .kinship()
+        .unwrap();
+        assert_eq!(relation_rows(&k), vec![("lot", "uncle", "abe")]);
+        // Lot's father still counts as Kinship, not as a Relation.
+        assert!(kin_rows(&k).contains(&("lot", crate::kinship::Relation::Father, "abe")));
     }
 
     #[test]

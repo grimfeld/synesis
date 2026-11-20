@@ -1,6 +1,6 @@
-//! The demo vault's patriarchs (ADR 0024): the Family section, its Tutorial
-//! and the Cypress walks read Jacob's family, so every tie must be readable
-//! and none reported. Opened on a copy, never the checked-in folder.
+//! The demo vault's patriarchs (ADR 0024) and its one Relation: the Family
+//! and Relations sections, their Tutorial and the Cypress walks read Jacob's
+//! family and Elisha's mentor, so every tie must be readable and none reported. Opened on a copy, never the checked-in folder.
 
 use engine::kinship::Relation;
 use engine::query::{Answer, Query};
@@ -70,4 +70,17 @@ fn the_patriarchs_kinship_reads_without_a_warning() {
     mothers.sort();
     mothers.dedup();
     assert_eq!(mothers, ["Bilhah", "Leah", "Rachel", "Zilpah"]);
+    // One Relation (PLAN §32): Elisha's mentor is Elijah, named once.
+    let relations: Vec<_> = k
+        .relations
+        .iter()
+        .map(|r| {
+            (
+                r.character.title.as_str(),
+                r.property.as_str(),
+                r.other.title.as_str(),
+            )
+        })
+        .collect();
+    assert_eq!(relations, [("Elisha", "mentor", "Elijah")]);
 }
