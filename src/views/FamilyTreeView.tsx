@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { CircleAlert, Maximize2, Minus, Network, Plus } from "lucide-react";
 import { api } from "@/lib/api";
 import { kinGraph } from "@/lib/kinship";
-import { familyLayout, type FamilyLayout } from "@/lib/familyTree";
+import { familyLayout, type FamilyLayout, type PersonBox } from "@/lib/familyTree";
 import { usePanZoom } from "@/lib/usePanZoom";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
@@ -24,17 +24,28 @@ function fitted(title: string, width: number): string {
   return title.length <= max ? title : `${title.slice(0, max - 1)}…`;
 }
 
+function focusVisible(el: Element): boolean {
+  try {
+    return el.matches(":focus-visible");
+  } catch {
+    return true;
+  }
+}
+
 /** The drawing itself, in world units: lines, then bars, then the boxes over them. */
 function Drawing({
   layout,
   names,
   label,
   onOpen,
+  onFocus,
 }: {
   layout: FamilyLayout;
   names: boolean;
   label: (name: string) => string;
-  onOpen: (id: string) => void;
+  /** `keyboard`: Enter or Space, which no pan can have preceded. */
+  onOpen: (id: string, keyboard: boolean) => void;
+  onFocus: (p: PersonBox) => void;
 }) {
   return (
     <>
@@ -47,7 +58,6 @@ function Drawing({
           points={l.points.map(([x, y]) => `${x},${y}`).join(" ")}
           fill="none"
           style={{ stroke: "var(--muted-foreground)" }}
-          strokeOpacity={0.7}
           strokeWidth={1.5}
           vectorEffect="non-scaling-stroke"
         />
@@ -79,17 +89,35 @@ function Drawing({
           role="button"
           tabIndex={0}
           aria-label={label(p.doc.title)}
-          className="cursor-pointer outline-none focus-visible:[&>rect]:stroke-[3]"
+          className="group cursor-pointer outline-none"
           transform={`translate(${p.x},${p.y})`}
-          onClick={() => onOpen(p.id)}
+          onClick={() => onOpen(p.id, false)}
           onKeyDown={(e) => {
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              onOpen(p.id);
+              onOpen(p.id, true);
             }
+          }}
+          onFocus={(e) => {
+            // A box focused by Tab is brought into view; one clicked is already there.
+            if (focusVisible(e.currentTarget)) onFocus(p);
           }}
         >
           <title>{p.doc.title}</title>
+          {/* The focus ring: an outer ring in the theme's ring colour, shown on keyboard focus. */}
+          <rect
+            data-testid="family-tree-focus-ring"
+            x={-4}
+            y={-4}
+            width={p.width + 8}
+            height={p.height + 8}
+            rx={11}
+            fill="none"
+            className="opacity-0 group-focus-visible:opacity-100"
+            style={{ stroke: "var(--ring)" }}
+            strokeWidth={2.5}
+            vectorEffect="non-scaling-stroke"
+          />
           <rect
             width={p.width}
             height={p.height}
@@ -134,7 +162,19 @@ export function FamilyTreeView() {
     // A save that changed no tie keeps the drawing, and where the reader is in it.
     equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
   });
-  const layout = useMemo(() => (data ? familyLayout(kinGraph(data)) : null), [data]);
+  // The layout never throws on bad data (familyTree.test.ts); should it all
+  // the same, the view shows its error state rather than taking the app down,
+  // since a saved layout reopens this view on every launch.
+  const built = useMemo((): { layout: FamilyLayout | null; failed: boolean } => {
+    if (!data) return { layout: null, failed: false };
+    try {
+      return { layout: familyLayout(kinGraph(data)), failed: false };
+    } catch (e) {
+      console.error("family tree layout failed", e);
+      return { layout: null, failed: true };
+    }
+  }, [data]);
+  const layout = built.layout;
   const pz = usePanZoom();
   const names = pz.view.k >= NAMES_FROM_ZOOM;
 
@@ -158,13 +198,16 @@ export function FamilyTreeView() {
   // Opening is read from refs, so the drawing is not rebuilt on every pan.
   const live = useRef({ s, dragged: pz.dragged });
   live.current = { s, dragged: pz.dragged };
-  const open = useCallback((id: string) => {
-    if (live.current.dragged()) return;
+  const open = useCallback((id: string, keyboard: boolean) => {
+    if (!keyboard && live.current.dragged()) return;
     live.current.s.openDoc(id);
   }, []);
+  const reveal = pz.reveal;
+  const focus = useCallback((p: PersonBox) => reveal(p), [reveal]);
   const drawing = useMemo(
-    () => layout && <Drawing layout={layout} names={names} label={t.family_tree.open} onOpen={open} />,
-    [layout, names, t, open],
+    () =>
+      layout && <Drawing layout={layout} names={names} label={t.family_tree.open} onOpen={open} onFocus={focus} />,
+    [layout, names, t, open, focus],
   );
 
   const showTutorial = () => tutorials.show("family-tree", tutorial("family-tree", lang)?.steps.length ?? 1);
@@ -220,7 +263,7 @@ export function FamilyTreeView() {
           </>
         )}
       </ViewHeader>
-      {!data && status === "error" ? (
+      {(!data && status === "error") || built.failed ? (
         <div
           className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
           role="alert"

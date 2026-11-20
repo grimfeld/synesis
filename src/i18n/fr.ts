@@ -197,8 +197,8 @@ export const fr: Dict = {
   family_tree: {
     counts: (people: number, families: number) =>
       `${people} ${people === 1 ? "Personnage" : "Personnages"} · ${families} ${families === 1 ? "famille" : "familles"}`,
-    open: (name: string) => `Ouvrir le Hub de ${name}`,
-    empty: "Aucun Personnage n’a encore de famille. Indiquez le père, la mère ou les conjoints d’un Personnage sous Famille, sur son Hub, et sa famille s’affiche ici.",
+    open: (name: string) => `Ouvrir la page de ${name}`,
+    empty: "Aucun Personnage n’a encore de famille. Indiquez le père, la mère ou les conjoints d’un Personnage sous Famille, sur sa page, et sa famille s’affiche ici.",
     empty_tutorial: "Me montrer comment",
     load_failed: "L’arbre généalogique n’a pas pu être lu dans le Coffre.",
     retry: "Réessayer",
