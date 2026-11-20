@@ -263,7 +263,17 @@ export function FamilyTreeView() {
           </>
         )}
       </ViewHeader>
-      {(!data && status === "error") || built.failed ? (
+      {built.failed ? (
+        // The data was read but could not be drawn: reading it again would not help.
+        <div
+          className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
+          role="alert"
+          data-testid="family-tree-draw-failed"
+        >
+          <CircleAlert className="size-5 shrink-0 text-destructive" />
+          <p className="max-w-sm text-sm text-muted-foreground">{t.family_tree.draw_failed}</p>
+        </div>
+      ) : !data && status === "error" ? (
         <div
           className="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center"
           role="alert"

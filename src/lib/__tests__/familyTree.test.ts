@@ -288,6 +288,120 @@ describe("familyLayout", () => {
     expect(drops.size).toBe(4);
   });
 
+  /** Two parents per child, by title: `[child, father, mother]`. */
+  const born = (...kids: [string, string, string][]): [string, KinRelation, string][] =>
+    kids.flatMap(([c, f, m]): [string, KinRelation, string][] => [
+      [c, "father", f],
+      [c, "mother", m],
+    ]);
+  /** The boxes a line's straight segments pass through, its own child's aside. */
+  const boxesHit = (t: FamilyLayout, child: string) => {
+    const pts = lineTo(t, child).points;
+    const hit = new Set<string>();
+    for (let i = 1; i < pts.length; i++) {
+      const [[xa, ya], [xb, yb]] = [pts[i - 1], pts[i]];
+      for (const p of t.people) {
+        if (p.id === child) continue;
+        const inX = Math.max(xa, xb) > p.x && Math.min(xa, xb) < p.x + p.width;
+        const inY = Math.max(ya, yb) > p.y && Math.min(ya, yb) < p.y + p.height;
+        if (inX && inY) hit.add(p.id);
+      }
+    }
+    return [...hit];
+  };
+  /** Where a line goes down through the row of `rowOf`'s box. */
+  const xThroughRow = (t: FamilyLayout, child: string, rowOf: string) => {
+    const { y } = box(t, rowOf);
+    const pts = lineTo(t, child).points;
+    for (let i = 1; i < pts.length; i++)
+      if (pts[i][0] === pts[i - 1][0] && Math.min(pts[i][1], pts[i - 1][1]) <= y && Math.max(pts[i][1], pts[i - 1][1]) >= y + BOX_HEIGHT)
+        return pts[i][0];
+    throw new Error(`${child}'s line does not go down through ${rowOf}'s row`);
+  };
+  /** The drops of the couples standing in `id`'s row. */
+  const rowDrops = (t: FamilyLayout, id: string) =>
+    t.couples.filter((c) => box(t, c.a).y === box(t, id).y && box(t, c.b).y === box(t, id).y).map((c) => c.dropX);
+
+  describe("a child of two parents in different rows", () => {
+    const cases: [string, [string, KinRelation, string][], string[]][] = [
+      [
+        "Judah and Tamar",
+        [["Er", "father", "Judah"], ["Er", "spouse", "Tamar"], ...born(["Perez", "Judah", "Tamar"])],
+        ["perez"],
+      ],
+      [
+        "Judah and Tamar, with a child of Er and Tamar",
+        [["Er", "father", "Judah"], ["Er", "spouse", "Tamar"], ...born(["Perez", "Judah", "Tamar"], ["Fake", "Er", "Tamar"])],
+        ["perez"],
+      ],
+      [
+        "the whole family of Judah",
+        [
+          ["Judah", "father", "Jacob"],
+          ["Judah", "spouse", "Shua"],
+          ["Er", "spouse", "Tamar"],
+          ["Onan", "spouse", "Tamar"],
+          ...born(["Er", "Judah", "Shua"], ["Onan", "Judah", "Shua"], ["Shelah", "Judah", "Shua"]),
+          ...born(["Perez", "Judah", "Tamar"], ["Zerah", "Judah", "Tamar"]),
+        ],
+        ["perez", "zerah"],
+      ],
+    ];
+    for (const [name, edges, children] of cases)
+      it(`goes down past the lower parent's row, through no box and no couple's drop: ${name}`, () => {
+        const t = layout(edges);
+        for (const child of children) {
+          const x = xThroughRow(t, child, "tamar");
+          // Never where a couple of Tamar's row hangs its children: it would read as theirs.
+          for (const d of rowDrops(t, "tamar")) expect(Math.abs(x - d), child).toBeGreaterThan(4);
+          // Under no box of Tamar's row, nor through any box at all.
+          for (const p of t.people.filter((q) => q.y === box(t, "tamar").y))
+            expect(x < p.x || x > p.x + p.width, `${child} under ${p.id}`).toBe(true);
+          expect(boxesHit(t, child), child).toEqual([]);
+          // It leaves from the bar of Judah and Tamar.
+          const bar = t.couples.find((c) => [c.a, c.b].sort().join() === "judah,tamar")!;
+          const [sx, sy] = lineTo(t, child).points[0];
+          expect(sx).toBeCloseTo(bar.dropX);
+          expect(sy).toBeCloseTo(bar.dropY);
+          const along = (sx - bar.x1) * (bar.y2 - bar.y1) - (sy - bar.y1) * (bar.x2 - bar.x1);
+          expect(Math.abs(along), "on the bar").toBeLessThan(1e-6);
+          expect(box(t, child).y).toBeGreaterThan(box(t, "tamar").y);
+        }
+      });
+  });
+
+  it("puts a husband's wives on the side with fewer boxes, and gives every pair its own drop", () => {
+    // W1 also married X: W1 and X on one side, W2 and W3 on the other, so no
+    // bar of the Hub runs behind W1 and X or through their gap.
+    const t = layout([
+      ["Hub", "spouse", "W1"],
+      ["Hub", "spouse", "W2"],
+      ["Hub", "spouse", "W3"],
+      ["W1", "spouse", "X"],
+      ...born(["C1", "Hub", "W1"], ["C2", "Hub", "W2"], ["C3", "Hub", "W3"], ["C4", "X", "W1"]),
+    ]);
+    const row = t.people.filter((p) => p.y === box(t, "hub").y).sort((a, b) => a.x - b.x).map((p) => p.id);
+    const side = (id: string) => Math.sign(row.indexOf(id) - row.indexOf("hub"));
+    expect(side("w1")).toBe(side("x"));
+    expect(side("w2")).toBe(-side("w1"));
+    expect(side("w3")).toBe(-side("w1"));
+    const drops = ["c1", "c2", "c3", "c4"].map((c) => lineTo(t, c).points[0][0]);
+    expect(new Set(drops).size).toBe(4);
+    expect(new Set(t.couples.map((c) => c.dropX)).size).toBe(t.couples.length);
+  });
+
+  it("gives each of three spouses married to one another a drop of their own", () => {
+    const t = layout([
+      ["Ay", "spouse", "Bee"],
+      ["Bee", "spouse", "Cee"],
+      ["Cee", "spouse", "Ay"],
+      ...born(["K1", "Ay", "Bee"], ["K2", "Bee", "Cee"], ["K3", "Cee", "Ay"]),
+    ]);
+    const drops = ["k1", "k2", "k3"].map((c) => lineTo(t, c).points[0][0]);
+    expect(new Set(drops).size).toBe(3);
+    for (let i = 0; i < 3; i++) for (let j = i + 1; j < 3; j++) expect(Math.abs(drops[i] - drops[j])).toBeGreaterThan(4);
+  });
+
   it("never throws on bad edges", () => {
     expect(() =>
       layout([

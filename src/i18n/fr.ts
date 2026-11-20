@@ -201,6 +201,7 @@ export const fr: Dict = {
     empty: "Aucun Personnage n’a encore de famille. Indiquez le père, la mère ou les conjoints d’un Personnage sous Famille, sur sa page, et sa famille s’affiche ici.",
     empty_tutorial: "Me montrer comment",
     load_failed: "L’arbre généalogique n’a pas pu être lu dans le Coffre.",
+    draw_failed: "L’arbre généalogique n’a pas pu être dessiné.",
     retry: "Réessayer",
   },
   start: "Début",
