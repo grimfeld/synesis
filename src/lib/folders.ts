@@ -181,15 +181,15 @@ export type FolderNameProblem =
   | { kind: "char"; char: string }
   | { kind: "taken"; name: string };
 
-const FORBIDDEN = '/\\:*?"<>|';
+const FORBIDDEN = '/\\:*?"<>|#^[]';
 
 /** What is wrong with `name` for a Folder among `siblings`, or null. */
 export function folderNameProblem(name: string, siblings: readonly string[]): FolderNameProblem | null {
-  const n = name.trim();
+  const n = name.trim().replace(/\s+/g, " ");
   if (!n) return { kind: "empty" };
   if (n.startsWith(".")) return { kind: "dot" };
   // eslint-disable-next-line no-control-regex
-  const bad = [...n].find((c) => FORBIDDEN.includes(c) || /[\u0000-\u001f\u007f]/.test(c));
+  const bad = [...n].find((c) => FORBIDDEN.includes(c) || /[\u0000-\u001f\u007f-\u009f]/.test(c));
   if (bad) return { kind: "char", char: bad };
   const clash = siblings.find((s) => s.toLocaleLowerCase() === n.toLocaleLowerCase());
   if (clash) return { kind: "taken", name: clash };
@@ -203,3 +203,6 @@ export function childNames(folders: readonly string[], parent: string): string[]
     .filter((f) => f.startsWith(prefix) && f.length > prefix.length && !f.slice(prefix.length).includes("/"))
     .map((f) => f.slice(prefix.length));
 }
+
+/** The last name in a Folder path. */
+export const leaf = (path: string) => path.split("/").pop() || path;

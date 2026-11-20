@@ -10,6 +10,7 @@ import { api, type DocSummary } from "@/lib/api";
 import {
   childNames,
   folderNameProblem,
+  leaf,
   folderTree,
   foldersHolding,
   loadOpenFolders,
@@ -49,7 +50,6 @@ interface FolderActions {
 
 const FolderActionsContext = createContext<FolderActions>({ act: () => {}, version: 0 });
 
-const leaf = (path: string) => path.split("/").pop() ?? path;
 
 /**
  * The Folder actions for the sidebar's Documents tab: the handler its menus
@@ -92,7 +92,7 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
         {naming && (
           <FolderNameDialog
             title={naming.parent ? t.folders.new_folder_in(leaf(naming.parent)) : t.folders.new_folder}
-            submitLabel={t.folders.create}
+            submitLabel={t.create}
             onSubmit={create}
             onClose={() => setNaming(null)}
           />
@@ -125,8 +125,18 @@ export function FolderNameDialog({
   const [name, setName] = useState(initial);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const say = (p: FolderNameProblem) =>
-    p.kind === "empty" ? t.folders.empty_name : p.kind === "dot" ? t.folders.dot : p.kind === "char" ? t.folders.char(p.char) : t.folders.taken(p.name);
+  const say = (p: FolderNameProblem) => {
+    switch (p.kind) {
+      case "empty":
+        return t.folders.empty_name;
+      case "dot":
+        return t.folders.dot;
+      case "char":
+        return t.folders.char(p.char);
+      case "taken":
+        return t.folders.taken(p.name);
+    }
+  };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -167,7 +177,7 @@ export function FolderNameDialog({
           )}
           <DialogFooter>
             <Button type="button" variant="outline" className="h-auto min-h-9" onClick={onClose}>
-              {t.folders.cancel}
+              {t.cancel}
             </Button>
             <Button type="submit" data-testid="folder-name-submit" className="h-auto min-h-9" disabled={busy}>
               {submitLabel}
@@ -269,7 +279,7 @@ function FolderLevel({
               data-testid="folder-row"
               size="sm"
               aria-expanded={isOpen}
-              className={ours ? "pr-[4.75rem]" : "pr-8"}
+              className={ours ? "pr-[5.5rem]" : "pr-8"}
               style={{ paddingLeft: indent(depth) }}
               title={f.path}
               onClick={() => toggle(f.key)}
@@ -279,7 +289,7 @@ function FolderLevel({
               <span className="min-w-0 truncate">{f.outside ? `/${f.name}` : f.name}</span>
               <span className="sr-only">{t.documents(f.count)}</span>
             </SidebarMenuButton>
-            <SidebarMenuBadge data-testid="folder-count" aria-hidden className={ours ? "right-12" : undefined}>
+            <SidebarMenuBadge data-testid="folder-count" aria-hidden className={ours ? "right-[3.75rem]" : undefined}>
               {f.count}
             </SidebarMenuBadge>
             {isOpen && (
@@ -335,16 +345,16 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
         <>
           <SidebarMenuAction
             data-testid="folder-new-here"
-            className="right-6"
+            className="top-0.5 right-8 w-6"
             title={t.folders.new_here[type]}
-            aria-label={t.folders.new_here[type]}
+            aria-label={`${t.folders.new_here[type]}: ${folder.name}`}
             onClick={() => act({ kind: "new-here", type, folder: folder.key })}
           >
             <Plus />
           </SidebarMenuAction>
           <DropdownMenu open={menu} onOpenChange={setMenu}>
             <DropdownMenuTrigger asChild>
-              <SidebarMenuAction data-testid="folder-menu" aria-label={t.folders.menu(folder.name)}>
+              <SidebarMenuAction data-testid="folder-menu" className="top-0.5 w-6" aria-label={t.folders.menu(folder.name)}>
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
