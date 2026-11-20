@@ -1935,20 +1935,24 @@ impl Vault {
         if places {
             keep(self.note_border_names());
         }
-        for (id, from, to) in moves {
-            if from != to {
+        // Other Boards' cards are rewritten only for a document indexed at
+        // its new path: their refs resolve by path, so rewriting toward one
+        // the index does not hold would drop them.
+        for ((id, from, to), summary) in moves.iter().zip(&out) {
+            if from != to && summary.is_some() {
                 keep(self.rewrite_boards(id, from, to));
             }
         }
         // Indexing a document anew forgets what its own Board holds; reading
-        // the Board at its new path records it again.
-        for ((id, from, to), summary) in moves.iter().zip(&out) {
-            if from != to
-                && summary
-                    .as_ref()
-                    .is_some_and(|d| d.doc_type == DocType::Composition)
+        // the Board at its new path records it again. By the id it has now:
+        // one whose frontmatter takes no `id` is known by its path.
+        for ((_, from, to), summary) in moves.iter().zip(&out) {
+            if let Some(d) = summary
+                .as_ref()
+                .filter(|d| from != to && d.doc_type == DocType::Composition)
             {
-                keep(self.read_board(id).map(|_| ()));
+                let id = d.id.clone();
+                keep(self.read_board(&id).map(|_| ()));
             }
         }
         match first_err {
@@ -3829,6 +3833,11 @@ Antioch is where they met.
         fs::write(dir.path().join("Notes/Odd/list.md"), "---\n- a\n- b\n---\nBody.\n").unwrap();
         fs::write(dir.path().join("Notes/Odd/plain.md"), "Plain.\n").unwrap();
         fs::create_dir_all(dir.path().join("Notes/Elsewhere")).unwrap();
+        // The same for a Composition, whose Board moves beside it.
+        fs::create_dir_all(dir.path().join("Compositions/Odd")).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Given")).unwrap();
+        fs::write(dir.path().join("Compositions/Odd/talk.md"), "---\n- a\n---\nTalk.\n").unwrap();
+        fs::write(dir.path().join("Compositions/Odd/talk.canvas"), "{\"nodes\":[],\"edges\":[]}").unwrap();
         v.scan().unwrap();
         let count = v.list(None).unwrap().len();
 
@@ -3845,6 +3854,14 @@ Antioch is where they met.
             "Elsewhere/Even"
         );
         assert!(v.get_by_path("Notes/Elsewhere/Even/list.md").unwrap().is_some());
+        assert_eq!(v.list(None).unwrap().len(), count);
+        assert_eq!(
+            v.move_folder(DocType::Composition, "Odd", "Given").unwrap(),
+            "Given/Odd"
+        );
+        let talk = v.get_by_path("Compositions/Given/Odd/talk.md").unwrap().unwrap();
+        assert!(dir.path().join("Compositions/Given/Odd/talk.canvas").exists());
+        v.read_board(&talk.id).unwrap();
         assert_eq!(v.list(None).unwrap().len(), count);
     }
 

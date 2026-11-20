@@ -116,8 +116,8 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
     const problem = folderNameProblem(name, siblings);
     if (problem) return problem;
     if (naming.renaming) {
-      await api.renameFolder(naming.type, naming.renaming, name);
-      await folderMoved(naming.parent ? `${naming.parent}/${name}` : name);
+      // The engine's answer is the name as kept (trimmed, spaces collapsed).
+      await folderMoved(await api.renameFolder(naming.type, naming.renaming, name));
     } else {
       await api.createFolder(naming.type, naming.parent, name);
       setVersion((v) => v + 1);
@@ -202,8 +202,7 @@ export function useMoveFolder() {
         toast.error(t.folders.taken(clash));
         return null;
       }
-      await api.moveFolder(type, folder, into);
-      return into ? `${into}/${name}` : name;
+      return await api.moveFolder(type, folder, into);
     } catch (e) {
       toast.error(String(e));
       return null;
@@ -538,6 +537,8 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
   const drop = useContext(DropContext);
   const mobile = useIsMobile();
   const [menu, setMenu] = useState(false);
+  /** Rename and Move open a dialog that takes focus; only then must the menu not take it back. */
+  const opensDialog = useRef(false);
   const target = ours && drop?.over === folder.key;
   return (
     <SidebarMenuItem
@@ -582,18 +583,31 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
-            {/* Rename and Move open a dialog that takes focus; the menu must not take it back. */}
-            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="max-w-[min(18rem,calc(100vw-2rem))]"
+              onCloseAutoFocus={(e) => {
+                if (opensDialog.current) e.preventDefault();
+                opensDialog.current = false;
+              }}
+            >
               <DropdownMenuItem data-testid="folder-menu-new-here" onSelect={() => act({ kind: "new-here", type, folder: folder.key })}>
                 {t.folders.new_here[type]}
               </DropdownMenuItem>
               <DropdownMenuItem data-testid="folder-menu-new-folder" onSelect={() => act({ kind: "new-folder", type, parent: folder.key })}>
                 {t.folders.new_folder}
               </DropdownMenuItem>
-              <DropdownMenuItem data-testid="folder-menu-rename" onSelect={() => act({ kind: "rename", type, folder: folder.key })}>
+              <DropdownMenuItem data-testid="folder-menu-rename" onSelect={() => {
+                  opensDialog.current = true;
+                  act({ kind: "rename", type, folder: folder.key });
+                }}>
                 {t.folders.rename}
               </DropdownMenuItem>
-              <DropdownMenuItem data-testid="folder-menu-move" onSelect={() => act({ kind: "move-folder", type, folder: folder.key })}>
+              <DropdownMenuItem data-testid="folder-menu-move" onSelect={() => {
+                  opensDialog.current = true;
+                  act({ kind: "move-folder", type, folder: folder.key });
+                }}>
                 {t.folders.move_command}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
