@@ -269,6 +269,42 @@ fn move_file(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Files an operating system leaves in a folder by itself. They never make a
+/// Folder count as holding something, and are removed with it.
+const OS_CLUTTER: [&str; 2] = [".DS_Store", "Thumbs.db"];
+
+/// A Folder name as typed, checked: not empty, not starting with a dot, and
+/// free of what a file name cannot hold on some system (`/ \ : * ? " < > |`,
+/// control characters). Spaces around it are dropped; its case is kept.
+pub fn check_folder_name(name: &str) -> Result<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(Error::Invalid("a Folder needs a name".into()));
+    }
+    if name.starts_with('.') {
+        return Err(Error::Invalid(
+            "a Folder name cannot start with a dot".into(),
+        ));
+    }
+    if let Some(c) = name
+        .chars()
+        .find(|c| "/\\:*?\"<>|".contains(*c) || c.is_control())
+    {
+        return Err(Error::Invalid(format!("a Folder name cannot hold “{c}”")));
+    }
+    Ok(name.to_string())
+}
+
+/// The entry in `dir` whose name is `name` ignoring case, if any.
+fn sibling_named(dir: &Path, name: &str) -> Option<String> {
+    let want = name.to_lowercase();
+    fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.to_lowercase() == want)
+}
+
 fn write_atomic(path: &Path, text: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -1029,6 +1065,99 @@ impl Vault {
         Ok(out)
     }
 
+    /// The Vault-relative path of the Folder `path` (relative to the type's
+    /// folder, `""` for the type's folder itself), checked: its shape, no
+    /// hidden segment, and no link on the way out of the Vault (#87).
+    fn folder_rel(&self, doc_type: DocType, path: &str) -> Result<String> {
+        let top = Self::folder_root(doc_type)?;
+        let path = path.trim_matches('/');
+        if path.is_empty() {
+            self.abs(top)?;
+            return Ok(top.to_string());
+        }
+        if path.split('/').any(|seg| seg.starts_with('.')) {
+            return Err(Error::Invalid(format!("not a Folder: {path}")));
+        }
+        let rel = format!("{top}/{path}");
+        self.abs(&rel)?;
+        Ok(rel)
+    }
+
+    /// Make the Folder `name` inside `parent` (relative to the type's folder,
+    /// `""` for the top), keeping the name's capitalisation: a Folder has no
+    /// `title` to carry it. Refused, with nothing written, for a name that is
+    /// empty, starts with a dot or holds a character a file name cannot
+    /// (`/ \ : * ? " < > |`), or that a sibling already has, ignoring case.
+    /// Returns the new Folder's path relative to the type's folder.
+    pub fn create_folder(&mut self, doc_type: DocType, parent: &str, name: &str) -> Result<String> {
+        let name = check_folder_name(name)?;
+        let parent_rel = self.folder_rel(doc_type, parent)?;
+        let parent_abs = self.abs(&parent_rel)?;
+        if parent_abs.exists() && (!parent_abs.is_dir() || crate::vault_path::is_link(&parent_abs))
+        {
+            return Err(Error::Invalid(format!("not a Folder: {parent}")));
+        }
+        if !parent_abs.exists() && parent_rel != Self::folder_root(doc_type)? {
+            return Err(Error::NotFound(parent.to_string()));
+        }
+        if let Some(clash) = sibling_named(&parent_abs, &name) {
+            return Err(Error::Invalid(format!("“{clash}” is already there")));
+        }
+        let rel = format!("{parent_rel}/{name}");
+        fs::create_dir_all(self.abs(&rel)?)?;
+        let top = Self::folder_root(doc_type)?;
+        Ok(rel[top.len() + 1..].to_string())
+    }
+
+    /// Delete the Folder `path` (relative to the type's folder) if it holds no
+    /// file: tidying never deletes documents. OS clutter (`.DS_Store`,
+    /// `Thumbs.db`) does not count and goes with it, as do Folders inside it
+    /// that are empty too. Returns what stopped it, as paths relative to the
+    /// Folder (a document, a picture, a `.canvas`, a link, a file iCloud has
+    /// evicted), and deletes nothing when that list is not empty; an empty
+    /// list means the Folder is gone. The UI words the refusal in its own
+    /// language from that list.
+    pub fn delete_folder(&mut self, doc_type: DocType, path: &str) -> Result<Vec<String>> {
+        if path.trim_matches('/').is_empty() {
+            return Err(Error::Invalid("a type's own folder is not a Folder".into()));
+        }
+        let rel = self.folder_rel(doc_type, path)?;
+        let abs = self.abs(&rel)?;
+        if !abs.is_dir() || crate::vault_path::is_link(&abs) {
+            return Err(Error::NotFound(path.to_string()));
+        }
+        let mut held = Vec::new();
+        let mut clutter = Vec::new();
+        let mut dirs = Vec::new();
+        // Hidden entries are walked too: an evicted file's placeholder is one.
+        for e in walkdir::WalkDir::new(&abs).follow_links(false).min_depth(1) {
+            let e = e.map_err(|e| Error::Invalid(e.to_string()))?;
+            let name = e.file_name().to_string_lossy();
+            if e.file_type().is_dir() {
+                dirs.push(e.path().to_path_buf());
+            } else if e.file_type().is_file() && OS_CLUTTER.contains(&name.as_ref()) {
+                clutter.push(e.path().to_path_buf());
+            } else {
+                let inner = e.path().strip_prefix(&abs).unwrap_or(e.path());
+                held.push(inner.to_string_lossy().replace('\\', "/"));
+            }
+        }
+        if !held.is_empty() {
+            held.sort();
+            return Ok(held);
+        }
+        for f in clutter {
+            fs::remove_file(f)?;
+        }
+        // Deepest first; `remove_dir` never removes anything but an empty one.
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for d in dirs {
+            fs::remove_dir(d)?;
+        }
+        fs::remove_dir(&abs)?;
+        Ok(vec![])
+    }
+
     /// The type's own folder, for a type that has Folders.
     fn folder_root(doc_type: DocType) -> Result<&'static str> {
         match doc_type {
@@ -1333,15 +1462,44 @@ impl Vault {
         fields: &Map<String, Value>,
         body: &str,
     ) -> Result<DocumentView> {
+        self.create_in(doc_type, None, title, fields, body)
+    }
+
+    /// [`Vault::create`], inside the Folder `folder` (relative to the type's
+    /// folder) when one is given: "New Note here" (PLAN §31). Only a Note or
+    /// a Composition has Folders, and the Folder must already exist.
+    pub fn create_in(
+        &mut self,
+        doc_type: DocType,
+        folder: Option<&str>,
+        title: &str,
+        fields: &Map<String, Value>,
+        body: &str,
+    ) -> Result<DocumentView> {
         if doc_type.is_scripture() {
             return Err(Error::Invalid(
                 "Scripture pages are created by mentioning them".into(),
             ));
         }
-        // A new document always goes in its type's folder. There is no field
-        // to name another: a caller-chosen folder could name one outside the
-        // Vault (#87), and `folder` is written as an ordinary Property.
-        let folder = doc_type.default_folder();
+        // A new document goes in its type's folder, or in a Folder inside it
+        // (checked by `folder_rel`, so it cannot name one outside the Vault,
+        // #87). There is no field to name another: `folder` in `fields` is
+        // written as an ordinary Property.
+        let folder = match folder
+            .map(|f| f.trim_matches('/'))
+            .filter(|f| !f.is_empty())
+        {
+            Some(f) => {
+                let rel = self.folder_rel(doc_type, f)?;
+                let abs = self.abs(&rel)?;
+                if !abs.is_dir() || crate::vault_path::is_link(&abs) {
+                    return Err(Error::NotFound(f.to_string()));
+                }
+                rel
+            }
+            None => doc_type.default_folder().to_string(),
+        };
+        let folder = folder.as_str();
         let mut fields = fields.clone();
         // A Clipping is named by its Citation and never carries a title
         // (ADR 0013); the `title` argument is ignored for one, and a `title`
@@ -3045,5 +3203,123 @@ Antioch is where they met.
         v.folder_changed("Notes/New").unwrap();
         assert_eq!(v.get(&a).unwrap().unwrap().path, "Notes/Newer/a.md");
         assert_eq!(v.list(None).unwrap().len(), count);
+    }
+
+    #[test]
+    fn a_folder_is_created_with_its_typed_capitalisation() {
+        let (dir, mut v) = vault();
+        assert_eq!(
+            v.create_folder(DocType::Note, "", "  Sermons 2026 ")
+                .unwrap(),
+            "Sermons 2026"
+        );
+        assert!(dir.path().join("Notes/Sermons 2026").is_dir());
+        assert_eq!(
+            v.create_folder(DocType::Note, "Sermons 2026", "Week 2")
+                .unwrap(),
+            "Sermons 2026/Week 2"
+        );
+        // Compositions has no folder yet: its first Folder makes it.
+        v.create_folder(DocType::Composition, "", "Talks").unwrap();
+        assert!(dir.path().join("Compositions/Talks").is_dir());
+        // Only Notes and Compositions have Folders.
+        assert!(v.create_folder(DocType::Source, "", "Shelf").is_err());
+    }
+
+    #[test]
+    fn a_bad_folder_name_is_refused_and_nothing_is_written() {
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let before = fs::read_dir(dir.path().join("Notes")).unwrap().count();
+        for bad in [
+            "", "   ", ".hidden", "a/b", "a\\b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b",
+            "SERMONS", "sermons",
+        ] {
+            assert!(v.create_folder(DocType::Note, "", bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            fs::read_dir(dir.path().join("Notes")).unwrap().count(),
+            before
+        );
+        // A file with the name counts as a sibling too.
+        assert!(v.create_folder(DocType::Note, "", "first.md").is_err());
+        // A parent that is not there is refused, not made.
+        assert!(v.create_folder(DocType::Note, "Missing", "X").is_err());
+        assert!(!dir.path().join("Notes/Missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_cannot_be_made_or_deleted_outside_the_vault() {
+        // #87, for Folders: a parent given by the UI is checked like any path.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        for parent in ["../..", "Linked", "Notes/../..", "/etc", ".bible-study"] {
+            assert!(
+                v.create_folder(DocType::Note, parent, "X").is_err(),
+                "{parent}"
+            );
+            assert!(v.delete_folder(DocType::Note, parent).is_err(), "{parent}");
+        }
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        let mut fields = Map::new();
+        fields.insert("x".into(), Value::Null);
+        assert!(v
+            .create_in(DocType::Note, Some("Linked"), "N", &fields, "")
+            .is_err());
+        assert!(v
+            .create_in(DocType::Note, Some("../.."), "N", &fields, "")
+            .is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn only_an_empty_folder_is_deleted_and_os_clutter_goes_with_it() {
+        let (dir, mut v) = vault();
+        let notes = dir.path().join("Notes");
+        fs::create_dir_all(notes.join("Tidy/Inner")).unwrap();
+        fs::write(notes.join("Tidy/.DS_Store"), "x").unwrap();
+        fs::write(notes.join("Tidy/Inner/Thumbs.db"), "x").unwrap();
+        assert!(v.delete_folder(DocType::Note, "Tidy").unwrap().is_empty());
+        assert!(!notes.join("Tidy").exists());
+
+        fs::create_dir_all(notes.join("Full/Pics")).unwrap();
+        fs::write(notes.join("Full/a.md"), "A\n").unwrap();
+        fs::write(notes.join("Full/Pics/p.png"), "x").unwrap();
+        fs::write(notes.join("Full/talk.canvas"), "{}").unwrap();
+        fs::write(notes.join("Full/.DS_Store"), "x").unwrap();
+        let held = v.delete_folder(DocType::Note, "Full").unwrap();
+        assert_eq!(held, vec!["Pics/p.png", "a.md", "talk.canvas"]);
+        assert!(notes.join("Full/a.md").exists());
+        assert!(
+            notes.join("Full/.DS_Store").exists(),
+            "nothing deleted on a refusal"
+        );
+        // The type's own folder is never a Folder to delete.
+        assert!(v.delete_folder(DocType::Note, "").is_err());
+        assert!(v.delete_folder(DocType::Note, "Nowhere").is_err());
+    }
+
+    #[test]
+    fn a_new_note_goes_inside_a_folder_only_when_asked() {
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let inside = v
+            .create_in(DocType::Note, Some("Sermons"), "Week 2", &Map::new(), "")
+            .unwrap();
+        assert_eq!(inside.summary.path, "Notes/Sermons/week 2.md");
+        assert!(dir.path().join("Notes/Sermons/week 2.md").exists());
+        let top = v.create(DocType::Note, "Week 3", &Map::new(), "").unwrap();
+        assert_eq!(top.summary.path, "Notes/week 3.md");
+        // A Folder that is not there is refused rather than made.
+        assert!(v
+            .create_in(DocType::Note, Some("Missing"), "X", &Map::new(), "")
+            .is_err());
+        assert!(!dir.path().join("Notes/Missing").exists());
+        // A type without Folders refuses one.
+        assert!(v
+            .create_in(DocType::Source, Some("Sermons"), "X", &Map::new(), "")
+            .is_err());
     }
 }
