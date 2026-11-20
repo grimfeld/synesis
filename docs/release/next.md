@@ -19,3 +19,5 @@ hand, then empties the sections for the version after.
   straight into it with the folder's "+". An empty folder can be deleted from its "…" menu.
 - Move a Note or Composition into a folder with "Move to folder…" (its "…" in the sidebar, or the Command
   Palette), or by dragging it onto the folder on a computer. A Composition's Board goes with it.
+- Rename a folder, or move it into another, from its "…" menu (or by dragging it on a computer). Its notes,
+  their links and a Composition's Board come along.

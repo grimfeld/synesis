@@ -21,6 +21,7 @@ import {
 } from "@/lib/folders";
 import { useQuery } from "@/lib/useQuery";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { FolderPicker } from "./FolderPicker";
 
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -45,7 +46,12 @@ export type FolderAct =
   | { kind: "new-here"; type: FolderType; folder: string }
   | { kind: "delete"; type: FolderType; folder: string }
   /** A document dropped on a Folder (or on its group, `""`), on desktop. */
-  | { kind: "move"; id: string; into: string };
+  | { kind: "move"; id: string; into: string }
+  | { kind: "rename"; type: FolderType; folder: string }
+  /** "Move to folder…" from a Folder's menu: the picker. */
+  | { kind: "move-folder"; type: FolderType; folder: string }
+  /** A Folder dropped on another Folder (or on its group, `""`), on desktop. */
+  | { kind: "move-folder-to"; type: FolderType; folder: string; into: string };
 
 interface FolderActions {
   act: (a: FolderAct) => void;
@@ -64,11 +70,33 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
   const s = useStore();
   const t = useT();
   const [version, setVersion] = useState(0);
-  const [naming, setNaming] = useState<{ type: FolderType; parent: string } | null>(null);
+  /** The name dialog: a new Folder in `parent`, or (`renaming`) a new name for one. */
+  const [naming, setNaming] = useState<{ type: FolderType; parent: string; renaming?: string } | null>(null);
+  const [moving, setMoving] = useState<{ type: FolderType; folder: string } | null>(null);
   const moveDocument = useMoveDocument();
+  /** A Folder moved or renamed: its documents moved with it, so the lists are re-read. */
+  const folderMoved = async () => {
+    setVersion((v) => v + 1);
+    await s.refresh();
+  };
 
   const act = (a: FolderAct) => {
     if (a.kind === "new-folder") setNaming({ type: a.type, parent: a.parent });
+    else if (a.kind === "rename") {
+      const parent = a.folder.includes("/") ? a.folder.slice(0, a.folder.lastIndexOf("/")) : "";
+      setNaming({ type: a.type, parent, renaming: a.folder });
+    } else if (a.kind === "move-folder") setMoving({ type: a.type, folder: a.folder });
+    else if (a.kind === "move-folder-to")
+      api
+        .listFolders(a.type)
+        .then((all) => {
+          const name = leaf(a.folder);
+          const clash = childNames(all, a.into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
+          if (clash) throw new Error(t.folders.taken(clash));
+          return api.moveFolder(a.type, a.folder, a.into);
+        })
+        .then(folderMoved)
+        .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
     else if (a.kind === "new-here") s.setDialog({ kind: "new", type: a.type, folder: a.folder });
     else if (a.kind === "move") {
       const doc = s.docsById.get(a.id);
@@ -86,11 +114,18 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
 
   const create = async (name: string): Promise<FolderNameProblem | null> => {
     if (!naming) return null;
-    const siblings = childNames(await api.listFolders(naming.type), naming.parent);
+    const own = naming.renaming ? leaf(naming.renaming) : null;
+    // A rename that only changes case is no clash with itself.
+    const siblings = childNames(await api.listFolders(naming.type), naming.parent).filter((n) => n !== own);
     const problem = folderNameProblem(name, siblings);
     if (problem) return problem;
-    await api.createFolder(naming.type, naming.parent, name);
-    setVersion((v) => v + 1);
+    if (naming.renaming) {
+      await api.renameFolder(naming.type, naming.renaming, name);
+      await folderMoved();
+    } else {
+      await api.createFolder(naming.type, naming.parent, name);
+      setVersion((v) => v + 1);
+    }
     setNaming(null);
     return null;
   };
@@ -101,10 +136,23 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
         {children}
         {naming && (
           <FolderNameDialog
-            title={naming.parent ? t.folders.new_folder_in(leaf(naming.parent)) : t.folders.new_folder}
-            submitLabel={t.create}
+            title={
+              naming.renaming
+                ? t.folders.rename_title(leaf(naming.renaming))
+                : naming.parent
+                  ? t.folders.new_folder_in(leaf(naming.parent))
+                  : t.folders.new_folder
+            }
+            initial={naming.renaming ? leaf(naming.renaming) : ""}
+            submitLabel={naming.renaming ? t.folders.rename : t.create}
             onSubmit={create}
             onClose={() => setNaming(null)}
+          />
+        )}
+        {moving && (
+          <FolderPicker
+            folder={{ type: moving.type, key: moving.folder, onMoved: () => void folderMoved() }}
+            onClose={() => setMoving(null)}
           />
         )}
       </FolderActionsContext.Provider>
@@ -231,6 +279,8 @@ export function FolderNameDialog({
 
 /** The drag data type that carries a document of `type`'s id. */
 const dragType = (type: FolderType) => `application/x-synesis-${type}`;
+/** The drag data type that carries a Folder of `type`'s key. */
+const folderDragType = (type: FolderType) => `application/x-synesis-folder-${type}`;
 
 const dropHighlight = "bg-sidebar-accent/70 ring-1 ring-sidebar-ring";
 
@@ -243,6 +293,9 @@ interface Drop {
     onDragLeave: (e: React.DragEvent) => void;
     onDrop: (e: React.DragEvent) => void;
   };
+  /** A Folder's drag began (#150): it and its own Folders stop being targets. */
+  startFolder: (key: string) => void;
+  endFolder: () => void;
 }
 const DropContext = createContext<Drop | null>(null);
 
@@ -304,9 +357,16 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
   const act = useFolderAct();
   const [over, setOver] = useState<string | null>(null);
   const mime = dragType(type);
+  const folderMime = folderDragType(type);
+  // The Folder being dragged, if one is: never a target for itself or for
+  // the Folders inside it.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const takes = (e: React.DragEvent, key: string) =>
+    e.dataTransfer.types.includes(mime) ||
+    (e.dataTransfer.types.includes(folderMime) && dragging !== null && key !== dragging && !key.startsWith(`${dragging}/`));
   const dropHandlers = (key: string) => ({
     onDragOver: (e: React.DragEvent) => {
-      if (!e.dataTransfer.types.includes(mime)) return;
+      if (!takes(e, key)) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
@@ -316,6 +376,16 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
       if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((o) => (o === key ? null : o));
     },
     onDrop: (e: React.DragEvent) => {
+      const moved = e.dataTransfer.getData(folderMime);
+      if (moved && takes(e, key)) {
+        setOver(null);
+        setDragging(null);
+        e.preventDefault();
+        e.stopPropagation();
+        const parent = moved.includes("/") ? moved.slice(0, moved.lastIndexOf("/")) : "";
+        if (parent !== key) act({ kind: "move-folder-to", type, folder: moved, into: key });
+        return;
+      }
       const id = e.dataTransfer.getData(mime);
       setOver(null);
       if (!id) return;
@@ -326,7 +396,16 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
       act({ kind: "move", id, into: key });
     },
   });
-  const drop: Drop = { type, over, handlers: dropHandlers };
+  const drop: Drop = {
+    type,
+    over,
+    handlers: dropHandlers,
+    startFolder: (key) => setDragging(key),
+    endFolder: () => {
+      setDragging(null);
+      setOver(null);
+    },
+  };
   return (
     <DropContext.Provider value={drop}>
       <SidebarMenu
@@ -423,6 +502,7 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
   const t = useT();
   const act = useFolderAct();
   const drop = useContext(DropContext);
+  const mobile = useIsMobile();
   const [menu, setMenu] = useState(false);
   const target = ours && drop?.over === folder.key;
   return (
@@ -432,6 +512,16 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
       data-folder={folder.key}
       data-drop-target={target || undefined}
       {...(ours && drop ? drop.handlers(folder.key) : {})}
+      draggable={ours && !mobile}
+      onDragStart={(e) => {
+        // The innermost Folder row starts the drag, not the ones around it.
+        if (!ours || e.target !== e.currentTarget) return;
+        e.stopPropagation();
+        e.dataTransfer.setData(folderDragType(type), folder.key);
+        e.dataTransfer.effectAllowed = "move";
+        drop?.startFolder(folder.key);
+      }}
+      onDragEnd={() => drop?.endFolder()}
       onContextMenu={(e) => {
         // This Folder's own row only, not a row nested inside it.
         const el = e.target as HTMLElement;
@@ -464,6 +554,12 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
               </DropdownMenuItem>
               <DropdownMenuItem data-testid="folder-menu-new-folder" onSelect={() => act({ kind: "new-folder", type, parent: folder.key })}>
                 {t.folders.new_folder}
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="folder-menu-rename" onSelect={() => act({ kind: "rename", type, folder: folder.key })}>
+                {t.folders.rename}
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="folder-menu-move" onSelect={() => act({ kind: "move-folder", type, folder: folder.key })}>
+                {t.folders.move_command}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem data-testid="folder-menu-delete" variant="destructive" onSelect={() => act({ kind: "delete", type, folder: folder.key })}>

@@ -287,6 +287,18 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             arg(&a, "name")?,
         )?),
         "move_document" => ok(move_document(state, arg(&a, "id")?, arg(&a, "into")?)?),
+        "rename_folder" => ok(rename_folder(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "path")?,
+            arg(&a, "name")?,
+        )?),
+        "move_folder" => ok(move_folder(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "path")?,
+            arg(&a, "into")?,
+        )?),
         "delete_folder" => ok(delete_folder(state, arg(&a, "docType")?, arg(&a, "path")?)?),
         "save_document" => ok(save_document(
             state,

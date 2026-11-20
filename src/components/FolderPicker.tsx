@@ -6,19 +6,31 @@ import { toast } from "sonner";
 import { Folder, FolderRoot } from "lucide-react";
 import { cn } from "cn";
 import { api } from "@/lib/api";
-import { folderOf, leaf, naturalCompare } from "@/lib/folders";
-import { useMoveDocument } from "@/components/SidebarFolders";
+import { childNames, folderOf, leaf, naturalCompare } from "@/lib/folders";
+import { useMoveDocument, type FolderType } from "@/components/SidebarFolders";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Input } from "@/components/ui/input";
 import { PickerShell, TOUCH_TARGET, TOUCH_TARGET_INPUT } from "@/components/PickerShell";
 
-export function FolderPicker({ id, onClose }: { id: string; onClose: () => void }) {
+/** A Folder being moved by the picker, and what to do once it has moved. */
+export interface MovingFolder {
+  type: FolderType;
+  key: string;
+  onMoved: () => void;
+}
+
+/**
+ * Pick where a document goes (`id`), or where a Folder goes (`folder`, #150):
+ * a Folder never into itself or one of its own Folders, which are not offered.
+ */
+export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: MovingFolder; onClose: () => void }) {
   const s = useStore();
   const t = useT();
-  const doc = s.docsById.get(id);
-  const type = doc?.type === "note" || doc?.type === "composition" ? doc.type : null;
+  const doc = id ? s.docsById.get(id) : undefined;
+  const docType = doc?.type === "note" || doc?.type === "composition" ? doc.type : null;
+  const type = folder?.type ?? docType;
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const moveDocument = useMoveDocument();
@@ -29,33 +41,52 @@ export function FolderPicker({ id, onClose }: { id: string; onClose: () => void 
     enabled: !!type,
   });
   const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "composition" ? "Compositions" : "Notes");
-  const here = doc ? folderOf(doc.path, top) : null;
+  const here = folder ? (folder.key.includes("/") ? folder.key.slice(0, folder.key.lastIndexOf("/")) : "") : doc ? folderOf(doc.path, top) : null;
   const options = useMemo(() => {
     const f = filter.trim().toLocaleLowerCase();
-    const all = ["", ...[...(data ?? [])].sort(naturalCompare)];
+    const inside = (k: string) => !!folder && (k === folder.key || k.startsWith(`${folder.key}/`));
+    const all = ["", ...[...(data ?? [])].sort(naturalCompare)].filter((k) => !inside(k));
     return f ? all.filter((k) => k && k.toLocaleLowerCase().includes(f)) : all;
-  }, [data, filter]);
+  }, [data, filter, folder]);
 
   // Only a Note or a Composition has Folders; anything else closes at once.
-  const unmovable = !doc || !type;
+  const unmovable = !folder && (!doc || !type);
   useEffect(() => {
     if (!unmovable) return;
     if (doc) toast.error(t.folders.move_none);
     onClose();
   }, [unmovable, doc, onClose, t]);
-  if (!doc || !type) return null;
+  if (!type || (!folder && !doc)) return null;
   const label = (key: string) => (key ? leaf(key) : t.types_plural[type]);
+  const moveFolder = async (f: MovingFolder, into: string) => {
+    // Said in the app's language first; the engine checks again.
+    const name = leaf(f.key);
+    const clash = childNames(data ?? [], into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
+    if (clash) {
+      toast.error(t.folders.taken(clash));
+      return false;
+    }
+    try {
+      await api.moveFolder(f.type, f.key, into);
+      f.onMoved();
+      return true;
+    } catch (e) {
+      toast.error(String(e));
+      return false;
+    }
+  };
   const move = async (into: string) => {
     setBusy(true);
     try {
-      if (await moveDocument(doc, into)) onClose();
+      const done = folder ? await moveFolder(folder, into) : doc ? await moveDocument(doc, into) : false;
+      if (done) onClose();
     } finally {
       setBusy(false);
     }
   };
   return (
     <PickerShell
-      label={t.folders.move_title(doc.label)}
+      label={folder ? t.folders.move_folder_title(leaf(folder.key)) : t.folders.move_title(doc!.label)}
       icon={<Folder />}
       testId="folder-picker"
       open
