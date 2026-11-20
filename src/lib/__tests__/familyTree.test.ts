@@ -4,7 +4,15 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation } from "../api";
 import { kinGraph } from "../kinship";
-import { BOX_HEIGHT, familyLayout, packRow, type FamilyLayout } from "../familyTree";
+import {
+  BOX_HEIGHT,
+  familyLayout,
+  focusSubset,
+  generations,
+  packRow,
+  type FamilyLayout,
+  type Focus,
+} from "../familyTree";
 
 function doc(title: string): DocSummary {
   return {
@@ -26,13 +34,17 @@ function doc(title: string): DocSummary {
 }
 
 /** Edges as the engine answers them: `[child-or-spouse, relation, kin]` by title. */
-function layout(edges: [string, KinRelation, string][]): FamilyLayout {
+function graphOf(edges: [string, KinRelation, string][]) {
   const k: Kinship = {
     edges: edges.map(([c, relation, kin]) => ({ character: doc(c), relation, kin: doc(kin) })),
     warnings: [],
     relations: [],
   };
-  return familyLayout(kinGraph(k));
+  return kinGraph(k);
+}
+
+function layout(edges: [string, KinRelation, string][], focus?: Focus): FamilyLayout {
+  return familyLayout(graphOf(edges), { focus });
 }
 
 const patriarchs: [string, KinRelation, string][] = [
@@ -203,5 +215,85 @@ describe("packRow", () => {
     expect(packRow([0, 100, 200], [50, 50, 50], 10)).toEqual([0, 100, 200]);
     // Both want 0: they share the overlap.
     expect(packRow([0, 0], [40, 40], 10)).toEqual([-25, 25]);
+  });
+});
+
+// The focused tree (#155): one Character's line, N generations each way.
+describe("a focused Family tree", () => {
+  const g = graphOf(patriarchs);
+  const subset = (id: string, up: Focus["up"], down: Focus["down"]) =>
+    Object.fromEntries([...focusSubset(g, { id, up, down })].sort(([a], [b]) => a.localeCompare(b)));
+
+  it("reaches N generations up and down, with the spouses beside them", () => {
+    expect(subset("isaac", 1, 1)).toEqual({
+      // Parents above, and Abraham's other wife beside him.
+      abraham: -1,
+      sarah: -1,
+      hagar: -1,
+      isaac: 0,
+      rebekah: 0,
+      // Children below, Esau's and Jacob's wives beside them.
+      jacob: 1,
+      esau: 1,
+      leah: 1,
+      rachel: 1,
+    });
+    // No sibling: Ishmael is Abraham's line, not Isaac's.
+    expect(subset("isaac", 3, 3)).not.toHaveProperty("ishmael");
+    expect(subset("isaac", 3, 3)).toMatchObject({ terah: -2, joseph: 2, dinah: 2 });
+  });
+
+  it("stops at the generations asked, and reaches every one with all", () => {
+    const one = subset("jacob", 1, 1);
+    expect(one).toHaveProperty("isaac");
+    expect(one).not.toHaveProperty("abraham");
+    expect(one).toHaveProperty("joseph");
+    const two = subset("jacob", 2, 1);
+    expect(two).toHaveProperty("abraham");
+    expect(two).not.toHaveProperty("terah");
+    expect(subset("jacob", "all", "all")).toMatchObject({ terah: -3, abraham: -2, joseph: 1 });
+    // Only up: no descendant beyond what was asked.
+    expect(subset("terah", 1, 2)).toMatchObject({ abraham: 1, isaac: 2 });
+    expect(subset("terah", 1, 2)).not.toHaveProperty("jacob");
+  });
+
+  it("is empty for a Character with no kin", () => {
+    expect(focusSubset(g, { id: "paul", up: 3, down: 3 }).size).toBe(0);
+    expect(layout(patriarchs, { id: "paul", up: 3, down: 3 }).people).toEqual([]);
+  });
+
+  it("lays out only the line, ancestors above and descendants below", () => {
+    const l = layout(patriarchs, { id: "jacob", up: 1, down: 1 });
+    expect(l.people.map((p) => p.id).sort()).toEqual(
+      ["benjamin", "dinah", "isaac", "jacob", "joseph", "judah", "leah", "rachel", "rebekah", "reuben"].sort(),
+    );
+    expect(l.families).toBe(1);
+    const gen = (id: string) => box(l, id).generation;
+    expect(gen("isaac")).toBe(0);
+    expect(gen("jacob")).toBe(1);
+    expect(gen("joseph")).toBe(2);
+    // Spouses beside their partner, children under the mother each names.
+    expect(gen("rebekah")).toBe(gen("isaac"));
+    expect(gen("leah")).toBe(gen("jacob"));
+    expect(lineTo(l, "joseph").parents).toEqual(["jacob", "rachel"]);
+  });
+
+  it("seats a spouse in the row of the partner nearest the focus", () => {
+    // Bilhah married Jacob and, here, Laban, Jacob's grandfather's generation.
+    const edges: [string, KinRelation, string][] = [
+      ["Jacob", "father", "Isaac"],
+      ["Isaac", "spouse", "Bilhah"],
+      ["Jacob", "spouse", "Bilhah"],
+      ["Dan", "father", "Jacob"],
+    ];
+    const l = layout(edges, { id: "dan", up: "all", down: 1 });
+    expect(box(l, "bilhah").generation).toBe(box(l, "jacob").generation);
+  });
+
+  it("reads a saved or chosen count as 1 to 10, all, or 3", () => {
+    expect(generations(1)).toBe(1);
+    expect(generations(10)).toBe(10);
+    expect(generations("all")).toBe("all");
+    for (const bad of [0, 11, 2.5, "3", null, undefined]) expect(generations(bad)).toBe(3);
   });
 });
