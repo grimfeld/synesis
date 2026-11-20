@@ -17,6 +17,7 @@ import { ClippingsView } from "./views/ClippingsView";
 import { HomeView } from "./views/HomeView";
 import { MapView } from "./views/MapView";
 import { CoverageView } from "./views/CoverageView";
+import { FamilyTreeView } from "./views/FamilyTreeView";
 import { SettingsView } from "./views/SettingsView";
 import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
@@ -102,6 +103,8 @@ function PaneView() {
       return <TimelineView />;
     case "coverage":
       return <CoverageView />;
+    case "family-tree":
+      return <FamilyTreeView />;
     case "settings":
       return <SettingsView />;
     default: {

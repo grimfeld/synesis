@@ -201,6 +201,8 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["map"];
       case "graph":
         return ["graph"];
+      case "family-tree":
+        return ["family-tree"];
       case "coverage":
         return ["coverage", "passages"];
       case "board":

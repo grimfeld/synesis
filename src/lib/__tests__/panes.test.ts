@@ -249,7 +249,7 @@ describe("saving and restoring the layout", () => {
   });
 
   it("restores every kind of view, and a graph with or without its focus", () => {
-    const kinds = ["home", "library", "clippings", "map", "coverage", "timeline", "settings"] as const;
+    const kinds = ["home", "library", "clippings", "map", "coverage", "timeline", "family-tree", "settings"] as const;
     for (const kind of kinds) {
       const back = restoreLayout({ views: [{ kind }, { kind: "graph" }], lastUsed: 1, ratio: 0.3 }, all);
       expect(back?.panes.map((p) => p.view)).toEqual([{ kind }, { kind: "graph" }]);
