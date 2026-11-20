@@ -1158,6 +1158,61 @@ impl Vault {
         Ok(vec![])
     }
 
+    /// Move the Note or Composition `id` into the Folder `into` (relative to
+    /// its type's folder, `""` for the top), through [`Vault::relocate`], so
+    /// a Composition's Board and other Boards' cards follow it (PLAN §31).
+    ///
+    /// A move never renames: a Folder already holding a file of the same
+    /// name, ignoring case, refuses it with the clash named, rather than
+    /// adding " 2". A move stays inside the document's own type's folder, so
+    /// a Note never lands in `Compositions/` (its `type` would still say
+    /// Note). A document stored outside its type's folder moves under it. A
+    /// file still downloading from the cloud is refused, as `rename` refuses
+    /// one. The Folder the document leaves is kept: the person arranged it.
+    pub fn move_document(&mut self, id: &str, into: &str) -> Result<DocumentView> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let dest = self.folder_rel(summary.doc_type, into)?;
+        let dest_abs = self.abs(&dest)?;
+        let top = Self::folder_root(summary.doc_type)?;
+        if dest != top && (!dest_abs.is_dir() || crate::vault_path::is_link(&dest_abs)) {
+            return Err(Error::NotFound(into.to_string()));
+        }
+        let name = summary
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&summary.path)
+            .to_string();
+        let to = format!("{dest}/{name}");
+        if to == summary.path {
+            return self.read(id);
+        }
+        let from_abs = self.abs(&summary.path)?;
+        let board = self.abs(&canvas::board_path(&summary.path))?;
+        if cloud::is_evicted(&from_abs) {
+            return Err(cloud::downloading(&from_abs));
+        }
+        if summary.doc_type == DocType::Composition && cloud::is_evicted(&board) {
+            return Err(cloud::downloading(&board));
+        }
+        let mut clash = sibling_named(&dest_abs, &name);
+        if clash.is_none() && summary.doc_type == DocType::Composition && board.exists() {
+            let board_name = canvas::board_path(&name);
+            clash = sibling_named(&dest_abs, &board_name);
+        }
+        if let Some(clash) = clash {
+            return Err(Error::Invalid(format!(
+                "“{clash}” is already in {}",
+                if into.trim_matches('/').is_empty() { top } else { into }
+            )));
+        }
+        self.relocate(id, &summary.path, &to, false, Origin::Here)?;
+        self.read(id)
+    }
+
     /// The type's own folder, for a type that has Folders.
     fn folder_root(doc_type: DocType) -> Result<&'static str> {
         match doc_type {
