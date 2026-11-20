@@ -208,6 +208,156 @@ fn rename_and_delete_propagate() {
     assert!(!root.join("Concepts/undeserved kindness.md").exists());
 }
 
+/// A document moved into a Folder on one Device arrives at that path on the
+/// other with its Board beside it; other Boards' cards follow it; the old
+/// Folder goes when that move emptied it, and a Folder the user left empty
+/// stays (#146).
+#[test]
+fn a_move_arrives_with_its_board_and_tidies_the_old_folder() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+
+    // A Composition in a Folder of its own, with a Board, and a Note in another.
+    fs::create_dir_all(root.join("Compositions/Old")).unwrap();
+    fs::write(
+        root.join("Compositions/Old/talk.md"),
+        "---\ntype: composition\n---\nBody.\n",
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("Notes/Drafts")).unwrap();
+    fs::write(root.join("Notes/Drafts/seed.md"), "A thought.\n").unwrap();
+    a.scan().unwrap();
+    let talk = a.get_by_path("Compositions/Old/talk.md").unwrap().unwrap();
+    let seed = a.get_by_path("Notes/Drafts/seed.md").unwrap().unwrap();
+    let mut own = Canvas::default();
+    let mut n = Node::new("n1", NodeKind::Text, 0, 0, 300, 120);
+    n.text = Some("Opening".into());
+    own.nodes.push(n);
+    a.write_board(&talk.id, &own).unwrap();
+    // Another Composition whose Board holds a card for the Talk.
+    let series = a
+        .create(DocType::Composition, "Series", &Map::new(), "")
+        .unwrap()
+        .summary;
+    let mut board = Canvas::default();
+    let mut card = Node::new("c1", NodeKind::File, 0, 0, 300, 120);
+    card.file = Some(talk.path.clone());
+    board.nodes.push(card);
+    a.write_board(&series.id, &board).unwrap();
+
+    // B is paired and up to date, with a Folder of its own it keeps empty.
+    let mut b = open(&root, &tmp.path().join("devB"));
+    assert!(b.read_board(&series.id).unwrap().is_some());
+    fs::create_dir_all(root.join("Notes/Kept")).unwrap();
+
+    // A moves both documents into `A/B/` (as moving them in Finder would),
+    // and the Talk's Board with it.
+    let snapshot = |rel: &str| fs::read_to_string(root.join(rel)).unwrap();
+    let (talk_md, talk_canvas, series_canvas, seed_md) = (
+        snapshot("Compositions/Old/talk.md"),
+        snapshot("Compositions/Old/talk.canvas"),
+        snapshot("Compositions/series.canvas"),
+        snapshot("Notes/Drafts/seed.md"),
+    );
+    fs::create_dir_all(root.join("Compositions/A/B")).unwrap();
+    fs::create_dir_all(root.join("Notes/A/B")).unwrap();
+    for (from, to) in [
+        ("Compositions/Old/talk.md", "Compositions/A/B/talk.md"),
+        (
+            "Compositions/Old/talk.canvas",
+            "Compositions/A/B/talk.canvas",
+        ),
+        ("Notes/Drafts/seed.md", "Notes/A/B/seed.md"),
+    ] {
+        fs::rename(root.join(from), root.join(to)).unwrap();
+    }
+    a.scan().unwrap();
+    assert_eq!(
+        a.get(&talk.id).unwrap().unwrap().path,
+        "Compositions/A/B/talk.md"
+    );
+
+    // The provider has delivered A's snapshots but none of its file moves:
+    // B's disk still looks as it did.
+    fs::remove_dir_all(root.join("Compositions/A")).unwrap();
+    fs::remove_dir_all(root.join("Notes/A")).unwrap();
+    fs::write(root.join("Compositions/Old/talk.md"), talk_md).unwrap();
+    fs::write(root.join("Compositions/Old/talk.canvas"), talk_canvas).unwrap();
+    fs::write(root.join("Compositions/series.canvas"), series_canvas).unwrap();
+    fs::write(root.join("Notes/Drafts/seed.md"), seed_md).unwrap();
+
+    b.apply_remote().unwrap();
+
+    assert_eq!(
+        b.get(&talk.id).unwrap().unwrap().path,
+        "Compositions/A/B/talk.md"
+    );
+    assert_eq!(b.get(&seed.id).unwrap().unwrap().path, "Notes/A/B/seed.md");
+    assert!(root.join("Compositions/A/B/talk.md").exists());
+    assert!(root.join("Notes/A/B/seed.md").exists());
+    assert!(!root.join("Notes/Drafts/seed.md").exists());
+    // The Board came along and opens as before.
+    assert!(root.join("Compositions/A/B/talk.canvas").exists());
+    let moved = b.read_board(&talk.id).unwrap().unwrap();
+    assert_eq!(moved.node("n1").unwrap().text.as_deref(), Some("Opening"));
+    // The other Board's card follows, on disk and in the index.
+    let series_board = b.read_board(&series.id).unwrap().unwrap();
+    assert_eq!(
+        series_board.node("c1").unwrap().file.as_deref(),
+        Some("Compositions/A/B/talk.md")
+    );
+    assert!(fs::read_to_string(root.join("Compositions/series.canvas"))
+        .unwrap()
+        .contains("Compositions/A/B/talk.md"));
+    assert_eq!(boards_referencing(&b, &talk.id).len(), 1);
+    // The Folders the moves emptied are gone; the one B kept empty stays,
+    // and so do the types' own folders.
+    assert!(!root.join("Compositions/Old").exists());
+    assert!(!root.join("Notes/Drafts").exists());
+    assert!(root.join("Notes/Kept").is_dir());
+    assert!(root.join("Notes").is_dir());
+}
+
+/// A Composition renamed on one Device brings its Board along on the other.
+#[test]
+fn a_renamed_composition_arrives_with_its_board() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let comp = a
+        .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+        .unwrap()
+        .summary;
+    let mut own = Canvas::default();
+    own.nodes
+        .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+    a.write_board(&comp.id, &own).unwrap();
+    let mut b = open(&root, &tmp.path().join("devB"));
+
+    let old_md = fs::read_to_string(root.join(&comp.path)).unwrap();
+    let old_board = engine::canvas::board_path(&comp.path);
+    let old_canvas = fs::read_to_string(root.join(&old_board)).unwrap();
+    let renamed = a.rename(&comp.id, "Talk on endurance").unwrap().summary;
+    // The provider has not delivered the rename to B's disk yet.
+    fs::remove_file(root.join(&renamed.path)).unwrap();
+    fs::remove_file(root.join(engine::canvas::board_path(&renamed.path))).unwrap();
+    fs::write(root.join(&comp.path), old_md).unwrap();
+    fs::write(root.join(&old_board), old_canvas).unwrap();
+
+    b.apply_remote().unwrap();
+    assert_eq!(b.get(&comp.id).unwrap().unwrap().path, renamed.path);
+    assert!(root
+        .join(engine::canvas::board_path(&renamed.path))
+        .exists());
+    assert!(!root.join(&old_board).exists());
+    assert_eq!(b.read_board(&comp.id).unwrap().unwrap().nodes.len(), 1);
+    // A rename keeps the folder: `Compositions/` itself is never removed.
+    assert!(root.join("Compositions").is_dir());
+}
+
 #[test]
 fn stale_file_is_replaced_by_newer_snapshot() {
     let tmp = tempfile::tempdir().unwrap();
