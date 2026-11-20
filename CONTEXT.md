@@ -108,8 +108,12 @@ A geographical location in the Bible's world, with a position on the map. May ca
 _Avoid_: Location
 
 **Character**:
-A person in the Bible's world. May carry a Span — their lifespan, as `born` and `died` — and so sit on the Timeline. Is tied to a Place by naming it among their Places, or by an Event that names both; either way that Character is "in" that Place — for their whole life when they name it, for the Event's time when an Event does. Created manually by the user.
+A person in the Bible's world. May carry a Span — their lifespan, as `born` and `died` — and so sit on the Timeline. Is tied to a Place by naming it among their Places, or by an Event that names both; either way that Character is "in" that Place — for their whole life when they name it, for the Event's time when an Event does. Has Kinship with other Characters. Created manually by the user.
 _Avoid_: Person, figure
+
+**Kinship**:
+The family ties between Characters: a father, a mother, and spouses, each named once on one side. A Character's children and siblings are never named; they are read from the other side, so a parent's page lists children whose own pages name the parent, and two Characters sharing a parent are siblings. A Character has at most one father and one mother; a legal or adoptive father is not Kinship.
+_Avoid_: Relationship, family link, genealogy (that is what Kinship adds up to)
 
 **Concept**:
 An idea or theme the user studies across Scripture, such as grace or covenant. Created manually by the user.
