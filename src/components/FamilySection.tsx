@@ -479,7 +479,10 @@ export function FamilySection({
     const v = readField(fm, key);
     return v === undefined ? doc.frontmatter[key] : v;
   };
-  const written = (role: string) => writtenLinks(current(role)).length > 0;
+  // Clear stays offered while either copy names someone: after a failed save
+  // the slot still shows the indexed parent, and Clear retries.
+  const written = (role: string) =>
+    writtenLinks(current(role)).length > 0 || writtenLinks(doc.frontmatter[role]).length > 0;
   // Every write from this section: saved at once, and a failure said with a
   // toast besides the header's mark (the slots follow the index, so they stay
   // as they were).

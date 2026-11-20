@@ -100,7 +100,8 @@ function readScalar(raw: string): string | null | undefined {
     const m = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(v);
     return m ? m[1].replace(/''/g, "'") : undefined;
   }
-  if (/^[[{]/.test(v)) return undefined;
+  // Flow maps and lists, block scalars (`|`, `>`), anchors, aliases and tags.
+  if (/^[[{|>&*!]/.test(v)) return undefined;
   const bare = v.replace(/(^|\s+)#.*$/, "").trim();
   return bare === "" || bare === "~" || bare === "null" ? null : bare;
 }
@@ -169,5 +170,7 @@ export function readField(fm: string, key: string): string | string[] | null | u
     const m = /^\[(.*)\]\s*(?:#.*)?$/.exec(rest);
     return m ? readFlowItems(m[1]) : undefined;
   }
+  // A plain scalar folded over indented lines is not one this reads.
+  if (idx + 1 < lines.length && /^\s+\S/.test(lines[idx + 1])) return undefined;
   return readScalar(rest);
 }

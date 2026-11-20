@@ -101,5 +101,11 @@ describe("readField", () => {
     expect(readField(`---\nfather: [[Isaac]]\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nfather:\n  name: Isaac\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nspouses: [a, {b: c}]\n---\n`, "spouses")).toBeUndefined();
+    expect(readField(`---\nspouses: |\n  Leah\n  Rachel\n---\n`, "spouses")).toBeUndefined();
+    expect(readField(`---\nfather: >-\n  Isaac\n---\n`, "father")).toBeUndefined();
+    expect(readField(`---\nfather: &a "[[Isaac]]"\n---\n`, "father")).toBeUndefined();
+    expect(readField(`---\nfather: *a\n---\n`, "father")).toBeUndefined();
+    expect(readField(`---\nfather: !!str Isaac\n---\n`, "father")).toBeUndefined();
+    expect(readField(`---\nfather: Isaac son\n  of Abraham\n---\n`, "father")).toBeUndefined();
   });
 });
