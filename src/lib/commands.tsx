@@ -10,7 +10,6 @@ import {
   Upload,
   ArrowRight,
   BookOpenText,
-  CalendarRange,
   CircleHelp,
   Code,
   Download,
@@ -22,16 +21,12 @@ import {
   Presentation,
   Dices,
   FilePlus,
-  House,
   LayoutGrid,
   MapPin,
   Network,
   PenLine,
   RefreshCw,
   Search,
-  Settings,
-  LibraryBig,
-  Quote,
   SquareSplitHorizontal,
   AppWindow,
   Waypoints,
@@ -44,6 +39,7 @@ import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
+import { VIEW_KINDS, VIEW_REGISTRY, navCommandId } from "@/lib/views";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
@@ -185,35 +181,13 @@ export function useCommands(): Command[] {
       shortcut: "Mod+Shift+P",
       run: () => s.setDialog({ kind: "search", query: ">" }),
     });
-    const views: {
-      kind:
-        | "home"
-        | "graph"
-        | "library"
-        | "clippings"
-        | "map"
-        | "timeline"
-        | "coverage"
-        | "settings";
-      icon: LucideIcon;
-      title: string;
-    }[] = [
-      { kind: "home", icon: House, title: t.views.home },
-      { kind: "graph", icon: Waypoints, title: t.views.graph },
-      { kind: "library", icon: LibraryBig, title: t.views.library },
-      { kind: "clippings", icon: Quote, title: t.views.clippings },
-      { kind: "map", icon: MapPin, title: t.views.map },
-      { kind: "timeline", icon: CalendarRange, title: t.views.timeline },
-      { kind: "coverage", icon: LayoutGrid, title: t.views.coverage },
-      { kind: "settings", icon: Settings, title: t.views.settings },
-    ];
-    for (const v of views)
+    for (const kind of VIEW_KINDS)
       list.push({
-        id: `nav.${v.kind}`,
-        title: `${t.go_to} ${v.title}`,
+        id: navCommandId(kind),
+        title: `${t.go_to} ${t.views[kind]}`,
         group: "navigate",
-        icon: v.icon,
-        run: () => s.navigate({ kind: v.kind }),
+        icon: VIEW_REGISTRY[kind].icon,
+        run: () => s.navigate({ kind }),
       });
     list.push({
       id: "nav.back",
@@ -512,7 +486,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "create.quick",
     "nav.search",
     "nav.commands",
-    ...["home", "graph", "library", "clippings", "map", "timeline", "coverage", "settings"].map((v) => `nav.${v}`),
+    ...VIEW_KINDS.map(navCommandId),
     "nav.back",
     "nav.forward",
     "pane.open_other",

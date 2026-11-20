@@ -5,6 +5,7 @@
 // localStorage it is handed, so the rules are unit-tested.
 import type { DocType, Lang } from "./api";
 import type { DeviceKind, Method } from "./syncRules";
+import type { ViewKind } from "./views";
 
 export const LANGS: Lang[] = ["en", "fr"];
 
@@ -167,7 +168,7 @@ export function syncTutorialId(method: Method, kind: DeviceKind): string {
 
 /** Where a "?" can stand. The editor and a Hub depend on the page's type. */
 export type TutorialPlace =
-  | { kind: "home" | "library" | "clippings" | "timeline" | "map" | "graph" | "coverage" | "settings" | "board" | "welcome" }
+  | { kind: ViewKind | "board" | "welcome" }
   | { kind: "editor"; type: DocType }
   | { kind: "hub"; type: DocType };
 

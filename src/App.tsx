@@ -104,6 +104,11 @@ function PaneView() {
       return <CoverageView />;
     case "settings":
       return <SettingsView />;
+    default: {
+      // A kind with no case is a type error here, not a blank Pane (spec #145).
+      const missing: never = s.view;
+      return missing;
+    }
   }
 }
 

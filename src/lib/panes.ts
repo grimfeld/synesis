@@ -5,6 +5,7 @@
 // and Back follow. Every transition goes through `panesReducer`, kept free of
 // React so it is tested once (`test:unit`) — the `src/lib/split.ts` precedent.
 import { DEFAULT_RATIO, splitFits } from "./split";
+import { isSimpleKind } from "./views";
 
 /** Which face of a Composition is showing (PLAN §22.2). */
 export type DocTab = "talk" | "split" | "board";
@@ -192,26 +193,12 @@ export function savedLayout(s: PanesState): SavedLayout | null {
   return { views: [s.panes[0].view, s.panes[1].view], lastUsed: s.lastUsed, ratio: s.ratio };
 }
 
-/**
- * The views that are a kind alone. A Record over every other kind, so a new
- * kind of view does not compile until it is listed here or restored below.
- */
-const SIMPLE_KINDS: Record<Exclude<View["kind"], "doc" | "graph">, true> = {
-  home: true,
-  library: true,
-  clippings: true,
-  map: true,
-  coverage: true,
-  timeline: true,
-  settings: true,
-};
-const isSimpleKind = (k: string): k is keyof typeof SIMPLE_KINDS => Object.hasOwn(SIMPLE_KINDS, k);
-
 /** A saved view, or Home when it names a document that is gone; null if it is not a view. */
 function restoreView(raw: unknown, exists: (id: string) => boolean): View | null {
   if (!raw || typeof raw !== "object") return null;
   const v = raw as { kind?: unknown; id?: unknown; focus?: unknown };
   if (typeof v.kind !== "string") return null;
+  // The kinds that are a kind alone come from the view registry (`views.ts`).
   if (isSimpleKind(v.kind)) return { kind: v.kind };
   if (v.kind === "doc" && typeof v.id === "string") return exists(v.id) ? { kind: "doc", id: v.id } : HOME;
   if (v.kind === "graph") return restoreGraph(v.focus, exists);
