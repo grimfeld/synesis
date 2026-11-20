@@ -1,6 +1,7 @@
 //! The demo vault's patriarchs (ADR 0024) and its one Relation: the Family
 //! and Relations sections, their Tutorial and the Cypress walks read Jacob's
-//! family and Elisha's mentor, so every tie must be readable and none reported. Opened on a copy, never the checked-in folder.
+//! family and Elisha's mentor, so every Kinship edge and Relation must be
+//! readable and none reported. Opened on a copy, never the checked-in folder.
 
 use engine::kinship::Relation;
 use engine::query::{Answer, Query};

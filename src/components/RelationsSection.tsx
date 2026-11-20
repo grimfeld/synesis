@@ -1,5 +1,5 @@
 // A Character's Relations on their Hub (CONTEXT.md, Relation; PLAN §32): the
-// ties to other Characters that are not Kinship, each named by the user in a
+// links to other Characters that are not Kinship, each named by the user in a
 // link Property of their own word (`mentor: "[[Elijah]]"`). Shown both ways,
 // "mentor: Elijah" on Elisha and "mentor of: Elisha" on Elijah. Read-only:
 // a Relation is an ordinary Property, edited in Properties.

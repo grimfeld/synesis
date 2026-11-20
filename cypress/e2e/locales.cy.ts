@@ -420,7 +420,12 @@ describe("Locale layout", () => {
         });
         cy.openApp();
         cy.openDoc("Elisha", { exact: true });
-        cy.get("[data-testid=hub-relation]").should("have.length", 2);
+        // The vault copy lives for the whole spec, so the run in the other
+        // language left its Gehazi too: count at least, not exactly.
+        cy.get("[data-testid=hub-relation][data-direction=in][data-property=attendant_in_the_house_of]")
+          .should("have.length.at.least", 1)
+          .and("contain", "Gehazi, the servant of Elisha the man of God");
+        cy.get("[data-testid=hub-relation][data-direction=out][data-property=mentor]").should("have.length", 1);
         expectNoOverflow();
       });
 
