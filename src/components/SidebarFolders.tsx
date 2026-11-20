@@ -12,6 +12,7 @@ import {
   folderNameProblem,
   folderOf,
   leaf,
+  parentOf,
   folderTree,
   foldersHolding,
   loadOpenFolders,
@@ -74,29 +75,24 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
   const [naming, setNaming] = useState<{ type: FolderType; parent: string; renaming?: string } | null>(null);
   const [moving, setMoving] = useState<{ type: FolderType; folder: string } | null>(null);
   const moveDocument = useMoveDocument();
-  /** A Folder moved or renamed: its documents moved with it, so the lists are re-read. */
-  const folderMoved = async () => {
+  const moveFolder = useMoveFolder();
+  /**
+   * A Folder moved or renamed: its documents moved with it, so the lists are
+   * re-read, and focus goes to the Folder at its new place (the row that
+   * opened the dialog was replaced, so it would otherwise fall to the page).
+   */
+  const folderMoved = async (key: string) => {
     setVersion((v) => v + 1);
     await s.refresh();
+    focusFolder(key);
   };
 
   const act = (a: FolderAct) => {
     if (a.kind === "new-folder") setNaming({ type: a.type, parent: a.parent });
     else if (a.kind === "rename") {
-      const parent = a.folder.includes("/") ? a.folder.slice(0, a.folder.lastIndexOf("/")) : "";
-      setNaming({ type: a.type, parent, renaming: a.folder });
+      setNaming({ type: a.type, parent: parentOf(a.folder), renaming: a.folder });
     } else if (a.kind === "move-folder") setMoving({ type: a.type, folder: a.folder });
-    else if (a.kind === "move-folder-to")
-      api
-        .listFolders(a.type)
-        .then((all) => {
-          const name = leaf(a.folder);
-          const clash = childNames(all, a.into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
-          if (clash) throw new Error(t.folders.taken(clash));
-          return api.moveFolder(a.type, a.folder, a.into);
-        })
-        .then(folderMoved)
-        .catch((e) => toast.error(e instanceof Error ? e.message : String(e)));
+    else if (a.kind === "move-folder-to") void moveFolder(a.type, a.folder, a.into).then((key) => { if (key) void folderMoved(key); });
     else if (a.kind === "new-here") s.setDialog({ kind: "new", type: a.type, folder: a.folder });
     else if (a.kind === "move") {
       const doc = s.docsById.get(a.id);
@@ -121,7 +117,7 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
     if (problem) return problem;
     if (naming.renaming) {
       await api.renameFolder(naming.type, naming.renaming, name);
-      await folderMoved();
+      await folderMoved(naming.parent ? `${naming.parent}/${name}` : name);
     } else {
       await api.createFolder(naming.type, naming.parent, name);
       setVersion((v) => v + 1);
@@ -151,7 +147,7 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
         )}
         {moving && (
           <FolderPicker
-            folder={{ type: moving.type, key: moving.folder, onMoved: () => void folderMoved() }}
+            folder={{ type: moving.type, key: moving.folder, onMoved: (key) => void folderMoved(key) }}
             onClose={() => setMoving(null)}
           />
         )}
@@ -188,6 +184,45 @@ export function useMoveDocument() {
       return false;
     }
   };
+}
+
+/**
+ * Move a Folder into another Folder of its type (`""` for the top), the one
+ * way the picker and a drop both take: a sibling with the same name is said in
+ * the app's language first; the engine checks again. Resolves with the
+ * Folder's new key, or null when it did not move.
+ */
+export function useMoveFolder() {
+  const t = useT();
+  return async (type: FolderType, folder: string, into: string): Promise<string | null> => {
+    const name = leaf(folder);
+    try {
+      const clash = childNames(await api.listFolders(type), into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
+      if (clash) {
+        toast.error(t.folders.taken(clash));
+        return null;
+      }
+      await api.moveFolder(type, folder, into);
+      return into ? `${into}/${name}` : name;
+    } catch (e) {
+      toast.error(String(e));
+      return null;
+    }
+  };
+}
+
+/**
+ * Focus a Folder's row once the tree shows it (it may take a refresh), or,
+ * when it went into a folded Folder, the nearest row above it that shows.
+ */
+function focusFolder(key: string, tries = 20) {
+  requestAnimationFrame(() => {
+    const rowOf = (k: string) => document.querySelector<HTMLElement>(`[data-folder="${CSS.escape(k)}"] > [data-testid=folder-row]`);
+    let row = rowOf(key);
+    if (!row && tries === 0) for (let k = parentOf(key); k && !row; k = parentOf(k)) row = rowOf(k);
+    if (row) row.focus();
+    else if (tries > 0) focusFolder(key, tries - 1);
+  });
 }
 
 export function useFolderAct() {
@@ -382,8 +417,7 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
         setDragging(null);
         e.preventDefault();
         e.stopPropagation();
-        const parent = moved.includes("/") ? moved.slice(0, moved.lastIndexOf("/")) : "";
-        if (parent !== key) act({ kind: "move-folder-to", type, folder: moved, into: key });
+        if (parentOf(moved) !== key) act({ kind: "move-folder-to", type, folder: moved, into: key });
         return;
       }
       const id = e.dataTransfer.getData(mime);
@@ -548,7 +582,8 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
+            {/* Rename and Move open a dialog that takes focus; the menu must not take it back. */}
+            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
               <DropdownMenuItem data-testid="folder-menu-new-here" onSelect={() => act({ kind: "new-here", type, folder: folder.key })}>
                 {t.folders.new_here[type]}
               </DropdownMenuItem>

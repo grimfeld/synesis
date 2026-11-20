@@ -237,9 +237,11 @@ describe("Renaming and moving Folders", () => {
   it("renames a Folder, keeping its documents and their titles", () => {
     cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
     cy.get("[data-testid=folder-menu-rename]").click();
-    cy.get("[data-testid=folder-name-input]").should("have.value", "Sermons");
+    cy.get("[data-testid=folder-name-input]").should("have.value", "Sermons").and("have.focus");
     nameIt("Talks given");
     cy.get(row("Talks given")).should("exist");
+    // The row that opened the dialog was replaced; focus goes to the renamed one.
+    cy.get(row("Talks given")).should("have.focus");
     cy.get(row("Sermons")).should("not.exist");
     cy.docByTitle("Week 2").its("path").should("equal", "Notes/Talks given/2026/week 2.md");
     cy.task("file:exists", vaultDir("Notes/Sermons")).should("equal", false);
@@ -260,11 +262,14 @@ describe("Renaming and moving Folders", () => {
     cy.reload();
     cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
     cy.get("[data-testid=folder-menu-move]").click();
+    cy.get("[data-testid=folder-picker-find]").should("have.focus");
     // Neither the Folder nor its own Folders are offered.
     cy.get("[data-testid=folder-pick][data-folder='Sermons']").should("not.exist");
     cy.get("[data-testid=folder-pick][data-folder='Sermons/2026']").should("not.exist");
     cy.get("[data-testid=folder-pick][data-folder='Archive']").click();
     cy.docByTitle("Week 10").its("path").should("equal", "Notes/Archive/Sermons/2026/week 10.md");
+    // Archive is folded, so focus goes to it rather than to the page.
+    cy.get(row("Archive")).should("have.focus");
   });
 
   it("moves a Folder by dragging it onto another, and back onto the group", () => {

@@ -6,8 +6,8 @@ import { toast } from "sonner";
 import { Folder, FolderRoot } from "lucide-react";
 import { cn } from "cn";
 import { api } from "@/lib/api";
-import { childNames, folderOf, leaf, naturalCompare } from "@/lib/folders";
-import { useMoveDocument, type FolderType } from "@/components/SidebarFolders";
+import { folderOf, leaf, naturalCompare, parentOf } from "@/lib/folders";
+import { useMoveDocument, useMoveFolder, type FolderType } from "@/components/SidebarFolders";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
@@ -18,7 +18,8 @@ import { PickerShell, TOUCH_TARGET, TOUCH_TARGET_INPUT } from "@/components/Pick
 export interface MovingFolder {
   type: FolderType;
   key: string;
-  onMoved: () => void;
+  /** Called with the Folder's new key. */
+  onMoved: (key: string) => void;
 }
 
 /**
@@ -34,6 +35,7 @@ export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: Mo
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
   const moveDocument = useMoveDocument();
+  const moveFolderTo = useMoveFolder();
   const { data } = useQuery<string[]>({
     key: ["folder-picker", type],
     deps: { none: true },
@@ -41,7 +43,7 @@ export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: Mo
     enabled: !!type,
   });
   const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "composition" ? "Compositions" : "Notes");
-  const here = folder ? (folder.key.includes("/") ? folder.key.slice(0, folder.key.lastIndexOf("/")) : "") : doc ? folderOf(doc.path, top) : null;
+  const here = folder ? parentOf(folder.key) : doc ? folderOf(doc.path, top) : null;
   const options = useMemo(() => {
     const f = filter.trim().toLocaleLowerCase();
     const inside = (k: string) => !!folder && (k === folder.key || k.startsWith(`${folder.key}/`));
@@ -57,23 +59,13 @@ export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: Mo
     onClose();
   }, [unmovable, doc, onClose, t]);
   if (!type || (!folder && !doc)) return null;
+  // French agrees with what moves: a note or a composition (elle), a folder (il).
+  const hereLabel = folder ? t.folders.move_here_folder : t.folders.move_here;
   const label = (key: string) => (key ? leaf(key) : t.types_plural[type]);
   const moveFolder = async (f: MovingFolder, into: string) => {
-    // Said in the app's language first; the engine checks again.
-    const name = leaf(f.key);
-    const clash = childNames(data ?? [], into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
-    if (clash) {
-      toast.error(t.folders.taken(clash));
-      return false;
-    }
-    try {
-      await api.moveFolder(f.type, f.key, into);
-      f.onMoved();
-      return true;
-    } catch (e) {
-      toast.error(String(e));
-      return false;
-    }
+    const key = await moveFolderTo(f.type, f.key, into);
+    if (key) f.onMoved(key);
+    return !!key;
   };
   const move = async (into: string) => {
     setBusy(true);
@@ -114,7 +106,7 @@ export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: Mo
                 data-folder={key}
                 aria-disabled={isHere || busy || undefined}
                 aria-current={isHere || undefined}
-                aria-label={key ? `${key.split("/").join(" / ")}${isHere ? ` (${t.folders.move_here})` : ""}` : undefined}
+                aria-label={key ? `${key.split("/").join(" / ")}${isHere ? ` (${hereLabel})` : ""}` : undefined}
                 title={key ? `${top}/${key}` : top}
                 onClick={() => !isHere && !busy && move(key)}
                 className={cn(
@@ -125,7 +117,7 @@ export function FolderPicker({ id, folder, onClose }: { id?: string; folder?: Mo
               >
                 {key ? <Folder className="size-4 shrink-0 text-muted-foreground" /> : <FolderRoot className="size-4 shrink-0 text-muted-foreground" />}
                 <span className="min-w-0 flex-1 break-words">{label(key)}</span>
-                {isHere && <span className="shrink-0 text-xs text-muted-foreground">{t.folders.move_here}</span>}
+                {isHere && <span className="shrink-0 text-xs text-muted-foreground">{hereLabel}</span>}
               </button>
             </li>
           );

@@ -1335,7 +1335,13 @@ impl Vault {
             })
             .collect();
         fs::rename(&from_abs, &to_abs)?;
-        self.relocate_all(&moves, false, Origin::Here)?;
+        // The files have moved, Boards beside their Compositions with them;
+        // from here every step runs for every document even if one fails,
+        // so an error never leaves the index half moved.
+        for (_, from, _) in &moves {
+            self.index.remove_path(from)?;
+        }
+        self.reindex_moved(&moves, false)?;
         Ok(to_path)
     }
 
@@ -1892,20 +1898,46 @@ impl Vault {
                 self.relocate_files(id, from, to, origin)?;
             }
         }
-        let mut out = Vec::with_capacity(moves.len());
-        for (_, _, to) in moves {
-            let summary = self.index_file_as(to, own_write)?;
-            if summary
-                .as_ref()
-                .is_some_and(|d| d.doc_type == DocType::Place)
-            {
-                self.note_border_names()?;
+        self.reindex_moved(moves, own_write)
+    }
+
+    /// The index half of [`Vault::relocate_all`], for documents whose files
+    /// are already at `to` and whose `from` has left the index. Every step
+    /// runs for every document; the first error is returned at the end, so
+    /// one unreadable Board never leaves the others unindexed.
+    fn reindex_moved(
+        &mut self,
+        moves: &[(String, String, String)],
+        own_write: bool,
+    ) -> Result<Vec<Option<DocSummary>>> {
+        let mut first_err = None;
+        let mut keep = |r: Result<()>| {
+            if let Err(e) = r {
+                first_err.get_or_insert(e);
             }
-            out.push(summary);
+        };
+        let mut out = Vec::with_capacity(moves.len());
+        let mut places = false;
+        for (_, _, to) in moves {
+            match self.index_file_as(to, own_write) {
+                Ok(summary) => {
+                    places |= summary
+                        .as_ref()
+                        .is_some_and(|d| d.doc_type == DocType::Place);
+                    out.push(summary);
+                }
+                Err(e) => {
+                    keep(Err(e));
+                    out.push(None);
+                }
+            }
+        }
+        if places {
+            keep(self.note_border_names());
         }
         for (id, from, to) in moves {
             if from != to {
-                self.rewrite_boards(id, from, to)?;
+                keep(self.rewrite_boards(id, from, to));
             }
         }
         // Indexing a document anew forgets what its own Board holds; reading
@@ -1916,10 +1948,13 @@ impl Vault {
                     .as_ref()
                     .is_some_and(|d| d.doc_type == DocType::Composition)
             {
-                let _ = self.read_board(id)?;
+                keep(self.read_board(id).map(|_| ()));
             }
         }
-        Ok(out)
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
     }
 
     /// The file half of a relocation: the `.md` and a Composition's Board
@@ -3782,6 +3817,35 @@ Antioch is where they met.
             v.get(&week.id).unwrap().unwrap().path,
             "Notes/TALKS/2026/week 2.md"
         );
+    }
+
+    #[test]
+    fn a_folder_holding_a_document_that_takes_no_id_still_moves_whole() {
+        // Frontmatter that is not a mapping cannot take an `id` line, so the
+        // document's id comes from its path and the moved file does not say
+        // it: the move must not take that for another document's file.
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Odd")).unwrap();
+        fs::write(dir.path().join("Notes/Odd/list.md"), "---\n- a\n- b\n---\nBody.\n").unwrap();
+        fs::write(dir.path().join("Notes/Odd/plain.md"), "Plain.\n").unwrap();
+        fs::create_dir_all(dir.path().join("Notes/Elsewhere")).unwrap();
+        v.scan().unwrap();
+        let count = v.list(None).unwrap().len();
+
+        assert_eq!(
+            v.move_folder(DocType::Note, "Odd", "Elsewhere").unwrap(),
+            "Elsewhere/Odd"
+        );
+        assert!(v.get_by_path("Notes/Elsewhere/Odd/list.md").unwrap().is_some());
+        assert!(v.get_by_path("Notes/Elsewhere/Odd/plain.md").unwrap().is_some());
+        assert!(v.get_by_path("Notes/Odd/list.md").unwrap().is_none());
+        assert_eq!(v.list(None).unwrap().len(), count);
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Elsewhere/Odd", "Even").unwrap(),
+            "Elsewhere/Even"
+        );
+        assert!(v.get_by_path("Notes/Elsewhere/Even/list.md").unwrap().is_some());
+        assert_eq!(v.list(None).unwrap().len(), count);
     }
 
     #[test]
