@@ -3,9 +3,15 @@
 // outdates the Tutorial fails here (PLAN §25.13).
 const row = (key: string) => `[data-testid=folder-tree-note] [data-testid=folder][data-folder="${key}"] > [data-testid=folder-row]`;
 
+const clearOpenFolders = () =>
+  cy.window().then((w) => {
+    for (const k of Object.keys(w.localStorage)) if (k.startsWith("synesis.sidebar.folders")) w.localStorage.removeItem(k);
+  });
+
 describe("Tutorial: Folders", () => {
   beforeEach(() => {
-    cy.window().then((w) => w.localStorage.removeItem("synesis.sidebar.folders"));
+    cy.openApp();
+    clearOpenFolders();
     cy.openApp();
   });
 
@@ -37,6 +43,8 @@ describe("Tutorial: Folders", () => {
     cy.get("[data-testid=doc-title]").should("have.value", "Week 10");
     cy.get(row("Sermons")).should("have.attr", "aria-expanded", "true");
     cy.get(row("Sermons/2026")).should("have.attr", "aria-expanded", "true");
+    cy.get(row("Sermons/2026")).click().should("have.attr", "aria-expanded", "false");
+    cy.get(row("Sermons/2026")).click().should("have.attr", "aria-expanded", "true");
     cy.tutorialDone();
   });
 });

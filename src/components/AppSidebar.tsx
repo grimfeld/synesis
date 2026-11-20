@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   BookOpenText,
   CalendarRange,
@@ -268,6 +268,7 @@ function DocumentsTab() {
                   <TutorialButton
                     place={{ kind: "sidebar" }}
                     testId={`sidebar-tutorial-${type}`}
+                    label={`${t.tutorials.open} · ${t.types_plural[type]}`}
                     className="absolute top-2 right-9 size-6 text-sidebar-foreground/70 [&_svg]:size-3.5"
                   />
                 )}
@@ -422,29 +423,36 @@ function FolderTreeView({
   });
   const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "note" ? "Notes" : "Compositions");
   const tree = useMemo(() => folderTree(top, data ?? [], docs), [top, data, docs]);
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => loadOpenFolders());
+  // Remembered on this Device, per Vault and per type.
+  const vault = s.info?.meta.id ?? s.info?.root ?? "";
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => loadOpenFolders(vault, type));
+  useEffect(() => setOpen(loadOpenFolders(vault, type)), [vault, type]);
   const toggle = (key: string) =>
     setOpen((o) => {
       const n = new Set(o);
-      const k = `${type}:${key}`;
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
-      saveOpenFolders(n);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      saveOpenFolders(vault, type, n);
       return n;
     });
-  // Unfold the way to the open document, so its row is in sight. Only adds,
-  // and is remembered like a fold the reader made.
+  // Unfold the way to a document when it is opened, so its row is in sight.
+  // Once per opening: the tree is rebuilt on every save, and a Folder the
+  // reader folds afterwards stays folded. Only adds, and is remembered like
+  // a fold the reader made.
+  const unfoldedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!activeId) return;
-    const want = foldersHolding(tree, activeId).map((k) => `${type}:${k}`);
+    if (!activeId || unfoldedFor.current === activeId) return;
+    if (!docs.some((d) => d.id === activeId)) return;
+    unfoldedFor.current = activeId;
+    const want = foldersHolding(tree, activeId);
     if (!want.length) return;
     setOpen((o) => {
       if (want.every((k) => o.has(k))) return o;
       const n = new Set([...o, ...want]);
-      saveOpenFolders(n);
+      saveOpenFolders(vault, type, n);
       return n;
     });
-  }, [activeId, tree, type]);
+  }, [activeId, tree, type, docs, vault]);
   return (
     <SidebarMenu data-testid={`folder-tree-${type}`}>
       <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
@@ -470,10 +478,11 @@ function FolderLevel({
   activeId: string | null;
 }) {
   const s = useStore();
+  const t = useT();
   return (
     <>
       {folders.map((f) => {
-        const isOpen = open.has(`${type}:${f.key}`);
+        const isOpen = open.has(f.key);
         const Icon = isOpen ? FolderOpen : Folder;
         return (
           <SidebarMenuItem key={f.key} className="min-w-0" data-testid="folder" data-folder={f.key}>
@@ -490,9 +499,12 @@ function FolderLevel({
                 className={cn("size-3.5 shrink-0 text-muted-foreground transition-transform", isOpen && "rotate-90")}
               />
               <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 truncate">{f.key.startsWith("/") ? `/${f.name}` : f.name}</span>
+              <span className="min-w-0 truncate">{f.outside ? `/${f.name}` : f.name}</span>
+              <span className="sr-only">{t.documents(f.count)}</span>
             </SidebarMenuButton>
-            <SidebarMenuBadge data-testid="folder-count">{f.count}</SidebarMenuBadge>
+            <SidebarMenuBadge data-testid="folder-count" aria-hidden>
+              {f.count}
+            </SidebarMenuBadge>
             {isOpen && (
               <ul className="flex min-w-0 flex-col gap-0.5 pt-0.5">
                 <FolderLevel

@@ -36,6 +36,13 @@ function deferred<T>() {
 }
 
 describe("matches", () => {
+  it("wakes every query but `none` when a Folder changed outside the app", () => {
+    // An empty Folder made in Finder changes no document (PLAN §31).
+    const folders = { changed: [], removed: [], folders: ["Notes/Kept"] };
+    expect(matches({ types: ["note"] }, folders)).toBe(true);
+    expect(matches({ none: true }, folders)).toBe(false);
+  });
+
   it("wakes a type query only for its own types", () => {
     const deps: QueryDeps = { types: ["source"] };
     expect(matches(deps, change([doc("a", "source")]))).toBe(true);

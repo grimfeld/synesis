@@ -34,11 +34,13 @@ describe("folderTree", () => {
 
   it("places a document outside the type's folder under its real path, after the type's own Folders", () => {
     const t = folderTree("Notes", ["Zeta"], [doc("loose.md"), doc("Study/deep/x.md"), doc("Notes/n.md")]);
-    expect(t.docs.map((d) => d.path)).toEqual(["loose.md", "Notes/n.md"]);
-    expect(t.folders.map((f) => f.key)).toEqual(["Zeta", "/Study"]);
-    const study = t.folders[1];
+    expect(t.docs.map((d) => d.path)).toEqual(["Notes/n.md"]);
+    expect(t.folders.map((f) => f.key)).toEqual(["Zeta", "/", "/Study"]);
+    expect(t.folders.map((f) => f.outside)).toEqual([false, true, true]);
+    expect(t.folders[1].docs.map((d) => d.path)).toEqual(["loose.md"]);
+    const study = t.folders[2];
     expect(study).toMatchObject({ name: "Study", path: "Study", count: 1 });
-    expect(study.folders[0]).toMatchObject({ key: "/Study/deep", path: "Study/deep" });
+    expect(study.folders[0]).toMatchObject({ key: "/Study/deep", path: "Study/deep", outside: false });
   });
 
   it("keeps a Folder named like an outside one apart from it", () => {
@@ -63,11 +65,16 @@ describe("open Folders", () => {
   it("round-trips through storage and survives junk", () => {
     const store = new Map<string, string>();
     const s = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) };
-    saveOpenFolders(new Set(["note:Sermons", "composition:Talks"]), s);
-    expect([...loadOpenFolders(s)].sort()).toEqual(["composition:Talks", "note:Sermons"]);
-    store.set("synesis.sidebar.folders", "{not json");
-    expect(loadOpenFolders(s).size).toBe(0);
-    store.set("synesis.sidebar.folders", JSON.stringify({ a: 1 }));
-    expect(loadOpenFolders(s).size).toBe(0);
+    saveOpenFolders("v1", "note", new Set(["Sermons", "Sermons/2026"]), s);
+    // The other type saving afterwards leaves Notes' entry alone.
+    saveOpenFolders("v1", "composition", new Set(["Talks"]), s);
+    expect([...loadOpenFolders("v1", "note", s)].sort()).toEqual(["Sermons", "Sermons/2026"]);
+    expect([...loadOpenFolders("v1", "composition", s)]).toEqual(["Talks"]);
+    // Another Vault keeps its own.
+    expect(loadOpenFolders("v2", "note", s).size).toBe(0);
+    store.set("synesis.sidebar.folders:v1:note", "{not json");
+    expect(loadOpenFolders("v1", "note", s).size).toBe(0);
+    store.set("synesis.sidebar.folders:v1:note", JSON.stringify({ a: 1 }));
+    expect(loadOpenFolders("v1", "note", s).size).toBe(0);
   });
 });

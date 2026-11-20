@@ -4,9 +4,15 @@
 const folder = (key: string) => `[data-testid=folder-tree-note] [data-testid=folder][data-folder="${key}"]`;
 const row = (key: string) => `${folder(key)} > [data-testid=folder-row]`;
 
+const clearOpenFolders = () =>
+  cy.window().then((w) => {
+    for (const k of Object.keys(w.localStorage)) if (k.startsWith("synesis.sidebar.folders")) w.localStorage.removeItem(k);
+  });
+
 describe("Sidebar Folders", () => {
   beforeEach(() => {
-    cy.window().then((w) => w.localStorage.removeItem("synesis.sidebar.folders"));
+    cy.openApp();
+    clearOpenFolders();
     cy.openApp();
   });
 
@@ -36,6 +42,25 @@ describe("Sidebar Folders", () => {
     cy.get(`${folder("Sermons/2026")} [data-testid=doc-item][data-active=true]`).should("contain", "Week 2");
     cy.openApp();
     cy.get(row("Sermons/2026")).should("have.attr", "aria-expanded", "true");
+  });
+
+  it("remembers open Folders in both groups", () => {
+    cy.task("dir:make", `${Cypress.env("vault")}/Compositions/Talks`);
+    cy.reload();
+    cy.get(row("Sermons")).click();
+    cy.get('[data-testid=folder-tree-composition] [data-folder="Talks"] > [data-testid=folder-row]').click();
+    cy.openApp();
+    cy.get(row("Sermons")).should("have.attr", "aria-expanded", "true");
+    cy.get('[data-testid=folder-tree-composition] [data-folder="Talks"] > [data-testid=folder-row]').should("have.attr", "aria-expanded", "true");
+  });
+
+  it("leaves a Folder the reader folded folded while the open document is saved", () => {
+    cy.openDoc("Week 2");
+    cy.get(row("Sermons")).should("have.attr", "aria-expanded", "true").click();
+    cy.get(".cm-content").first().click().type(" More.");
+    // The save refreshes the document list; the fold stays.
+    cy.wait(1500);
+    cy.get(row("Sermons")).should("have.attr", "aria-expanded", "false");
   });
 
   it("shows a Folder made outside the app, and one holding nothing", () => {

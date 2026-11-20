@@ -28,12 +28,44 @@ pub struct ChangedPayload {
     pub folders: Vec<String>,
 }
 
-/// Whether `rel` names a Folder: a path with no extension under a type that
-/// has Folders. A Folder whose name has a dot in it is still caught by the
-/// `is_dir` check of an existing one; a deleted one is caught here.
-fn is_folder_event(rel: &str, p: &std::path::Path) -> bool {
+/// What a path under `Notes/` or `Compositions/` is to the Folder tree.
+#[derive(Debug, PartialEq, Eq)]
+enum FolderEvent {
+    /// Not a Folder: a document, a Board, or this app's own temporary file.
+    No,
+    /// A Folder that exists, or a gone path with no extension: a Folder for sure.
+    Folder,
+    /// A gone path with an extension that is no document's (`Acts 2.1`): a
+    /// Folder only if documents were indexed under it.
+    Maybe,
+}
+
+/// Classify a watcher event's path, from its name and whether it is there.
+/// The engine writes every file through a `<name>.md.tmp-<ulid>` it renames
+/// away (`write_atomic`), so a gone path holding `.tmp-` is never a Folder:
+/// otherwise every save would be announced as one.
+fn folder_event(rel: &str, is_dir: bool, exists: bool) -> FolderEvent {
     let under = rel.starts_with("Notes/") || rel.starts_with("Compositions/");
-    under && (p.is_dir() || (!p.exists() && p.extension().is_none()))
+    let name = rel.rsplit('/').next().unwrap_or_default();
+    if !under || name.starts_with('.') || name.contains(".tmp-") {
+        return FolderEvent::No;
+    }
+    if is_dir {
+        return FolderEvent::Folder;
+    }
+    if exists {
+        return FolderEvent::No;
+    }
+    match std::path::Path::new(name)
+        .extension()
+        .and_then(|x| x.to_str())
+    {
+        None => FolderEvent::Folder,
+        Some(ext) if ext == "md" || ext == "canvas" || ext == engine::border::EXT => {
+            FolderEvent::No
+        }
+        Some(_) => FolderEvent::Maybe,
+    }
 }
 
 impl Watcher {
@@ -84,18 +116,23 @@ impl Watcher {
                     // A Folder made, renamed or removed in Finder or Obsidian:
                     // its own event is often all there is, so the documents
                     // under it are found again, each keeping its id.
-                    if is_folder_event(&rel, &p) {
+                    let kind = folder_event(&rel, p.is_dir(), p.exists());
+                    if kind != FolderEvent::No {
                         if rel.split('/').any(|seg| seg.starts_with('.'))
                             || engine::vault_path::is_link(&p)
                             || !seen.insert(rel.clone())
                         {
                             continue;
                         }
+                        let mut forgot = false;
                         if let Ok((c, r)) = vault.folder_changed(&rel) {
+                            forgot = !r.is_empty();
                             changed.extend(c);
                             removed.extend(r);
                         }
-                        folders.push(rel);
+                        if kind == FolderEvent::Folder || forgot {
+                            folders.push(rel);
+                        }
                         continue;
                     }
                     let ext = p.extension().and_then(|x| x.to_str()).unwrap_or_default();
@@ -177,5 +214,58 @@ impl Watcher {
         Ok(Watcher {
             _debouncer: debouncer,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{folder_event, FolderEvent};
+
+    #[test]
+    fn a_save_is_not_a_folder_event() {
+        // `write_atomic`'s temporary file, gone by the time the event lands.
+        assert_eq!(
+            folder_event("Notes/week 2.md.tmp-01JABC", false, false),
+            FolderEvent::No
+        );
+        assert_eq!(
+            folder_event("Notes/week 2.md", false, false),
+            FolderEvent::No
+        );
+        assert_eq!(
+            folder_event("Notes/week 2.md", false, true),
+            FolderEvent::No
+        );
+        assert_eq!(
+            folder_event("Compositions/talk.canvas", false, false),
+            FolderEvent::No
+        );
+    }
+
+    #[test]
+    fn folders_made_or_gone_are_folder_events() {
+        assert_eq!(
+            folder_event("Notes/Sermons", true, true),
+            FolderEvent::Folder
+        );
+        assert_eq!(
+            folder_event("Notes/Sermons", false, false),
+            FolderEvent::Folder
+        );
+        assert_eq!(
+            folder_event("Notes/Acts 2.1", true, true),
+            FolderEvent::Folder
+        );
+        assert_eq!(
+            folder_event("Notes/Acts 2.1", false, false),
+            FolderEvent::Maybe
+        );
+    }
+
+    #[test]
+    fn only_notes_and_compositions_have_folders() {
+        assert_eq!(folder_event("Sources/Books", true, true), FolderEvent::No);
+        assert_eq!(folder_event("Notes/.hidden", true, true), FolderEvent::No);
+        assert_eq!(folder_event("Notes", true, true), FolderEvent::No);
     }
 }
