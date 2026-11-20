@@ -10,7 +10,7 @@ describe("Family section", () => {
   beforeEach(() => cy.openApp());
 
   it("shows Jacob's father, mother, spouses, children by mother, and siblings", () => {
-    cy.openDoc("Jacob");
+    cy.openDoc("Jacob", { exact: true });
     cy.get("[data-testid=hub-family]").should("be.visible");
     kin("father").should("have.length", 1).and("contain", "Isaac");
     kin("mother").should("have.length", 1).and("contain", "Rebekah");
@@ -42,7 +42,7 @@ describe("Family section", () => {
     cy.docByTitle("Isaac").then((isaac) =>
       cy.bridge<{ text: string }>("get_document", { id: isaac.id }).then(({ text: before }) => {
         expect(before).not.to.contain("Jacob");
-        cy.openDoc("Isaac");
+        cy.openDoc("Isaac", { exact: true });
         kin("children").should("contain", "Jacob").and("contain", "Esau");
         cy.get("[data-testid=family-children] [data-testid=family-child-group-heading]").should(
           "contain",
@@ -58,7 +58,7 @@ describe("Family section", () => {
   });
 
   it("lists Jacob as Leah's spouse although only Jacob names her", () => {
-    cy.openDoc("Leah");
+    cy.openDoc("Leah", { exact: true });
     kin("spouses").should("have.length", 1).and("contain", "Jacob");
     // Her children stand under the father each names.
     cy.get("[data-testid=family-children] [data-testid=family-child-group-heading]").should("contain", "With Jacob");
@@ -88,7 +88,7 @@ describe("Family section", () => {
     cy.bridge("create_document", { docType: "character", title: "Enoch", fields: { father: "[[Cain]]" }, body: "" });
     cy.openApp();
 
-    cy.openDoc("Nahor");
+    cy.openDoc("Nahor", { exact: true });
     cy.get("[data-testid=family-warning][data-kind=not_a_character]")
       .should("contain", "Father")
       .and("contain", "Jerusalem");
@@ -96,7 +96,7 @@ describe("Family section", () => {
 
     cy.docByTitle("Lot").then((lot) =>
       cy.bridge<{ text: string }>("get_document", { id: lot.id }).then(({ text: before }) => {
-        cy.openDoc("Lot");
+        cy.openDoc("Lot", { exact: true });
         cy.get("[data-testid=family-warning][data-kind=two_values]")
           .should("contain", "Abraham")
           .and("contain", "Nahor");
@@ -106,7 +106,7 @@ describe("Family section", () => {
       }),
     );
 
-    cy.openDoc("Cain");
+    cy.openDoc("Cain", { exact: true });
     cy.get("[data-testid=family-warning][data-kind=cycle]").should("contain", "Cain → Enoch → Cain");
     cy.get("[data-testid=family-father] [data-testid=family-empty]").should("exist");
   });
@@ -126,7 +126,7 @@ describe("Editing Kinship", () => {
   beforeEach(() => cy.openApp());
 
   it("sets a Father with the picker, found by an Alias, and hides the Kinship Property rows", () => {
-    cy.openDoc("Paul");
+    cy.openDoc("Paul", { exact: true });
     cy.get("[data-testid=family-father] [data-testid=family-empty]").should("exist");
     cy.get("[data-testid=family-father-choose]").click();
     cy.get("[data-testid=family-picker]").should("be.visible");
@@ -137,7 +137,7 @@ describe("Editing Kinship", () => {
     characterFile("Paul").should("match", /^father: "\[\[Abraham\]\]"$/m);
     // Kinship is edited here, never as raw rows: not on Paul's Hub, nor on Jacob's, who has all three.
     cy.get("[data-testid=hub-properties] [data-testid=property-father]").should("not.exist");
-    cy.openDoc("Jacob");
+    cy.openDoc("Jacob", { exact: true });
     kin("spouses").should("have.length", 4);
     cy.get("[data-testid=hub-properties]").should("exist");
     for (const p of ["father", "mother", "spouses"])
@@ -145,7 +145,7 @@ describe("Editing Kinship", () => {
   });
 
   it("creates a Character from the picker and sets the link", () => {
-    cy.openDoc("Paul");
+    cy.openDoc("Paul", { exact: true });
     cy.get("[data-testid=family-mother-choose]").click();
     cy.get("[data-testid=family-picker-input]").type("Eunice");
     cy.get("[data-testid=picker-create]").should("contain", "Create Character “Eunice”").click();
@@ -157,7 +157,7 @@ describe("Editing Kinship", () => {
 
   it("clears a Father and removes a Spouse, from that Character's file only", () => {
     characterFile("Isaac").then((isaacBefore) => {
-      cy.openDoc("Jacob");
+      cy.openDoc("Jacob", { exact: true });
       cy.get("[data-testid=family-father-clear]").click();
       cy.get("[data-testid=family-father] [data-testid=family-empty]").should("exist");
       characterFile("Jacob").should("not.match", /^father:/m).and("match", /^mother: "\[\[Rebekah\]\]"$/m);
@@ -172,13 +172,13 @@ describe("Editing Kinship", () => {
     kin("spouses").should("have.length", 3).and("not.contain", "Leah");
     characterFile("Jacob").should("match", /^spouses: \["\[\[Rachel\]\]", "\[\[Bilhah\]\]", "\[\[Zilpah\]\]"\]$/m);
     // Isaac names no one, Rebekah names him: no remove on Isaac's Hub for her.
-    cy.openDoc("Isaac");
+    cy.openDoc("Isaac", { exact: true });
     kin("spouses").should("contain", "Rebekah");
     cy.get("[data-testid=family-spouses] [data-testid=family-remove]").should("not.exist");
   });
 
   it("adds a spouse at the end of the list", () => {
-    cy.openDoc("Paul");
+    cy.openDoc("Paul", { exact: true });
     cy.get("[data-testid=family-spouses]").should("not.exist");
     cy.get("[data-testid=family-add-spouse]").click();
     pickCharacter("Hagar");
@@ -187,7 +187,7 @@ describe("Editing Kinship", () => {
   });
 
   it("shows empty slots and the Add buttons on a Character with no kin", () => {
-    cy.openDoc("Paul");
+    cy.openDoc("Paul", { exact: true });
     cy.get("[data-testid=family-father] [data-testid=family-father-choose]").should("be.visible");
     cy.get("[data-testid=family-mother] [data-testid=family-mother-choose]").should("be.visible");
     cy.get("[data-testid=family-spouses]").should("not.exist");
@@ -198,7 +198,7 @@ describe("Editing Kinship", () => {
 
   it("Add child asks father or mother the first time, then not again", () => {
     characterFile("Paul").then((paulBefore) => {
-      cy.openDoc("Paul");
+      cy.openDoc("Paul", { exact: true });
       cy.get("[data-testid=family-add-child]").click();
       pickCharacter("Timothy");
       cy.get("[data-testid=family-role-question]").should("contain", "Paul").and("contain", "Timothy");
@@ -219,7 +219,7 @@ describe("Editing Kinship", () => {
   });
 
   it("Add child does not ask a Character already the father of another child", () => {
-    cy.openDoc("Isaac");
+    cy.openDoc("Isaac", { exact: true });
     cy.get("[data-testid=family-add-child]").click();
     cy.get("[data-testid=family-picker-input]").type("Edom");
     cy.get("[data-testid=picker-create]").click();
@@ -230,7 +230,7 @@ describe("Editing Kinship", () => {
 
   it("refuses Add child for a child who already has another father, naming him", () => {
     characterFile("Jacob").then((jacobBefore) => {
-      cy.openDoc("Abraham");
+      cy.openDoc("Abraham", { exact: true });
       cy.get("[data-testid=family-add-child]").click();
       pickCharacter("Jacob");
       cy.get("[data-testid=family-refused]").should("contain", "Isaac");

@@ -441,8 +441,9 @@ export function FamilySection({
   const id = doc.summary.id;
   const { data } = useQuery({
     key: ["kinship", id, doc.summary.mtime],
-    // Any Topical page can become, or stop being, the Character a link names.
-    deps: { types: ["character", "place", "concept", "event", "journey", "source", "other"] },
+    // Any page can become, or stop being, the Character a link names: a
+    // Character retyped to a Note leaves the type lists, so no list will do.
+    deps: { any: true },
     fetch: () => api.kinship(),
   });
   const graph = useMemo(() => (data ? kinGraph(data) : null), [data]);

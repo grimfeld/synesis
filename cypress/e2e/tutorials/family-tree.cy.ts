@@ -19,7 +19,7 @@ describe("Tutorial: Family", () => {
     cy.tutorialStep(0);
     cy.tutorialCommand("nav.search");
     cy.get("[data-testid=palette] input[cmdk-input]").type("Jacob");
-    cy.contains("[data-testid=palette] [data-testid=palette-doc]", /^Jacob/).click();
+    cy.contains("[data-testid=palette] [data-testid=palette-doc-name]", /^Jacob$/).click();
     cy.get("[data-testid=palette]").should("not.exist");
     cy.hubTitle("Jacob");
     kin("father").should("contain", "Isaac");
@@ -66,7 +66,7 @@ describe("Tutorial: Family", () => {
     // 5. Add child on Joseph: asked father or mother, the child's file gains `father`.
     cy.tutorialStep(4);
     fileOf("Joseph").then((josephBefore) => {
-      cy.openDoc("Joseph");
+      cy.openDoc("Joseph", { exact: true });
       cy.hubTitle("Joseph");
       cy.get("[data-testid=family-add-child]").click();
       cy.get("[data-testid=family-picker-input]").type("Manasseh");
@@ -81,7 +81,7 @@ describe("Tutorial: Family", () => {
 
     // 6. Do it once: set a Character's Father, then find them among his Children.
     cy.tutorialStep(5);
-    cy.openDoc("Timothy");
+    cy.openDoc("Timothy", { exact: true });
     cy.hubTitle("Timothy");
     cy.get("[data-testid=family-father-choose]").click();
     cy.get("[data-testid=family-picker-input]").type("Paul");

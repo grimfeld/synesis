@@ -18,11 +18,14 @@ describe("Timeline", () => {
     cy.get("[data-testid=tl-lane]")
       .first()
       .should("have.attr", "data-lane", "events");
-    // Thirteen Characters carry Dates, Adam and Noah first; a Place with a Date gets a lane too.
-    cy.get("[data-testid=tl-lane][data-type=character]").should(
-      "have.length",
-      13,
-    );
+    // One lane per Character that carries a Date, counted from the index so
+    // demo Characters can come and go; Adam and Noah first. A Place with a
+    // Date gets a lane too.
+    cy.query<{ doc: { id: string; type: string }; date: unknown }[]>({ kind: "timeline" }).then((rows) => {
+      const dated = new Set(rows.filter((r) => r.doc.type === "character" && r.date).map((r) => r.doc.id));
+      expect(dated.size, "dated Characters in the demo vault").to.be.greaterThan(13);
+      cy.get("[data-testid=tl-lane][data-type=character]").should("have.length", dated.size);
+    });
     cy.get("[data-testid=tl-lane][data-type=character]")
       .eq(0)
       .should("contain", "Adam");
