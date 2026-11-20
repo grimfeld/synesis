@@ -238,6 +238,28 @@ enum Origin {
     Remote,
 }
 
+/// Whether two paths name one file on disk: both exist and are the same
+/// file, as two spellings differing only in case are on a case-insensitive
+/// disk. Decided by the file's identity, never by comparing the strings, so
+/// `Foo.md` and `foo.md` stay two files where the disk says they are.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(a), fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (a.canonicalize(), b.canonicalize()) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
 /// Move a file, making the folder it goes into.
 fn move_file(from: &Path, to: &Path) -> Result<()> {
     if let Some(parent) = to.parent() {
@@ -473,15 +495,25 @@ impl Vault {
             // A move is made once the text is settled: the merge below works
             // on the file where it is, and `relocate` then carries it, its
             // Board and other Boards' cards for it to the new path.
+            //
+            // A path another document holds here is never written over: the
+            // text is merged where the document already is, or, with no file
+            // of its own here, left in the CRDT; this Device's next save puts
+            // its own path back.
             let moved_from = current
                 .as_ref()
                 .map(|d| d.path.clone())
                 .filter(|p| *p != rel);
-            let here = moved_from
+            let old_on_disk = moved_from
                 .as_deref()
-                .filter(|p| self.abs(p).is_ok_and(|a| a.exists()))
-                .unwrap_or(&rel);
-            let abs = self.abs(here)?;
+                .filter(|p| self.abs(p).is_ok_and(|a| a.exists()));
+            let held = self.held_by_other(&c.id, &rel)?;
+            let here = match (old_on_disk, held) {
+                (Some(old), _) => old.to_string(),
+                (None, false) => rel.clone(),
+                (None, true) => continue,
+            };
+            let abs = self.abs(&here)?;
             let on_disk = fs::read_to_string(&abs).unwrap_or_default();
             if on_disk != c.text {
                 // A file edited after the newest remote snapshot arrived (in
@@ -502,19 +534,19 @@ impl Vault {
                         .is_some_and(|m| mtime_of(&abs) > m);
                 if file_newer {
                     if let Some(sync) = self.sync.as_mut() {
-                        sync.record_local(&c.id, &on_disk, &rel)?;
+                        // Where the document will be: `rel`, unless another
+                        // document holds it and this one stays put.
+                        let dest = if held { &here } else { &rel };
+                        sync.record_local(&c.id, &on_disk, dest)?;
                     }
                 } else {
                     write_atomic(&abs, &c.text)?;
                 }
             }
             // Relocated even when the provider already moved the file: the
-            // index and other Boards' cards still name the old path. A path
-            // another document holds here is never written over: the
-            // document stays where it is, its text merged, and this Device's
-            // next save puts its own path back.
+            // index and other Boards' cards still name the old path.
             let summary = match moved_from {
-                Some(old) if self.held_by_other(&c.id, &rel)? => self.index_file(&old)?,
+                Some(_) if held => self.index_file(&here)?,
                 Some(old) => self.relocate(&c.id, &old, &rel, false, Origin::Remote)?,
                 None => self.index_file(&rel)?,
             };
@@ -1461,8 +1493,9 @@ impl Vault {
     /// Move the document `id` from `from` to `to`, with everything keyed by
     /// its path, and index it there. Every change of a document's path goes
     /// through here: [`Vault::rename`] and [`Vault::apply_remote`] now, and
-    /// moving a document into a Folder (#149) must too. `from` and `to` may be equal (a rename that
-    /// only changes the title's capitalisation): then nothing moves.
+    /// moving a document into a Folder (#149) must too. `from` and `to` may
+    /// be equal (a rename that only changes the title's capitalisation):
+    /// then nothing moves.
     ///
     /// The path-keyed companions of a document:
     /// - the Board `.canvas` beside a Composition (ADR 0009). It is identified
@@ -1513,7 +1546,7 @@ impl Vault {
                 .is_some_and(|d| d.doc_type == DocType::Composition);
             // A rename that only changes case names one file twice on a
             // case-insensitive disk, so the Board "already there" is itself.
-            let same_file = from.to_lowercase() == to.to_lowercase();
+            let same_board = same_file(&old_board, &new_board);
             let mut moved = false;
             if old_md.exists() {
                 move_file(&old_md, &new_md)?;
@@ -1522,7 +1555,7 @@ impl Vault {
             // A Board already at `to` that came from elsewhere (another
             // Device's provider got there first) is kept; a move made here
             // carries the Board as `rename` always has.
-            let board_free = origin == Origin::Here || same_file || !new_board.exists();
+            let board_free = origin == Origin::Here || same_board || !new_board.exists();
             if has_board && old_board.exists() && board_free {
                 move_file(&old_board, &new_board)?;
                 moved = true;
@@ -1557,12 +1590,12 @@ impl Vault {
         if let Some(d) = self.index.get_by_path(to)? {
             return Ok(d.id != id);
         }
-        let mine = self
-            .index
-            .get(id)?
-            .is_some_and(|d| d.path.to_lowercase() == to.to_lowercase());
-        if mine {
-            return Ok(false);
+        // A rename that only changes case: on a case-insensitive disk `to`
+        // is the document's own file.
+        if let Some(d) = self.index.get(id)? {
+            if same_file(&self.abs(&d.path)?, &abs) {
+                return Ok(false);
+            }
         }
         let text = fs::read_to_string(&abs).unwrap_or_default();
         Ok(document::parse(to, &text).id.as_deref() != Some(id))

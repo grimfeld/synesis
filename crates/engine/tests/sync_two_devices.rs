@@ -392,6 +392,64 @@ fn a_move_never_overwrites_another_document() {
     assert!(b.read(&moved.id).unwrap().text.contains("A's seed."));
 }
 
+/// The same, when this Device no longer has the moved document's old file:
+/// nothing is written at the occupied path, and nothing is forgotten.
+#[test]
+fn a_move_with_no_old_file_never_overwrites_another_document() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    let moved = a
+        .create(DocType::Note, "Seed", &Map::new(), "A's seed.")
+        .unwrap()
+        .summary;
+    let mut b = open(&root, &tmp.path().join("devB"));
+    fs::create_dir_all(root.join("Notes/Later")).unwrap();
+    fs::rename(root.join(&moved.path), root.join("Notes/Later/seed.md")).unwrap();
+    a.scan().unwrap();
+    // B's copy is gone, and B holds a Note of its own at the new path.
+    fs::write(root.join("Notes/Later/seed.md"), "B's own seed.\n").unwrap();
+    b.scan().unwrap();
+    let mine = b.get_by_path("Notes/Later/seed.md").unwrap().unwrap();
+    assert_ne!(mine.id, moved.id);
+
+    b.apply_remote().unwrap();
+    assert_eq!(
+        fs::read_to_string(root.join("Notes/Later/seed.md")).unwrap(),
+        b.read(&mine.id).unwrap().text
+    );
+    assert!(b.read(&mine.id).unwrap().text.contains("B's own seed."));
+    assert!(!b.read(&mine.id).unwrap().text.contains("A's seed."));
+}
+
+/// A provider that carried everything before the snapshot leaves nothing for
+/// this Device to move, so the old Folder, already empty, is the user's to
+/// keep: only a move made here prunes.
+#[test]
+fn a_folder_emptied_by_the_provider_is_left_alone() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path().join("vault");
+    fs::create_dir_all(&root).unwrap();
+    let mut a = open(&root, &tmp.path().join("devA"));
+    fs::create_dir_all(root.join("Notes/Old")).unwrap();
+    fs::write(root.join("Notes/Old/seed.md"), "A thought.\n").unwrap();
+    a.scan().unwrap();
+    let seed = a.get_by_path("Notes/Old/seed.md").unwrap().unwrap();
+    let mut b = open(&root, &tmp.path().join("devB"));
+    fs::create_dir_all(root.join("Notes/New")).unwrap();
+    fs::rename(
+        root.join("Notes/Old/seed.md"),
+        root.join("Notes/New/seed.md"),
+    )
+    .unwrap();
+    a.scan().unwrap();
+
+    b.apply_remote().unwrap();
+    assert_eq!(b.get(&seed.id).unwrap().unwrap().path, "Notes/New/seed.md");
+    assert!(root.join("Notes/Old").is_dir());
+}
+
 /// The provider delivered the moved `.md` before its Board: the Board still
 /// follows, and the Folder they both left is removed. A `.canvas` beside a
 /// Note is the user's own and never travels with it.
