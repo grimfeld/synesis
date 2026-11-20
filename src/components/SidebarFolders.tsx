@@ -19,6 +19,8 @@ import {
   type FolderNode,
 } from "@/lib/folders";
 import { useQuery } from "@/lib/useQuery";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { folderOf } from "./FolderPicker";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -40,7 +42,9 @@ export type FolderType = "note" | "composition";
 export type FolderAct =
   | { kind: "new-folder"; type: FolderType; parent: string }
   | { kind: "new-here"; type: FolderType; folder: string }
-  | { kind: "delete"; type: FolderType; folder: string };
+  | { kind: "delete"; type: FolderType; folder: string }
+  /** A document dropped on a Folder (or on its group, `""`), on desktop. */
+  | { kind: "move"; id: string; into: string };
 
 interface FolderActions {
   act: (a: FolderAct) => void;
@@ -64,6 +68,12 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
   const act = (a: FolderAct) => {
     if (a.kind === "new-folder") setNaming({ type: a.type, parent: a.parent });
     else if (a.kind === "new-here") s.setDialog({ kind: "new", type: a.type, folder: a.folder });
+    else if (a.kind === "move")
+      api
+        .moveDocument(a.id, a.into)
+        .then(() => s.announceChanged([a.id]))
+        .then(() => setVersion((v) => v + 1))
+        .catch((e) => toast.error(String(e)));
     else
       api
         .deleteFolder(a.type, a.folder)
@@ -189,6 +199,23 @@ export function FolderNameDialog({
   );
 }
 
+/** The drag data type that carries a document of `type`'s id. */
+const dragType = (type: FolderType) => `application/x-synesis-${type}`;
+
+const dropHighlight = "bg-sidebar-accent/70 ring-1 ring-sidebar-ring";
+
+interface Drop {
+  type: FolderType;
+  /** The Folder a document is being dragged over (`""` for the group), if any. */
+  over: string | null;
+  handlers: (key: string) => {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+}
+const DropContext = createContext<Drop | null>(null);
+
 /** How far a nested row moves right; deeper rows stop moving, so labels keep room. */
 const indent = (depth: number) => `${Math.min(depth, 4) * 0.75 + 0.75}rem`;
 
@@ -239,10 +266,48 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
       return n;
     });
   }, [activeId, tree, type, docs, vault]);
+
+  // Drag a document onto a Folder, or onto the group for the top (desktop
+  // only, PLAN §31). Only a document of this group's type makes a target
+  // light up: its type rides in the drag's data type, which a page may read
+  // while dragging, where the data itself it may not.
+  const act = useFolderAct();
+  const [over, setOver] = useState<string | null>(null);
+  const mime = dragType(type);
+  const dropHandlers = (key: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(mime)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      if (over !== key) setOver(key);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((o) => (o === key ? null : o));
+    },
+    onDrop: (e: React.DragEvent) => {
+      const id = e.dataTransfer.getData(mime);
+      setOver(null);
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const doc = docs.find((d) => d.id === id);
+      if (doc && folderOf(doc.path, top) === key) return;
+      act({ kind: "move", id, into: key });
+    },
+  });
+  const drop: Drop = { type, over, handlers: dropHandlers };
   return (
-    <SidebarMenu data-testid={`folder-tree-${type}`}>
-      <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
-    </SidebarMenu>
+    <DropContext.Provider value={drop}>
+      <SidebarMenu
+        data-testid={`folder-tree-${type}`}
+        data-drop-target={over === "" || undefined}
+        className={cn("rounded-md", over === "" && dropHighlight)}
+        {...dropHandlers("")}
+      >
+        <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
+      </SidebarMenu>
+    </DropContext.Provider>
   );
 }
 
@@ -301,10 +366,11 @@ function FolderLevel({
         );
       })}
       {docs.map((d) => (
-        <li key={d.id} className="min-w-0">
+        <DocRow key={d.id} doc={d} type={type}>
           <SidebarMenuButton
             data-testid="doc-item"
             size="sm"
+            className="pr-8"
             style={{ paddingLeft: depth === 0 ? "2rem" : `calc(${indent(depth)} + 1.25rem)` }}
             isActive={activeId === d.id}
             onClick={s.openDocOnClick(d.id)}
@@ -313,7 +379,7 @@ function FolderLevel({
             <TypeDot type={d.type} className="ml-0.5" />
             <span className="min-w-0 truncate">{d.label}</span>
           </SidebarMenuButton>
-        </li>
+        </DocRow>
       ))}
     </>
   );
@@ -326,12 +392,16 @@ function FolderLevel({
 function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSummary>; type: FolderType; ours: boolean; children: ReactNode }) {
   const t = useT();
   const act = useFolderAct();
+  const drop = useContext(DropContext);
   const [menu, setMenu] = useState(false);
+  const target = ours && drop?.over === folder.key;
   return (
     <SidebarMenuItem
-      className="min-w-0"
+      className={cn("min-w-0 rounded-md", target && dropHighlight)}
       data-testid="folder"
       data-folder={folder.key}
+      data-drop-target={target || undefined}
+      {...(ours && drop ? drop.handlers(folder.key) : {})}
       onContextMenu={(e) => {
         // This Folder's own row only, not a row nested inside it.
         const el = e.target as HTMLElement;
@@ -358,7 +428,7 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
+            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
               <DropdownMenuItem data-testid="folder-menu-new-here" onSelect={() => act({ kind: "new-here", type, folder: folder.key })}>
                 {t.folders.new_here[type]}
               </DropdownMenuItem>
@@ -373,6 +443,47 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
           </DropdownMenu>
         </>
       )}
+    </SidebarMenuItem>
+  );
+}
+
+/**
+ * A document's row, with its "…" menu (always shown; right-click on desktop):
+ * Move to folder… On desktop the row can also be dragged onto a Folder.
+ */
+function DocRow({ doc, type, children }: { doc: DocSummary; type: FolderType; children: ReactNode }) {
+  const s = useStore();
+  const t = useT();
+  const mobile = useIsMobile();
+  const [menu, setMenu] = useState(false);
+  return (
+    <SidebarMenuItem
+      className="min-w-0"
+      data-testid="doc-row"
+      data-doc={doc.id}
+      draggable={!mobile}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(dragType(type), doc.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu(true);
+      }}
+    >
+      {children}
+      <DropdownMenu open={menu} onOpenChange={setMenu}>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuAction data-testid="doc-menu" className="top-0.5 w-6" aria-label={t.folders.doc_menu(doc.label)}>
+            <MoreHorizontal />
+          </SidebarMenuAction>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuItem data-testid="doc-menu-move" onSelect={() => s.setDialog({ kind: "move-to-folder", id: doc.id })}>
+            {t.folders.move_command}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   );
 }
@@ -396,7 +507,7 @@ export function GroupFolderMenu({ type, label, className }: { type: FolderType; 
           <MoreHorizontal />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
+      <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
         <DropdownMenuItem data-testid="group-menu-new-folder" onSelect={() => act({ kind: "new-folder", type, parent: "" })}>
           {t.folders.new_folder}
         </DropdownMenuItem>

@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { FolderPicker } from "@/components/FolderPicker";
 import { leaf } from "@/lib/folders";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -112,6 +113,8 @@ export function Dialogs() {
           onClose={close}
         />
       );
+    case "move-to-folder":
+      return <FolderPicker id={d.id} onClose={close} />;
     case "quick":
       return <QuickCapture onClose={close} />;
     case "search":

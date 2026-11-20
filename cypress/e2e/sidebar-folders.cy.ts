@@ -153,3 +153,61 @@ describe("Making and deleting Folders", () => {
     cy.docByTitle("Loose thought").its("path").should("equal", "Notes/loose thought.md");
   });
 });
+
+describe("Moving documents into Folders", () => {
+  beforeEach(() => cy.openApp());
+  const vaultFile = (rel: string) => `${Cypress.env("vault")}/${rel}`;
+  const docRow = (title: string) => cy.contains("[data-testid=folder-tree-note] [data-testid=doc-row]", title);
+
+  it("moves a Note into a Folder from its … menu", () => {
+    docRow("Reading plan").find("[data-testid=doc-menu]").click();
+    cy.get("[data-testid=doc-menu-move]").click();
+    cy.get("[data-testid=folder-picker] [data-testid=folder-pick][data-folder='Sermons/2026']").click();
+    cy.get("[data-testid=folder-picker]").should("not.exist");
+    cy.docByTitle("Reading plan").its("path").should("equal", "Notes/Sermons/2026/reading plan.md");
+    cy.task("file:exists", vaultFile("Notes/reading plan.md")).should("equal", false);
+  });
+
+  it("moves the open Note with the Move to folder… Command", () => {
+    cy.openDoc("Reading plan");
+    cy.palette(">Move to folder");
+    cy.get("[data-testid=palette] [cmdk-item]").contains("Move to folder").click();
+    cy.get("[data-testid=folder-pick][data-folder='Sermons']").click();
+    cy.docByTitle("Reading plan").its("path").should("equal", "Notes/Sermons/reading plan.md");
+  });
+
+  it("refuses a Folder that already holds a file of that name, adding no number", () => {
+    cy.task("file:write", { path: vaultFile("Notes/Sermons/READING PLAN.md"), text: "Another plan.\n" });
+    cy.reload();
+    docRow("Reading plan").find("[data-testid=doc-menu]").click();
+    cy.get("[data-testid=doc-menu-move]").click();
+    cy.get("[data-testid=folder-pick][data-folder='Sermons']").click();
+    cy.contains("[data-sonner-toast]", "READING PLAN.md").should("be.visible");
+    cy.docByTitle("Reading plan").its("path").should("equal", "Notes/reading plan.md");
+    cy.task("file:exists", vaultFile("Notes/Sermons/reading plan 2.md")).should("equal", false);
+  });
+
+  it("moves a Note by dragging it onto a Folder, and only its own group lights up", () => {
+    const data = new DataTransfer();
+    docRow("Reading plan").trigger("dragstart", { dataTransfer: data });
+    cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"]').trigger("dragover", { dataTransfer: data });
+    cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"]').should("have.attr", "data-drop-target", "true");
+    // The Compositions group is no target for a Note.
+    cy.get("[data-testid=folder-tree-composition]").trigger("dragover", { dataTransfer: data });
+    cy.get("[data-testid=folder-tree-composition]").should("not.have.attr", "data-drop-target");
+    cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"]').trigger("drop", { dataTransfer: data });
+    cy.docByTitle("Reading plan").its("path").should("equal", "Notes/Sermons/reading plan.md");
+  });
+
+  it("moves a Composition with its Board", () => {
+    cy.task("dir:make", vaultFile("Compositions/Talks"));
+    cy.reload();
+    cy.contains("[data-testid=folder-tree-composition] [data-testid=doc-row]", "Talk on endurance").find("[data-testid=doc-menu]").click();
+    cy.get("[data-testid=doc-menu-move]").click();
+    cy.get("[data-testid=folder-pick][data-folder='Talks']").click();
+    cy.docByTitle("Talk on endurance").its("path").should("equal", "Compositions/Talks/talk on endurance.md");
+    // Its Board went with it.
+    cy.task("file:exists", vaultFile("Compositions/Talks/talk on endurance.canvas")).should("equal", true);
+    cy.task("file:exists", vaultFile("Compositions/talk on endurance.canvas")).should("equal", false);
+  });
+});

@@ -37,6 +37,7 @@ import {
   Waypoints,
   X,
   Zap,
+  FolderInput,
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
@@ -405,6 +406,22 @@ export function useCommands(): Command[] {
         });
       }
     }
+    // "Move to folder…" (PLAN §31): a Note or Composition into a Folder of
+    // its type, through the Folder picker; the way on a phone, where there is
+    // no drag.
+    if (s.view.kind === "doc") {
+      const doc = s.docsById.get(s.view.id);
+      if (doc && (doc.type === "note" || doc.type === "composition")) {
+        list.push({
+          id: "doc.move_to_folder",
+          title: t.folders.move_command,
+          group: "editor",
+          icon: FolderInput,
+          keywords: "move folder file arrange organise organize sort put into directory",
+          run: () => s.setDialog({ kind: "move-to-folder", id: doc.id }),
+        });
+      }
+    }
     // ---- editor
     // Reading mode is the Device's lock on every Writing (PLAN §23), so it is
     // offered wherever one is open.
@@ -532,6 +549,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.local_graph",
     "board.export",
     "doc.duplicate",
+    "doc.move_to_folder",
     "doc.capture",
     "editor.reading",
     "editor.source",

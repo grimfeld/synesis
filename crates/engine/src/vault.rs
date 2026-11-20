@@ -1232,7 +1232,11 @@ impl Vault {
         if let Some(clash) = clash {
             return Err(Error::Invalid(format!(
                 "“{clash}” is already in {}",
-                if into.trim_matches('/').is_empty() { top } else { into }
+                if into.trim_matches('/').is_empty() {
+                    top
+                } else {
+                    into
+                }
             )));
         }
         self.relocate(id, &summary.path, &to, false, Origin::Here)?;
@@ -3451,5 +3455,139 @@ Antioch is where they met.
         assert!(v
             .create_in(DocType::Source, Some("Sermons"), "X", &Map::new(), "")
             .is_err());
+    }
+
+    #[test]
+    fn a_note_moves_into_a_folder_and_keeps_its_title() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let moved = v.move_document(&id, "Sermons").unwrap();
+        assert_eq!(moved.summary.path, "Notes/Sermons/First.md");
+        assert_eq!(moved.summary.title, "First");
+        assert!(!dir.path().join("Notes/First.md").exists());
+        // The Folder it left stays: the person arranged it.
+        assert!(dir.path().join("Notes").is_dir());
+        // And back to the top.
+        assert_eq!(
+            v.move_document(&id, "").unwrap().summary.path,
+            "Notes/First.md"
+        );
+        assert!(dir.path().join("Notes/Sermons").is_dir());
+    }
+
+    #[test]
+    fn a_move_onto_a_same_named_file_is_refused_and_never_adds_a_number() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        fs::create_dir_all(dir.path().join("Notes/Old")).unwrap();
+        fs::write(dir.path().join("Notes/Old/FIRST.md"), "Another.\n").unwrap();
+        let err = v.move_document(&id, "Old").unwrap_err().to_string();
+        assert!(err.contains("FIRST.md"), "{err}");
+        assert!(dir.path().join("Notes/First.md").exists());
+        assert!(!dir.path().join("Notes/Old/First 2.md").exists());
+    }
+
+    #[test]
+    fn a_move_stays_in_its_own_types_folder() {
+        // `into` is inside the document's own type's folder: a Note cannot be
+        // sent into Compositions/, nor anywhere outside the Vault (#87).
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        for into in [
+            "../Compositions/Talks",
+            "/Compositions/Talks",
+            "Talks",
+            "..",
+            ".hidden",
+        ] {
+            assert!(v.move_document(&id, into).is_err(), "{into}");
+        }
+        assert!(dir.path().join("Notes/First.md").exists());
+        // A type without Folders has nothing to move into.
+        let src = v
+            .create(DocType::Source, "A Book", &Map::new(), "")
+            .unwrap();
+        assert!(v.move_document(&src.summary.id, "").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_move_into_a_linked_folder_is_refused() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.move_document(&id, "Linked").is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_file_still_downloading_is_not_moved() {
+        let (dir, mut v) = vault();
+        fs::write(dir.path().join("Notes/Gone.md"), "Here for now.\n").unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Notes/Gone.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        // iCloud evicts it: the file goes, a placeholder takes its place.
+        fs::remove_file(dir.path().join("Notes/Gone.md")).unwrap();
+        fs::write(dir.path().join("Notes/.Gone.md.icloud"), "x").unwrap();
+        assert!(v.move_document(&id, "Sermons").is_err());
+        assert!(dir.path().join("Notes/.Gone.md.icloud").exists());
+    }
+
+    #[test]
+    fn a_note_outside_its_folder_moves_under_it() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Study")).unwrap();
+        fs::write(
+            dir.path().join("Study/loose.md"),
+            "---\ntype: note\n---\nLoose.\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Study/loose.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        assert_eq!(
+            v.move_document(&id, "Sermons").unwrap().summary.path,
+            "Notes/Sermons/loose.md"
+        );
+        assert!(!dir.path().join("Study/loose.md").exists());
+    }
+
+    #[test]
+    fn a_moved_composition_takes_its_board_and_other_boards_follow() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        let talk = v
+            .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+            .unwrap()
+            .summary;
+        let mut own = Canvas::default();
+        own.nodes
+            .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+        v.write_board(&talk.id, &own).unwrap();
+        let series = v
+            .create(DocType::Composition, "Series", &Map::new(), "")
+            .unwrap()
+            .summary;
+        let mut board = Canvas::default();
+        let mut card = Node::new("c1", NodeKind::File, 0, 0, 300, 120);
+        card.file = Some(talk.path.clone());
+        board.nodes.push(card);
+        v.write_board(&series.id, &board).unwrap();
+        v.create_folder(DocType::Composition, "", "Talks").unwrap();
+
+        let moved = v.move_document(&talk.id, "Talks").unwrap().summary;
+        assert_eq!(moved.path, "Compositions/Talks/talk.md");
+        assert!(dir.path().join("Compositions/Talks/talk.canvas").exists());
+        assert!(!dir.path().join("Compositions/talk.canvas").exists());
+        assert_eq!(v.read_board(&talk.id).unwrap().unwrap().nodes.len(), 1);
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/Talks/talk.md")
+        );
     }
 }
