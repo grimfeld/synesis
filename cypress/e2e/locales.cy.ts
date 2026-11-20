@@ -389,7 +389,7 @@ describe("Locale layout", () => {
       // "Par Isaac et Rebekah", and "Judah (son of Jacob)" as a chip. A
       // Kinship warning is the longest line the section can carry.
       it("keeps a Character's Family section inside the screen", () => {
-        cy.openDoc("Jacob");
+        cy.openDoc("Jacob", { exact: true });
         cy.get("[data-testid=hub-family]").scrollIntoView().should("be.visible");
         cy.get("[data-testid=family-child-group]").should("have.length", 4);
         expectNoOverflow();
@@ -400,7 +400,7 @@ describe("Locale layout", () => {
           body: "",
         });
         cy.openApp();
-        cy.openDoc("Nahor");
+        cy.openDoc("Nahor", { exact: true });
         cy.get("[data-testid=family-warning]").should("have.length", 2);
         expectNoOverflow();
       });

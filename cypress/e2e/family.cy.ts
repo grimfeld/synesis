@@ -9,7 +9,7 @@ describe("Family section", () => {
   beforeEach(() => cy.openApp());
 
   it("shows Jacob's father, mother, spouses, children by mother, and siblings", () => {
-    cy.openDoc("Jacob");
+    cy.openDoc("Jacob", { exact: true });
     cy.get("[data-testid=hub-family]").should("be.visible");
     kin("father").should("have.length", 1).and("contain", "Isaac");
     kin("mother").should("have.length", 1).and("contain", "Rebekah");
@@ -41,7 +41,7 @@ describe("Family section", () => {
     cy.docByTitle("Isaac").then((isaac) =>
       cy.bridge<{ text: string }>("get_document", { id: isaac.id }).then(({ text: before }) => {
         expect(before).not.to.contain("Jacob");
-        cy.openDoc("Isaac");
+        cy.openDoc("Isaac", { exact: true });
         kin("children").should("contain", "Jacob").and("contain", "Esau");
         cy.get("[data-testid=family-children] [data-testid=family-child-group-heading]").should(
           "contain",
@@ -57,7 +57,7 @@ describe("Family section", () => {
   });
 
   it("lists Jacob as Leah's spouse although only Jacob names her", () => {
-    cy.openDoc("Leah");
+    cy.openDoc("Leah", { exact: true });
     kin("spouses").should("have.length", 1).and("contain", "Jacob");
     // Her children stand under the father each names.
     cy.get("[data-testid=family-children] [data-testid=family-child-group-heading]").should("contain", "With Jacob");
@@ -87,7 +87,7 @@ describe("Family section", () => {
     cy.bridge("create_document", { docType: "character", title: "Enoch", fields: { father: "[[Cain]]" }, body: "" });
     cy.openApp();
 
-    cy.openDoc("Nahor");
+    cy.openDoc("Nahor", { exact: true });
     cy.get("[data-testid=family-warning][data-kind=not_a_character]")
       .should("contain", "Father")
       .and("contain", "Jerusalem");
@@ -95,7 +95,7 @@ describe("Family section", () => {
 
     cy.docByTitle("Lot").then((lot) =>
       cy.bridge<{ text: string }>("get_document", { id: lot.id }).then(({ text: before }) => {
-        cy.openDoc("Lot");
+        cy.openDoc("Lot", { exact: true });
         cy.get("[data-testid=family-warning][data-kind=two_values]")
           .should("contain", "Abraham")
           .and("contain", "Nahor");
@@ -105,7 +105,7 @@ describe("Family section", () => {
       }),
     );
 
-    cy.openDoc("Cain");
+    cy.openDoc("Cain", { exact: true });
     cy.get("[data-testid=family-warning][data-kind=cycle]").should("contain", "Cain → Enoch → Cain");
     cy.get("[data-testid=family-father] [data-testid=family-empty]").should("exist");
   });

@@ -16,7 +16,7 @@ describe("Tutorial: Family", () => {
     cy.tutorialStep(0);
     cy.tutorialCommand("nav.search");
     cy.get("[data-testid=palette] input[cmdk-input]").type("Jacob");
-    cy.contains("[data-testid=palette] [data-testid=palette-doc]", /^Jacob/).click();
+    cy.contains("[data-testid=palette] [data-testid=palette-doc-name]", /^Jacob$/).click();
     cy.get("[data-testid=palette]").should("not.exist");
     cy.hubTitle("Jacob");
     kin("father").should("contain", "Isaac");
@@ -47,7 +47,7 @@ describe("Tutorial: Family", () => {
 
     // 4. Do it once: open a Character's Hub and see their family.
     cy.tutorialStep(3);
-    cy.openDoc("Joseph");
+    cy.openDoc("Joseph", { exact: true });
     cy.hubTitle("Joseph");
     kin("father").should("contain", "Jacob");
     kin("mother").should("contain", "Rachel");
