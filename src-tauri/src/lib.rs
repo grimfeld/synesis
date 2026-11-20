@@ -703,7 +703,7 @@ fn get_document(state: State<AppState>, id: String) -> CmdResult<DocumentPayload
 /// The Folders inside Notes or Compositions (PLAN §31), for the sidebar.
 #[tauri::command]
 fn list_folders(state: State<AppState>, doc_type: DocType) -> CmdResult<Vec<String>> {
-    state.with_vault(|v| Ok(v.folders(doc_type)?))
+    state.with_vault(|v| v.folders(doc_type))
 }
 
 #[tauri::command]

@@ -42,6 +42,9 @@ describe("Sidebar Folders", () => {
     const root = Cypress.env("vault");
     cy.task("dir:make", `${root}/Notes/Kept empty`);
     cy.task("file:write", { path: `${root}/Notes/Outside/Deep/found.md`, text: "Made in Finder.\n" });
+    // A page on the dev bridge hears no `vault:changed`; the watcher's half
+    // (`Vault::folder_changed`) is tested in the engine.
+    cy.reload();
     cy.get(row("Outside"), { timeout: 10000 }).should("exist");
     cy.get(`${folder("Outside")} > [data-testid=folder-count]`).should("have.text", "1");
     cy.get(`${folder("Kept empty")} > [data-testid=folder-count]`).should("have.text", "0");
