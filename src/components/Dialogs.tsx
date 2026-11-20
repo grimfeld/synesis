@@ -625,6 +625,10 @@ export function DocPicker({
   const exact = found.exact?.doc;
   const canCreate = !!onCreate && q.length > 0 && !exact;
 
+  // A floating list keeps one line per row; one in the flow (a phone Sheet)
+  // wraps, so a long name to create is read whole.
+  const label = inlineList ? "min-w-0 break-words" : "truncate";
+
   const pick = (d: DocSummary) => {
     setDraft(d.title);
     setFocus(false);
@@ -677,8 +681,8 @@ export function DocPicker({
                 onMouseDown={() => pick(d)}
               >
                 <TypeDot type={d.type} />
-                <span className="truncate">{d.label}</span>
-                {alias && <span className="min-w-0 truncate text-xs text-muted-foreground">{alias}</span>}
+                <span className={label}>{d.label}</span>
+                {alias && <span className={cn(label, "text-xs text-muted-foreground")}>{alias}</span>}
               </button>
             </li>
           ))}
@@ -687,11 +691,11 @@ export function DocPicker({
               <button
                 type="button"
                 data-testid="picker-create"
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
+                className="flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent"
                 onMouseDown={create}
               >
                 <Plus className="size-3.5 shrink-0" />
-                <span className="truncate">{(createLabel ?? t.create_named)(q)}</span>
+                <span className={label}>{(createLabel ?? t.create_named)(q)}</span>
               </button>
             </li>
           )}
