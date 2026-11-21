@@ -6,6 +6,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { leaf } from "@/lib/folders";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import {
   BookOpenText,
@@ -107,6 +108,7 @@ export function Dialogs() {
           title={d.title}
           body={d.body}
           fields={d.fields}
+          folder={d.folder}
           onClose={close}
         />
       );
@@ -1007,17 +1009,21 @@ function NewDocument({
   title: initialTitle,
   body: initialBody,
   fields,
+  folder,
   onClose,
 }: {
   type?: DocType;
   title?: string;
   body?: string;
   fields?: Record<string, string>;
+  /** "New Note here" (PLAN §31): kept only while the type is the Folder's own. */
+  folder?: string;
   onClose: () => void;
 }) {
   const s = useStore();
   const t = useT();
   const [type, setType] = useState<DocType>(initial ?? "note");
+  const inFolder = folder && type === initial ? folder : undefined;
   const [title, setTitle] = useState(initialTitle ?? "");
   const [body, setBody] = useState(initialBody ?? "");
   const [f, setF] = useState<Record<string, string>>({
@@ -1124,6 +1130,8 @@ function NewDocument({
         finalTitle,
         fields,
         type === "clipping" ? quoteBody(body) : body,
+        true,
+        inFolder,
       );
       onClose();
     } catch (err) {
@@ -1187,6 +1195,11 @@ function NewDocument({
     >
       <form data-testid="new-doc-form" onSubmit={submit} className="grid gap-4">
         <TypePicker value={type} onChange={setType} />
+        {inFolder && (
+          <p data-testid="new-doc-folder" className="min-w-0 text-sm break-words text-muted-foreground">
+            {t.folders.in_folder(leaf(inFolder))}
+          </p>
+        )}
         {/* A Clipping has no title: naming someone else's words is the user's
             commentary, not the excerpt, and its file is named by its Citation
             (ADR 0013). */}

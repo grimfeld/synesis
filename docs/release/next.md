@@ -15,3 +15,5 @@ hand, then empties the sections for the version after.
 - Folders inside `Notes` and `Compositions` now show in the sidebar as a tree, with a count on each,
   including folders you made in Finder, Explorer or Obsidian. They remember which ones you opened, and
   opening a document unfolds the folders holding it.
+- Make a folder from the "…" beside Notes or Compositions, or inside another folder, and write a new Note
+  straight into it with the folder's "+". An empty folder can be deleted from its "…" menu.

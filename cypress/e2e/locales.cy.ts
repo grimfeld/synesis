@@ -300,6 +300,22 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps the Folder menus and the name dialog inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=group-menu-note]").click();
+        cy.get("[data-testid=group-menu-new-folder]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"] > [data-testid=folder-menu]').click();
+        cy.get("[data-testid=folder-menu-delete]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=folder-menu-new-folder]").click();
+        cy.get("[data-testid=folder-name-input]").type(".x");
+        cy.get("[data-testid=folder-name-submit]").click();
+        cy.get("[data-testid=folder-name-error]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps a document and its side panel inside the screen", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=group-note]").click();
