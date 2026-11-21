@@ -1,5 +1,6 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { CircleAlert, Maximize2, Minus, Network, Plus, Search, X } from "lucide-react";
+import { cn } from "cn";
 import { api, type DatedProperty } from "@/lib/api";
 import { kinGraph } from "@/lib/kinship";
 import {
@@ -12,8 +13,9 @@ import {
   type Generations,
   type PersonBox,
 } from "@/lib/familyTree";
-import { fold } from "@/lib/names";
+import { moveActive } from "@/lib/docPicker";
 import { otherPane, type View } from "@/lib/panes";
+import { enterPick, searchTree } from "@/lib/treeSearch";
 import { usePanZoom } from "@/lib/usePanZoom";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
@@ -54,7 +56,7 @@ function focusVisible(el: Element): boolean {
 function Drawing({
   layout,
   names,
-  focus,
+  focusId,
   selected,
   label,
   onSelect,
@@ -63,7 +65,7 @@ function Drawing({
 }: {
   layout: FamilyLayout;
   names: boolean;
-  focus: string | undefined;
+  focusId: string | undefined;
   selected: string | null;
   label: (name: string) => string;
   /** `keyboard`: Enter or Space, which no pan can have preceded. */
@@ -104,7 +106,7 @@ function Drawing({
         />
       ))}
       {layout.people.map((p) => {
-        const isFocus = p.id === focus;
+        const isFocus = p.id === focusId;
         return (
           <g
             key={p.id}
@@ -133,7 +135,6 @@ function Drawing({
               if (focusVisible(e.currentTarget)) onFocus(p);
             }}
           >
-            <title>{p.doc.title}</title>
             {/* The focus ring: an outer ring in the theme's ring colour, shown on keyboard focus. */}
             <rect
               data-testid="family-tree-focus-ring"
@@ -199,6 +200,8 @@ function PersonCard({
   person,
   at,
   isFocus,
+  byKeyboard,
+  cardRef,
   onFocus,
   onOpen,
   onClose,
@@ -206,6 +209,9 @@ function PersonCard({
   person: PersonBox;
   at: { left: number; top?: number; bottom?: number };
   isFocus: boolean;
+  /** Opened by Enter or Space: the focus moves to its first action. */
+  byKeyboard: boolean;
+  cardRef: React.Ref<HTMLDivElement>;
   onFocus: () => void;
   onOpen: (other: boolean) => void;
   onClose: () => void;
@@ -218,8 +224,15 @@ function PersonCard({
     quiet: true,
   });
   const span = data ? spanText(data, t) : null;
+  // Opened from the keyboard, the card takes the focus, on its first action;
+  // not modal: Tab leaves it, and closing it returns to the person.
+  const first = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (byKeyboard) first.current?.focus();
+  }, [byKeyboard]);
   return (
     <div
+      ref={cardRef}
       role="dialog"
       aria-label={person.doc.title}
       data-testid="family-tree-card"
@@ -227,7 +240,10 @@ function PersonCard({
       className="absolute z-10 flex w-64 max-w-[calc(100%-1rem)] min-w-0 flex-col gap-2 rounded-md border bg-popover p-2 text-xs text-popover-foreground shadow-md"
       style={{ left: at.left, top: at.top, bottom: at.bottom }}
       onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
       }}
     >
       <div className="flex min-w-0 items-start gap-1">
@@ -247,6 +263,7 @@ function PersonCard({
         {!isFocus && (
           <Button
             size="sm"
+            ref={first}
             variant="outline"
             className="h-auto min-h-8 min-w-0 whitespace-normal"
             data-testid="family-tree-card-focus"
@@ -256,6 +273,7 @@ function PersonCard({
           </Button>
         )}
         <Button
+          ref={isFocus ? first : undefined}
           size="sm"
           className="h-auto min-h-8 min-w-0 whitespace-normal"
           data-testid="family-tree-card-open"
@@ -279,14 +297,19 @@ function GenerationsSelect({
   onChange: (g: Generations) => void;
 }) {
   const t = useT();
+  const labelId = useId();
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-      <span className="min-w-0">{t.family_tree[which]}</span>
-      <Select value={String(value)} onValueChange={(v) => onChange(generations(v === "all" ? v : Number(v)))}>
+      <span id={labelId} className="min-w-0">
+        {t.family_tree[which]}
+      </span>
+      <Select value={String(value)} onValueChange={(v) => onChange(v === "all" ? "all" : generations(Number(v)))}>
         <SelectTrigger
           size="sm"
-          className="h-7 shrink-0 text-xs"
-          aria-label={which === "up" ? t.family_tree.up_label : t.family_tree.down_label}
+          // A phone's finger needs the taller box; the value wraps no wider.
+          className="min-h-8 shrink-0 py-1 text-xs data-[size=sm]:h-auto sm:min-h-7"
+          // Named by the label beside it, so a spoken name starts with the words seen.
+          aria-labelledby={labelId}
           data-testid={`family-tree-${which}`}
         >
           <SelectValue />
@@ -306,27 +329,31 @@ function GenerationsSelect({
   );
 }
 
-/** The search box: the drawn Characters whose title holds what is typed, accent-insensitive. */
+/**
+ * The search box: the drawn Characters whose title holds what is typed,
+ * accent-insensitive (`searchTree`). A combobox (ARIA's list autocomplete):
+ * the arrows move through the matches, Enter picks the one moved to or the
+ * first, Escape clears; the count is read out as it changes.
+ */
 function TreeSearch({ people, onPick }: { people: PersonBox[]; onPick: (id: string) => void }) {
   const t = useT();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const matches = useMemo(() => {
-    const q = fold(query.trim());
-    if (!q) return [];
-    return people
-      .filter((p) => fold(p.doc.title).includes(q))
-      .sort((a, b) => {
-        const sa = fold(a.doc.title).startsWith(q) ? 0 : 1;
-        const sb = fold(b.doc.title).startsWith(q) ? 0 : 1;
-        return sa - sb || a.doc.title.localeCompare(b.doc.title);
-      })
-      .slice(0, 8);
-  }, [people, query]);
+  // The match the arrows moved to; `null` until one is pressed, and again on typing.
+  const [active, setActive] = useState<number | null>(null);
+  const listId = useId();
+  const optionId = (i: number) => `${listId}-${i}`;
+  const matches = useMemo(() => searchTree(people, query, (p) => p.doc.title), [people, query]);
+  const typed = open && query.trim() !== "";
+  const expanded = typed && matches.length > 0;
+  useEffect(() => {
+    if (active !== null) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
+  }, [active, listId]);
   const pick = (id: string) => {
     onPick(id);
     setQuery("");
     setOpen(false);
+    setActive(null);
   };
   return (
     <div className="relative min-w-0 flex-1 basis-40 sm:max-w-56">
@@ -336,51 +363,80 @@ function TreeSearch({ people, onPick }: { people: PersonBox[]; onPick: (id: stri
         data-testid="family-tree-search"
         placeholder={t.family_tree.search}
         aria-label={t.family_tree.search}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={expanded}
+        aria-controls={listId}
+        aria-activedescendant={expanded && active !== null && active < matches.length ? optionId(active) : undefined}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
           setOpen(true);
+          setActive(null);
         }}
         onFocus={() => setOpen(true)}
+        // Mouse presses on a match keep the focus here (below); Tab leaves the box, and the list goes.
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && matches[0]) {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            pick(matches[0].id);
-          } else if (e.key === "Escape") {
+            setOpen(true);
+            setActive((i) => moveActive(i, matches.length, e.key === "ArrowDown" ? 1 : -1));
+          } else if (e.key === "Enter") {
+            const i = enterPick(matches.length, active);
+            if (i === null) return;
+            e.preventDefault();
+            pick(matches[i].id);
+          } else if (e.key === "Escape" && (open || query)) {
+            e.preventDefault();
             setQuery("");
             setOpen(false);
+            setActive(null);
           }
         }}
       />
-      {open && query.trim() && (
-        <ul
-          data-testid="family-tree-search-results"
-          className="absolute top-full right-0 left-0 z-20 mt-1 flex max-h-64 min-w-0 flex-col overflow-auto rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-md"
+      {/* Read out as it changes: how many match, or that none does. */}
+      <span role="status" aria-live="polite" className="sr-only" data-testid="family-tree-search-status">
+        {typed ? (matches.length ? t.family_tree.search_count(matches.length) : t.family_tree.search_none) : ""}
+      </span>
+      {typed && matches.length === 0 && (
+        <p
+          data-testid="family-tree-search-none"
+          className="absolute top-full right-0 left-0 z-20 mt-1 min-w-0 rounded-md border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md"
         >
-          {matches.length === 0 ? (
-            <li data-testid="family-tree-search-none" className="min-w-0 px-2 py-1 text-muted-foreground">
-              {t.family_tree.search_none}
-            </li>
-          ) : (
-            matches.map((p) => (
-              <li key={p.id} className="min-w-0">
-                <button
-                  type="button"
-                  data-testid="family-tree-search-result"
-                  data-id={p.id}
-                  className="w-full min-w-0 break-words rounded px-2 py-1 text-left hover:bg-accent"
-                  // Keep the input's focus, so its blur does not close the list under the press.
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => pick(p.id)}
-                >
-                  {p.doc.title}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
+          {t.family_tree.search_none}
+        </p>
       )}
+      <ul
+        id={listId}
+        role="listbox"
+        aria-label={t.family_tree.search}
+        data-testid="family-tree-search-results"
+        hidden={!expanded}
+        className="absolute top-full right-0 left-0 z-20 mt-1 flex max-h-64 min-w-0 flex-col overflow-auto rounded-md border bg-popover p-1 text-xs text-popover-foreground shadow-md"
+      >
+        {expanded &&
+          matches.map((p, i) => (
+            <li
+              key={p.id}
+              id={optionId(i)}
+              role="option"
+              aria-selected={active === i}
+              data-testid="family-tree-search-result"
+              data-id={p.id}
+              className={cn(
+                "w-full min-w-0 cursor-pointer break-words rounded px-2 py-1 text-left hover:bg-accent",
+                active === i && "bg-accent text-accent-foreground",
+              )}
+              // Keep the input's focus, so its blur does not close the list under the press.
+              onMouseDown={(e) => e.preventDefault()}
+              onMouseEnter={() => setActive(i)}
+              onClick={() => pick(p.id)}
+            >
+              {p.doc.title}
+            </li>
+          ))}
+      </ul>
     </div>
   );
 }
@@ -424,6 +480,11 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const pz = usePanZoom();
   const names = pz.view.k >= NAMES_FROM_ZOOM;
   const [selected, setSelected] = useState<string | null>(null);
+  // Whether the card was opened by Enter or Space, so it takes the focus.
+  const [byKeyboard, setByKeyboard] = useState(false);
+  const cardRef = useRef<HTMLDivElement>(null);
+  // The person whose box takes the focus back once the card has closed.
+  const restoreTo = useRef<string | null>(null);
 
   const bounds = useMemo(
     () => (layout ? { x: 0, y: 0, width: layout.width, height: layout.height } : null),
@@ -468,6 +529,7 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const select = useCallback((id: string, keyboard: boolean) => {
     if (!keyboard && live.current.dragged()) return;
     setSelected(id);
+    setByKeyboard(keyboard);
   }, []);
   const open = useCallback((id: string, other: boolean) => {
     if (live.current.dragged()) return;
@@ -481,7 +543,7 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
         <Drawing
           layout={layout}
           names={names}
-          focus={focusId}
+          focusId={focusId}
           selected={shown?.id ?? null}
           label={t.family_tree.person}
           onSelect={select}
@@ -524,7 +586,26 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
     if (!p) return;
     centre(p, Math.max(v.k, OPEN_AT_LEAST));
     setSelected(id);
+    // The focus stays in the search box.
+    setByKeyboard(false);
   };
+
+  /**
+   * Close the card. When the focus was in it, it goes back to `to`'s box: the
+   * person who opened it, or the new focus after Focus here.
+   */
+  const closeCard = (to: string | undefined) => {
+    const card = cardRef.current;
+    if (to && card && card.contains(document.activeElement)) restoreTo.current = to;
+    setSelected(null);
+  };
+  // After the render that closed it, the person's box is drawn (the new focus's too).
+  useEffect(() => {
+    const id = restoreTo.current;
+    if (!id || selected) return;
+    restoreTo.current = null;
+    box.current?.querySelector<SVGGElement>(`[data-testid=family-tree-person][data-id="${CSS.escape(id)}"]`)?.focus();
+  });
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -676,13 +757,20 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
             // The browser must not take the drag for scrolling or its own zoom.
             style={{ touchAction: "none" }}
             {...pz.handlers}
+            // Escape on a person, or anywhere in the drawing, closes the card.
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && selected) {
+                e.preventDefault();
+                setSelected(null);
+              }
+            }}
             onClick={(e) => {
               // A click on the background, not the end of a drag, closes the card.
               if (pz.dragged()) return;
               if (!(e.target as Element).closest("[data-testid=family-tree-person]")) setSelected(null);
             }}
           >
-            <svg className="absolute inset-0 size-full select-none" aria-label={t.views["family-tree"]}>
+            <svg role="group" className="absolute inset-0 size-full select-none" aria-label={t.views["family-tree"]}>
               <g transform={`translate(${v.x},${v.y}) scale(${v.k})`}>{drawing}</g>
             </svg>
           </div>
@@ -692,12 +780,17 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
               person={shown}
               at={cardAt}
               isFocus={shown.id === focusId}
-              onFocus={() => refocus(shown.id)}
+              byKeyboard={byKeyboard}
+              cardRef={cardRef}
+              onFocus={() => {
+                closeCard(shown.id);
+                refocus(shown.id);
+              }}
               onOpen={(other) => {
-                setSelected(null);
+                closeCard(shown.id);
                 s.openDoc(shown.id, other);
               }}
-              onClose={() => setSelected(null)}
+              onClose={() => closeCard(shown.id)}
             />
           )}
         </div>

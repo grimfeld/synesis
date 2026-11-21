@@ -202,8 +202,6 @@ export const fr: Dict = {
     focus_title: (name: string) => `Arbre généalogique : ${name}`,
     up: "Ancêtres",
     down: "Descendants",
-    up_label: "Générations d’ancêtres",
-    down_label: "Générations de descendants",
     all: "Toutes",
     everyone: "Tout le monde",
     focus_here: "Recentrer ici",
@@ -212,6 +210,7 @@ export const fr: Dict = {
     died: (date: string) => `décès : ${date}`,
     search: "Trouver un Personnage",
     search_none: "Personne de ce nom dans cet arbre.",
+    search_count: (n: number) => (n === 1 ? "1 résultat" : `${n} résultats`),
     no_kin: (name: string) =>
       `${name} n’a pas encore de famille. Indiquez son père, sa mère ou ses conjoints sous Famille, sur sa page, et sa famille s’affiche ici.`,
     gone: "Ce Personnage n’est plus dans le Coffre.",

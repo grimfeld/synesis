@@ -216,8 +216,6 @@ export const en = {
     focus_title: (name: string) => `Family tree: ${name}`,
     up: "Ancestors",
     down: "Descendants",
-    up_label: "Generations of ancestors",
-    down_label: "Generations of descendants",
     all: "All",
     everyone: "Everyone",
     focus_here: "Focus here",
@@ -226,6 +224,8 @@ export const en = {
     died: (date: string) => `died ${date}`,
     search: "Find a Character",
     search_none: "No one by that name in this tree.",
+    /** Read out by a screen reader as the search's matches change. */
+    search_count: (n: number) => (n === 1 ? "1 match" : `${n} matches`),
     no_kin: (name: string) =>
       `${name} has no kin yet. Name their father, mother or spouses under Family on their Hub, and their family is drawn here.`,
     gone: "This Character is no longer in the Vault.",
