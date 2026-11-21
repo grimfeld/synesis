@@ -63,15 +63,13 @@ function Drawing({
         />
       ))}
       {layout.couples.map((c) => (
-        <line
+        <polyline
           key={`bar-${c.a}-${c.b}`}
           data-testid="family-tree-bar"
           data-a={c.a}
           data-b={c.b}
-          x1={c.x1}
-          y1={c.y1}
-          x2={c.x2}
-          y2={c.y2}
+          points={c.points.map(([x, y]) => `${x},${y}`).join(" ")}
+          fill="none"
           style={{ stroke: "var(--foreground)" }}
           strokeWidth={2}
           // Two parents a child names, who name no marriage: a dashed bar.

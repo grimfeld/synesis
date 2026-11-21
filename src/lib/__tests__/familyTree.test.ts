@@ -192,7 +192,7 @@ describe("familyLayout", () => {
 
   it("stands a spouse with no parents in their partner's row, even when they bore another's child", () => {
     // Tamar married Er, then bore Judah's son Perez: she stands beside Er, the
-    // marriage bar level, and the bar to Judah slopes.
+    // marriage bar level, and the bar to Judah runs down between the rows.
     const t = layout([
       ["Er", "father", "Judah"],
       ["Er", "spouse", "Tamar"],
@@ -380,8 +380,23 @@ describe("familyLayout", () => {
           const [sx, sy] = lineTo(t, child).points[0];
           expect(sx).toBeCloseTo(bar.dropX);
           expect(sy).toBeCloseTo(bar.dropY);
-          const along = (sx - bar.x1) * (bar.y2 - bar.y1) - (sy - bar.y1) * (bar.x2 - bar.x1);
-          expect(Math.abs(along), "on the bar").toBeLessThan(1e-6);
+          // On the bar's path: from Judah's box down, along the gap above Tamar's row, down to Tamar's box.
+          const on = bar.points.some(([xa, ya], i) => {
+            if (i === 0) return false;
+            const [xb, yb] = bar.points[i - 1];
+            return (
+              Math.min(xa, xb) - 1e-6 <= sx &&
+              sx <= Math.max(xa, xb) + 1e-6 &&
+              Math.min(ya, yb) - 1e-6 <= sy &&
+              sy <= Math.max(ya, yb) + 1e-6
+            );
+          });
+          expect(on, "on the bar").toBe(true);
+          expect(
+            bar.points.every(([x, y], i) => i === 0 || x === bar.points[i - 1][0] || y === bar.points[i - 1][1]),
+            "square",
+          ).toBe(true);
+          expect(bar.points[0]).toEqual([bar.x1, bar.y1]);
           expect(box(t, child).y).toBeGreaterThan(box(t, "tamar").y);
         }
       });
@@ -489,13 +504,12 @@ describe("packRow", () => {
 });
 
 describe("laneLevels", () => {
-  const run = (a: number, b: number, tops: number[], downs: number[], kind: "" | "cross" | "head" = ""): GapRun => ({
+  const run = (a: number, b: number, tops: number[], downs: number[], kind: "" | "cross" = ""): GapRun => ({
     a,
     b,
     tops,
     downs,
     cross: kind !== "",
-    head: kind === "head",
   });
 
   it("puts a run below where another's line comes down into the gap, and above where its lines go on down", () => {
@@ -530,11 +544,6 @@ describe("laneLevels", () => {
     expect(c).toBeGreaterThan(a);
     expect(b).toBeLessThan(a);
     expect(new Set(levels).size).toBe(3);
-  });
-
-  it("puts a run from a sloping bar below every other run in the gap, even one it does not overlap", () => {
-    const [other, head] = laneLevels([run(0, 10, [0], [10]), run(500, 600, [], [600], "head")]);
-    expect(head).toBeGreaterThan(other);
   });
 
   it("gives every run a lane when the asks go round in circles", () => {

@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation } from "../api";
 import { kinGraph, type KinGraph } from "../kinship";
-import { familyLayout, NEAR, type FamilyLayout } from "../familyTree";
+import { BOX_HEIGHT, familyLayout, NEAR, type FamilyLayout } from "../familyTree";
 
 type Edge = [string, KinRelation, string];
 
@@ -58,7 +58,8 @@ function problems(l: FamilyLayout): string[] {
   if (P.size !== l.people.length) out.push("a Character drawn twice");
   const finite = (...xs: number[]) => xs.every(Number.isFinite);
   for (const p of l.people) if (!finite(p.x, p.y, p.width)) out.push(`NaN box ${p.id}`);
-  for (const c of l.couples) if (!finite(c.x1, c.y1, c.x2, c.y2, c.dropX, c.dropY)) out.push(`NaN bar ${key([c.a, c.b])}`);
+  for (const c of l.couples)
+    if (!finite(c.x1, c.y1, c.x2, c.y2, c.dropX, c.dropY)) out.push(`NaN bar ${key([c.a, c.b])}`);
   for (const ln of l.lines) for (const [x, y] of ln.points) if (!finite(x, y)) out.push(`NaN line ${ln.child}`);
   if (out.length) return out;
 
@@ -74,6 +75,7 @@ function problems(l: FamilyLayout): string[] {
     if (Math.max(...rows) + 1 !== rows.size) out.push(`family ${f} has an empty row`);
   }
 
+  const twoRows = (ps: string[]) => ps.length === 2 && P.get(ps[0])!.y !== P.get(ps[1])!.y;
   const hasChildren = new Set(l.lines.map((ln) => key(ln.parents)));
   // Same-row couples: their drop, their bar.
   const flat = l.couples.filter((c) => P.get(c.a)!.y === P.get(c.b)!.y);
@@ -101,7 +103,8 @@ function problems(l: FamilyLayout): string[] {
     const c = P.get(ln.child)!;
     for (const pid of ln.parents) if (P.get(pid)!.y >= c.y) out.push(`${ln.child} not below ${pid}`);
     const end = ln.points.at(-1)!;
-    if (Math.abs(end[0] - (c.x + c.width / 2)) > 0.5 || Math.abs(end[1] - c.y) > 0.5) out.push(`${ln.child}'s line misses its box`);
+    if (Math.abs(end[0] - (c.x + c.width / 2)) > 0.5 || Math.abs(end[1] - c.y) > 0.5)
+      out.push(`${ln.child}'s line misses its box`);
     const pts = ln.points;
     for (let i = 1; i < pts.length; i++) {
       const [[xa, ya], [xb, yb]] = [pts[i - 1], pts[i]];
@@ -121,17 +124,29 @@ function problems(l: FamilyLayout): string[] {
           b: Math.max(xa, xb),
         });
       if (xa === xb && ya !== yb)
-        downs.push({ k, child: ln.child, x: xa, a: Math.min(ya, yb), b: Math.max(ya, yb), beside: pts.length === 5 && i === 2 });
+        downs.push({
+          k,
+          child: ln.child,
+          x: xa,
+          a: Math.min(ya, yb),
+          b: Math.max(ya, yb),
+          beside: twoRows(ln.parents),
+        });
       for (const bar of flat) {
         if (key([bar.a, bar.b]) === k) continue;
         const [bl, br] = [Math.min(bar.x1, bar.x2), Math.max(bar.x1, bar.x2)];
         // Along another couple's bar.
-        if (ya === yb && Math.abs(ya - bar.y1) < NEAR && Math.min(br, Math.max(xa, xb)) - Math.max(bl, Math.min(xa, xb)) > 0)
+        if (
+          ya === yb &&
+          Math.abs(ya - bar.y1) < NEAR &&
+          Math.min(br, Math.max(xa, xb)) - Math.max(bl, Math.min(xa, xb)) > 0
+        )
           out.push(`${ln.child}'s line along the bar of ${key([bar.a, bar.b])}`);
         // Down through another couple's bar, or within reach of their drop.
         if (xa === xb && Math.min(ya, yb) < bar.y1 && Math.max(ya, yb) > bar.y1) {
           if (xa > bl && xa < br) out.push(`${ln.child}'s line through the bar of ${key([bar.a, bar.b])}`);
-          if (Math.abs(xa - bar.dropX) < NEAR) out.push(`${ln.child}'s line down on the drop of ${key([bar.a, bar.b])}`);
+          if (Math.abs(xa - bar.dropX) < NEAR)
+            out.push(`${ln.child}'s line down on the drop of ${key([bar.a, bar.b])}`);
         }
       }
     }
@@ -142,7 +157,7 @@ function problems(l: FamilyLayout): string[] {
   // (or on to their child, for a line that goes straight down).
   const stems = l.lines.flatMap((ln) => {
     const pts = ln.points;
-    if (pts[0][0] !== pts[1][0]) return [];
+    if (twoRows(ln.parents) || pts[0][0] !== pts[1][0]) return [];
     let end = 1;
     while (end + 2 < pts.length && Math.abs(pts[end + 1][0] - pts[end][0]) < 0.5 && pts[end + 2][0] === pts[end + 1][0])
       end += 2;
@@ -157,8 +172,8 @@ function problems(l: FamilyLayout): string[] {
       },
     ];
   });
-  // The one crossing that cannot be helped: the sloping bar ends on the lower
-  // parent's box, where the line coming down to them ends too, so the line
+  // The one crossing that cannot be helped: the bar lands on the lower
+  // parent's box beside where the line coming down to them ends, so the line
   // leaving the bar passes over a box with a line of its own whichever way it
   // leaves the unit when both ways have one (the lower parent's own, and a
   // spouse's beside them).
@@ -199,6 +214,35 @@ function problems(l: FamilyLayout): string[] {
       }
     }
   }
+  // A bar between two rows: through no box but its two parents', and its
+  // runs along a gap under no other's line coming down.
+  for (const bar of l.couples) {
+    if (P.get(bar.a)!.y === P.get(bar.b)!.y) continue;
+    const k = key([bar.a, bar.b]);
+    for (let i = 1; i < bar.points.length; i++) {
+      const [[xa, ya], [xb, yb]] = [bar.points[i - 1], bar.points[i]];
+      for (const p of l.people)
+        if (
+          p.id !== bar.a &&
+          p.id !== bar.b &&
+          Math.max(xa, xb) > p.x + 0.5 &&
+          Math.min(xa, xb) < p.x + p.width - 0.5 &&
+          Math.max(ya, yb) > p.y + 0.5 &&
+          Math.min(ya, yb) < p.y + p.height - 0.5
+        )
+          out.push(`the bar of ${k} through ${p.id}`);
+      if (ya !== yb) continue;
+      for (const s of stems)
+        if (
+          s.k !== k &&
+          s.x > Math.min(xa, xb) + 0.5 &&
+          s.x < Math.max(xa, xb) - 0.5 &&
+          ya > s.a + 0.5 &&
+          ya < s.b - 0.5
+        )
+          out.push(`the bar of ${k} under ${s.k}`);
+    }
+  }
   // No run shared by the lines of two pairs of parents.
   for (let i = 0; i < runs.length; i++)
     for (let j = i + 1; j < runs.length; j++) {
@@ -206,15 +250,51 @@ function problems(l: FamilyLayout): string[] {
       if (A.k !== B.k && Math.abs(A.y - B.y) < 2 && Math.min(A.b, B.b) - Math.max(A.a, B.a) > 2)
         out.push(`${A.child} (${A.k}) and ${B.child} (${B.k}) share a run at y=${A.y}`);
     }
-  // Nor the way down beside a unit of a child of parents in two rows (the
-  // line from the bar, then down past the lower row) with any other line.
+  // Nor a stretch down shared by the lines of two pairs of parents (a few
+  // pixels apart, the way down of a child of parents in two rows).
   for (let i = 0; i < downs.length; i++)
     for (let j = i + 1; j < downs.length; j++) {
       const [A, B] = [downs[i], downs[j]];
-      if ((A.beside || B.beside) && A.k !== B.k && Math.abs(A.x - B.x) < NEAR && Math.min(A.b, B.b) - Math.max(A.a, B.a) > 2)
+      const near = A.beside || B.beside ? NEAR : 2;
+      if (A.k !== B.k && Math.abs(A.x - B.x) < near && Math.min(A.b, B.b) - Math.max(A.a, B.a) > 2)
         out.push(`${A.child} (${A.k}) and ${B.child} (${B.k}) go down together at x=${Math.round(A.x)}`);
     }
   return [...new Set(out)];
+}
+
+/**
+ * A child of parents in two rows whose line, below the lower row, runs under
+ * a couple of that row with children of their own (between the couple's
+ * middles). Not part of `problems`: a row too crowded to hold every such child
+ * beside its parent's unit leaves a few, rarely.
+ */
+function underLowerCouples(l: FamilyLayout): string[] {
+  const out: string[] = [];
+  const P = new Map(l.people.map((p) => [p.id, p]));
+  const twoRows = (ps: string[]) => ps.length === 2 && P.get(ps[0])!.y !== P.get(ps[1])!.y;
+  const hasChildren = new Set(l.lines.map((ln) => key(ln.parents)));
+  const flat = l.couples.filter((c) => P.get(c.a)!.y === P.get(c.b)!.y);
+  for (const ln of l.lines) {
+    if (!twoRows(ln.parents)) continue;
+    const c = P.get(ln.child)!;
+    const lowY = Math.max(...ln.parents.map((p) => P.get(p)!.y));
+    for (let i = 1; i < ln.points.length; i++) {
+      const [[xa, ya], [xb, yb]] = [ln.points[i - 1], ln.points[i]];
+      if (ya !== yb || ya <= lowY + BOX_HEIGHT || ya >= c.y) continue;
+      for (const bar of flat) {
+        if (
+          P.get(bar.a)!.y !== lowY ||
+          !hasChildren.has(key([bar.a, bar.b])) ||
+          key([bar.a, bar.b]) === key(ln.parents)
+        )
+          continue;
+        const [ca, cb] = [bar.a, bar.b].map((id) => P.get(id)!.x + P.get(id)!.width / 2);
+        if (Math.min(xa, xb) < Math.max(ca, cb) - 1 && Math.max(xa, xb) > Math.min(ca, cb) + 1)
+          out.push(`${ln.child}'s line under the couple ${key([bar.a, bar.b])}`);
+      }
+    }
+  }
+  return out;
 }
 
 /** A small seeded generator (mulberry32): the same families on every run. */
@@ -380,7 +460,14 @@ it("gives each of four spouses all married to one another a drop of their own", 
       ["B", "spouse", "C"],
       ["B", "spouse", "D"],
       ["C", "spouse", "D"],
-      ...born(["k1", "A", "B"], ["k2", "A", "C"], ["k3", "A", "D"], ["k4", "B", "C"], ["k5", "B", "D"], ["k6", "C", "D"]),
+      ...born(
+        ["k1", "A", "B"],
+        ["k2", "A", "C"],
+        ["k3", "A", "D"],
+        ["k4", "B", "C"],
+        ["k5", "B", "D"],
+        ["k6", "C", "D"],
+      ),
     ]),
   );
   expect(problems(l)).toEqual([]);
@@ -438,7 +525,7 @@ describe("familyLayout, families the random checks once caught", () => {
         ["N19abcdefg", "mother", "N17abcdefg"],
       ],
     ],
-    // The run from the sloping bar to the way down crossed the line coming down from a couple above.
+    // The run from the bar to the way down crossed the line coming down from a couple above.
     [
       "a run from the bar, across a lone parent's line",
       [
@@ -634,4 +721,91 @@ describe("familyLayout, a child of parents in two rows, each way it is kept clea
       expect(problems(l)).toEqual([]);
       if (beside) expect(underTheirUnit(l)).toEqual([]);
     });
+});
+
+describe("familyLayout, families a second random check caught", () => {
+  const sound = (edges: Edge[]) => expect(problems(familyLayout(graph(edges)))).toEqual([]);
+  it("keeps Zipporah's line clear of Chilion's, a lone parent in the lower row beside it", () =>
+    sound([
+      ["Eber", "mother", "Manasseh"],
+      ["Chilion", "mother", "Manasseh"],
+      ["Eliezer", "father", "Nahshon"],
+      ["Eliezer", "mother", "Amaziah"],
+      ["Caleb", "father", "Nahshon"],
+      ["Caleb", "mother", "Amaziah"],
+      ["Matthan", "father", "Nahshon"],
+      ["Shua", "father", "Eber"],
+      ["Zipporah", "father", "Eber"],
+      ["Zipporah", "mother", "Manasseh"],
+      ["Rebekah", "mother", "Chilion"],
+      ["Eleazar", "father", "Joseph 2"],
+      ["Eleazar", "mother", "Matthan"],
+      ["Eleazar", "spouse", "Zipporah"],
+    ]));
+  it("takes a bar between parents two rows apart round every box between them", () => {
+    const l = familyLayout(
+      graph([
+        ["Eglah", "father", "Ruth"],
+        ["Phinehas", "father", "Uzziah"],
+        ["Hezron", "father", "Eglah"],
+        ["Moses of the house of Levi", "father", "Eglah"],
+        ["Jacob 2", "father", "Uzziah"],
+        ["Jacob 2", "mother", "Hezron"],
+      ]),
+    );
+    expect(problems(l)).toEqual([]);
+    const bar = l.couples.find((c) => key([c.a, c.b]) === "hezron+uzziah")!;
+    expect(bar.points.length).toBeGreaterThan(2);
+  });
+  it("never runs two lines of different parents down one x", () =>
+    sound([
+      ["Naphtali", "mother", "Kenan son of Hezron the Judahite"],
+      ["Uriah the Younger", "mother", "Eliud"],
+      ["Shelah daughter of the priest of On", "father", "Elimelech"],
+      ["Gad", "mother", "Eliud"],
+      ["Ahaz 2", "father", "Elimelech"],
+      ["Ahaz 2", "mother", "Solomon"],
+      ["Arphaxad", "father", "Naphtali"],
+      ["Arphaxad", "mother", "Solomon"],
+      ["Naamah", "mother", "Uriah the Younger"],
+      ["Jehoram of the house of Levi", "father", "David"],
+      ["Jehoram of the house of Levi", "mother", "Shelah daughter of the priest of On"],
+      ["Joseph", "father", "David"],
+      ["Joseph", "mother", "Shelah daughter of the priest of On"],
+      ["Hagar 2", "mother", "Gad"],
+      ["Manasseh 2", "father", "Manasseh"],
+      ["Arphaxad", "spouse", "Naamah"],
+      ["Naamah", "spouse", "Dinah"],
+      ["Nahshon 2", "father", "Manasseh 2"],
+      ["Nahshon 2", "mother", "Hagar 2"],
+      ["Solomon 2", "father", "Manasseh 2"],
+      ["Solomon 2", "mother", "Hagar 2"],
+      ["Eliakim", "mother", "Hagar 2"],
+      ["Caleb", "father", "Dinah"],
+      ["Caleb", "mother", "Naamah"],
+      ["Hannah", "father", "Uzziah"],
+      ["Hannah", "mother", "Joseph"],
+      ["Uzziah the Younger", "mother", "Naamah"],
+      ["Solomon 2", "spouse", "Ahaziah"],
+      ["Hannah", "spouse", "Eliakim"],
+      ["Boaz 2", "spouse", "Uzziah the Younger"],
+    ]));
+  it("keeps Judah's line beside Joash 2's unit, not under Jochebed and Leah: stopped before the next unit with children", () => {
+    const l = familyLayout(
+      graph([
+        ["Mahlon", "mother", "Uriah king of Judah"],
+        ["Jochebed", "father", "Joash"],
+        ["Joash 2", "father", "Joash"],
+        ["Joash 2", "mother", "Uriah king of Judah"],
+        ["Jochebed", "spouse", "Leah king of Judah"],
+        ["Noah", "father", "Joash 2"],
+        ["Noah", "mother", "Matthan"],
+        ["Ephraim the Gileadite", "spouse", "Noah"],
+        ["Judah", "father", "Joash"],
+        ["Judah", "mother", "Leah king of Judah"],
+      ]),
+    );
+    expect(problems(l)).toEqual([]);
+    expect(underLowerCouples(l)).toEqual([]);
+  });
 });
