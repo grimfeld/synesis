@@ -289,6 +289,17 @@ describe("Locale layout", () => {
         }
       });
 
+      it("keeps the sidebar's Folder tree inside the screen", () => {
+        // Folder rows carry a chevron, an icon, a name and a count, nested
+        // two deep, beside the group's "?" and "+" (PLAN §31).
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"] > [data-testid=folder-row]').click();
+        cy.get('[data-testid=folder-tree-note] [data-folder="Sermons/2026"] > [data-testid=folder-row]').click();
+        cy.contains("[data-testid=folder-tree-note] [data-testid=doc-item]", "Week 10").should("be.visible");
+        cy.get("[data-testid=sidebar-tutorial-note]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps a document and its side panel inside the screen", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=group-note]").click();

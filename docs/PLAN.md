@@ -1229,3 +1229,21 @@ The Timeline knew *when* but not *where*, the Map *where* but not *when* (§19.6
 ### Open
 
 - Containment is planar, in degrees. Fine at the scale of the Bible's regions; a Border crossing the antimeridian would need splitting.
+
+## 31. Folders for Notes and Compositions (issue #143)
+
+A Vault with hundreds of Notes, or a speaker's years of talks, became one long list in the sidebar, sorted by title, and a folder made by hand in `Notes/` was indexed but invisible as a folder. Issue #143, built in parts #146–#150. Vocabulary in [CONTEXT.md](../CONTEXT.md): **Folder**.
+
+This does not reopen §12's declined "Folder file tree as the sidebar": the sidebar stays grouped by type, and Folders arrange documents *within* the Notes and Compositions groups.
+
+### Decided
+
+1. **A Folder is a real directory** under the type's own folder (`Notes/Sermons/2026/x.md`), not a Property or an app-side list: Obsidian opens it as it is (ADR 0003), there is no new syntax, and folders made by hand appear for free. Only Notes and Compositions have Folders; Sources keep their Shelves, Clippings stay unlisted (ADR 0013), Hubs stay flat.
+2. **Arrangement only.** Nothing but the sidebar reads a Folder: no Folder filter in search, the Command Palette, the Graph, Home, Candidates or the Clippings view.
+3. **The tree** is drawn like the Source tree (§28.6): Folders first, then documents, both in natural order ("Week 2" before "Week 10"); a Folder's row counts the documents inside it, nested ones included. A chevron folds each; tapping a Folder only folds it, tapping a document opens it. Long names truncate with the full path in the tooltip, and the indent stops growing after four levels so labels keep room.
+4. **Open Folders are remembered per Device and per Vault** (local storage, never the Vault). Folders start folded; opening a document unfolds the Folders holding it, once: a Folder folded afterwards stays folded.
+5. **The engine lists the Folders** (`Vault::folders(type)`: nested and empty directories, relative to the type's folder), checked as every path is: hidden directories are skipped and a link is neither followed nor listed (#87). A Folder holding a document also appears from the document's own path, so the tree stands if the list is late.
+6. **A document outside its type's folder** (the Vault root, `Study/`) is listed in its group under its real path from the Vault root, in a Folder marked with a leading `/` (`/Study`, or `/` for the Vault root itself) listed after the type's own, so the sidebar never misstates where a file is.
+7. **Outside changes show within seconds.** The watcher reacts to directory events under `Notes/` and `Compositions/` (`Vault::folder_changed`): the documents under a Folder that went away are forgotten, those under one that appeared are indexed, each keeping its id, so a Folder renamed in Finder moves its documents rather than listing them twice.
+8. **Moves follow their Boards everywhere** (#146): every change of a document's path goes through one engine function, `relocate()`, so a Composition's Board and other Boards' cards follow a rename, and a move arriving from another Device; such a move also removes the Folders it emptied there, never one the user kept empty. Empty Folders are plain directories, not carried by Pairing.
+

@@ -9,3 +9,9 @@ hand, then empties the sections for the version after.
 - A Composition renamed or moved on one Device now brings its Board along on your other Devices,
   and other Boards' cards for it still open it. A folder the move left empty there is tidied away;
   a folder you made and kept empty is never removed.
+
+## Sidebar
+
+- Folders inside `Notes` and `Compositions` now show in the sidebar as a tree, with a count on each,
+  including folders you made in Finder, Explorer or Obsidian. They remember which ones you opened, and
+  opening a document unfolds the folders holding it.

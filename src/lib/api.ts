@@ -776,6 +776,11 @@ export interface ChangedPayload {
    * changes the app announces itself.
    */
   boards?: string[];
+  /**
+   * Folders inside Notes or Compositions that appeared, were renamed or went
+   * away outside the app (PLAN §31). Absent from the app's own changes.
+   */
+  folders?: string[];
 }
 
 /**
@@ -947,6 +952,11 @@ export const api = {
   listDocuments: (docType?: DocType) =>
     query<DocSummary[]>({ kind: "list", docType: docType ?? null }),
   getDocument: (id: string) => invoke<DocumentPayload>("get_document", { id }),
+  /**
+   * The Folders inside Notes or Compositions (PLAN §31), nested and empty
+   * ones included, as paths relative to the type's folder (`Sermons/2026`).
+   */
+  listFolders: (docType: "note" | "composition") => invoke<string[]>("list_folders", { docType }),
   saveDocument: (id: string, text: string) =>
     invoke<DocumentPayload>("save_document", { id, text }),
   createDocument: (
