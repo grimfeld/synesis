@@ -22,6 +22,10 @@ const SIDE_STEP = 6;
 const LANE_MARGIN = 8;
 /** Between two runs of lines crossing the same gap, at most. */
 const LANE_STEP = 8;
+/** A bar between two rows leaves and lands this far off the middle of a box (the middle is for the lines of one parent alone). */
+const BAR_OFF = 14;
+/** How much a partner in a row above counts, against a parent, in where a Character stands. */
+const PARTNER_PULL = 0.2;
 /** Closer than this, two lines read as one. */
 export const NEAR = 4;
 
@@ -134,6 +138,8 @@ export interface CoupleBar {
   y1: number;
   x2: number;
   y2: number;
+  /** The bar as drawn, from `a` to `b`: two points in one row, a path of lanes between two rows. */
+  points: [number, number][];
   dropX: number;
   dropY: number;
 }
@@ -161,6 +167,13 @@ export interface FamilyLayout {
 /** A width that holds the title at the view's font size, within reason. */
 export function defaultWidth(doc: DocSummary): number {
   return Math.max(84, Math.min(220, Math.round(doc.title.length * 7.2 + 28)));
+}
+
+/** Appends `v` to the list `map` holds at `k`. */
+function add<K, V>(map: Map<K, V[]>, k: K, v: V) {
+  const list = map.get(k);
+  if (list) list.push(v);
+  else map.set(k, [v]);
 }
 
 const pairKey = (a: string, b: string) => (a < b ? `${a}\0${b}` : `${b}\0${a}`);
@@ -238,8 +251,6 @@ export interface GapRun {
   downs: number[];
   /** From parents in two rows: it never runs under where another's line comes down. */
   cross: boolean;
-  /** From the sloping bar of parents in two rows to their way down: below every run that is not. */
-  head: boolean;
 }
 
 /**
@@ -247,8 +258,8 @@ export interface GapRun {
  * where another's line comes down goes below that run, and one passing over
  * where another's lines go on down goes above it, so lines cross as little as
  * they can; each run then takes the highest lane those allow that no run it
- * would overlap holds. A run from a sloping bar (`head`) goes below every
- * run that is not one. Asks that go round in a circle cannot all be met: in
+ * would overlap holds; one whose line goes on down where another's comes
+ * down goes below that one. Asks that go round in a circle cannot all be met: in
  * such a circle, a run from parents in two rows (`cross`) is first let go
  * below the others, so it never runs under where another's line comes down;
  * then only asks that keep such a run below another's line count; then none.
@@ -267,9 +278,13 @@ export function laneLevels(runs: GapRun[]): number[] {
         if (p.cross) firm[i].add(j);
       }
       if (q.downs.some((x) => inside(p, x))) above[j].add(i);
-      if (p.head && !q.head) {
+      // Its line going on down where another's comes down: below that one,
+      // so the two never run down together.
+      const apart = Math.min(Infinity, ...q.tops.flatMap((x) => p.downs.map((d) => Math.abs(d - x))));
+      if (apart < NEAR) {
         above[i].add(j);
-        firm[i].add(j);
+        // On top of one another, they would read as one line.
+        if (apart < NEAR / 2) firm[i].add(j);
       }
     }),
   );
@@ -344,6 +359,8 @@ interface Unit {
   width: number;
   /** Left edge of the unit. */
   x: number;
+  /** How many times it was turned round. */
+  turned: number;
 }
 
 /** Lay out every family in `g`, or, with `opts.focus`, that Character's line. */
@@ -366,7 +383,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
     ...new Set([g.father.get(c), g.mother.get(c)].filter((p): p is string => !!p && p !== c && g.docs.has(p))),
   ];
   const kids = new Map<string, string[]>();
-  for (const c of ids) for (const p of named(c)) kids.set(p, [...(kids.get(p) ?? []), c]);
+  for (const c of ids) for (const p of named(c)) add(kids, p, c);
   for (const list of kids.values()) list.sort(byTitle);
   const skippedTies = new Set<string>(); // `${parent}\0${child}`
   const state = new Map<string, 1 | 2>(); // 1: on the path, 2: done
@@ -398,7 +415,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
   for (const c of ids) {
     const ps = named(c).filter((p) => !skippedTies.has(`${p}\0${c}`));
     parentsOf.set(c, ps);
-    for (const p of ps) childrenOf.set(p, [...(childrenOf.get(p) ?? []), c]);
+    for (const p of ps) add(childrenOf, p, c);
   }
   const topo = finished.reverse(); // parents before children
 
@@ -414,8 +431,8 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
       return;
     }
     pairs.set(key, { a, b, named: isSpouse });
-    partners.set(a, [...(partners.get(a) ?? []), b]);
-    partners.set(b, [...(partners.get(b) ?? []), a]);
+    add(partners, a, b);
+    add(partners, b, a);
   };
   for (const id of ids) for (const s of g.spouses.get(id) ?? []) addPair(id, s, true);
   for (const c of ids) {
@@ -458,7 +475,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
   const rootGroups = new Map<string, string[]>();
   for (const id of roots) {
     const r = marriedRoots.find(id);
-    rootGroups.set(r, [...(rootGroups.get(r) ?? []), id]);
+    add(rootGroups, r, id);
   }
   /** Everyone descended from `from`. */
   const descendants = (from: string[]) => {
@@ -526,7 +543,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
   const families = new Map<string, string[]>();
   for (const id of ids) {
     const r = uf.find(id);
-    families.set(r, [...(families.get(r) ?? []), id]);
+    add(families, r, id);
   }
   const order = [...families.values()].sort((a, b) => b.length - a.length || byTitle(a[0], b[0]));
 
@@ -597,7 +614,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
           at.push(w);
           w += widthOf(g.docs.get(m)!) + COUPLE_GAP;
         }
-        const unit: Unit = { members: list, at, width: w - COUPLE_GAP, x: 0 };
+        const unit: Unit = { members: list, at, width: w - COUPLE_GAP, x: 0, turned: 0 };
         for (const m of list) unitOf.set(m, unit);
         units.push(unit);
       }
@@ -656,6 +673,10 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
             });
         }
       m.reverse();
+      u.turned++;
+      const r = rowOf.get(m[0])!;
+      lines_.delete(r);
+      lines_.delete(r + 1);
       let w = 0;
       u.at = m.map((id) => {
         const at = w;
@@ -677,7 +698,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
     const stagger = (list: [string, string, -1 | 1][]): [string, -1 | 1, number][] => {
       const groups = new Map<string, { k: string; dir: -1 | 1; at: number }[]>();
       for (const [a, b, dir] of list) {
-        const { low, at } = slope([a, b]);
+        const { low, at } = bar([a, b]);
         const g = `${unitOf.get(low)!.members[0]}\n${dir}`;
         const k = pairKey(a, b);
         if (!groups.has(g)) groups.set(g, []);
@@ -691,69 +712,117 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
     };
     /**
      * Two parents in different rows (Judah, and Tamar beside Er): the bar
-     * slopes from the bottom of the upper one's box to the top of the lower
-     * one's. Their children leave it low in the gap above the lower row (in a
-     * lane of that gap, see below; `at` is a quarter of the gap up), and go
-     * down just outside the lower parent's unit: never through a box of that
+     * leaves the bottom of the upper one's box a little off its middle
+     * (`sx`), goes down into the gap below, and on along a lane of the gap
+     * above the lower row to land a little off the middle of the lower one's
+     * box (`lx`): no slope across other lines and boxes. Parents more than a
+     * row apart: it first runs along a lane of the gap below the upper one to
+     * the way down beside the lower parent's unit, and down there. Their
+     * children leave the bar in the gap above the lower row and go down just
+     * outside the lower parent's unit (`x`): never through a box of that
      * row, nor through a gap a couple there hangs its own children from. The
-     * side is the one where the run from the bar passes over fewer boxes
-     * with a line of their own coming down (`over`), else the nearer one to
-     * `at`, until the first positions are found; from then on it stays
-     * (`side`, settled again should the final places make the other side
-     * better), and each child's centre is packed on it. Drawn, each child's
-     * line goes down on the side nearer the child (`dir`), so it never runs
-     * under the unit, unless that side passes over more such boxes. Several
-     * such pairs beside one side of a unit each go down a little further out
-     * (`nth`).
+     * side is the one where the bar passes over fewer boxes with a line of
+     * their own coming down (`over`), else the nearer one to where it comes
+     * from (`at`), until the first positions are found; from then on it
+     * stays (`side`, settled again should the final places make the other
+     * side better), and each child's centre is packed on it. Drawn, each
+     * child's line goes down on the side nearer the child (`dir`), so it
+     * never runs under the unit, unless that side passes over more such
+     * boxes. Several such pairs beside one side of a unit each go down a
+     * little further out (`nth`).
      */
     const side = new Map<string, { dir: -1 | 1; nth: number }>();
     const drawnAt = new Map<string, number>(); // `${pair}\n${dir}` → x, as drawn
-    const slope = (ps: string[], dir?: -1 | 1) => {
+    /** A little off the middle of `id`'s box, towards `x`. */
+    const offMiddle = (id: string, x: number, nth = 0) => {
+      const c = centerOf(id);
+      const w = widthOf(g.docs.get(id)!);
+      return c + (x < c ? -1 : 1) * Math.min(w / 2 - 4, BAR_OFF + nth * SIDE_STEP);
+    };
+    /** What `bar` found, until a unit moves or a side is settled (`moved`). */
+    let known = new Map<string, ReturnType<typeof barNow> & { ax: number; bx: number; ta: number; tb: number }>();
+    let settling = false;
+    let lines_ = new Map<number, { k: string; c: number; x: number | null }[]>();
+    const moved = () => {
+      known = new Map();
+      lines_ = new Map();
+    };
+    const bar = (ps: string[], dir?: -1 | 1) => {
+      // Placing moves units without a word: what it found holds while the two parents' units stay put.
+      const a = unitOf.get(ps[0])!;
+      const b = unitOf.get(ps[1])!;
+      const k = dir === undefined ? ps[0] + "\0" + ps[1] : ps[0] + "\0" + ps[1] + (dir < 0 ? "\n-" : "\n+");
+      let found = known.get(k);
+      if (!found || found.ax !== a.x || found.bx !== b.x || found.ta !== a.turned || found.tb !== b.turned)
+        known.set(k, (found = { ...barNow(ps, dir), ax: a.x, bx: b.x, ta: a.turned, tb: b.turned }));
+      return found;
+    };
+    const barNow = (ps: string[], dir?: -1 | 1) => {
       const [up, low] = rowOf.get(ps[0])! < rowOf.get(ps[1])! ? ps : [ps[1], ps[0]];
-      const from: [number, number] = [centerOf(up), rowY(rowOf.get(up)!) + BOX_HEIGHT];
-      const to: [number, number] = [centerOf(low), rowY(rowOf.get(low)!)];
-      const along = (y: number) => from[0] + ((to[0] - from[0]) * (y - from[1])) / (to[1] - from[1]);
-      const at = along(to[1] - ROW_GAP / 4);
+      const far = rowOf.get(low)! - rowOf.get(up)! > 1;
       const u = unitOf.get(low)!;
       const before = u.x - UNIT_GAP / 4;
       const after = u.x + u.width + UNIT_GAP / 4;
       const fixed = side.get(pairKey(up, low));
-      // Over the fewer boxes of the unit that have a line coming down to them
-      // (from where it leaves the bar, at the lowest), else the nearer side.
-      const leave = along(to[1] - LANE_MARGIN);
-      const over = (end: number) =>
-        u.members.filter((m) => {
-          const c = centerOf(m);
-          return parentsOf.get(m)!.length > 0 && c > Math.min(leave, end) && c < Math.max(leave, end);
-        }).length;
+      const sx = offMiddle(up, centerOf(low));
+      const at = far ? centerOf(up) : sx;
+      /** Where the bar comes into the gap above the lower row, going down on side `d`. */
+      const entry = (d: -1 | 1) => (far ? (d < 0 ? before : after) : sx);
+      const kids = (childrenOf.get(up) ?? []).some((c) => parentsOf.get(c)!.includes(low));
+      /** Boxes of the lower row with a line of their own coming down that the bar passes over, its children going down on side `d`. */
+      const passes = (d: -1 | 1) => {
+        const lx = offMiddle(low, entry(d));
+        const xs = kids ? [entry(d), lx, d < 0 ? before : after] : [entry(d), lx];
+        const [l, r] = [Math.min(...xs), Math.max(...xs)];
+        return linesInto(rowOf.get(low)!, l, r);
+      };
+      // (While placing before the sides are settled, only the nearer: weighing the lines each passes is slow.)
       const natural = (): -1 | 1 =>
-        (over(before) - over(after) || Math.abs(at - before) - Math.abs(at - after)) < 0 ? -1 : 1;
+        ((settling ? passes(-1) - passes(1) : 0) || Math.abs(at - before) - Math.abs(at - after)) < 0 ? -1 : 1;
       const d = dir ?? fixed?.dir ?? natural();
       const x =
         (dir === undefined ? undefined : drawnAt.get(`${pairKey(up, low)}\n${dir}`)) ??
         (d < 0 ? before : after) + d * (fixed?.nth ?? 0) * SIDE_STEP;
-      const passes = (way: -1 | 1) => over(way < 0 ? before : after);
-      return {
-        up,
-        low,
-        from,
-        to,
-        along,
-        at,
-        x,
-        dir: d,
-        before,
-        after,
-        passes,
-        over: Math.min(passes(-1), passes(1)),
-      };
+      return { up, low, far, at, x, dir: d, before, after, passes, over: () => Math.min(passes(-1), passes(1)) };
+    };
+    /**
+     * What a run between `l` and `r` across the gap above `row` costs in
+     * lines coming down into that row it would cross: each one once, and one
+     * coming straight down (no run of its own to pass under) as ten.
+     */
+    const linesInto = (row: number, l: number, r: number, but = "") => {
+      let into = lines_.get(row);
+      if (!into) {
+        // Each child in the row: its parents, its middle, and where its line leaves them (none for parents in two rows).
+        into = rows[row].flatMap((m) => {
+          const ps = parentsOf.get(m)!;
+          if (!ps.length) return [];
+          return [{ k: ps.join("\0"), c: centerOf(m), x: crossRow(ps) ? null : drop(ps) }];
+        });
+        lines_.set(row, into);
+      }
+      let n = 0;
+      const seen = new Set<string>([but]);
+      const inside = (x: number) => x > l && x < r;
+      for (const { k, c, x } of into) {
+        if (seen.has(k)) continue;
+        if (x === null) {
+          if (inside(c)) n++;
+          continue;
+        }
+        if (Math.abs(x - c) < 0.5 && inside(x)) n += 10;
+        else if (inside(x) || inside(c)) n++;
+        // The rest of its children: crossed at most once more, under its run.
+        if (inside(x)) seen.add(k);
+      }
+      return n;
     };
     const crossRow = (ps: string[]) => ps.length === 2 && ps[0] !== ps[1] && rowOf.get(ps[0]) !== rowOf.get(ps[1]);
     /** The x a child of these parents goes down at: the bar between them, or the one parent's box. */
     const drop = (ps: string[]): number => {
       const [a, b] = ps;
       if (b === undefined || a === b) return centerOf(a);
-      if (crossRow(ps)) return slope(ps).x;
+      if (crossRow(ps)) return bar(ps).x;
       const u = unitOf.get(a)!;
       const slot = slots.get(pairKey(a, b));
       // Two in one row are always in one unit; should they not be, midway.
@@ -772,13 +841,30 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
       u.members.forEach((m, i) => {
         const ps = parentsOf.get(m)!;
         if (!crossRow(ps)) return;
-        const { low, dir } = slope(ps);
+        const { low, dir, x } = bar(ps);
         const v = unitOf.get(low)!;
         const half = u.at[i] + widthOf(g.docs.get(m)!) / 2;
         if (dir > 0) lo = Math.max(lo, v.x + v.width - half);
         else hi = Math.min(hi, v.x - half);
+        // …and before the next unit with a line coming down, in that row
+        // and the row above the child's: its run there passes under none.
+        for (const r of new Set([rowOf.get(low)!, rowOf.get(m)! - 1])) {
+          const f = fence(r, x, dir);
+          if (dir > 0) hi = Math.min(hi, f - half);
+          else lo = Math.max(lo, f - half);
+        }
       });
       return [lo, hi];
+    };
+    /** The near edge of the nearest unit of row `r` past `x` on side `d` with a line coming down from it. */
+    const fence = (r: number, x: number, d: -1 | 1) => {
+      let best = d > 0 ? Infinity : -Infinity;
+      for (const w of rowUnits[r]) {
+        if (!w.members.some((m) => childrenOf.get(m)?.length)) continue;
+        if (d > 0 && w.x > x && w.x < best) best = w.x;
+        if (d < 0 && w.x + w.width < x && w.x + w.width > best) best = w.x + w.width;
+      }
+      return best;
     };
     /** Room left and right of a unit for the lines of more than one pair going down on that side. */
     const room = new Map<Unit, [number, number]>();
@@ -793,6 +879,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
         lohi.map((b, i) => b[1] - pad[i][0]),
       );
       units.forEach((u, i) => (u.x = xs[i] + pad[i][0]));
+      lines_ = new Map();
     };
     const packed = (units: Unit[]) => {
       let x = 0;
@@ -800,37 +887,64 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
         u.x = x;
         x += u.width + UNIT_GAP;
       }
+      moved();
     };
     /** Under its parents: the mean of what each member's parents ask for. */
     const wantUp = (u: Unit): number | null => {
-      const asks: number[] = [];
+      let [sum, weight] = [0, 0];
       u.members.forEach((m, i) => {
         const ps = parentsOf.get(m)!;
-        if (ps.length) asks.push(drop(ps) - u.at[i] - widthOf(g.docs.get(m)!) / 2);
+        const mid = u.at[i] + widthOf(g.docs.get(m)!) / 2;
+        if (ps.length) [sum, weight] = [sum + drop(ps) - mid, weight + 1];
+        // A little towards a partner in a row above, where the bar between them comes from.
+        for (const p of partners.get(m) ?? [])
+          if (rowOf.has(p) && rowOf.get(p)! < rowOf.get(m)!)
+            [sum, weight] = [sum + (centerOf(p) - mid) * PARTNER_PULL, weight + PARTNER_PULL];
       });
-      return asks.length ? asks.reduce((s, x) => s + x, 0) / asks.length : null;
+      return weight ? sum / weight : null;
     };
     /** Over its children: each drop point over the middle of the children hanging from it. */
-    const wantDown = (u: Unit): number | null => {
-      const groups = new Map<string, { ps: string[]; xs: number[] }>();
+    /** A unit's children, by the parents they name (two parents in the unit counted once); `up`: the upper of parents in two rows. */
+    const broods = new Map<Unit, { ps: string[]; kids: string[]; up: string | null }[]>();
+    const broodsOf = (u: Unit) => {
+      let list = broods.get(u);
+      if (list) return list;
+      const byKey = new Map<string, { ps: string[]; kids: string[]; up: string | null }>();
       for (const m of u.members)
         for (const c of childrenOf.get(m) ?? []) {
           const ps = parentsOf.get(c)!;
-          // Two parents in this unit: counted once, from the first of them.
           if (ps.find((p) => unitOf.get(p) === u) !== m) continue;
-          // Parents in two rows: their children go down beside the lower
-          // parent's unit, wherever the upper one stands; the upper one
-          // following them would chase them forever.
-          if (crossRow(ps) && slope(ps).up === m) continue;
           const key = ps.join("\0");
-          let grp = groups.get(key);
-          if (!grp) groups.set(key, (grp = { ps, xs: [] }));
-          grp.xs.push(centerOf(c));
+          let b = byKey.get(key);
+          const up = crossRow(ps) && rowOf.get(m)! < rowOf.get(ps.find((p) => p !== m)!)! ? m : null;
+          if (!b) byKey.set(key, (b = { ps, kids: [], up }));
+          b.kids.push(c);
         }
-      const asks = [...groups.values()].map(
-        ({ ps, xs }) => (Math.min(...xs) + Math.max(...xs)) / 2 - (drop(ps) - u.x),
-      );
-      return asks.length ? asks.reduce((s, x) => s + x, 0) / asks.length : null;
+      broods.set(u, (list = [...byKey.values()]));
+      return list;
+    };
+    const wantDown = (u: Unit): number | null => {
+      let [sum, n] = [0, 0];
+      for (const { ps, kids, up } of broodsOf(u)) {
+        // Parents in two rows: their children go down beside the lower
+        // parent's unit, wherever the upper one stands (the upper one
+        // following them would chase them forever); the upper one is drawn
+        // towards where its bar goes instead, which it does not move.
+        if (up) {
+          const { far, x, low } = bar(ps);
+          sum += (far ? x : centerOf(low)) - (centerOf(up) - u.x);
+        } else {
+          let [lo, hi] = [Infinity, -Infinity];
+          for (const c of kids) {
+            const x = centerOf(c);
+            if (x < lo) lo = x;
+            if (x > hi) hi = x;
+          }
+          sum += (lo + hi) / 2 - (drop(ps) - u.x);
+        }
+        n++;
+      }
+      return n ? sum / n : null;
     };
 
     // Order: the top row by title, then each row by where its parents stand,
@@ -850,6 +964,9 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
 
     // Positions: parents over their children, children under their parents.
     const place = (bounded: boolean) => {
+      // Eight passes, or fewer once a pass leaves every unit where the last one did.
+      const all = rowUnits.flat();
+      let was = all.map((u) => u.x);
       for (let it = 0; it < 8; it++) {
         for (let r = rowUnits.length - 2; r >= 0; r--)
           pack(
@@ -863,21 +980,28 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
             rowUnits[r].map((u) => wantUp(u) ?? u.x),
             bounded,
           );
+        const now = all.map((u) => u.x);
+        if (now.every((x, i) => Math.abs(x - was[i]) < 0.5)) break;
+        was = now;
       }
     };
     place(false);
-    const sloping = [...pairs.values()]
+    const acrossRows = [...pairs.values()]
       .filter(({ a, b }) => rowOf.has(a) && crossRow([a, b]))
       .map(({ a, b }) => [a, b]);
     /** A unit a pair in two rows comes down to turned round when its lines would then pass over fewer boxes with a line of their own coming down. */
     const turnAll = () => {
       for (const u of rowUnits.flat()) {
-        const mine = sloping.filter((ps) => unitOf.get(slope(ps).low) === u);
-        if (u.members.length < 2 || !mine.length) continue;
-        const over = () => mine.reduce((n, ps) => n + slope(ps).over, 0);
+        if (u.members.length < 2) continue;
+        const mine = acrossRows.filter((ps) => ps.some((p) => unitOf.get(p) === u));
+        if (!mine.length) continue;
+        const over = () => mine.reduce((n, ps) => n + bar(ps).over(), 0);
+        // Turning the unit of the upper parent moves its own lines too: only
+        // to spare a line coming straight down.
+        const need = mine.some((ps) => unitOf.get(bar(ps).low) === u) ? 1 : 10;
         const was = over();
         turn(u);
-        if (over() >= was) turn(u);
+        if (over() > was - need) turn(u);
       }
     };
     // From there, each pair in two rows keeps the side its children go down
@@ -888,23 +1012,40 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
     // it with its neighbour that way, and the rows are placed again. Should
     // the new places make the other side of a pair's unit the better one
     // (`over`), it is settled again, a few times at most.
-    for (let round = 0; round < 3; round++) {
+    for (let round = 0; round < 2; round++) {
       const was = new Map(side);
       side.clear();
+      moved();
+      settling = true;
       turnAll();
-      const settled = sloping.map(([a, b]): [string, string, -1 | 1] => {
-        const s = slope([a, b]);
+      const settled = acrossRows.map(([a, b]): [string, string, -1 | 1] => {
+        const s = bar([a, b]);
         const kept = was.get(pairKey(a, b))?.dir;
         // A side kept unless the other is strictly better.
         const better = kept !== undefined && s.passes(kept) <= s.passes(s.dir) ? kept : s.dir;
         return [a, b, better];
       });
       for (const [k, dir, nth] of stagger(settled)) side.set(k, { dir, nth });
+      moved();
+      // Room beside a unit for the ways down of pairs on one side, and for
+      // their children in the row below to stand there, before the next unit.
       room.clear();
+      const besides = new Map<string, Set<Unit>>();
+      for (const c of members) {
+        const ps = parentsOf.get(c)!;
+        if (!crossRow(ps)) continue;
+        const { low, dir } = bar(ps);
+        if (rowOf.get(c) !== rowOf.get(low)! + 1) continue;
+        const at = `${low}\n${dir}`;
+        besides.set(at, (besides.get(at) ?? new Set()).add(unitOf.get(c)!));
+      }
       for (const [k, { dir, nth }] of side) {
-        const u = unitOf.get(slope(k.split("\0")).low)!;
+        const { low } = bar(k.split("\0"));
+        const u = unitOf.get(low)!;
+        const kids = [...(besides.get(`${low}\n${dir}`) ?? [])];
+        const wide = kids.reduce((w, c) => w + c.width, 0) + (kids.length - 2) * UNIT_GAP;
         const r = room.get(u) ?? [0, 0];
-        r[dir < 0 ? 0 : 1] = Math.max(r[dir < 0 ? 0 : 1], nth * SIDE_STEP);
+        r[dir < 0 ? 0 : 1] = Math.max(r[dir < 0 ? 0 : 1], nth * SIDE_STEP, wide);
         room.set(u, r);
       }
       if (round > 0 && [...side].every(([k, { dir }]) => was.get(k)?.dir === dir)) break;
@@ -917,7 +1058,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
         rowUnits[r].splice(0, rowUnits[r].length, ...keyed.map((x) => x.u));
       }
       place(true);
-      for (let tries = 0; tries < 8; tries++) {
+      for (let tries = 0; tries < 4; tries++) {
         let moved = false;
         for (const row of rowUnits)
           for (let i = 0; i < row.length; i++) {
@@ -938,6 +1079,7 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
     const x0 = Math.min(...all.map((u) => u.x));
     const x1 = Math.max(...all.map((u) => u.x + u.width));
     for (const u of all) u.x += left - x0;
+    moved();
 
     for (const m of members) {
       const w = widthOf(g.docs.get(m)!);
@@ -953,61 +1095,68 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
       });
     }
     // Lines: from the bar (or the one parent's box) down to a run across
-    // the gap above the child's row, along it, and down to the child; a child
-    // of parents in two rows first runs from the bar to its way down. Runs of
+    // the gap above the child's row, along it, and down to the child. Runs of
     // different parents that would overlap in one gap each get a lane of their
-    // own (`laneLevels`), spread about the middle of the gap, or down to its
-    // foot when a run from a sloping bar crosses it: two lines on one run
-    // would read as one family.
+    // own (`laneLevels`), spread about the middle of the gap: two lines on one
+    // run would read as one family. A bar between two rows runs along lanes
+    // too, like a line.
     const keyOf = (ps: string[]) => (ps.length === 2 ? pairKey(ps[0], ps[1]) : ps[0]);
     /** A run across a gap: from where its line comes down (`tops`) to where its lines go on down (`downs`). */
-    type Run = GapRun & {
-      gap: number;
-      k: string;
-      along?: (y: number) => number;
-    };
+    type Run = GapRun & { gap: number; k: string };
     const runs = new Map<string, Run>();
-    const extend = (gap: number, k: string, top: number[], down: number[], span: number[] = []) => {
-      const xs = [...top, ...down, ...span];
+    const extend = (gap: number, k: string, top: number[], down: number[], cross = false) => {
+      const xs = [...top, ...down];
       const [a, b] = [Math.min(...xs), Math.max(...xs)];
       const run = runs.get(`${gap}\n${k}`);
-      if (!run)
-        runs.set(`${gap}\n${k}`, {
-          gap,
-          k,
-          a,
-          b,
-          tops: top,
-          downs: down,
-          cross: false,
-          head: false,
-        });
+      if (!run) runs.set(`${gap}\n${k}`, { gap, k, a, b, tops: top, downs: down, cross });
       else {
         [run.a, run.b] = [Math.min(run.a, a), Math.max(run.b, b)];
         run.tops.push(...top);
         run.downs.push(...down);
+        run.cross ||= cross;
       }
     };
     const gapTop = (r: number) => rowY(r) - ROW_GAP;
     // Each child of parents in two rows: the side of the lower unit nearer to it.
     const way = new Map<string, -1 | 1>();
-    const going: [string, string, -1 | 1][] = [];
+    const going = new Map<string, Set<-1 | 1>>(); // pair → the sides its bar or children go down
+    for (const ps of acrossRows) going.set(pairKey(ps[0], ps[1]), new Set([bar(ps).dir]));
     for (const c of members) {
       const ps = parentsOf.get(c)!;
       if (!crossRow(ps)) continue;
-      const { before, after, passes } = slope(ps);
+      const { before, after, passes } = bar(ps);
       const cx = centerOf(c);
       const near = Math.abs(cx - before) <= Math.abs(cx - after) ? -1 : 1;
-      // The other side, should the nearer one pass over more boxes with a line coming down to them.
-      way.set(c, passes(near) > passes(-near as -1 | 1) ? (-near as -1 | 1) : near);
-      going.push([ps[0], ps[1], way.get(c)!]);
+      // The other side, should the nearer one cross more lines, from the bar and on to the child.
+      const cost = (d: -1 | 1) => {
+        const x = d < 0 ? before : after;
+        return passes(d) + linesInto(rowOf.get(c)!, Math.min(x, cx), Math.max(x, cx), ps.join("\0"));
+      };
+      const other = -near as -1 | 1;
+      way.set(c, cost(near) > cost(other) ? other : near);
+      going.get(keyOf(ps))!.add(way.get(c)!);
     }
     // Each way down beside a unit: further out than the one before it on that
     // side, and clear of every other line going down through the same gaps
     // (a few pixels apart, two lines read as one) and of every box it passes.
     const verticals = new Map<number, { x: number; k: string }[]>(); // gap → the lines down through it
     const through = (from: number, to: number, x: number, k: string) => {
-      for (let r = from; r <= to; r++) verticals.set(r, [...(verticals.get(r) ?? []), { x, k }]);
+      for (let r = from; r <= to; r++) {
+        add(verticals, r, { x, k });
+        const list = sortedDown.get(r);
+        if (list) {
+          let i = list.length;
+          while (i > 0 && list[i - 1].x > x) i--;
+          list.splice(i, 0, { x, k });
+        }
+      }
+    };
+    /** The lines down through gap `r`, by x (kept until another is added). */
+    const sortedDown = new Map<number, { x: number; k: string }[]>();
+    const downIn = (r: number) => {
+      let list = sortedDown.get(r);
+      if (!list) sortedDown.set(r, (list = [...(verticals.get(r) ?? [])].sort((p, q) => p.x - q.x)));
+      return list;
     };
     const deepest = new Map<string, number>(); // `${pair}\n${dir}` → the lowest row of its children that way
     for (const c of members) {
@@ -1019,134 +1168,216 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
         deepest.set(at, Math.max(deepest.get(at) ?? 0, rowOf.get(c)!));
       } else through(Math.max(...ps.map((p) => rowOf.get(p)!)) + 1, rowOf.get(c)!, drop(ps), keyOf(ps));
     }
+    /** `x` a few pixels from every other line going down through gaps `top` to `bottom`, and from every box of rows `top` to `bottom - 1`. */
+    const clearAt = (top: number, bottom: number, k: string, x: number) => {
+      for (let r = top; r <= bottom; r++) {
+        const list = downIn(r);
+        let [i, j] = [0, list.length];
+        while (i < j) {
+          const h = (i + j) >> 1;
+          if (list[h].x < x - NEAR) i = h + 1;
+          else j = h;
+        }
+        for (; i < list.length && list[i].x <= x + NEAR; i++) if (list[i].k !== k) return false;
+      }
+      for (let r = top; r < bottom; r++)
+        for (const w of rowUnits[r])
+          if (x > w.x - NEAR && x < w.x + w.width + NEAR)
+            if (
+              w.members.some((m, i) => x >= w.x + w.at[i] - NEAR && x <= w.x + w.at[i] + widthOf(g.docs.get(m)!) + NEAR)
+            )
+              return false;
+      return true;
+    };
     let last = { group: "", off: 0 };
-    for (const [k, dir, nth] of stagger(going)) {
+    const ways = [...going].flatMap(([k, dirs]) =>
+      [...dirs].map((d): [string, string, -1 | 1] => [...(k.split("\0") as [string, string]), d]),
+    );
+    for (const [k, dir] of stagger(ways)) {
       const { a, b } = pairs.get(k)!;
-      const { low } = slope([a, b]);
+      const { low } = bar([a, b]);
       const u = unitOf.get(low)!;
-      const [top, bottom] = [rowOf.get(low)!, deepest.get(`${k}\n${dir}`)!];
+      const top = rowOf.get(low)!;
+      const bottom = Math.max(rowOf.get(low)!, deepest.get(`${k}\n${dir}`) ?? 0);
       const edge = dir < 0 ? u.x : u.x + u.width;
       const group = `${u.members[0]}\n${dir}`;
-      const others: { x: number; k: string }[] = [];
-      for (let r = top; r <= bottom; r++) others.push(...(verticals.get(r) ?? []));
-      const clear = (x: number) =>
-        others.every((v) => v.k === k || Math.abs(v.x - x) > NEAR) &&
-        rowUnits
-          .slice(top, bottom)
-          .flat()
-          .every((w) => w.members.every((m, i) => x < w.x + w.at[i] - NEAR || x > w.x + w.at[i] + widthOf(g.docs.get(m)!) + NEAR));
-      const first = nth === 0 || last.group !== group ? UNIT_GAP / 4 : last.off + SIDE_STEP;
+      const clear = (x: number) => clearAt(top, bottom, k, x);
+      const first = last.group !== group ? UNIT_GAP / 4 : last.off + SIDE_STEP;
       let off = first;
-      for (let tries = 0; tries < 8 && !clear(edge + dir * off); tries++) off += SIDE_STEP / 2;
+      for (let tries = 0; tries < 24 && !clear(edge + dir * off); tries++) off += SIDE_STEP / 2;
       if (!clear(edge + dir * off)) off = first;
       last = { group, off };
       drawnAt.set(`${k}\n${dir}`, edge + dir * off);
+      moved();
       through(top, bottom, edge + dir * off, k);
     }
+    // The bar of parents more than a row apart comes down through the rows
+    // between them where it crosses fewest lines on its way there and on to
+    // the lower parent, clear of their boxes and lines, nearest where its
+    // children go down.
+    const downThrough = new Map<string, number>();
+    for (const ps of acrossRows) {
+      const { up, low, far, dir } = bar(ps);
+      if (!far) continue;
+      const k = pairKey(ps[0], ps[1]);
+      const [top, bottom] = [rowOf.get(up)! + 1, rowOf.get(low)!];
+      const px = bar(ps, dir).x;
+      const sx = offMiddle(up, px);
+      const cost = (x: number) => {
+        const lx = offMiddle(low, x);
+        return linesInto(top, Math.min(sx, x), Math.max(sx, x)) + linesInto(bottom, Math.min(x, lx), Math.max(x, lx));
+      };
+      // Free stretches of the rows between, from `lo` to `hi`: off every box and other line there.
+      const freeIn = (lo: number, hi: number) => {
+        const blocked: [number, number][] = [];
+        for (let r = top; r < bottom; r++)
+          for (const w of rowUnits[r])
+            if (w.x - NEAR < hi && w.x + w.width + NEAR > lo)
+              w.members.forEach((m, i) =>
+                blocked.push([w.x + w.at[i] - NEAR, w.x + w.at[i] + widthOf(g.docs.get(m)!) + NEAR]),
+              );
+        for (let r = top; r <= bottom; r++) {
+          const list = downIn(r);
+          let [i, j] = [0, list.length];
+          while (i < j) {
+            const h = (i + j) >> 1;
+            if (list[h].x < lo - NEAR) i = h + 1;
+            else j = h;
+          }
+          for (; i < list.length && list[i].x - NEAR < hi; i++)
+            if (list[i].k !== k) blocked.push([list[i].x - NEAR, list[i].x + NEAR]);
+        }
+        blocked.sort((p, q) => p[0] - q[0]);
+        const free: [number, number][] = [];
+        let from = lo;
+        for (const [l, r] of blocked) {
+          if (l > from) free.push([from, Math.min(l, hi)]);
+          from = Math.max(from, r);
+        }
+        if (from < hi) free.push([from, hi]);
+        return free;
+      };
+      let best: [number, number] | null = null; // [cost, x]
+      const pick = (free: [number, number][]) => {
+        for (const [l, r] of free) {
+          if (r - l < 1) continue;
+          const inner = (x: number) => Math.max(l + 0.5, Math.min(r - 0.5, x));
+          for (const x of new Set([inner(px), inner(sx), inner(l + 0.5), inner(r - 0.5)])) {
+            const c = cost(x) * 1000 + Math.abs(x - px);
+            if (!best || c < best[0]) best = [c, x];
+          }
+        }
+      };
+      // Near where its children go down, or where it leaves; else anywhere.
+      pick(freeIn(px - 4 * UNIT_GAP, px + 4 * UNIT_GAP));
+      pick(freeIn(sx - 4 * UNIT_GAP, sx + 4 * UNIT_GAP));
+      if (!best) {
+        const span = rowUnits.slice(top, bottom).flat();
+        pick(
+          freeIn(
+            Math.min(px, ...span.map((w) => w.x)) - UNIT_GAP,
+            Math.max(px, ...span.map((w) => w.x + w.width)) + UNIT_GAP,
+          ),
+        );
+      }
+      const x = best?.[1] ?? px;
+      downThrough.set(k, x);
+      through(top, bottom, x, k);
+    }
     /** Where the line to `c` goes down from its parents. */
-    const downAt = (c: string, ps: string[]) => (crossRow(ps) ? slope(ps, way.get(c)).x : drop(ps));
+    const downAt = (c: string, ps: string[]) => (crossRow(ps) ? bar(ps, way.get(c)).x : drop(ps));
+    // Each bar between two rows: where it leaves and lands, a little apart from another's on the same box.
+    const ends = new Map<string, { sx: number; xv: number; entry: number; lx: number }>();
+    {
+      const leaving = new Map<string, { k: string; to: number }[]>();
+      const landing = new Map<string, { k: string; from: number }[]>();
+      const xv = (ps: string[]) => downThrough.get(pairKey(ps[0], ps[1])) ?? bar(ps, bar(ps).dir).x;
+      for (const ps of acrossRows) {
+        const { up, low, far } = bar(ps);
+        const x = xv(ps);
+        const k = pairKey(ps[0], ps[1]);
+        add(leaving, up, { k, to: far ? x : centerOf(low) });
+      }
+      const nth = new Map<string, number>();
+      for (const [id, list] of leaving) {
+        list.sort((p, q) => p.to - q.to);
+        const c = centerOf(id);
+        const left = list.filter((p) => p.to < c).reverse();
+        const right = list.filter((p) => p.to >= c);
+        for (const side of [left, right]) side.forEach((p, i) => nth.set(`${p.k}\nup`, i));
+      }
+      for (const ps of acrossRows) {
+        const { up, low, far } = bar(ps);
+        const x = xv(ps);
+        const k = pairKey(ps[0], ps[1]);
+        const sx = offMiddle(up, far ? x : centerOf(low), nth.get(`${k}\nup`));
+        const entry = far ? x : sx;
+        add(landing, low, { k, from: entry });
+        ends.set(k, { sx, xv: x, entry, lx: 0 });
+      }
+      for (const [id, list] of landing) {
+        const c = centerOf(id);
+        const left = list.filter((p) => p.from < c).sort((p, q) => q.from - p.from);
+        const right = list.filter((p) => p.from >= c).sort((p, q) => p.from - q.from);
+        for (const side of [left, right]) side.forEach((p, i) => (ends.get(p.k)!.lx = offMiddle(id, p.from, i)));
+      }
+    }
+    for (const ps of acrossRows) {
+      const { up, low, far } = bar(ps);
+      const k = pairKey(ps[0], ps[1]);
+      const { sx, xv, entry, lx } = ends.get(k)!;
+      if (far) extend(rowOf.get(up)! + 1, k, [sx], [xv], true);
+      else through(rowOf.get(low)!, rowOf.get(low)!, sx, k);
+      through(rowOf.get(low)!, rowOf.get(low)!, lx, k);
+      extend(rowOf.get(low)!, k, [entry], [lx], true);
+    }
     for (const c of members) {
       const ps = parentsOf.get(c)!;
       if (!ps.length) continue;
-      extend(rowOf.get(c)!, keyOf(ps), [downAt(c, ps)], [centerOf(c)]);
-      if (crossRow(ps)) {
-        runs.get(`${rowOf.get(c)!}\n${keyOf(ps)}`)!.cross = true;
-        // From where it leaves the bar to its way down: in the gap above the
-        // lower row, below every other run there (the bar crosses the whole
-        // gap; low down, it is nearest the lower parent).
-        const { low, along, x } = slope(ps, way.get(c));
-        extend(rowOf.get(low)!, keyOf(ps), [], [x]);
-        Object.assign(runs.get(`${rowOf.get(low)!}\n${keyOf(ps)}`)!, {
-          cross: true,
-          head: true,
-          along,
-        });
-      }
+      extend(rowOf.get(c)!, keyOf(ps), [downAt(c, ps)], [centerOf(c)], crossRow(ps));
+      if (crossRow(ps)) extend(rowOf.get(bar(ps).low)!, keyOf(ps), [], [downAt(c, ps)], true);
     }
     const lane = new Map<string, number>();
     const byGap = new Map<number, Run[]>();
-    for (const run of runs.values()) byGap.set(run.gap, [...(byGap.get(run.gap) ?? []), run]);
+    for (const run of runs.values()) add(byGap, run.gap, run);
     for (const [gap, list] of byGap) {
-      const live = list.filter((r) => r.head || r.b - r.a >= 0.5); // The rest go straight down.
-      const heads = live.filter((r) => r.head);
+      const live = list.filter((r) => r.b - r.a >= 0.5); // The rest go straight down.
+      live.sort((p, q) => p.a - q.a || p.b - q.b || (p.k < q.k ? -1 : 1));
+      const level = laneLevels(live);
+      const n = Math.max(0, ...level) + 1;
+      const step = n > 1 ? Math.min(LANE_STEP, (ROW_GAP - 2 * LANE_MARGIN) / (n - 1)) : 0;
       const mid = gapTop(gap) + ROW_GAP / 2;
-      // Lanes spread about the middle of the gap, or, with runs from sloping
-      // bars, down to its foot: there they are nearest the lower parent.
-      const ys = (level: number[]) => {
-        const n = Math.max(0, ...level) + 1;
-        const step = n > 1 ? Math.min(LANE_STEP, (ROW_GAP - 2 * LANE_MARGIN) / (n - 1)) : 0;
-        const low = heads.length ? gapTop(gap) + ROW_GAP - LANE_MARGIN : mid + ((n - 1) / 2) * step;
-        return level.map((l) => low - (n - 1 - l) * step);
-      };
-      // A run from the bar is as long as the lane it gets: first as if in
-      // the lowest lane, then grown to wherever it lands until it fits, or
-      // else as long as anywhere in the gap.
-      const reach = (r: Run, y: number) => [r.along!(y), ...r.downs];
-      const fit = (r: Run, xs: number[]) => {
-        [r.a, r.b] = [Math.min(r.a, ...xs), Math.max(r.b, ...xs)];
-      };
-      for (const r of heads) {
-        [r.a, r.b] = [Math.min(...r.downs), Math.max(...r.downs)];
-        fit(r, reach(r, gapTop(gap) + ROW_GAP - LANE_MARGIN));
-      }
-      let level: number[] = [];
-      for (let round = 0; ; round++) {
-        // Runs from sloping bars last, lowest the one that would soonest
-        // reach another's line coming down, were it higher (it grows longer
-        // the higher it is).
-        const foot = gapTop(gap) + ROW_GAP - LANE_MARGIN;
-        const stems = list.filter((r) => !r.head).flatMap((r) => r.tops);
-        const margin = (r: Run) => {
-          if (!r.head) return Infinity;
-          const [x0, x1] = [r.along!(foot), r.along!(foot - 1)];
-          const ahead = stems.filter((x) => (x - x0) * (x1 - x0) > 0 && !(x > r.a + 0.5 && x < r.b - 0.5));
-          return Math.min(1e6, ...ahead.map((x) => Math.abs(x - x0) / (Math.abs(x1 - x0) || 1e-9)));
-        };
-        const rank = new Map(live.map((r) => [r, margin(r)]));
-        live.sort((p, q) => rank.get(q)! - rank.get(p)! || p.a - q.a || p.b - q.b || (p.k < q.k ? -1 : 1));
-        level = laneLevels(live);
-        // Runs from sloping bars restacked from the foot up, the one with
-        // least room first, each in the lowest lane it overlaps no run in.
-        const above = Math.max(-1, ...live.map((r, i) => (r.head ? -1 : level[i])));
-        const bottom = Math.max(0, ...level);
-        const stack = live.map((_, i) => i).filter((i) => live[i].head);
-        stack.sort((i, j) => rank.get(live[i])! - rank.get(live[j])! || i - j);
-        for (const i of stack) level[i] = -1;
-        for (const i of stack) {
-          const clear = (k: number) => live[k].b + UNIT_GAP / 4 < live[i].a || live[i].b + UNIT_GAP / 4 < live[k].a;
-          let lv = Math.max(bottom, above + 1);
-          while (lv > above + 1 && level.some((l, k) => l === lv && !clear(k))) lv--;
-          while (level.some((l, k) => l === lv && !clear(k))) lv++;
-          level[i] = lv;
-        }
-        const y = ys(level);
-        const short = live.filter((r, i) => r.head && reach(r, y[i]).some((x) => x < r.a - 0.5 || x > r.b + 0.5));
-        if (!short.length) break;
-        for (const r of short)
-          if (round < 3) fit(r, reach(r, y[live.indexOf(r)]));
-          else fit(r, [...reach(r, gapTop(gap) + LANE_MARGIN), ...reach(r, gapTop(gap) + ROW_GAP - LANE_MARGIN)]);
-      }
-      const y = ys(level);
       for (const run of list) lane.set(`${gap}\n${run.k}`, mid);
-      live.forEach((run, i) => lane.set(`${gap}\n${run.k}`, y[i]));
+      live.forEach((run, i) => lane.set(`${gap}\n${run.k}`, mid + (level[i] - (n - 1) / 2) * step));
     }
     const laneOf = (gap: number, ps: string[]) => lane.get(`${gap}\n${keyOf(ps)}`) ?? gapTop(gap) + ROW_GAP / 2;
 
     for (const { a, b, named: isSpouse } of pairs.values()) {
       if (!rowOf.has(a)) continue;
       if (crossRow([a, b])) {
-        const { up, low, from, to, along } = slope([a, b]);
+        const { up, low, far } = bar([a, b]);
+        const { sx, xv, entry, lx } = ends.get(pairKey(a, b))!;
         const y = laneOf(rowOf.get(low)!, [a, b]);
-        const [p, q] = up === a ? [from, to] : [to, from];
+        const points: [number, number][] = [[sx, rowY(rowOf.get(up)!) + BOX_HEIGHT]];
+        if (far) {
+          const y1 = laneOf(rowOf.get(up)! + 1, [a, b]);
+          points.push([sx, y1], [xv, y1]);
+        }
+        points.push([entry, y], [lx, y], [lx, rowY(rowOf.get(low)!)]);
+        if (up !== a) points.reverse();
+        // Children hang from where the bar comes into the lower gap, or the nearest point to their way down.
+        const px = bar([a, b], bar([a, b]).dir).x;
+        const dropX = Math.max(Math.min(entry, lx), Math.min(Math.max(entry, lx), px));
         couples.push({
           a,
           b,
           named: isSpouse,
-          x1: p[0],
-          y1: p[1],
-          x2: q[0],
-          y2: q[1],
-          dropX: along(y),
+          x1: points[0][0],
+          y1: points[0][1],
+          x2: points.at(-1)![0],
+          y2: points.at(-1)![1],
+          points,
+          dropX,
           dropY: y,
         });
         continue;
@@ -1154,9 +1385,8 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
       const ya = rowY(rowOf.get(a)!) + BOX_HEIGHT / 2;
       const yb = rowY(rowOf.get(b)!) + BOX_HEIGHT / 2;
       const [l, r] = leftOf(a) <= leftOf(b) ? [a, b] : [b, a];
-      const same = ya === yb;
-      const x1b = same ? leftOf(l) + widthOf(g.docs.get(l)!) : centerOf(l);
-      const x2b = same ? leftOf(r) : centerOf(r);
+      const x1b = leftOf(l) + widthOf(g.docs.get(l)!);
+      const x2b = leftOf(r);
       couples.push({
         a,
         b,
@@ -1165,6 +1395,10 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
         y1: l === a ? ya : yb,
         x2: x2b,
         y2: l === a ? yb : ya,
+        points: [
+          [x1b, ya],
+          [x2b, yb],
+        ],
         dropX: drop([a, b]),
         dropY: (ya + yb) / 2,
       });
@@ -1179,12 +1413,17 @@ export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLa
       let head: [number, number][];
       if (ps.length === 1) head = [[px, rowY(rowOf.get(ps[0])!) + BOX_HEIGHT]];
       else if (crossRow(ps)) {
-        const { low, along } = slope(ps);
-        const y = laneOf(rowOf.get(low)!, ps);
-        head = [
-          [along(y), y],
-          [px, y],
-        ];
+        // From the bar's run above the lower row: straight down where it passes, else along from its nearer end.
+        const { entry, lx } = ends.get(keyOf(ps))!;
+        const y = laneOf(rowOf.get(bar(ps).low)!, ps);
+        const [l, r] = [Math.min(entry, lx), Math.max(entry, lx)];
+        head =
+          px >= l && px <= r
+            ? [[px, y]]
+            : [
+                [px < l ? l : r, y],
+                [px, y],
+              ];
       } else head = [[px, rowY(rowOf.get(ps[0])!) + BOX_HEIGHT / 2]];
       lines.push({
         child: c,
