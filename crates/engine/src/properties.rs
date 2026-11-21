@@ -74,16 +74,20 @@ pub const BUILTIN: &[(&str, PropertyType)] = &[
     // from (PLAN §23.10).
     ("duration", PropertyType::Number),
     ("end", PropertyType::Date),
+    // Kinship (ADR 0024): stored once, on the child or on either spouse.
+    ("father", PropertyType::Link),
     ("kind", PropertyType::Text),
     ("lat", PropertyType::Number),
     ("locator", PropertyType::Text),
     ("lon", PropertyType::Number),
     ("modern_name", PropertyType::Text),
+    ("mother", PropertyType::Link),
     ("occasion", PropertyType::Text),
     ("parent", PropertyType::Link),
     ("place", PropertyType::Link),
     ("places", PropertyType::List),
     ("source", PropertyType::Link),
+    ("spouses", PropertyType::List),
     ("start", PropertyType::Date),
     ("url", PropertyType::Text),
 ];

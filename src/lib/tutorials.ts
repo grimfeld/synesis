@@ -150,6 +150,7 @@ export const FEATURE_TUTORIALS = [
   "versions",
   "delivery",
   "hubs",
+  "family-tree",
   "timeline",
   "map",
   "graph",
@@ -222,7 +223,8 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         if (SCRIPTURE.includes(place.type)) return ["passages", "hubs", "pictures"];
         if (place.type === "source") return ["library", "clippings", ...base];
         if (place.type === "place" || place.type === "journey") return ["map", ...base];
-        if (place.type === "event" || place.type === "character") return ["timeline", ...base];
+        if (place.type === "character") return ["family-tree", "timeline", ...base];
+        if (place.type === "event") return ["timeline", ...base];
         return base;
       }
     }

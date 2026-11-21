@@ -384,6 +384,27 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Jacob's Family is the longest the demo vault holds: four Spouses, his
+      // children under four mothers ("Avec Zilpah"), "Frères et sœurs" with
+      // "Par Isaac et Rebekah", and "Judah (son of Jacob)" as a chip. A
+      // Kinship warning is the longest line the section can carry.
+      it("keeps a Character's Family section inside the screen", () => {
+        cy.openDoc("Jacob", { exact: true });
+        cy.get("[data-testid=hub-family]").scrollIntoView().should("be.visible");
+        cy.get("[data-testid=family-child-group]").should("have.length", 4);
+        expectNoOverflow();
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Nahor",
+          fields: { father: ["[[Terah]]", "[[Jerusalem]]"] },
+          body: "",
+        });
+        cy.openApp();
+        cy.openDoc("Nahor", { exact: true });
+        cy.get("[data-testid=family-warning]").should("have.length", 2);
+        expectNoOverflow();
+      });
+
       it("keeps Unlinked mentions and Linkables inside the screen", () => {
         // "Mentions non liées" and its hint are the longest strings either
         // section carries, and the rows end in a Link button that must not

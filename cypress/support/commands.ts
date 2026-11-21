@@ -11,8 +11,13 @@ declare global {
       openApp(): Chainable<void>;
       /** Open the Command Palette (Ctrl/⌘K) and type a query. */
       palette(query: string): Chainable<JQuery<HTMLElement>>;
-      /** Navigate to a document by title through the palette. */
-      openDoc(title: string): Chainable<void>;
+      /**
+       * Navigate to a document by title through the palette. By default the
+       * first hit containing `title` is clicked; `exact` clicks only a hit
+       * whose name is `title` itself, so "Jacob" never lands on "Judah (son of
+       * Jacob)" however the hits are ranked.
+       */
+      openDoc(title: string, opts?: { exact?: boolean }): Chainable<void>;
       /**
        * Open a document by title from the sidebar's Search button, which
        * works where ⌘K cannot be pressed (Cypress on macOS, #115).
@@ -116,14 +121,19 @@ Cypress.Commands.add("palette", (query) => {
  * the "New · <query>" item holds the typed title too and shows before the
  * search answers, so a plain `[cmdk-item]` match could land on it.
  */
-function pickDoc(title: string) {
-  cy.contains("[data-testid=palette] [data-testid=palette-doc]", title).click();
+function pickDoc(title: string, exact = false) {
+  if (exact)
+    cy.get("[data-testid=palette] [data-testid=palette-doc-name]")
+      .filter((_, el) => el.textContent?.trim() === title)
+      .first()
+      .click();
+  else cy.contains("[data-testid=palette] [data-testid=palette-doc]", title).click();
   cy.get("[data-testid=palette]").should("not.exist");
 }
 
-Cypress.Commands.add("openDoc", (title) => {
+Cypress.Commands.add("openDoc", (title, opts) => {
   cy.palette(title);
-  pickDoc(title);
+  pickDoc(title, opts?.exact);
 });
 
 Cypress.Commands.add("searchDoc", (title) => {

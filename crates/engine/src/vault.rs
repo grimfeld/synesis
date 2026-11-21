@@ -1494,6 +1494,7 @@ impl Vault {
             Query::EventsNaming { id } => Answer::Docs(self.index.events_naming(&id)?),
             Query::EventLinks => Answer::EventLinks(self.index.event_links()?),
             Query::PlaceTies { id } => Answer::PlaceTies(self.index.place_ties(id.as_deref())?),
+            Query::Kinship => Answer::Kinship(self.index.kinship()?),
             Query::TimelineTags => Answer::DocTags(self.index.timeline_tags()?),
             Query::Journeys => Answer::Journeys(self.index.journeys()?),
             Query::PlaceFacts => Answer::PlaceFacts(self.index.place_facts()?),
@@ -1894,6 +1895,41 @@ mod tests {
         let data = dir.path().join(".data");
         let v = Vault::open(dir.path().join("."), &data, Lang::En).unwrap();
         (dir, v)
+    }
+
+    #[test]
+    fn a_father_the_schema_types_as_text_still_yields_its_edge() {
+        // ADR 0006: the schema file wins over built-ins; ADR 0024: the Kinship
+        // query reads the links in the value whatever the type.
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Characters")).unwrap();
+        fs::write(
+            dir.path().join("Characters/Isaac.md"),
+            "---\ntype: character\n---\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Characters/Jacob.md"),
+            "---\ntype: character\nfather: \"[[Isaac]]\"\n---\n",
+        )
+        .unwrap();
+        v.set_property_type("father", PropertyType::Text).unwrap();
+        v.scan().unwrap();
+        assert_eq!(v.property_schema().type_of("father"), PropertyType::Text);
+        let k = match v.query(Query::Kinship).unwrap() {
+            Answer::Kinship(k) => k,
+            other => panic!("{other:?}"),
+        };
+        let edges: Vec<_> = k
+            .edges
+            .iter()
+            .map(|e| (e.character.title.as_str(), e.relation, e.kin.title.as_str()))
+            .collect();
+        assert_eq!(
+            edges,
+            vec![("Jacob", crate::kinship::Relation::Father, "Isaac")]
+        );
+        assert!(k.warnings.is_empty());
     }
 
     #[test]

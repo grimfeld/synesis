@@ -14,6 +14,7 @@ pub mod document;
 pub mod excerpt;
 pub mod gazetteer;
 pub mod index;
+pub mod kinship;
 pub mod meta;
 pub mod names;
 #[cfg(feature = "p2p")]

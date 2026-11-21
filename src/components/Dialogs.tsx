@@ -1542,7 +1542,7 @@ function Palette({
                         onSelect={() => go(d.id)}
                       >
                         <TypeDot type={d.type} />
-                        <span className="truncate font-medium">{d.label}</span>
+                        <span data-testid="palette-doc-name" className="truncate font-medium">{d.label}</span>
                         <EventDate doc={d} />
                       </CommandItem>
                     ))}
@@ -1558,7 +1558,7 @@ function Palette({
                         onSelect={() => go(n.id)}
                       >
                         <TypeDot type={n.type} />
-                        <span className="truncate font-medium">{n.name}</span>
+                        <span data-testid="palette-doc-name" className="truncate font-medium">{n.name}</span>
                         {(() => {
                           // Title hits come from the name index, which carries
                           // no Dates; the summary cache does.
@@ -1586,7 +1586,7 @@ function Palette({
                       >
                         <TypeDot type={h.doc.type} className="mt-1.5" />
                         <span className="min-w-0 flex-1">
-                          <span className="font-medium">{h.doc.label}</span>
+                          <span data-testid="palette-doc-name" className="font-medium">{h.doc.label}</span>
                           <EventDate doc={h.doc} className="ml-2" />
                           {h.snippet && (
                             <span className="ml-2 text-xs text-muted-foreground [&_mark]:bg-transparent [&_mark]:font-semibold [&_mark]:text-foreground">

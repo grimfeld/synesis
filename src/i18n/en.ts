@@ -150,6 +150,30 @@ export const en = {
   ties_characters: "Characters here",
   ties_places: "Places",
   tie_lifelong: "Whole life",
+  /** A Character's Hub, Family section (ADR 0024). */
+  family: {
+    title: "Family",
+    father: "Father",
+    mother: "Mother",
+    spouses: "Spouses",
+    children: "Children",
+    siblings: "Siblings",
+    /** An empty Father or Mother slot. */
+    not_named: "Not named",
+    /** Children grouped under the other parent each names. */
+    with_other: (name: string) => `With ${name}`,
+    mother_not_named: "Mother not named",
+    father_not_named: "Father not named",
+    /** Siblings grouped by the parents they share. */
+    through: (names: string) => `Through ${names}`,
+    and: " and ",
+    warn_not_character: (property: string, target: string) =>
+      `${property} names ${target}, which is not a Character. It is left out of the family.`,
+    warn_two_values: (property: string, targets: string) =>
+      `${property} holds more than one link (${targets}). A Character has only one, so neither is shown.`,
+    warn_cycle: (path: string) =>
+      `This Character is their own ancestor: ${path}. Those ties are left out of the family.`,
+  },
   start: "Start",
   end: "End",
   versions: "Versions",
@@ -206,16 +230,19 @@ export const en = {
     died: "Died",
     duration: "Duration (minutes)",
     end: "End",
+    father: "Father",
     kind: "Kind",
     lat: "Latitude",
     locator: "Locator",
     lon: "Longitude",
     modern_name: "Modern name",
+    mother: "Mother",
     occasion: "Occasion",
     parent: "Part of",
     place: "Place",
     places: "Places",
     source: "Source",
+    spouses: "Spouses",
     start: "Start",
     url: "URL",
   },
