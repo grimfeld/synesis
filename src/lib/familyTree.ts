@@ -893,6 +893,22 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
       for (const u of rowUnits.flat()) {
         if (u.members.length < 2) continue;
         const mine = acrossRows.filter((ps) => ps.some((p) => unitOf.get(p) === u));
+        // Two members each under the other's parents: their lines would run
+        // down one another (an X no lane can part). Turned round, each stands
+        // under their own.
+        const crossed = () =>
+          u.members.some((m) =>
+            u.members.some((n) => {
+              const [pm, pn] = [parentsOf.get(m)!, parentsOf.get(n)!];
+              if (m === n || !pm.length || !pn.length || crossRow(pm) || crossRow(pn)) return false;
+              return Math.abs(drop(pm) - centerOf(n)) < NEAR && Math.abs(drop(pn) - centerOf(m)) < NEAR;
+            }),
+          );
+        if (crossed()) {
+          turn(u);
+          if (crossed()) turn(u);
+          else continue;
+        }
         if (!mine.length) continue;
         const over = () => mine.reduce((n, ps) => n + bar(ps).over(), 0);
         // Turning the unit of the upper parent moves its own lines too: only
