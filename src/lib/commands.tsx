@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { useHasKin } from "@/lib/useHasKin";
 import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
@@ -142,6 +143,11 @@ export function useCommands(): Command[] {
   const importBorder = useImportBorder();
   const drawBorder = useDrawBorder();
   const regionIds = useRegionIds();
+  // Read only while a Character is open, so no other view pays for it.
+  const readingId = s.view.kind === "doc" ? s.view.id : null;
+  const characterHasKin = useHasKin(readingId, {
+    enabled: !!readingId && s.docsById.get(readingId)?.type === "character",
+  });
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -295,6 +301,17 @@ export function useCommands(): Command[] {
         keywords: "graph local neighbours links connections network",
         run: () => s.navigate({ kind: "graph", focus: id }),
       });
+      // The Family tree focused on this Character (#155): only on a Character
+      // with kin, as the Hub's button (`useHasKin`, one rule for both).
+      if (characterHasKin)
+        list.push({
+          id: "doc.show_in_family_tree",
+          title: t.family_tree.show_in,
+          group: "navigate",
+          icon: Network,
+          keywords: "family tree genealogy ancestors descendants parents children kin kinship",
+          run: () => s.navigate({ kind: "family-tree", focus: id }),
+        });
     }
     // The Board of the Composition being read. Named "Board" per the glossary,
     // with "mind map" in the keywords so the palette finds it either way.
@@ -471,7 +488,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds, characterHasKin]);
 }
 
 /**
@@ -504,6 +521,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.split",
     "doc.deliver",
     "doc.local_graph",
+    "doc.show_in_family_tree",
     "board.export",
     "doc.duplicate",
     "doc.capture",

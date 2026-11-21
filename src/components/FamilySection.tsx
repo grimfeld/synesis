@@ -6,7 +6,7 @@
 // `mother`, never anything on this Character. Nothing is written but by a
 // pick, a clear, a remove or Add child.
 import { useCallback, useMemo, useState, type ComponentProps, type ReactNode } from "react";
-import { CircleAlert, Plus, X } from "lucide-react";
+import { CircleAlert, Network, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "cn";
 import { api, type DocSummary, type DocumentPayload, type KinshipWarning } from "@/lib/api";
@@ -25,7 +25,8 @@ import {
 } from "@/lib/kinship";
 import { joinFrontmatter, readField, removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { live } from "@/lib/live";
-import { useQuery } from "@/lib/useQuery";
+import { useHasKin } from "@/lib/useHasKin";
+import { useKinship } from "@/lib/useKinship";
 import { useStore } from "@/lib/store";
 import { propertyLabel, useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
@@ -434,6 +435,27 @@ function warningText(w: KinshipWarning, t: Dict): string {
   }
 }
 
+/**
+ * The Hub header's "Show in Family tree" button (#155): the Family tree
+ * focused on this Character. Only on a Character with kin: one with none
+ * would open on an empty tree.
+ */
+export function FamilyTreeButton({ id, mtime }: { id: string; mtime: number }) {
+  const s = useStore();
+  const t = useT();
+  const hasKin = useHasKin(id, { mtime });
+  if (!hasKin) return null;
+  return (
+    <IconButton
+      label={t.family_tree.show_in}
+      data-testid="hub-family-tree"
+      onClick={() => s.navigate({ kind: "family-tree", focus: id })}
+    >
+      <Network />
+    </IconButton>
+  );
+}
+
 export function FamilySection({
   doc,
   fm,
@@ -445,13 +467,9 @@ export function FamilySection({
 }) {
   const t = useT();
   const id = doc.summary.id;
-  const { data } = useQuery({
-    key: ["kinship", id, doc.summary.mtime],
-    // Any page can become, or stop being, the Character a link names: a
-    // Character retyped to a Note leaves the type lists, so no list will do.
-    deps: { any: true },
-    fetch: () => api.kinship(),
-  });
+  // Any page can become, or stop being, the Character a link names: a
+  // Character retyped to a Note leaves the type lists, so no list will do.
+  const { data } = useKinship({ key: [id, doc.summary.mtime] });
   const graph = useMemo(() => (data ? kinGraph(data) : null), [data]);
   const family = useMemo(() => (graph ? familyOf(graph, id) : null), [graph, id]);
   // The spouses this Character's own file names: the ones it can remove.

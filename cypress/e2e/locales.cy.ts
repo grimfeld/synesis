@@ -453,6 +453,30 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // The focused Family tree (#155) at 390px: "Arbre généalogique : Judah (son
+      // of Jacob)" in the header, the search box, "Ancêtres" and "Descendants"
+      // with their selects and "Tout le monde" in the toolbar, then the card with
+      // the longest title in the demo's tree, "Recentrer ici" and "Ouvrir la page".
+      it("keeps the focused Family tree's generation controls and card inside the screen", () => {
+        cy.openDoc("Judah (son of Jacob)", { exact: true });
+        cy.get("[data-testid=hub-family-tree]").click();
+        cy.get("[data-testid=family-tree]").should("have.attr", "data-focus");
+        cy.get("[data-testid=family-tree-up]").should("be.visible");
+        cy.get("[data-testid=family-tree-down]").should("be.visible");
+        cy.get("[data-testid=family-tree-everyone]").should("be.visible");
+        cy.get("[data-testid=family-tree-search]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=family-tree-person][data-focus=true]").click();
+        cy.get("[data-testid=family-tree-card]").should("be.visible");
+        cy.get("[data-testid=family-tree-card-open]").should("be.visible");
+        expectNoOverflow();
+        // Closed first: over Judah's box, it may cover his father's.
+        cy.get("[data-testid=family-tree-card-close]").click();
+        cy.docByTitle("Jacob").then((jacob) => cy.get(`[data-testid=family-tree-person][data-id="${jacob.id}"]`).click());
+        cy.get("[data-testid=family-tree-card-focus]").should("be.visible");
+        expectNoOverflow();
+      });
+
       // Editing Kinship (#152) at 390px: the Character picker opens as the
       // phone Sheet with "Créer le Personnage « … »" for a long name, and Add
       // child asks "Qui est … pour … : le père ou la mère ?" with two buttons

@@ -400,10 +400,10 @@ describe("Family tree", () => {
     cy.get("[data-testid=family-tree-counts]").should("contain", "Characters").and("contain", "1 family");
   });
 
-  it("opens from the sidebar, and a person opens their Hub", () => {
+  it("opens from the sidebar, and a double-click on a person opens their Hub", () => {
     cy.get("[data-testid=nav-family-tree]").click();
     cy.get("[data-testid=family-tree]").should("be.visible");
-    ids("Jacob").then(([jacob]) => person(jacob).click());
+    ids("Jacob").then(([jacob]) => person(jacob).dblclick());
     cy.hubTitle("Jacob");
   });
 
@@ -456,7 +456,8 @@ describe("Family tree", () => {
     cy.get("[data-testid=family-tree]").should("be.visible");
   });
 
-  it("opens a person's Hub with Enter after the drawing was dragged", () => {
+  // #154 opened the Hub on Enter; since #155 Enter opens the card, as a click does.
+  it("opens a person's card with Enter after the drawing was dragged", () => {
     cy.runCommand("Go to Family tree");
     cy.get("[data-testid=family-tree]")
       .trigger("pointerdown", 20, 20, { pointerId: 1, button: 0, pointerType: "mouse" })
@@ -469,6 +470,8 @@ describe("Family tree", () => {
       cy.focused().should("have.attr", "data-id", jacob);
     });
     cy.press(Cypress.Keyboard.Keys.ENTER);
+    ids("Jacob").then(([jacob]) => cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob));
+    cy.get("[data-testid=family-tree-card-open]").click();
     cy.hubTitle("Jacob");
   });
 
@@ -521,5 +524,253 @@ describe("Family tree", () => {
     cy.get("[data-testid=family-tree]").should("not.exist");
     cy.get("[data-testid=family-tree-empty-tutorial]").click();
     cy.get("[data-testid=tutorial-body]").should("have.attr", "data-id", "family-tree");
+  });
+});
+
+// The Family tree focused on one Character (#155): ancestors above,
+// descendants below, spouses beside, 3 generations each way by default.
+describe("Family tree focused on a Character", () => {
+  beforeEach(() => cy.openApp());
+
+  const person = (id: string) => cy.get(`[data-testid=family-tree-person][data-id="${id}"]`);
+  const ids = (...titles: string[]) =>
+    cy
+      .query<{ id: string; title: string }[]>({ kind: "list", docType: "character" })
+      .then((docs) => titles.map((t) => docs.find((d) => d.title === t)!.id));
+  const drawn = () =>
+    cy.get("[data-testid=family-tree-person]").then(($p) => [...$p].map((p) => p.getAttribute("data-id")!));
+  const choose = (which: "up" | "down", value: string) => {
+    cy.get(`[data-testid=family-tree-${which}]`).click();
+    cy.get(`[data-testid=family-tree-${which}-${value}]`).click();
+  };
+
+  it("opens from the Hub's button on Jacob's line, 3 up and 3 down", () => {
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").click();
+    ids("Jacob", "Isaac", "Abraham", "Terah", "Joseph", "Leah", "Esau", "Ishmael").then(
+      ([jacob, isaac, abraham, terah, joseph, leah, esau, ishmael]) => {
+        cy.get("[data-testid=family-tree]")
+          .should("have.attr", "data-focus", jacob)
+          .and("have.attr", "data-up", "3")
+          .and("have.attr", "data-down", "3");
+        person(jacob).should("have.attr", "data-focus", "true");
+        // Ancestors above, descendants below, spouses beside.
+        for (const id of [isaac, abraham, terah, joseph, leah]) person(id).should("have.length", 1);
+        person(isaac).invoke("attr", "data-generation").then((g) =>
+          person(jacob).should("have.attr", "data-generation", String(Number(g) + 1)),
+        );
+        person(leah).invoke("attr", "data-generation").then((g) => person(jacob).should("have.attr", "data-generation", g));
+        // Not his line: a brother, an uncle.
+        person(esau).should("not.exist");
+        person(ishmael).should("not.exist");
+      },
+    );
+  });
+
+  it("changes the generations each way, and Everyone returns to the global view", () => {
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").click();
+    ids("Isaac", "Abraham", "Terah", "Joseph").then(([isaac, abraham, terah, joseph]) => {
+      choose("up", "1");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-up", "1");
+      person(isaac).should("exist");
+      person(abraham).should("not.exist");
+      choose("down", "1");
+      person(joseph).should("exist");
+      choose("up", "all");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-up", "all");
+      person(terah).should("exist");
+      // Generations change the view in place: Back leaves the tree for the Hub.
+      cy.runCommand("Back");
+      cy.hubTitle("Jacob");
+      cy.runCommand("Forward");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-up", "all").and("have.attr", "data-down", "1");
+    });
+    cy.get("[data-testid=family-tree-everyone]").click();
+    cy.get("[data-testid=family-tree]").should("not.have.attr", "data-focus");
+    cy.get("[data-testid=family-tree-up]").should("not.exist");
+    cy.get("[data-testid=family-tree-counts]").should("contain", "1 family");
+  });
+
+  it("Show in Family tree focuses on the Character, and Back returns to the previous focus", () => {
+    cy.openDoc("Joseph", { exact: true });
+    cy.runCommand("Show in Family tree");
+    ids("Joseph", "Jacob").then(([joseph, jacob]) => {
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", joseph);
+      // The card's Focus here moves the focus, a new step of history.
+      person(jacob).click();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob);
+      cy.get("[data-testid=family-tree-card-name]").should("have.text", "Jacob");
+      cy.get("[data-testid=family-tree-card-focus]").click();
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", jacob);
+      cy.get("[data-testid=family-tree-card]").should("not.exist");
+      cy.runCommand("Back");
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", joseph);
+    });
+  });
+
+  it("offers no Family tree on a Character with no kin, button or Command", () => {
+    // First on Jacob, both offered: Kinship has been read, so the absences
+    // below are answers, not a query still on its way.
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").should("be.visible");
+    cy.palette(">Show in Family tree");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain.text", "Show in Family tree");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=palette]").should("not.exist");
+    cy.openDoc("Paul", { exact: true });
+    cy.hubTitle("Paul");
+    cy.get("[data-testid=hub-family]").should("be.visible");
+    cy.get("[data-testid=hub-family-tree]").should("not.exist");
+    // One rule for both: the Command is not offered either.
+    cy.palette(">Show in Family tree");
+    cy.get("[data-testid=palette] [cmdk-item]").should("not.contain.text", "Show in Family tree");
+  });
+
+  it("says why a focused tree is empty when its Character's kin were removed since", () => {
+    cy.bridge("create_document", { docType: "character", title: "Shelah", fields: { father: "[[Judah (son of Jacob)]]" }, body: "" });
+    cy.openApp();
+    cy.openDoc("Shelah", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").click();
+    cy.get("[data-testid=family-tree]").should("be.visible");
+    // Back on the Hub, clear the one tie, and return to the tree as history has it.
+    cy.runCommand("Back");
+    cy.hubTitle("Shelah");
+    cy.get("[data-testid=family-father-clear]").click();
+    characterFile("Shelah").should("not.match", /^father:/m);
+    cy.get("[data-testid=hub-family-tree]").should("not.exist");
+    cy.runCommand("Forward");
+    cy.get("[data-testid=family-tree-no-kin]").should("contain", "Shelah");
+    cy.get("[data-testid=family-tree-everyone]").click();
+    cy.get("[data-testid=family-tree]").should("be.visible");
+  });
+
+  it("moves the focus into a card opened by Enter, and back to the person on Escape", () => {
+    cy.runCommand("Go to Family tree");
+    ids("Jacob").then(([jacob]) => {
+      person(jacob).focus();
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get("[data-testid=family-tree-card]").should("not.exist");
+      cy.focused().should("have.attr", "data-id", jacob);
+      // Escape on the person, the card left open, closes it too.
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.get("[data-testid=family-tree-card]").should("exist");
+      person(jacob).focus();
+      cy.press(Cypress.Keyboard.Keys.ESC);
+      cy.get("[data-testid=family-tree-card]").should("not.exist");
+      // Enter again on the person of a card already open, the focus gone out
+      // of it (cy.press takes no Shift, so the focus is moved by hand): the
+      // card takes the focus again.
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
+      person(jacob).focus();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob);
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
+    });
+  });
+
+  it("refocuses with Enter on Focus here, the focus on the new focus's box", () => {
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").click();
+    ids("Joseph").then(([joseph]) => {
+      person(joseph).focus();
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", joseph);
+      cy.get("[data-testid=family-tree-card]").should("not.exist");
+      cy.focused().should("have.attr", "data-id", joseph);
+    });
+  });
+
+  it("opens a card with the name, the Span and the actions; Open Hub opens the Hub", () => {
+    cy.runCommand("Go to Family tree");
+    ids("Isaac").then(([isaac]) => {
+      person(isaac).click();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", isaac);
+      cy.get("[data-testid=family-tree-card-name]").should("have.text", "Isaac");
+      // Every demo Character is dated: the Span as written.
+      cy.get("[data-testid=family-tree-card-span]").should("contain", "–");
+      cy.get("[data-testid=family-tree-card-close]").click();
+      cy.get("[data-testid=family-tree-card]").should("not.exist");
+      person(isaac).click();
+      cy.get("[data-testid=family-tree-card-open]").click();
+      cy.hubTitle("Isaac");
+    });
+  });
+
+  it("draws an undated Character like a dated one, with no Span on the card", () => {
+    cy.bridge("create_document", { docType: "character", title: "Shelah", fields: { father: "[[Judah (son of Jacob)]]" }, body: "" });
+    cy.openApp();
+    cy.runCommand("Go to Family tree");
+    ids("Shelah", "Judah (son of Jacob)").then(([shelah, judah]) => {
+      person(shelah).should("have.length", 1);
+      cy.get(`[data-testid=family-tree-line][data-child="${shelah}"]`).should("have.attr", "data-parents", judah);
+      person(shelah).find("rect").invoke("attr", "height").then((h) => person(judah).find("rect").should("have.attr", "height", h));
+      person(shelah).click();
+      cy.get("[data-testid=family-tree-card-name]").should("have.text", "Shelah");
+      cy.get("[data-testid=family-tree-card-span]").should("not.exist");
+      cy.get("[data-testid=family-tree-card-focus]").should("be.visible");
+    });
+  });
+
+  it("opens the card with a tap at phone width", () => {
+    cy.viewport(390, 844);
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").click();
+    ids("Joseph").then(([joseph]) => {
+      person(joseph).click();
+      cy.get("[data-testid=family-tree-card]").should("be.visible").and("have.attr", "data-id", joseph);
+      cy.get("[data-testid=family-tree-card]").then(($c) => {
+        const r = $c[0].getBoundingClientRect();
+        expect(r.left).to.be.at.least(0);
+        expect(r.right).to.be.at.most(390);
+      });
+      cy.get("[data-testid=family-tree-card-focus]").click();
+      cy.get("[data-testid=family-tree]").should("have.attr", "data-focus", joseph);
+    });
+  });
+
+  it("centres the view on the Character chosen in the search box", () => {
+    cy.runCommand("Go to Family tree");
+    ids("Benjamin").then(([benjamin]) => {
+      cy.get("[data-testid=family-tree-search]").type("benj");
+      cy.get(`[data-testid=family-tree-search-result][data-id="${benjamin}"]`).click();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", benjamin);
+      cy.get("[data-testid=family-tree]").then(($t) => {
+        const box = $t[0].getBoundingClientRect();
+        person(benjamin).should(($p) => {
+          const r = $p[0].getBoundingClientRect();
+          expect(r.left + r.width / 2).to.be.closeTo(box.left + box.width / 2, 2);
+          expect(r.top + r.height / 2).to.be.closeTo(box.top + box.height / 2, 2);
+        });
+      });
+      cy.get("[data-testid=family-tree-search]").type("Nobody here");
+      cy.get("[data-testid=family-tree-search-none]").should("be.visible");
+    });
+  });
+
+  it("picks the second search match with ArrowDown and Enter", () => {
+    cy.runCommand("Go to Family tree");
+    cy.get("[data-testid=family-tree-search]").type("a");
+    cy.get("[data-testid=family-tree-search]").should("have.attr", "aria-expanded", "true");
+    cy.get("[data-testid=family-tree-search-status]").should("contain", "matches");
+    cy.get("[data-testid=family-tree-search-result]")
+      .should("have.length.at.least", 2)
+      .eq(1)
+      .invoke("attr", "data-id")
+      .then((second) => {
+        cy.press(Cypress.Keyboard.Keys.DOWN);
+        cy.press(Cypress.Keyboard.Keys.DOWN);
+        cy.get("[data-testid=family-tree-search-result]").eq(1).should("have.attr", "aria-selected", "true");
+        cy.get("[data-testid=family-tree-search]").should("have.attr", "aria-activedescendant");
+        cy.press(Cypress.Keyboard.Keys.ENTER);
+        cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", second!);
+        cy.get("[data-testid=family-tree-search]").should("have.value", "");
+      });
   });
 });

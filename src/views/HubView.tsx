@@ -77,7 +77,7 @@ import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
 import { KindPicker } from "@/components/KindPicker";
 import { EventDate, TypeDot } from "@/components/DocLink";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
-import { FamilySection } from "@/components/FamilySection";
+import { FamilySection, FamilyTreeButton } from "@/components/FamilySection";
 import { RelationsSection } from "@/components/RelationsSection";
 import { IconButton } from "@/components/IconButton";
 import { PanelTitle } from "@/components/Field";
@@ -347,6 +347,9 @@ export function HubView({ id }: { id: string }) {
         </span>
         <PaneButtons />
         <TutorialButton place={{ kind: "hub", type }} />
+        {/* A Character's place in the Family tree (#155), at every width:
+            a Character's header has room for it on a phone. */}
+        {type === "character" && <FamilyTreeButton id={sum.id} mtime={sum.mtime} />}
         {/* Not on a phone, where a Source's header is full already: the
             "Open local graph" Command reaches it there. */}
         <IconButton

@@ -11,7 +11,7 @@ export type ViewKind = Exclude<View["kind"], "doc">;
 
 /**
  * The kinds that are nothing but their kind, so a saved layout restores them
- * as they are. A kind that carries data (`graph`'s focus) is restored by hand
+ * as they are. A kind that carries data (`graph`'s and `family-tree`'s focus) is restored by hand
  * in `panes.ts`. Computed from `View`, so it cannot fall out of step.
  */
 export type SimpleKind = {
@@ -44,7 +44,8 @@ export const VIEW_REGISTRY: { [K in ViewKind]: ViewEntry<K> } = {
   clippings: { icon: Quote, sidebar: true, order: 5, simple: true },
   map: { icon: MapPin, sidebar: true, order: 6, simple: true },
   // Last of the views: added after the others so their places stay put (#154).
-  "family-tree": { icon: Network, sidebar: true, order: 7, simple: true },
+  // It carries a focus (#155), so a saved layout restores it by hand, as `graph`.
+  "family-tree": { icon: Network, sidebar: true, order: 7, simple: false },
   settings: { icon: Settings, sidebar: false, order: 8, simple: true },
 };
 

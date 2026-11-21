@@ -84,6 +84,15 @@ function byTitle(a: DocSummary, b: DocSummary): number {
   return a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
 }
 
+/**
+ * Whether `id` has kin: names a father, mother or spouse, or is named so by
+ * someone. The one rule for being in the Family tree, for the Hub's tree
+ * button and for the Show in Family tree Command (#155).
+ */
+export function hasKin(k: Kinship, id: string): boolean {
+  return k.edges.some((e) => e.character.id === id || e.kin.id === id);
+}
+
 /** The Family section of `id`'s Hub. */
 export function familyOf(g: KinGraph, id: string): Family {
   const doc = (x: string | undefined) => (x ? (g.docs.get(x) ?? null) : null);

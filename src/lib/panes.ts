@@ -6,6 +6,7 @@
 // React so it is tested once (`test:unit`) — the `src/lib/split.ts` precedent.
 import { DEFAULT_RATIO, splitFits } from "./split";
 import { isSimpleKind } from "./views";
+import { generations, type Generations } from "./familyTree";
 
 /** Which face of a Composition is showing (PLAN §22.2). */
 export type DocTab = "talk" | "split" | "board";
@@ -20,8 +21,11 @@ export type View =
   | { kind: "map" }
   | { kind: "coverage" }
   | { kind: "timeline" }
-  /** Every family at once (PLAN §32). */
-  | { kind: "family-tree" }
+  /**
+   * Every family at once (PLAN §32), or, with `focus`, that Character's line:
+   * `up` and `down` generations each way, 3 when absent (#155).
+   */
+  | { kind: "family-tree"; focus?: string; up?: Generations; down?: Generations }
   | { kind: "settings" };
 
 export interface Pane {
@@ -55,6 +59,11 @@ export interface PanesState {
 export type PaneAction =
   /** Open `view` in the last-used Pane. */
   | { type: "open"; view: View; pane?: PaneIndex }
+  /**
+   * Show `view` in place of the Pane's view, as no step of its history: the
+   * same view with a setting changed (the Family tree's generations, #155).
+   */
+  | { type: "replace"; view: View; pane?: PaneIndex }
   /** Open `view` in the other Pane, opening it when there is only one. */
   | { type: "openInOther"; view: View }
   | { type: "back"; pane?: PaneIndex }
@@ -133,6 +142,7 @@ type Handlers = {
 
 const handlers: Handlers = {
   open: (s, a) => update(s, target(s, a), (p) => navigate(p, a.view)),
+  replace: (s, a) => update(s, target(s, a), (p) => ({ ...p, view: a.view })),
   back: (s, a) => update(s, target(s, a), (p) => travel(p, "back")),
   forward: (s, a) => update(s, target(s, a), (p) => travel(p, "forward")),
   openInOther(s, a) {
@@ -198,13 +208,25 @@ export function savedLayout(s: PanesState): SavedLayout | null {
 /** A saved view, or Home when it names a document that is gone; null if it is not a view. */
 function restoreView(raw: unknown, exists: (id: string) => boolean): View | null {
   if (!raw || typeof raw !== "object") return null;
-  const v = raw as { kind?: unknown; id?: unknown; focus?: unknown };
+  const v = raw as { kind?: unknown; id?: unknown; focus?: unknown; up?: unknown; down?: unknown };
   if (typeof v.kind !== "string") return null;
   // The kinds that are a kind alone come from the view registry (`views.ts`).
   if (isSimpleKind(v.kind)) return { kind: v.kind };
   if (v.kind === "doc" && typeof v.id === "string") return exists(v.id) ? { kind: "doc", id: v.id } : HOME;
   if (v.kind === "graph") return restoreGraph(v.focus, exists);
+  if (v.kind === "family-tree") return restoreFamilyTree(v, exists);
   return null;
+}
+
+/**
+ * A saved Family tree: whole, or focused on a Character that still exists,
+ * its generations read back as 1 to 10 or all (3 when unreadable). A focus
+ * whose document is gone shows everyone: the view the Pane held is still
+ * there to show, which Home would not be.
+ */
+function restoreFamilyTree(v: { focus?: unknown; up?: unknown; down?: unknown }, exists: (id: string) => boolean): View {
+  if (typeof v.focus !== "string" || !exists(v.focus)) return { kind: "family-tree" };
+  return { kind: "family-tree", focus: v.focus, up: generations(v.up), down: generations(v.down) };
 }
 
 /** A saved graph: whole, or on a document that still exists (Home if it is gone). */

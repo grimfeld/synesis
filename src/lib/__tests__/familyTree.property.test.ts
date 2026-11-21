@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation } from "../api";
 import { kinGraph, type KinGraph } from "../kinship";
-import { BOX_HEIGHT, familyLayout, NEAR, type FamilyLayout } from "../familyTree";
+import { BOX_HEIGHT, familyLayout, NEAR, type FamilyLayout, type Generations } from "../familyTree";
 
 type Edge = [string, KinRelation, string];
 
@@ -414,6 +414,37 @@ describe("familyLayout on random families", () => {
       if (found.length) failures.push(`case ${t}: ${found.join("; ")}`);
     }
     expect(failures.slice(0, 5), `${failures.length} of 500 families`).toEqual([]);
+  });
+});
+
+describe("familyLayout on random families, focused (#155)", () => {
+  it("draws three focused trees from each of 250 of them soundly", () => {
+    // The same families as above; a second generator picks who to focus on
+    // and how far, so the unfocused cases stay as they are.
+    const rnd = prng(154);
+    const pick = prng(155);
+    const reach = (): Generations => (pick() < 0.2 ? "all" : 1 + Math.floor(pick() * 4));
+    const failures: string[] = [];
+    let drawn = 0;
+    for (let t = 0; t < 500; t++) {
+      const g = randomFamily(rnd, t);
+      if (t % 2) continue;
+      const ids = [...g.docs.keys()].sort();
+      for (let q = 0; q < 3; q++) {
+        const focus = { id: ids[Math.floor(pick() * ids.length)], up: reach(), down: reach() };
+        let found: string[];
+        try {
+          const l = familyLayout(g, { focus });
+          found = problems(l);
+          if (!l.people.some((p) => p.id === focus.id)) found.push("the focus is not drawn");
+          drawn++;
+        } catch (err) {
+          found = [`throws: ${err}`];
+        }
+        if (found.length) failures.push(`case ${t}, focus ${JSON.stringify(focus)}: ${found.join("; ")}`);
+      }
+    }
+    expect(failures.slice(0, 5), `${failures.length} of ${drawn} focused trees`).toEqual([]);
   });
 });
 

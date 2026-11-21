@@ -32,6 +32,84 @@ export const NEAR = 4;
 export interface LayoutOptions {
   /** A Character's box width; by default, from the length of the title. */
   width?: (doc: DocSummary) => number;
+  /** Draw only this Character's line (#155): see `focusSubset`. */
+  focus?: Focus;
+}
+
+/** How many generations a focused tree reaches one way: 1 to 10, or all. */
+export type Generations = number | "all";
+export const DEFAULT_GENERATIONS = 3;
+export const MAX_GENERATIONS = 10;
+
+/** A focused Family tree: one Character, so many generations up and down. */
+export interface Focus {
+  id: string;
+  up: Generations;
+  down: Generations;
+}
+
+/** A saved or chosen count, as a count the view can use: 1 to 10, "all", or the default. */
+export function generations(raw: unknown): Generations {
+  if (raw === "all") return "all";
+  if (typeof raw === "number" && Number.isInteger(raw) && raw >= 1 && raw <= MAX_GENERATIONS) return raw;
+  return DEFAULT_GENERATIONS;
+}
+
+/**
+ * Who a focused tree draws (#155), each with their distance from the focus
+ * in generations (negative above): the focus, their ancestors `up`
+ * generations up through `father` and `mother`, their descendants `down`
+ * generations down, and the spouses of everyone so reached, beside them, at
+ * the distance of the partner nearest the focus. Siblings and cousins are not
+ * in it: they are another Character's line. Empty when the focus has no kin.
+ */
+export function focusSubset(g: KinGraph, f: Focus): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!g.docs.has(f.id)) return out;
+  out.set(f.id, 0);
+  const reach = (n: Generations) => (n === "all" ? Infinity : n);
+  const walk = (next: (id: string) => string[], limit: number, sign: 1 | -1) => {
+    let ring = [f.id];
+    for (let d = 1; d <= limit && ring.length; d++) {
+      const nextRing: string[] = [];
+      for (const id of ring)
+        for (const n of next(id))
+          if (g.docs.has(n) && !out.has(n)) {
+            out.set(n, sign * d);
+            nextRing.push(n);
+          }
+      ring = nextRing;
+    }
+  };
+  walk((id) => [g.father.get(id), g.mother.get(id)].filter((p): p is string => !!p), reach(f.up), -1);
+  walk((id) => g.children.get(id) ?? [], reach(f.down), 1);
+  // Spouses beside the line, nearest the focus first, so each takes the
+  // distance of the partner nearest the focus.
+  const line = [...out.entries()].sort((a, b) => Math.abs(a[1]) - Math.abs(b[1]));
+  for (const [id, d] of line)
+    for (const s of g.spouses.get(id) ?? []) if (g.docs.has(s) && !out.has(s)) out.set(s, d);
+  return out;
+}
+
+/** `g` with only the Characters in `keep`, and only the ties between them. */
+export function subGraph(g: KinGraph, keep: { has: (id: string) => boolean }): KinGraph {
+  const docs = new Map([...g.docs].filter(([id]) => keep.has(id)));
+  const ties = (m: Map<string, string>) => new Map([...m].filter(([c, p]) => docs.has(c) && docs.has(p)));
+  const lists = (m: Map<string, string[]>) =>
+    new Map(
+      [...m]
+        .filter(([id]) => docs.has(id))
+        .map(([id, xs]) => [id, xs.filter((x) => docs.has(x))] as [string, string[]])
+        .filter(([, xs]) => xs.length > 0),
+    );
+  return {
+    docs,
+    father: ties(g.father),
+    mother: ties(g.mother),
+    children: lists(g.children),
+    spouses: lists(g.spouses),
+    warnings: [],
+  };
 }
 
 /** One Character, drawn once. `x`, `y`: the box's top-left corner. */
@@ -285,9 +363,13 @@ interface Unit {
   turned: number;
 }
 
-/** Lay out every family in `g`. */
-export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayout {
+/** Lay out every family in `g`, or, with `opts.focus`, that Character's line. */
+export function familyLayout(full: KinGraph, opts: LayoutOptions = {}): FamilyLayout {
   const widthOf = opts.width ?? defaultWidth;
+  const near = opts.focus ? focusSubset(full, opts.focus) : null;
+  const g = near ? subGraph(full, near) : full;
+  /** How far from the focus, for a spouse choosing a partner's row; 0 everywhere unfocused. */
+  const distance = (id: string) => Math.abs(near?.get(id) ?? 0);
   const byTitle = (a: string, b: string) => {
     const da = g.docs.get(a)!;
     const db = g.docs.get(b)!;
@@ -370,7 +452,22 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
   // else just above the nearest child of any of them. A child is always below
   // every parent, so a spouse's row can push their children down; repeated
   // until nothing moves.
-  const roots = ids.filter((id) => parentsOf.get(id)!.length === 0);
+  // Focused (#155), a spouse beside the line with no parents and no children
+  // drawn follows the partner nearest the focus instead, so they never drag
+  // another partner's row (Bilhah, wife of Jacob and of his father, beside
+  // Jacob); they are placed once the rest stands.
+  const followers = new Set(
+    near
+      ? ids.filter(
+          (id) =>
+            id !== opts.focus!.id &&
+            parentsOf.get(id)!.length === 0 &&
+            !(childrenOf.get(id) ?? []).length &&
+            (partners.get(id) ?? []).length > 0,
+        )
+      : [],
+  );
+  const roots = ids.filter((id) => parentsOf.get(id)!.length === 0 && !followers.has(id));
   const isRoot = new Set(roots);
   const marriedRoots = new UnionFind();
   for (const id of roots)
@@ -401,7 +498,7 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
       anchors: [
         ...new Set(
           group.flatMap((id) =>
-            (g.spouses.get(id) ?? []).filter((s) => g.docs.has(s) && !isRoot.has(s) && !below.has(s)),
+            (g.spouses.get(id) ?? []).filter((s) => g.docs.has(s) && !isRoot.has(s) && !followers.has(s) && !below.has(s)),
           ),
         ),
       ],
@@ -436,6 +533,10 @@ export function familyLayout(g: KinGraph, opts: LayoutOptions = {}): FamilyLayou
   for (const id of topo) {
     const ps = parentsOf.get(id)!;
     if (ps.length) gen.set(id, Math.max(gen.get(id)!, ...ps.map((p) => gen.get(p)! + 1)));
+  }
+  for (const id of followers) {
+    const nearest = [...partners.get(id)!].filter((p) => !followers.has(p)).sort((a, b) => distance(a) - distance(b))[0];
+    if (nearest !== undefined) gen.set(id, gen.get(nearest)!);
   }
 
   // ---- each family on its own.
