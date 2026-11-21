@@ -71,6 +71,7 @@ export const en = {
     map: "Map",
     timeline: "Timeline",
     coverage: "Coverage",
+    "family-tree": "Family tree",
     settings: "Settings",
   },
   timeline_hint:
@@ -203,6 +204,18 @@ export const en = {
       `${child} already has a mother: ${existing}. Nothing was written.`,
     /** A Father, Mother or Spouse change the file did not take. */
     save_failed: "The change could not be saved. It is kept here and will be saved with your next edit.",
+  },
+  /** The Family tree view (PLAN §32). */
+  family_tree: {
+    counts: (people: number, families: number) =>
+      `${people} ${people === 1 ? "Character" : "Characters"} · ${families} ${families === 1 ? "family" : "families"}`,
+    /** A person's box, for a screen reader. */
+    open: (name: string) => `Open ${name}'s Hub`,
+    empty: "No Character has kin yet. Name a Character's father, mother or spouses under Family on their Hub, and their family is drawn here.",
+    empty_tutorial: "Show me how",
+    load_failed: "The Family tree could not be read from the Vault.",
+    draw_failed: "The family tree could not be drawn.",
+    retry: "Try again",
   },
   start: "Start",
   end: "End",

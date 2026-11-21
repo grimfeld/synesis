@@ -115,6 +115,10 @@ _Avoid_: Person, figure
 The family ties between Characters: a father, a mother, and spouses, each named once on one side. A Character's children and siblings are never named; they are read from the other side, so a parent's page lists children whose own pages name the parent, and two Characters sharing a parent are siblings. A Character has at most one father and one mother; a legal or adoptive father is not Kinship.
 _Avoid_: Relationship, family link, genealogy (that is what Kinship adds up to)
 
+**Family tree**:
+The view that draws Kinship: every family at once, or one Character's ancestors and descendants a chosen number of generations each way. Each Character is drawn once, however many ways they descend from someone.
+_Avoid_: Genealogy, pedigree, lineage
+
 **Relation**:
 A tie from one Character to another that is not Kinship, named by the user in their own word: Elisha's mentor is Elijah. Seen from both ends: Elijah is "mentor of" Elisha. A Relation is shown on the Hubs it joins and nowhere else.
 _Avoid_: Tie (a tie joins a Character to a Place), link, connection

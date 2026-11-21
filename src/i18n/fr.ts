@@ -71,6 +71,7 @@ export const fr: Dict = {
     map: "Carte",
     timeline: "Chronologie",
     coverage: "Couverture",
+    "family-tree": "Arbre généalogique",
     settings: "Réglages",
   },
   timeline_hint:
@@ -192,6 +193,16 @@ export const fr: Dict = {
     refused_mother: (child: string, existing: string) =>
       `${child} a déjà une mère : ${existing}. Rien n’a été écrit.`,
     save_failed: "La modification n’a pas pu être enregistrée. Elle est gardée ici et le sera à votre prochaine modification.",
+  },
+  family_tree: {
+    counts: (people: number, families: number) =>
+      `${people} ${people === 1 ? "Personnage" : "Personnages"} · ${families} ${families === 1 ? "famille" : "familles"}`,
+    open: (name: string) => `Ouvrir la page de ${name}`,
+    empty: "Aucun Personnage n’a encore de famille. Indiquez le père, la mère ou les conjoints d’un Personnage sous Famille, sur sa page, et sa famille s’affiche ici.",
+    empty_tutorial: "Me montrer comment",
+    load_failed: "L’arbre généalogique n’a pas pu être lu dans le Coffre.",
+    draw_failed: "L’arbre généalogique n’a pas pu être dessiné.",
+    retry: "Réessayer",
   },
   start: "Début",
   end: "Fin",

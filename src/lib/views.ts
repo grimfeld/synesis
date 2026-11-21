@@ -3,7 +3,7 @@
 // in `knownCommandIds`, the kinds a saved Pane layout restores alone and
 // `TutorialPlace`'s view kinds all derive from it.
 import type { LucideIcon } from "lucide-react";
-import { CalendarRange, House, LayoutGrid, LibraryBig, MapPin, Quote, Settings, Waypoints } from "lucide-react";
+import { CalendarRange, House, LayoutGrid, LibraryBig, MapPin, Network, Quote, Settings, Waypoints } from "lucide-react";
 import type { View } from "./panes";
 
 /** A view a Pane can be sent to by name: every kind but a document, which needs an id. */
@@ -43,7 +43,9 @@ export const VIEW_REGISTRY: { [K in ViewKind]: ViewEntry<K> } = {
   library: { icon: LibraryBig, sidebar: true, order: 4, simple: true },
   clippings: { icon: Quote, sidebar: true, order: 5, simple: true },
   map: { icon: MapPin, sidebar: true, order: 6, simple: true },
-  settings: { icon: Settings, sidebar: false, order: 7, simple: true },
+  // Last of the views: added after the others so their places stay put (#154).
+  "family-tree": { icon: Network, sidebar: true, order: 7, simple: true },
+  settings: { icon: Settings, sidebar: false, order: 8, simple: true },
 };
 
 /** Every navigable kind, in registry order. */

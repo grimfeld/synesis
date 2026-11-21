@@ -1,6 +1,6 @@
 # Family
 
-A Character's Hub shows their Kinship under **Family**: their father, mother and spouses, their children and their siblings. You fill it in right there, choosing each Character by name. Each tie is written once, on one side, as an ordinary link in the Character's file; the app reads the other side for you and never writes it into a file.
+A Character's Hub shows their Kinship under **Family**: their father, mother and spouses, their children and their siblings. You fill it in right there, choosing each Character by name. Each tie is written once, on one side, as an ordinary link in the Character's file; the app reads the other side for you and never writes it into a file. The **Family tree** draws every family at once.
 
 ![Two parents joined as spouses, their children below, each child linked up to the parents it names](image:family-tree)
 
@@ -10,7 +10,8 @@ A Character's Hub shows their Kinship under **Family**: their father, mother and
 4. Open Leah's Hub with [Search](command:nav.search). No father is named: under **Father**, press **Choose…** and type Laban. No Character has that name, so choose **Create Character “Laban”**: Laban is created and Leah's file now names him as her `father`. The × beside a parent clears it, and the × beside a spouse removes them, from this Character's file only.
 5. Open Joseph's Hub and press **Add child**, then create Manasseh the same way. Joseph is nobody's parent yet, so you are asked whether he is the father or the mother: choose **Father**. Manasseh's file now names Joseph as his `father`; Joseph's file is left as it was. The next **Add child** on Joseph does not ask again.
 6. Open Elisha's Hub with [Search](command:nav.search). Under **Relations** stands "mentor: Elijah": Elisha's file names Elijah as his `mentor`, a Property named in its own word, which is neither a parent nor a spouse. Click Elijah: his file names no one, and his **Relations** read the same Relation the other way, "mentor of: Elisha".
-7. Try it once: open the Hub of a Character you study and, under **Father**, press **Choose…** and pick their father, or create him. Open the father's Hub: the Character is now among his **Children**.
+7. Open the [Family tree](command:nav.family-tree). Every Character with kin is drawn once, in rows by generation, each unrelated family as its own tree side by side. Spouses stand side by side joined by a bar, and each child hangs from the bar of the parents it names: Joseph and Benjamin under Jacob and Rachel, Judah under Jacob and Leah. Abraham and Sarah each appear once, with a line from Terah to both. Drag to move around, and use the wheel, a pinch or the zoom buttons to zoom; far out, the names hide until you zoom back in. Click Jacob to open his Hub.
+8. Try it once: open the Hub of a Character you study and, under **Father**, press **Choose…** and pick their father, or create him. Open the father's Hub: the Character is now among his **Children**. Open the [Family tree](command:nav.family-tree): the Character now hangs from their father.
 
 ## Good to know
 
@@ -21,4 +22,5 @@ A Character's Hub shows their Kinship under **Family**: their father, mother and
 - `father`, `mother` and `spouses` are not listed under **Properties**: **Family** is where they are edited.
 - A Character has one father and one mother. A legal or adoptive father, or a genealogy that skips generations, belongs in the About of the Hub.
 - Any other link Property on a Character that names a Character is a Relation: `mentor`, `master`, `servants`, in whatever word you choose. Write it in **Properties** like any Property; it shows under **Relations** on both Hubs, as "mentor" on one and "mentor of" on the other. A link to a Place, or `aliases`, is not a Relation. Relations show on the Hub only, never in the family itself.
-- When a tie cannot be read, the Family section says why and leaves it out: a `father` that names a Place, a `father` holding two links, or a Character who would be their own ancestor. The file is left as you wrote it; choose the right one under **Family**, or clear it with ×.
+- The Family tree places generations by parent links, never by Dates. A spouse whose own parents are not named stands in their partner's row, even when they also had a child with someone in the row above (Tamar beside Er); two parents who name no marriage are joined by a dashed bar. A Character with no kin is not in the tree.
+- When a tie cannot be read, the Family section says why and leaves it out (the Family tree skips it too, and draws the rest): a `father` that names a Place, a `father` holding two links, or a Character who would be their own ancestor. The file is left as you wrote it; choose the right one under **Family**, or clear it with ×.

@@ -16,13 +16,14 @@ describe("the view registry", () => {
   });
 
   it("keeps the sidebar's order, with Settings out of it", () => {
-    expect(SIDEBAR_VIEWS).toEqual(["home", "timeline", "coverage", "graph", "library", "clippings", "map"]);
+    expect(SIDEBAR_VIEWS).toEqual(["home", "timeline", "coverage", "graph", "library", "clippings", "map", "family-tree"]);
     expect(VIEW_KINDS.at(-1)).toBe("settings");
   });
 
   it("restores a kind alone only when it carries no data", () => {
     expect(isSimpleKind("home")).toBe(true);
     expect(isSimpleKind("settings")).toBe(true);
+    expect(isSimpleKind("family-tree")).toBe(true);
     expect(isSimpleKind("graph")).toBe(false);
     expect(isSimpleKind("doc")).toBe(false);
     expect(isSimpleKind("toString")).toBe(false);

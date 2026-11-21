@@ -20,6 +20,8 @@ export type View =
   | { kind: "map" }
   | { kind: "coverage" }
   | { kind: "timeline" }
+  /** Every family at once (PLAN §32). */
+  | { kind: "family-tree" }
   | { kind: "settings" };
 
 export interface Pane {
