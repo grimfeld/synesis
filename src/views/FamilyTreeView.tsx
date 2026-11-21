@@ -18,6 +18,7 @@ import { otherPane, type View } from "@/lib/panes";
 import { enterPick, searchTree } from "@/lib/treeSearch";
 import { usePanZoom } from "@/lib/usePanZoom";
 import { useQuery } from "@/lib/useQuery";
+import { useKinship } from "@/lib/useKinship";
 import { useStore } from "@/lib/store";
 import { useTutorials } from "@/lib/tutorialState";
 import { tutorial } from "@/lib/tutorials";
@@ -135,6 +136,8 @@ function Drawing({
               if (focusVisible(e.currentTarget)) onFocus(p);
             }}
           >
+            {/* Names hidden (zoomed out): the name on hover. */}
+            {!names && <title>{p.doc.title}</title>}
             {/* The focus ring: an outer ring in the theme's ring colour, shown on keyboard focus. */}
             <rect
               data-testid="family-tree-focus-ring"
@@ -200,8 +203,9 @@ function PersonCard({
   person,
   at,
   isFocus,
-  byKeyboard,
-  cardRef,
+  focusAsk,
+  takeFocus,
+  onLeave,
   onFocus,
   onOpen,
   onClose,
@@ -209,9 +213,12 @@ function PersonCard({
   person: PersonBox;
   at: { left: number; top?: number; bottom?: number };
   isFocus: boolean;
-  /** Opened by Enter or Space: the focus moves to its first action. */
-  byKeyboard: boolean;
-  cardRef: React.Ref<HTMLDivElement>;
+  /** Bumped by each Enter or Space on a person: the card then takes the focus. */
+  focusAsk: number;
+  /** Whether an ask is still pending; consumes it, so a card mounted later never steals the focus. */
+  takeFocus: () => boolean;
+  /** The card is going with the focus inside it: whose box takes it. */
+  onLeave: (id: string) => void;
   onFocus: () => void;
   onOpen: (other: boolean) => void;
   onClose: () => void;
@@ -225,14 +232,28 @@ function PersonCard({
   });
   const span = data ? spanText(data, t) : null;
   // Opened from the keyboard, the card takes the focus, on its first action;
-  // not modal: Tab leaves it, and closing it returns to the person.
+  // not modal: Tab leaves it. Enter again on its person, the card already
+  // open, asks again.
   const first = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (byKeyboard) first.current?.focus();
-  }, [byKeyboard]);
+    if (takeFocus()) first.current?.focus();
+  }, [focusAsk, takeFocus]);
+  // However it goes (×, Escape, an action, Back, the person no longer drawn),
+  // the focus inside it is not dropped on the page. A layout effect's cleanup
+  // runs while the card is still in the document.
+  const card = useRef<HTMLDivElement>(null);
+  const id = person.id;
+  const leave = useRef(onLeave);
+  leave.current = onLeave;
+  useLayoutEffect(() => {
+    const el = card.current;
+    return () => {
+      if (el?.contains(document.activeElement)) leave.current(id);
+    };
+  }, [id]);
   return (
     <div
-      ref={cardRef}
+      ref={card}
       role="dialog"
       aria-label={person.doc.title}
       data-testid="family-tree-card"
@@ -452,11 +473,8 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const t = useT();
   const lang = useLang();
   const tutorials = useTutorials();
-  const { data, status, refetch } = useQuery({
-    key: ["kinship"],
-    // Any page can become, or stop being, a Character: no type list will do.
-    deps: { any: true },
-    fetch: () => api.kinship(),
+  const { data, status, refetch } = useKinship({
+    key: [],
     // A save that changed no tie keeps the drawing, and where the reader is in it.
     equal: (a, b) => JSON.stringify(a) === JSON.stringify(b),
   });
@@ -480,10 +498,17 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const pz = usePanZoom();
   const names = pz.view.k >= NAMES_FROM_ZOOM;
   const [selected, setSelected] = useState<string | null>(null);
-  // Whether the card was opened by Enter or Space, so it takes the focus.
-  const [byKeyboard, setByKeyboard] = useState(false);
-  const cardRef = useRef<HTMLDivElement>(null);
-  // The person whose box takes the focus back once the card has closed.
+  // Each Enter or Space on a person asks the card for the focus, once:
+  // `asked` counts the asks, `taken` the last one a card took.
+  const asked = useRef(0);
+  const taken = useRef(0);
+  const [focusAsk, setFocusAsk] = useState(0);
+  const takeFocus = useCallback(() => {
+    if (taken.current >= asked.current) return false;
+    taken.current = asked.current;
+    return true;
+  }, []);
+  // The person whose box takes the focus back once the card has gone.
   const restoreTo = useRef<string | null>(null);
 
   const bounds = useMemo(
@@ -521,6 +546,8 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
     setCardKey(frameKey);
     setSelected(null);
   }
+  // Nor does it outlast its person leaving the drawing (their kin removed).
+  if (selected && layout && !layout.people.some((p) => p.id === selected)) setSelected(null);
   const shown = selected ? layout?.people.find((p) => p.id === selected) : undefined;
 
   // Read from refs, so the drawing is not rebuilt on every pan.
@@ -529,7 +556,8 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
   const select = useCallback((id: string, keyboard: boolean) => {
     if (!keyboard && live.current.dragged()) return;
     setSelected(id);
-    setByKeyboard(keyboard);
+    if (keyboard) setFocusAsk(++asked.current);
+    else taken.current = asked.current;
   }, []);
   const open = useCallback((id: string, other: boolean) => {
     if (live.current.dragged()) return;
@@ -587,24 +615,19 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
     centre(p, Math.max(v.k, OPEN_AT_LEAST));
     setSelected(id);
     // The focus stays in the search box.
-    setByKeyboard(false);
+    taken.current = asked.current;
   };
 
-  /**
-   * Close the card. When the focus was in it, it goes back to `to`'s box: the
-   * person who opened it, or the new focus after Focus here.
-   */
-  const closeCard = (to: string | undefined) => {
-    const card = cardRef.current;
-    if (to && card && card.contains(document.activeElement)) restoreTo.current = to;
-    setSelected(null);
-  };
-  // After the render that closed it, the person's box is drawn (the new focus's too).
+  // A card gone with the focus in it hands the focus to its person's box,
+  // drawn after the render that removed the card (the new focus's, after
+  // Focus here); a person no longer drawn hands it to the focused Character.
   useEffect(() => {
     const id = restoreTo.current;
-    if (!id || selected) return;
+    if (!id) return;
     restoreTo.current = null;
-    box.current?.querySelector<SVGGElement>(`[data-testid=family-tree-person][data-id="${CSS.escape(id)}"]`)?.focus();
+    const boxOf = (x: string) =>
+      box.current?.querySelector<SVGGElement>(`[data-testid=family-tree-person][data-id="${CSS.escape(x)}"]`);
+    (boxOf(id) ?? (focusId ? boxOf(focusId) : null))?.focus();
   });
 
   return (
@@ -780,17 +803,20 @@ export function FamilyTreeView({ view }: { view: FamilyTreeKind }) {
               person={shown}
               at={cardAt}
               isFocus={shown.id === focusId}
-              byKeyboard={byKeyboard}
-              cardRef={cardRef}
+              focusAsk={focusAsk}
+              takeFocus={takeFocus}
+              onLeave={(id) => {
+                restoreTo.current = id;
+              }}
               onFocus={() => {
-                closeCard(shown.id);
+                setSelected(null);
                 refocus(shown.id);
               }}
               onOpen={(other) => {
-                closeCard(shown.id);
+                setSelected(null);
                 s.openDoc(shown.id, other);
               }}
-              onClose={() => closeCard(shown.id)}
+              onClose={() => setSelected(null)}
             />
           )}
         </div>

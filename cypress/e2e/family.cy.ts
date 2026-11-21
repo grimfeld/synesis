@@ -610,6 +610,14 @@ describe("Family tree focused on a Character", () => {
   });
 
   it("offers no Family tree on a Character with no kin, button or Command", () => {
+    // First on Jacob, both offered: Kinship has been read, so the absences
+    // below are answers, not a query still on its way.
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family-tree]").should("be.visible");
+    cy.palette(">Show in Family tree");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain.text", "Show in Family tree");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=palette]").should("not.exist");
     cy.openDoc("Paul", { exact: true });
     cy.hubTitle("Paul");
     cy.get("[data-testid=hub-family]").should("be.visible");
@@ -653,6 +661,15 @@ describe("Family tree focused on a Character", () => {
       person(jacob).focus();
       cy.press(Cypress.Keyboard.Keys.ESC);
       cy.get("[data-testid=family-tree-card]").should("not.exist");
+      // Enter again on the person of a card already open, the focus gone out
+      // of it (cy.press takes no Shift, so the focus is moved by hand): the
+      // card takes the focus again.
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
+      person(jacob).focus();
+      cy.get("[data-testid=family-tree-card]").should("have.attr", "data-id", jacob);
+      cy.press(Cypress.Keyboard.Keys.ENTER);
+      cy.focused().should("have.attr", "data-testid", "family-tree-card-focus");
     });
   });
 
