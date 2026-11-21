@@ -225,3 +225,85 @@ describe("Moving documents into Folders", () => {
     cy.task("file:exists", vaultFile("Compositions/talk on endurance.canvas")).should("equal", false);
   });
 });
+
+describe("Renaming and moving Folders", () => {
+  beforeEach(() => cy.openApp());
+  const vaultDir = (rel: string) => `${Cypress.env("vault")}/${rel}`;
+  const nameIt = (name: string) => {
+    cy.get("[data-testid=folder-name-input]").clear().type(name);
+    cy.get("[data-testid=folder-name-submit]").click();
+  };
+
+  it("renames a Folder, keeping its documents and their titles", () => {
+    cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-rename]").click();
+    cy.get("[data-testid=folder-name-input]").should("have.value", "Sermons").and("have.focus");
+    nameIt("Talks given");
+    cy.get(row("Talks given")).should("exist");
+    // The row that opened the dialog was replaced; focus goes to the renamed one.
+    cy.get(row("Talks given")).should("have.focus");
+    cy.get(row("Sermons")).should("not.exist");
+    cy.docByTitle("Week 2").its("path").should("equal", "Notes/Talks given/2026/week 2.md");
+    cy.task("file:exists", vaultDir("Notes/Sermons")).should("equal", false);
+  });
+
+  it("refuses renaming a Folder onto a sibling's name", () => {
+    cy.task("dir:make", vaultDir("Notes/Archive"));
+    cy.reload();
+    cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-rename]").click();
+    nameIt("ARCHIVE");
+    cy.get("[data-testid=folder-name-error]").should("be.visible");
+    cy.task("file:exists", vaultDir("Notes/Sermons/2026/week 2.md")).should("equal", true);
+  });
+
+  it("moves a Folder from its menu, never into itself", () => {
+    cy.task("dir:make", vaultDir("Notes/Archive"));
+    cy.reload();
+    cy.get(`${folder("Sermons")} > [data-testid=folder-menu]`).click();
+    cy.get("[data-testid=folder-menu-move]").click();
+    cy.get("[data-testid=folder-picker-find]").should("have.focus");
+    // Neither the Folder nor its own Folders are offered.
+    cy.get("[data-testid=folder-pick][data-folder='Sermons']").should("not.exist");
+    cy.get("[data-testid=folder-pick][data-folder='Sermons/2026']").should("not.exist");
+    cy.get("[data-testid=folder-pick][data-folder='Archive']").click();
+    cy.docByTitle("Week 10").its("path").should("equal", "Notes/Archive/Sermons/2026/week 10.md");
+    // Archive is folded, so focus goes to it rather than to the page.
+    cy.get(row("Archive")).should("have.focus");
+  });
+
+  it("moves a Folder by dragging it onto another, and back onto the group", () => {
+    cy.task("dir:make", vaultDir("Notes/Archive"));
+    cy.reload();
+    const data = new DataTransfer();
+    cy.get(folder("Sermons")).trigger("dragstart", { dataTransfer: data });
+    // Not onto itself.
+    cy.get(folder("Sermons")).trigger("dragover", { dataTransfer: data });
+    cy.get(folder("Sermons")).should("not.have.attr", "data-drop-target");
+    cy.get(folder("Archive")).trigger("dragover", { dataTransfer: data });
+    cy.get(folder("Archive")).should("have.attr", "data-drop-target", "true");
+    cy.get(folder("Archive")).trigger("drop", { dataTransfer: data });
+    cy.docByTitle("Week 2").its("path").should("equal", "Notes/Archive/Sermons/2026/week 2.md");
+
+    cy.get(row("Archive")).click();
+    const back = new DataTransfer();
+    cy.get(folder("Archive/Sermons")).trigger("dragstart", { dataTransfer: back });
+    cy.get("[data-testid=folder-tree-note]").trigger("dragover", { dataTransfer: back });
+    cy.get("[data-testid=folder-tree-note]").trigger("drop", { dataTransfer: back });
+    cy.docByTitle("Week 2").its("path").should("equal", "Notes/Sermons/2026/week 2.md");
+  });
+
+  it("keeps a Composition's Board beside it when its Folder moves", () => {
+    cy.task("dir:make", vaultDir("Compositions/Talks"));
+    cy.task("dir:make", vaultDir("Compositions/Given"));
+    cy.reload();
+    cy.contains("[data-testid=folder-tree-composition] [data-testid=doc-row]", "Talk on endurance").find("[data-testid=doc-menu]").click();
+    cy.get("[data-testid=doc-menu-move]").click();
+    cy.get("[data-testid=folder-pick][data-folder='Talks']").click();
+    cy.get('[data-testid=folder-tree-composition] [data-folder="Talks"] > [data-testid=folder-menu]').click();
+    cy.get("[data-testid=folder-menu-move]").click();
+    cy.get("[data-testid=folder-pick][data-folder='Given']").click();
+    cy.docByTitle("Talk on endurance").its("path").should("equal", "Compositions/Given/Talks/talk on endurance.md");
+    cy.task("file:exists", vaultDir("Compositions/Given/Talks/talk on endurance.canvas")).should("equal", true);
+  });
+});

@@ -1,7 +1,7 @@
 // Folders (PLAN §31): the sidebar's tree for Notes and Compositions — its
 // order, its counts, and where a document outside its type's folder lands.
 import { describe, expect, it } from "vitest";
-import { childNames, folderOf, folderNameProblem, folderTree, foldersHolding, loadOpenFolders, naturalCompare, saveOpenFolders } from "../folders";
+import { childNames, folderOf, parentOf, folderNameProblem, folderTree, foldersHolding, loadOpenFolders, naturalCompare, saveOpenFolders } from "../folders";
 
 const doc = (path: string, label = path.split("/").pop()!.replace(/\.md$/, "")) => ({ id: path, path, label });
 
@@ -102,5 +102,13 @@ describe("folderOf", () => {
     expect(folderOf("Notes/A/B/c.md", "Notes")).toBe("A/B");
     expect(folderOf("Study/c.md", "Notes")).toBeNull();
     expect(folderOf("Notesy/c.md", "Notes")).toBeNull();
+  });
+});
+
+describe("parentOf", () => {
+  it("names the Folder holding a Folder, the top as empty", () => {
+    expect(parentOf("Sermons/2026/Advent")).toBe("Sermons/2026");
+    expect(parentOf("Sermons")).toBe("");
+    expect(parentOf("")).toBe("");
   });
 });

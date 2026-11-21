@@ -14,5 +14,6 @@ Folders arrange your Notes and Compositions in the sidebar. A Folder is an ordin
 - Hover over a Folder to see its full path in the Vault. On a computer, right-click a Folder for its menu.
 - A Folder's **…** menu also makes a Folder inside it. A name cannot be empty, start with a dot, contain `/ \ : * ? " < > |`, or repeat a name already beside it (whatever the capitals).
 - A Folder's **+** writes a new Note straight inside it. A Note keeps its title when it moves; a Folder that already holds a file of the same name refuses it rather than add a number. A Composition's Board moves with it.
+- A Folder's **…** menu also renames it (its documents stay inside, their titles and every link to them unchanged) and moves it into another Folder with **Move to folder…**; on a computer you can drag a Folder onto another, or onto **Notes** to bring it back to the top. A Folder never goes inside itself, and never takes a name already beside it.
 - Only an empty Folder can be deleted: tidying never deletes a document. Files your computer leaves behind on its own (`.DS_Store`, `Thumbs.db`) do not count.
 - [New Note](command:create.note), Home's quick capture and the Command Palette always put a new Note at the top of `Notes`; only a Folder's **+** puts it inside.
