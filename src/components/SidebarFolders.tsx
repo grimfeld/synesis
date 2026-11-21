@@ -10,7 +10,9 @@ import { api, type DocSummary } from "@/lib/api";
 import {
   childNames,
   folderNameProblem,
+  folderOf,
   leaf,
+  parentOf,
   folderTree,
   foldersHolding,
   loadOpenFolders,
@@ -19,6 +21,9 @@ import {
   type FolderNode,
 } from "@/lib/folders";
 import { useQuery } from "@/lib/useQuery";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { FolderPicker } from "./FolderPicker";
+
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
 import { Button } from "@/components/ui/button";
@@ -40,7 +45,14 @@ export type FolderType = "note" | "composition";
 export type FolderAct =
   | { kind: "new-folder"; type: FolderType; parent: string }
   | { kind: "new-here"; type: FolderType; folder: string }
-  | { kind: "delete"; type: FolderType; folder: string };
+  | { kind: "delete"; type: FolderType; folder: string }
+  /** A document dropped on a Folder (or on its group, `""`), on desktop. */
+  | { kind: "move"; id: string; into: string }
+  | { kind: "rename"; type: FolderType; folder: string }
+  /** "Move to folder…" from a Folder's menu: the picker. */
+  | { kind: "move-folder"; type: FolderType; folder: string }
+  /** A Folder dropped on another Folder (or on its group, `""`), on desktop. */
+  | { kind: "move-folder-to"; type: FolderType; folder: string; into: string };
 
 interface FolderActions {
   act: (a: FolderAct) => void;
@@ -59,11 +71,33 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
   const s = useStore();
   const t = useT();
   const [version, setVersion] = useState(0);
-  const [naming, setNaming] = useState<{ type: FolderType; parent: string } | null>(null);
+  /** The name dialog: a new Folder in `parent`, or (`renaming`) a new name for one. */
+  const [naming, setNaming] = useState<{ type: FolderType; parent: string; renaming?: string } | null>(null);
+  const [moving, setMoving] = useState<{ type: FolderType; folder: string } | null>(null);
+  const moveDocument = useMoveDocument();
+  const moveFolder = useMoveFolder();
+  /**
+   * A Folder moved or renamed: its documents moved with it, so the lists are
+   * re-read, and focus goes to the Folder at its new place (the row that
+   * opened the dialog was replaced, so it would otherwise fall to the page).
+   */
+  const folderMoved = async (key: string) => {
+    setVersion((v) => v + 1);
+    await s.refresh();
+    focusFolder(key);
+  };
 
   const act = (a: FolderAct) => {
     if (a.kind === "new-folder") setNaming({ type: a.type, parent: a.parent });
+    else if (a.kind === "rename") {
+      setNaming({ type: a.type, parent: parentOf(a.folder), renaming: a.folder });
+    } else if (a.kind === "move-folder") setMoving({ type: a.type, folder: a.folder });
+    else if (a.kind === "move-folder-to") void moveFolder(a.type, a.folder, a.into).then((key) => { if (key) void folderMoved(key); });
     else if (a.kind === "new-here") s.setDialog({ kind: "new", type: a.type, folder: a.folder });
+    else if (a.kind === "move") {
+      const doc = s.docsById.get(a.id);
+      if (doc) void moveDocument(doc, a.into).then((ok) => ok && setVersion((v) => v + 1));
+    }
     else
       api
         .deleteFolder(a.type, a.folder)
@@ -76,11 +110,18 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
 
   const create = async (name: string): Promise<FolderNameProblem | null> => {
     if (!naming) return null;
-    const siblings = childNames(await api.listFolders(naming.type), naming.parent);
+    const own = naming.renaming ? leaf(naming.renaming) : null;
+    // A rename that only changes case is no clash with itself.
+    const siblings = childNames(await api.listFolders(naming.type), naming.parent).filter((n) => n !== own);
     const problem = folderNameProblem(name, siblings);
     if (problem) return problem;
-    await api.createFolder(naming.type, naming.parent, name);
-    setVersion((v) => v + 1);
+    if (naming.renaming) {
+      // The engine's answer is the name as kept (trimmed, spaces collapsed).
+      await folderMoved(await api.renameFolder(naming.type, naming.renaming, name));
+    } else {
+      await api.createFolder(naming.type, naming.parent, name);
+      setVersion((v) => v + 1);
+    }
     setNaming(null);
     return null;
   };
@@ -91,15 +132,96 @@ export function useFolderActions(): { provider: (children: ReactNode) => ReactNo
         {children}
         {naming && (
           <FolderNameDialog
-            title={naming.parent ? t.folders.new_folder_in(leaf(naming.parent)) : t.folders.new_folder}
-            submitLabel={t.create}
+            title={
+              naming.renaming
+                ? t.folders.rename_title(leaf(naming.renaming))
+                : naming.parent
+                  ? t.folders.new_folder_in(leaf(naming.parent))
+                  : t.folders.new_folder
+            }
+            initial={naming.renaming ? leaf(naming.renaming) : ""}
+            submitLabel={naming.renaming ? t.folders.rename : t.create}
             onSubmit={create}
             onClose={() => setNaming(null)}
+          />
+        )}
+        {moving && (
+          <FolderPicker
+            folder={{ type: moving.type, key: moving.folder, onMoved: (key) => void folderMoved(key) }}
+            onClose={() => setMoving(null)}
           />
         )}
       </FolderActionsContext.Provider>
     ),
   };
+}
+
+/**
+ * Move a document into a Folder of its type, the one way the picker and a
+ * drop both take: a clash the sidebar can see is said in the app's language
+ * before the engine is asked (it checks again, and its refusal shows as it
+ * says it). Resolves with whether the document moved.
+ */
+export function useMoveDocument() {
+  const s = useStore();
+  const t = useT();
+  return async (doc: DocSummary, into: string): Promise<boolean> => {
+    const type = doc.type === "composition" ? "composition" : "note";
+    const top = s.info?.doc_types.find((d) => d.type === type)?.folder ?? (type === "note" ? "Notes" : "Compositions");
+    const name = doc.path.split("/").pop() ?? "";
+    const target = `${into ? `${top}/${into}` : top}/${name}`.toLowerCase();
+    const clash = s.docs.find((d) => d.id !== doc.id && d.path.toLowerCase() === target);
+    if (clash) {
+      toast.error(t.folders.move_clash(leaf(clash.path), into ? leaf(into) : t.types_plural[type]));
+      return false;
+    }
+    try {
+      await api.moveDocument(doc.id, into);
+      await s.announceChanged([doc.id]);
+      return true;
+    } catch (e) {
+      toast.error(String(e));
+      return false;
+    }
+  };
+}
+
+/**
+ * Move a Folder into another Folder of its type (`""` for the top), the one
+ * way the picker and a drop both take: a sibling with the same name is said in
+ * the app's language first; the engine checks again. Resolves with the
+ * Folder's new key, or null when it did not move.
+ */
+export function useMoveFolder() {
+  const t = useT();
+  return async (type: FolderType, folder: string, into: string): Promise<string | null> => {
+    const name = leaf(folder);
+    try {
+      const clash = childNames(await api.listFolders(type), into).find((n) => n.toLocaleLowerCase() === name.toLocaleLowerCase());
+      if (clash) {
+        toast.error(t.folders.taken(clash));
+        return null;
+      }
+      return await api.moveFolder(type, folder, into);
+    } catch (e) {
+      toast.error(String(e));
+      return null;
+    }
+  };
+}
+
+/**
+ * Focus a Folder's row once the tree shows it (it may take a refresh), or,
+ * when it went into a folded Folder, the nearest row above it that shows.
+ */
+function focusFolder(key: string, tries = 20) {
+  requestAnimationFrame(() => {
+    const rowOf = (k: string) => document.querySelector<HTMLElement>(`[data-folder="${CSS.escape(k)}"] > [data-testid=folder-row]`);
+    let row = rowOf(key);
+    if (!row && tries === 0) for (let k = parentOf(key); k && !row; k = parentOf(k)) row = rowOf(k);
+    if (row) row.focus();
+    else if (tries > 0) focusFolder(key, tries - 1);
+  });
 }
 
 export function useFolderAct() {
@@ -189,6 +311,28 @@ export function FolderNameDialog({
   );
 }
 
+/** The drag data type that carries a document of `type`'s id. */
+const dragType = (type: FolderType) => `application/x-synesis-${type}`;
+/** The drag data type that carries a Folder of `type`'s key. */
+const folderDragType = (type: FolderType) => `application/x-synesis-folder-${type}`;
+
+const dropHighlight = "bg-sidebar-accent/70 ring-1 ring-sidebar-ring";
+
+interface Drop {
+  type: FolderType;
+  /** The Folder a document is being dragged over (`""` for the group), if any. */
+  over: string | null;
+  handlers: (key: string) => {
+    onDragOver: (e: React.DragEvent) => void;
+    onDragLeave: (e: React.DragEvent) => void;
+    onDrop: (e: React.DragEvent) => void;
+  };
+  /** A Folder's drag began (#150): it and its own Folders stop being targets. */
+  startFolder: (key: string) => void;
+  endFolder: () => void;
+}
+const DropContext = createContext<Drop | null>(null);
+
 /** How far a nested row moves right; deeper rows stop moving, so labels keep room. */
 const indent = (depth: number) => `${Math.min(depth, 4) * 0.75 + 0.75}rem`;
 
@@ -239,10 +383,73 @@ export function FolderTreeView({ type, docs, activeId }: { type: FolderType; doc
       return n;
     });
   }, [activeId, tree, type, docs, vault]);
+
+  // Drag a document onto a Folder, or onto the group for the top (desktop
+  // only, PLAN §31). Only a document of this group's type makes a target
+  // light up: its type rides in the drag's data type, which a page may read
+  // while dragging, where the data itself it may not.
+  const act = useFolderAct();
+  const [over, setOver] = useState<string | null>(null);
+  const mime = dragType(type);
+  const folderMime = folderDragType(type);
+  // The Folder being dragged, if one is: never a target for itself or for
+  // the Folders inside it.
+  const [dragging, setDragging] = useState<string | null>(null);
+  const takes = (e: React.DragEvent, key: string) =>
+    e.dataTransfer.types.includes(mime) ||
+    (e.dataTransfer.types.includes(folderMime) && dragging !== null && key !== dragging && !key.startsWith(`${dragging}/`));
+  const dropHandlers = (key: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!takes(e, key)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "move";
+      if (over !== key) setOver(key);
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver((o) => (o === key ? null : o));
+    },
+    onDrop: (e: React.DragEvent) => {
+      const moved = e.dataTransfer.getData(folderMime);
+      if (moved && takes(e, key)) {
+        setOver(null);
+        setDragging(null);
+        e.preventDefault();
+        e.stopPropagation();
+        if (parentOf(moved) !== key) act({ kind: "move-folder-to", type, folder: moved, into: key });
+        return;
+      }
+      const id = e.dataTransfer.getData(mime);
+      setOver(null);
+      if (!id) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const doc = docs.find((d) => d.id === id);
+      if (doc && folderOf(doc.path, top) === key) return;
+      act({ kind: "move", id, into: key });
+    },
+  });
+  const drop: Drop = {
+    type,
+    over,
+    handlers: dropHandlers,
+    startFolder: (key) => setDragging(key),
+    endFolder: () => {
+      setDragging(null);
+      setOver(null);
+    },
+  };
   return (
-    <SidebarMenu data-testid={`folder-tree-${type}`}>
-      <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
-    </SidebarMenu>
+    <DropContext.Provider value={drop}>
+      <SidebarMenu
+        data-testid={`folder-tree-${type}`}
+        data-drop-target={over === "" || undefined}
+        className={cn("rounded-md", over === "" && dropHighlight)}
+        {...dropHandlers("")}
+      >
+        <FolderLevel folders={tree.folders} docs={tree.docs} depth={0} type={type} open={open} toggle={toggle} activeId={activeId} />
+      </SidebarMenu>
+    </DropContext.Provider>
   );
 }
 
@@ -301,10 +508,11 @@ function FolderLevel({
         );
       })}
       {docs.map((d) => (
-        <li key={d.id} className="min-w-0">
+        <DocRow key={d.id} doc={d} type={type}>
           <SidebarMenuButton
             data-testid="doc-item"
             size="sm"
+            className="pr-8"
             style={{ paddingLeft: depth === 0 ? "2rem" : `calc(${indent(depth)} + 1.25rem)` }}
             isActive={activeId === d.id}
             onClick={s.openDocOnClick(d.id)}
@@ -313,7 +521,7 @@ function FolderLevel({
             <TypeDot type={d.type} className="ml-0.5" />
             <span className="min-w-0 truncate">{d.label}</span>
           </SidebarMenuButton>
-        </li>
+        </DocRow>
       ))}
     </>
   );
@@ -326,12 +534,29 @@ function FolderLevel({
 function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSummary>; type: FolderType; ours: boolean; children: ReactNode }) {
   const t = useT();
   const act = useFolderAct();
+  const drop = useContext(DropContext);
+  const mobile = useIsMobile();
   const [menu, setMenu] = useState(false);
+  /** Rename and Move open a dialog that takes focus; only then must the menu not take it back. */
+  const opensDialog = useRef(false);
+  const target = ours && drop?.over === folder.key;
   return (
     <SidebarMenuItem
-      className="min-w-0"
+      className={cn("min-w-0 rounded-md", target && dropHighlight)}
       data-testid="folder"
       data-folder={folder.key}
+      data-drop-target={target || undefined}
+      {...(ours && drop ? drop.handlers(folder.key) : {})}
+      draggable={ours && !mobile}
+      onDragStart={(e) => {
+        // The innermost Folder row starts the drag, not the ones around it.
+        if (!ours || e.target !== e.currentTarget) return;
+        e.stopPropagation();
+        e.dataTransfer.setData(folderDragType(type), folder.key);
+        e.dataTransfer.effectAllowed = "move";
+        drop?.startFolder(folder.key);
+      }}
+      onDragEnd={() => drop?.endFolder()}
       onContextMenu={(e) => {
         // This Folder's own row only, not a row nested inside it.
         const el = e.target as HTMLElement;
@@ -358,12 +583,32 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
                 <MoreHorizontal />
               </SidebarMenuAction>
             </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]">
+            <DropdownMenuContent
+              side="right"
+              align="start"
+              className="max-w-[min(18rem,calc(100vw-2rem))]"
+              onCloseAutoFocus={(e) => {
+                if (opensDialog.current) e.preventDefault();
+                opensDialog.current = false;
+              }}
+            >
               <DropdownMenuItem data-testid="folder-menu-new-here" onSelect={() => act({ kind: "new-here", type, folder: folder.key })}>
                 {t.folders.new_here[type]}
               </DropdownMenuItem>
               <DropdownMenuItem data-testid="folder-menu-new-folder" onSelect={() => act({ kind: "new-folder", type, parent: folder.key })}>
                 {t.folders.new_folder}
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="folder-menu-rename" onSelect={() => {
+                  opensDialog.current = true;
+                  act({ kind: "rename", type, folder: folder.key });
+                }}>
+                {t.folders.rename}
+              </DropdownMenuItem>
+              <DropdownMenuItem data-testid="folder-menu-move" onSelect={() => {
+                  opensDialog.current = true;
+                  act({ kind: "move-folder", type, folder: folder.key });
+                }}>
+                {t.folders.move_command}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem data-testid="folder-menu-delete" variant="destructive" onSelect={() => act({ kind: "delete", type, folder: folder.key })}>
@@ -373,6 +618,47 @@ function FolderRow({ folder, type, ours, children }: { folder: FolderNode<DocSum
           </DropdownMenu>
         </>
       )}
+    </SidebarMenuItem>
+  );
+}
+
+/**
+ * A document's row, with its "…" menu (always shown; right-click on desktop):
+ * Move to folder… On desktop the row can also be dragged onto a Folder.
+ */
+function DocRow({ doc, type, children }: { doc: DocSummary; type: FolderType; children: ReactNode }) {
+  const s = useStore();
+  const t = useT();
+  const mobile = useIsMobile();
+  const [menu, setMenu] = useState(false);
+  return (
+    <SidebarMenuItem
+      className="min-w-0"
+      data-testid="doc-row"
+      data-doc={doc.id}
+      draggable={!mobile}
+      onDragStart={(e) => {
+        e.dataTransfer.setData(dragType(type), doc.id);
+        e.dataTransfer.effectAllowed = "move";
+      }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        setMenu(true);
+      }}
+    >
+      {children}
+      <DropdownMenu open={menu} onOpenChange={setMenu}>
+        <DropdownMenuTrigger asChild>
+          <SidebarMenuAction data-testid="doc-menu" className="top-0.5 w-6" aria-label={t.folders.doc_menu(doc.label)}>
+            <MoreHorizontal />
+          </SidebarMenuAction>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent side="right" align="start" className="max-w-[min(18rem,calc(100vw-2rem))]" onCloseAutoFocus={(e) => e.preventDefault()}>
+          <DropdownMenuItem data-testid="doc-menu-move" onSelect={() => s.setDialog({ kind: "move-to-folder", id: doc.id })}>
+            {t.folders.move_command}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </SidebarMenuItem>
   );
 }

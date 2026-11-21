@@ -721,6 +721,49 @@ fn delete_folder(
     state.with_vault_mut(|v| v.delete_folder(doc_type, &path))
 }
 
+/// Move a Note or Composition into a Folder of its type (PLAN §31).
+#[tauri::command]
+fn move_document(state: State<AppState>, id: String, into: String) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| {
+        let view = v.move_document(&id, &into)?;
+        Ok(api::payload(v, view))
+    });
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Rename a Folder; returns its new path.
+#[tauri::command]
+fn rename_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+    name: String,
+) -> CmdResult<String> {
+    let r = state.with_vault_mut(|v| v.rename_folder(doc_type, &path, &name));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Move a Folder into another (`""` for the top); returns its new path.
+#[tauri::command]
+fn move_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+    into: String,
+) -> CmdResult<String> {
+    let r = state.with_vault_mut(|v| v.move_folder(doc_type, &path, &into));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
 /// The Folders inside Notes or Compositions (PLAN §31), for the sidebar.
 #[tauri::command]
 fn list_folders(state: State<AppState>, doc_type: DocType) -> CmdResult<Vec<String>> {
@@ -1505,6 +1548,9 @@ pub fn run() {
             list_folders,
             create_folder,
             delete_folder,
+            move_document,
+            rename_folder,
+            move_folder,
             save_document,
             create_document,
             rename_document,

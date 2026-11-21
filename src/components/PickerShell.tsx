@@ -3,6 +3,7 @@ import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
+  PopoverAnchor,
   PopoverContent,
   PopoverTitle,
   PopoverTrigger,
@@ -46,6 +47,7 @@ export function PickerShell({
   open,
   onOpenChange,
   disabled,
+  triggerless,
   className,
   children,
 }: {
@@ -57,6 +59,12 @@ export function PickerShell({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   disabled?: boolean;
+  /**
+   * No button: the picker is opened by something else (a menu, a Command)
+   * and only `open` shows it. On a desktop it stands near the top of the
+   * window, where a dialog would.
+   */
+  triggerless?: boolean;
   /** For the picker's content box. */
   className?: string;
   children: ReactNode;
@@ -79,11 +87,12 @@ export function PickerShell({
   if (mobile) {
     return (
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetTrigger asChild>{trigger}</SheetTrigger>
+        {!triggerless && <SheetTrigger asChild>{trigger}</SheetTrigger>}
         <SheetContent
           side="bottom"
           data-testid={testId}
           data-shell="sheet"
+          onFocusOutside={triggerless ? (e) => e.preventDefault() : undefined}
           className={cn("gap-2 px-4 pb-6", className)}
         >
           <SheetHeader className="min-w-0 px-0 pb-0">
@@ -97,9 +106,16 @@ export function PickerShell({
   }
   return (
     <Popover open={open} onOpenChange={onOpenChange}>
-      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      {triggerless ? (
+        <PopoverAnchor className="pointer-events-none fixed top-24 left-1/2 size-0" />
+      ) : (
+        <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      )}
       <PopoverContent
-        align="end"
+        align={triggerless ? "center" : "end"}
+        // Opened from a menu, whose closing hands focus back to its own
+        // button: that is not the person leaving the picker.
+        onFocusOutside={triggerless ? (e) => e.preventDefault() : undefined}
         data-testid={testId}
         data-shell="popover"
         className={cn("w-80 max-w-[calc(100vw-2rem)]", className)}

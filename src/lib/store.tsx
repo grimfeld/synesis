@@ -81,6 +81,8 @@ export type Dialog =
       folder?: string;
     }
   | { kind: "quick" }
+  /** "Move to folder…" (PLAN §31): the Folder picker for one document. */
+  | { kind: "move-to-folder"; id: string }
   | { kind: "search"; query?: string }
   | { kind: "goto-passage" }
   | { kind: "sync" }

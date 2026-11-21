@@ -206,3 +206,17 @@ export function childNames(folders: readonly string[], parent: string): string[]
 
 /** The last name in a Folder path. */
 export const leaf = (path: string) => path.split("/").pop() || path;
+
+/** The Folder holding a Folder path (`""` for the top). */
+export const parentOf = (path: string) => path.slice(0, Math.max(path.lastIndexOf("/"), 0));
+
+/**
+ * Where a document is, as a Folder key relative to its type's folder (`""`
+ * for the top), or null for a document stored outside it.
+ */
+export function folderOf(path: string, top: string): string | null {
+  if (!path.startsWith(`${top}/`)) return null;
+  const inner = path.slice(top.length + 1);
+  const i = inner.lastIndexOf("/");
+  return i < 0 ? "" : inner.slice(0, i);
+}

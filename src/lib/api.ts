@@ -957,6 +957,17 @@ export const api = {
    * ones included, as paths relative to the type's folder (`Sermons/2026`).
    */
   listFolders: (docType: "note" | "composition") => invoke<string[]>("list_folders", { docType }),
+  /**
+   * Move a Note or Composition into a Folder of its type (`""` for the top).
+   * A Composition's Board and other Boards' cards follow it.
+   */
+  moveDocument: (id: string, into: string) => invoke<DocumentPayload>("move_document", { id, into }),
+  /** Rename a Folder; its documents stay inside it. Returns its new path. */
+  renameFolder: (docType: "note" | "composition", path: string, name: string) =>
+    invoke<string>("rename_folder", { docType, path, name }),
+  /** Move a Folder into another (`""` for the top). Returns its new path. */
+  moveFolder: (docType: "note" | "composition", path: string, into: string) =>
+    invoke<string>("move_folder", { docType, path, into }),
   /** Make the Folder `name` inside `parent` (`""` for the top); returns its path. */
   createFolder: (docType: "note" | "composition", parent: string, name: string) =>
     invoke<string>("create_folder", { docType, parent, name }),

@@ -216,6 +216,28 @@ impl State {
                     .create_folder(doc_type, &parent, &name)
                     .map_err(err)?)
             }
+            "move_document" => {
+                let (id, into): (String, String) = (arg(&a, "id")?, arg(&a, "into")?);
+                let v = self.vault_mut()?;
+                let view = v.move_document(&id, &into).map_err(err)?;
+                ok(api::payload(v, view))
+            }
+            "rename_folder" => {
+                let (doc_type, path, name): (engine::document::DocType, String, String) =
+                    (arg(&a, "docType")?, arg(&a, "path")?, arg(&a, "name")?);
+                ok(self
+                    .vault_mut()?
+                    .rename_folder(doc_type, &path, &name)
+                    .map_err(err)?)
+            }
+            "move_folder" => {
+                let (doc_type, path, into): (engine::document::DocType, String, String) =
+                    (arg(&a, "docType")?, arg(&a, "path")?, arg(&a, "into")?);
+                ok(self
+                    .vault_mut()?
+                    .move_folder(doc_type, &path, &into)
+                    .map_err(err)?)
+            }
             "delete_folder" => {
                 let (doc_type, path): (engine::document::DocType, String) =
                     (arg(&a, "docType")?, arg(&a, "path")?);

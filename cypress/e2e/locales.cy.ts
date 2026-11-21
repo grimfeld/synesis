@@ -316,6 +316,27 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps a Folder's full … menu, with Rename and Move to folder…, inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get('[data-testid=folder-tree-note] [data-folder="Sermons"] > [data-testid=folder-menu]').click();
+        cy.get("[data-testid=folder-menu-rename]").should("be.visible");
+        cy.get("[data-testid=folder-menu-move]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=folder-menu-move]").click();
+        cy.get("[data-testid=folder-picker]").should("have.attr", "data-shell", "sheet");
+        expectNoOverflow();
+      });
+
+      it("keeps a document's … menu and the Move to folder… picker inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.contains("[data-testid=folder-tree-note] [data-testid=doc-row]", "Reading plan").find("[data-testid=doc-menu]").click();
+        cy.get("[data-testid=doc-menu-move]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=doc-menu-move]").click();
+        cy.get("[data-testid=folder-picker]").should("have.attr", "data-shell", "sheet");
+        expectNoOverflow();
+      });
+
       it("keeps a document and its side panel inside the screen", () => {
         cy.get("[data-sidebar=trigger]").first().click();
         cy.get("[data-testid=group-note]").click();
