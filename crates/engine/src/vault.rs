@@ -229,6 +229,46 @@ fn remove_owned(root: &Path, files: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
+/// Where a move of a document was decided, for [`Vault::relocate`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// By this Device: a rename, or a move into a Folder.
+    Here,
+    /// By another Device, arriving through Pairing.
+    Remote,
+}
+
+/// Whether two paths name one file on disk: both exist and are the same
+/// file, as two spellings differing only in case are on a case-insensitive
+/// disk. Decided by the file's identity, never by comparing the strings, so
+/// `Foo.md` and `foo.md` stay two files where the disk says they are.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::metadata(a), fs::metadata(b)) {
+            (Ok(x), Ok(y)) => x.dev() == y.dev() && x.ino() == y.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        match (a.canonicalize(), b.canonicalize()) {
+            (Ok(x), Ok(y)) => x == y,
+            _ => false,
+        }
+    }
+}
+
+/// Move a file, making the folder it goes into.
+fn move_file(from: &Path, to: &Path) -> Result<()> {
+    if let Some(parent) = to.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::rename(from, to)?;
+    Ok(())
+}
+
 fn write_atomic(path: &Path, text: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -452,16 +492,28 @@ impl Vault {
             {
                 continue;
             }
-            if let Some(d) = current.as_ref() {
-                if d.path != rel && self.abs(&d.path)?.exists() {
-                    if let Some(parent) = self.abs(&rel)?.parent() {
-                        fs::create_dir_all(parent)?;
-                    }
-                    fs::rename(self.abs(&d.path)?, self.abs(&rel)?)?;
-                    self.index.remove_path(&d.path)?;
-                }
-            }
-            let abs = self.abs(&rel)?;
+            // A move is made once the text is settled: the merge below works
+            // on the file where it is, and `relocate` then carries it, its
+            // Board and other Boards' cards for it to the new path.
+            //
+            // A path another document holds here is never written over: the
+            // text is merged where the document already is, or, with no file
+            // of its own here, left in the CRDT; this Device's next save puts
+            // its own path back.
+            let moved_from = current
+                .as_ref()
+                .map(|d| d.path.clone())
+                .filter(|p| *p != rel);
+            let old_on_disk = moved_from
+                .as_deref()
+                .filter(|p| self.abs(p).is_ok_and(|a| a.exists()));
+            let held = self.held_by_other(&c.id, &rel)?;
+            let here = match (old_on_disk, held) {
+                (Some(old), _) => old.to_string(),
+                (None, false) => rel.clone(),
+                (None, true) => continue,
+            };
+            let abs = self.abs(&here)?;
             let on_disk = fs::read_to_string(&abs).unwrap_or_default();
             if on_disk != c.text {
                 // A file edited after the newest remote snapshot arrived (in
@@ -482,13 +534,23 @@ impl Vault {
                         .is_some_and(|m| mtime_of(&abs) > m);
                 if file_newer {
                     if let Some(sync) = self.sync.as_mut() {
-                        sync.record_local(&c.id, &on_disk, &rel)?;
+                        // Where the document will be: `rel`, unless another
+                        // document holds it and this one stays put.
+                        let dest = if held { &here } else { &rel };
+                        sync.record_local(&c.id, &on_disk, dest)?;
                     }
                 } else {
                     write_atomic(&abs, &c.text)?;
                 }
             }
-            if let Some(d) = self.index_file(&rel)? {
+            // Relocated even when the provider already moved the file: the
+            // index and other Boards' cards still name the old path.
+            let summary = match moved_from {
+                Some(_) if held => self.index_file(&here)?,
+                Some(old) => self.relocate(&c.id, &old, &rel, false, Origin::Remote)?,
+                None => self.index_file(&rel)?,
+            };
+            if let Some(d) = summary {
                 out.push(d);
             }
         }
@@ -1303,21 +1365,10 @@ impl Vault {
             .map(|(f, _)| f.to_string())
             .unwrap_or_default();
         let new_rel = self.unique_path(&folder, &new_title, Some(&summary.path))?;
-        if new_rel != summary.path {
-            fs::rename(self.abs(&summary.path)?, self.abs(&new_rel)?)?;
-            // A Board is identified by its pairing, so it moves with the
-            // Composition or it stops being that Composition's (ADR 0009).
-            let (old_board, new_board) = (
-                self.abs(&canvas::board_path(&summary.path))?,
-                self.abs(&canvas::board_path(&new_rel))?,
-            );
-            if old_board.exists() {
-                fs::rename(&old_board, &new_board)?;
-            }
-            self.index.remove_path(&summary.path)?;
-        }
-        // The file stem is lowercase; keep the typed capitalisation in `title` when it differs.
-        let p = self.abs(&new_rel)?;
+        // The file stem is lowercase; keep the typed capitalisation in `title`
+        // when it differs. Written before the move, so `relocate` indexes the
+        // file once, at its new path, with its new title.
+        let p = self.abs(&summary.path)?;
         let text = fs::read_to_string(&p)?;
         let updated = document::set_frontmatter_field(
             &text,
@@ -1328,7 +1379,7 @@ impl Vault {
         if written {
             write_atomic(&p, &updated)?;
         }
-        self.index_file_as(&new_rel, written)?;
+        self.relocate(id, &summary.path, &new_rel, written, Origin::Here)?;
         // Update links in every document that pointed at the old title.
         let old = regex::escape(&summary.title);
         let re = Regex::new(&format!(
@@ -1354,10 +1405,146 @@ impl Vault {
                 self.index_file_as(&bl.doc.path, true)?;
             }
         }
-        if new_rel != summary.path {
-            self.rewrite_boards(id, &summary.path, &new_rel)?;
-        }
         self.read(id)
+    }
+
+    /// Move the document `id` from `from` to `to`, with everything keyed by
+    /// its path, and index it there. Every change of a document's path goes
+    /// through here: [`Vault::rename`] and [`Vault::apply_remote`] now, and
+    /// moving a document into a Folder (#149) must too. `from` and `to` may
+    /// be equal (a rename that only changes the title's capitalisation):
+    /// then nothing moves.
+    ///
+    /// The path-keyed companions of a document:
+    /// - the Board `.canvas` beside a Composition (ADR 0009). It is identified
+    ///   by its pairing, so it moves with the `.md` or stops being that
+    ///   Composition's Board;
+    /// - the `file` nodes in other Boards, which store a path, not an id
+    ///   (PLAN §17.13). They are rewritten once the document is indexed at
+    ///   `to`: a Board's refs resolve by path, so before that the new path
+    ///   would resolve to nothing;
+    /// - a region Place's Border `.geojson`, which resolves relative to the
+    ///   Place's path (ADR 0023). No caller moves a Place yet; one that does
+    ///   must carry the Border here too.
+    ///
+    /// A source already gone is not an error: on a synced Vault the provider
+    /// may have moved the file before this Device's snapshot arrived. A `to`
+    /// that holds another document is refused, never written over.
+    ///
+    /// `own_write` is passed to the index as `index_file_as` takes it. A move
+    /// from `Origin::Remote` keeps a Board the provider already put at `to`,
+    /// and removes the folders it left empty, deepest first, but never a
+    /// type's own folder or the Vault root: there the user did not choose to
+    /// keep the old folder, and empty folders are not carried by Pairing. A
+    /// folder that was already empty is never touched, because nothing left it.
+    fn relocate(
+        &mut self,
+        id: &str,
+        from: &str,
+        to: &str,
+        own_write: bool,
+        origin: Origin,
+    ) -> Result<Option<DocSummary>> {
+        if from != to {
+            let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
+            let (old_board, new_board) = (
+                self.abs(&canvas::board_path(from))?,
+                self.abs(&canvas::board_path(to))?,
+            );
+            if self.held_by_other(id, to)? {
+                return Err(Error::Invalid(format!(
+                    "{to} already holds another document"
+                )));
+            }
+            // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
+            // Note is the user's own Obsidian canvas and stays where it is.
+            let has_board = self
+                .index
+                .get(id)?
+                .is_some_and(|d| d.doc_type == DocType::Composition);
+            // A rename that only changes case names one file twice on a
+            // case-insensitive disk, so the Board "already there" is itself.
+            let same_board = same_file(&old_board, &new_board);
+            let mut moved = false;
+            if old_md.exists() {
+                move_file(&old_md, &new_md)?;
+                moved = true;
+            }
+            // A Board already at `to` that came from elsewhere (another
+            // Device's provider got there first) is kept; a move made here
+            // carries the Board as `rename` always has.
+            let board_free = origin == Origin::Here || same_board || !new_board.exists();
+            if has_board && old_board.exists() && board_free {
+                move_file(&old_board, &new_board)?;
+                moved = true;
+            }
+            self.index.remove_path(from)?;
+            if origin == Origin::Remote && moved {
+                self.prune_emptied(&old_md);
+            }
+        }
+        let summary = self.index_file_as(to, own_write)?;
+        if summary
+            .as_ref()
+            .is_some_and(|d| d.doc_type == DocType::Place)
+        {
+            self.note_border_names()?;
+        }
+        if from != to {
+            self.rewrite_boards(id, from, to)?;
+        }
+        Ok(summary)
+    }
+
+    /// Whether `to` is a file other than the document `id`: indexed as
+    /// another document, or a file whose own `id` is not this one. A file
+    /// that is `id` itself (the provider delivered it first) is not other,
+    /// and neither is `to` when it differs from where `id` is only by case.
+    fn held_by_other(&self, id: &str, to: &str) -> Result<bool> {
+        let abs = self.abs(to)?;
+        if !abs.exists() {
+            return Ok(false);
+        }
+        if let Some(d) = self.index.get_by_path(to)? {
+            return Ok(d.id != id);
+        }
+        // A rename that only changes case: on a case-insensitive disk `to`
+        // is the document's own file.
+        if let Some(d) = self.index.get(id)? {
+            if same_file(&self.abs(&d.path)?, &abs) {
+                return Ok(false);
+            }
+        }
+        let text = fs::read_to_string(&abs).unwrap_or_default();
+        Ok(document::parse(to, &text).id.as_deref() != Some(id))
+    }
+
+    /// Remove the folder that held `file`, and each parent above it, while
+    /// they are empty. Stops at the Vault root, at a type's own folder
+    /// (`Notes/`, `Compositions/`, …) and at anything that is a link.
+    fn prune_emptied(&self, file: &Path) {
+        let tops: Vec<PathBuf> = DocType::ALL
+            .iter()
+            .map(|t| t.default_folder())
+            .filter(|f| !f.is_empty())
+            .map(|f| self.root.join(f))
+            .collect();
+        let mut dir = file.parent();
+        while let Some(d) = dir {
+            if d == self.root
+                || !d.starts_with(&self.root)
+                || tops.iter().any(|t| t == d)
+                || crate::vault_path::is_link(d)
+                || !crate::vault_path::confined(&self.root, d)
+            {
+                break;
+            }
+            let empty = fs::read_dir(d).is_ok_and(|mut e| e.next().is_none());
+            if !empty || fs::remove_dir(d).is_err() {
+                break;
+            }
+            dir = d.parent();
+        }
     }
 
     /// Point every Board that referenced `from` at `to`.
