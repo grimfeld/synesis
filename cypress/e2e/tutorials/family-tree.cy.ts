@@ -1,10 +1,13 @@
 // Walks the Family Tutorial (docs/tutorials/family-tree.en.md) step by step
 // on the demo vault, so a change to Kinship that outdates the Tutorial fails
-// here (PLAN §25.13). Later parts (the Family tree view) add their steps here.
+// here (PLAN §25.13). Steps 4 and 5 edit Kinship (#152); later parts (the
+// Family tree view) add their steps here.
 describe("Tutorial: Family", () => {
   beforeEach(() => cy.openApp());
 
   const kin = (row: string) => cy.get(`[data-testid=hub-family] [data-testid=family-${row}] [data-testid=family-kin]`);
+  const fileOf = (title: string) =>
+    cy.docByTitle(title).then((d) => cy.bridge<{ text: string }>("get_document", { id: d.id }).its("text"));
 
   it("can be followed to the end", () => {
     // A Character's Hub lists it.
@@ -45,13 +48,47 @@ describe("Tutorial: Family", () => {
     cy.hubTitle("Jacob");
     cy.tutorialNext();
 
-    // 4. Do it once: open a Character's Hub and see their family.
+    // 4. Leah's Father: Choose…, then Create Character “Laban”.
     cy.tutorialStep(3);
-    cy.openDoc("Joseph", { exact: true });
-    cy.hubTitle("Joseph");
-    kin("father").should("contain", "Jacob");
-    kin("mother").should("contain", "Rachel");
-    cy.contains("[data-testid=family-sibling-group]", "Jacob and Rachel").should("contain", "Benjamin");
+    cy.tutorialCommand("nav.search");
+    cy.get("[data-testid=palette] input[cmdk-input]").type("Leah");
+    cy.contains("[data-testid=palette] [data-testid=palette-doc]", /^Leah/).click();
+    cy.get("[data-testid=palette]").should("not.exist");
+    cy.hubTitle("Leah");
+    cy.get("[data-testid=family-father-choose]").click();
+    cy.get("[data-testid=family-picker-input]").type("Laban");
+    cy.get("[data-testid=picker-create]").should("contain", "Create Character “Laban”").click();
+    kin("father").should("contain", "Laban");
+    fileOf("Leah").should("match", /^father: "\[\[Laban\]\]"$/m);
+    cy.get("[data-testid=family-father-clear]").should("exist");
+    cy.tutorialNext();
+
+    // 5. Add child on Joseph: asked father or mother, the child's file gains `father`.
+    cy.tutorialStep(4);
+    fileOf("Joseph").then((josephBefore) => {
+      cy.openDoc("Joseph", { exact: true });
+      cy.hubTitle("Joseph");
+      cy.get("[data-testid=family-add-child]").click();
+      cy.get("[data-testid=family-picker-input]").type("Manasseh");
+      cy.get("[data-testid=picker-create]").click();
+      cy.get("[data-testid=family-role-question]").should("be.visible");
+      cy.get("[data-testid=family-role-father]").click();
+      kin("children").should("contain", "Manasseh");
+      fileOf("Manasseh").should("match", /^father: "\[\[Joseph\]\]"$/m);
+      fileOf("Joseph").should("equal", josephBefore);
+    });
+    cy.tutorialNext();
+
+    // 6. Do it once: set a Character's Father, then find them among his Children.
+    cy.tutorialStep(5);
+    cy.openDoc("Timothy", { exact: true });
+    cy.hubTitle("Timothy");
+    cy.get("[data-testid=family-father-choose]").click();
+    cy.get("[data-testid=family-picker-input]").type("Paul");
+    cy.contains("[data-testid=picker-option]", "Paul").click();
+    kin("father").should("contain", "Paul").click();
+    cy.hubTitle("Paul");
+    kin("children").should("contain", "Timothy");
     cy.tutorialDone();
   });
 });

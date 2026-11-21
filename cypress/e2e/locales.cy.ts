@@ -405,6 +405,36 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Editing Kinship (#152) at 390px: the Character picker opens as the
+      // phone Sheet with "Créer le Personnage « … »" for a long name, and Add
+      // child asks "Qui est … pour … : le père ou la mère ?" with two buttons
+      // side by side. The refusal naming the other father is the longest line.
+      it("keeps the Character picker and the father/mother question inside the screen", () => {
+        cy.openDoc("Paul");
+        cy.get("[data-testid=family-father-choose]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker]").should("have.attr", "data-shell", "sheet");
+        cy.get("[data-testid=family-picker-input]").type("Shelomith daughter of Dibri of the tribe of Dan");
+        cy.get("[data-testid=picker-create]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=family-picker-input]").clear().type("Abr");
+        cy.get("[data-testid=picker-option]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-testid=family-picker]").should("not.exist");
+        cy.get("[data-testid=family-add-child]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker-input]").type("Timothy");
+        cy.contains("[data-testid=picker-option]", "Timothy").click();
+        cy.get("[data-testid=family-role-question]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.openDoc("Abraham");
+        cy.get("[data-testid=family-add-child]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker-input]").type("Jacob");
+        cy.contains("[data-testid=picker-option]", "Jacob").click();
+        cy.get("[data-testid=family-refused]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps Unlinked mentions and Linkables inside the screen", () => {
         // "Mentions non liées" and its hint are the longest strings either
         // section carries, and the rows end in a Link button that must not

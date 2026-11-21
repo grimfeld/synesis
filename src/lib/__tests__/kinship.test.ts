@@ -2,7 +2,15 @@
 // both sides, from edges stored once.
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation, KinshipWarning } from "../api";
-import { familyOf, kinGraph } from "../kinship";
+import {
+  checkAddChild,
+  familyOf,
+  kinGraph,
+  parentRoleOf,
+  withSpouse,
+  withoutSpouse,
+  writtenLinks,
+} from "../kinship";
 
 function doc(id: string, title: string): DocSummary {
   return {
@@ -168,5 +176,69 @@ describe("familyOf", () => {
     const g2 = kinGraph({ ...kinship, warnings: [w] });
     expect(familyOf(g2, "lot").warnings).toEqual([w]);
     expect(familyOf(g2, "jacob").warnings).toEqual([]);
+  });
+});
+
+// Editing Kinship from the Family section (#152).
+describe("Add child", () => {
+  const g = kinGraph(kinship);
+
+  it("asks a Character who is nobody's parent yet", () => {
+    expect(parentRoleOf(g, "joseph")).toBeNull();
+    expect(parentRoleOf(g, "nobody")).toBeNull();
+  });
+
+  it("defaults to the role the Character already plays", () => {
+    expect(parentRoleOf(g, "isaac")).toBe("father");
+    expect(parentRoleOf(g, "rebekah")).toBe("mother");
+  });
+
+  it("asks every time a Character who is both someone's father and someone's mother", () => {
+    const both = kinGraph({ edges: [edge(esau, "father", isaac), edge(dinah, "mother", isaac)], warnings: [] });
+    expect(parentRoleOf(both, "isaac")).toBeNull();
+  });
+
+  const link = (text: string, d: DocSummary | null) => ({ text, doc: d && { id: d.id, title: d.title } });
+
+  it("writes a child's parent only when unset", () => {
+    expect(checkAddChild([], "isaac")).toEqual({ kind: "write" });
+    expect(checkAddChild([link("[[Isaac]]", isaac)], "isaac")).toEqual({ kind: "already" });
+  });
+
+  it("refuses a child who already has another parent, naming them", () => {
+    expect(checkAddChild([link("[[Abraham]]", abraham)], "isaac")).toEqual({ kind: "refused", existing: "Abraham" });
+    // A link to no Character is still a parent written: named as written.
+    expect(checkAddChild([link("[[Terah|the father]]", null)], "isaac")).toEqual({
+      kind: "refused",
+      existing: "Terah",
+    });
+    // Two written, one of them this parent: the other is named.
+    expect(checkAddChild([link("[[Isaac]]", isaac), link("[[Abraham]]", abraham)], "isaac")).toEqual({
+      kind: "refused",
+      existing: "Abraham",
+    });
+  });
+
+  it("reads a Kinship Property as written, one value or a list", () => {
+    expect(writtenLinks("[[Isaac]]")).toEqual(["[[Isaac]]"]);
+    expect(writtenLinks(["[[Leah]]", " [[Rachel]] ", ""])).toEqual(["[[Leah]]", "[[Rachel]]"]);
+    expect(writtenLinks(null)).toEqual([]);
+    expect(writtenLinks(undefined)).toEqual([]);
+  });
+});
+
+describe("Spouses", () => {
+  const link = (text: string, d: DocSummary | null) => ({ text, doc: d && { id: d.id, title: d.title } });
+
+  it("adds a spouse at the end, keeping the others as written", () => {
+    expect(withSpouse([link("[[leah|Leah]]", leah)], "[[Rachel]]", "rachel")).toEqual(["[[leah|Leah]]", "[[Rachel]]"]);
+    expect(withSpouse([], "[[Leah]]", "leah")).toEqual(["[[Leah]]"]);
+    // Already named: nothing to write.
+    expect(withSpouse([link("[[Leah]]", leah)], "[[Leah]]", "leah")).toBeNull();
+  });
+
+  it("removes only the entries naming that spouse, and the Property with the last", () => {
+    expect(withoutSpouse([link("[[Leah]]", leah), link("[[Rachel]]", rachel)], "leah")).toEqual(["[[Rachel]]"]);
+    expect(withoutSpouse([link("[[Leah]]", leah)], "leah")).toBeNull();
   });
 });
