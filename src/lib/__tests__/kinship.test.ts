@@ -5,6 +5,7 @@ import type { DocSummary, Kinship, KinRelation, KinshipWarning } from "../api";
 import {
   checkAddChild,
   familyOf,
+  hasKin,
   kinGraph,
   parentRoleOf,
   relationsOf,
@@ -277,5 +278,18 @@ describe("relationsOf", () => {
 
   it("is empty for a Character with none", () => {
     expect(relationsOf(k, "abraham")).toEqual([]);
+  });
+});
+
+describe("hasKin", () => {
+  it("holds for a Character naming kin, and for one only named", () => {
+    expect(hasKin(kinship, "lot")).toBe(true);
+    // Sarah names no one; Abraham and Isaac name her.
+    expect(hasKin(kinship, "sarah")).toBe(true);
+  });
+
+  it("fails for a Character in no tie", () => {
+    expect(hasKin(kinship, "paul")).toBe(false);
+    expect(hasKin({ edges: [], warnings: [], relations: [] }, "jacob")).toBe(false);
   });
 });

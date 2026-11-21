@@ -26,6 +26,7 @@ import {
 import { joinFrontmatter, readField, removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { live } from "@/lib/live";
 import { useQuery } from "@/lib/useQuery";
+import { useHasKin } from "@/lib/useHasKin";
 import { useStore } from "@/lib/store";
 import { propertyLabel, useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
@@ -442,17 +443,7 @@ function warningText(w: KinshipWarning, t: Dict): string {
 export function FamilyTreeButton({ id, mtime }: { id: string; mtime: number }) {
   const s = useStore();
   const t = useT();
-  const { data } = useQuery({
-    key: ["kinship", id, mtime],
-    // As the Family section: any page can become, or stop being, a Character.
-    deps: { any: true },
-    fetch: () => api.kinship(),
-    quiet: true,
-  });
-  const hasKin = useMemo(
-    () => !!data?.edges.some((e) => e.character.id === id || e.kin.id === id),
-    [data, id],
-  );
+  const hasKin = useHasKin(id, { mtime });
   if (!hasKin) return null;
   return (
     <IconButton
