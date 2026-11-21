@@ -222,3 +222,31 @@ export function withoutSpouse(current: WrittenLink[], id: string): string[] | nu
   const kept = current.filter((l) => l.doc?.id !== id).map((l) => l.text);
   return kept.length ? kept : null;
 }
+
+// ---------------------------------------------------------- Relations (#153)
+
+/**
+ * One row of a Character's Relations section: "mentor: Elijah" on Elisha's
+ * Hub (`inverse` false), "mentor of: Elisha" on Elijah's (`inverse` true).
+ * `property` is the Property's name as the user wrote it.
+ */
+export interface RelationRow {
+  property: string;
+  inverse: boolean;
+  other: DocSummary;
+}
+
+/**
+ * The Relations of `id` (CONTEXT.md, Relation), both ways: the ones this
+ * Character names, in the order written, then the ones naming them, by the
+ * naming Character's title. Kinship never appears: the engine leaves it out.
+ */
+export function relationsOf(k: Kinship, id: string): RelationRow[] {
+  const out: RelationRow[] = [];
+  const back: RelationRow[] = [];
+  for (const r of k.relations) {
+    if (r.character.id === id) out.push({ property: r.property, inverse: false, other: r.other });
+    else if (r.other.id === id) back.push({ property: r.property, inverse: true, other: r.character });
+  }
+  return [...out, ...back];
+}

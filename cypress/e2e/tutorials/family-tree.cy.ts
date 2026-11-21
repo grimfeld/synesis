@@ -1,7 +1,7 @@
 // Walks the Family Tutorial (docs/tutorials/family-tree.en.md) step by step
 // on the demo vault, so a change to Kinship that outdates the Tutorial fails
-// here (PLAN §25.13). Steps 4 and 5 edit Kinship (#152); later parts (the
-// Family tree view) add their steps here.
+// here (PLAN §25.13). Steps 4 and 5 edit Kinship (#152), step 6 reads a
+// Relation (#153); later parts (the Family tree view) add their steps here.
 describe("Tutorial: Family", () => {
   beforeEach(() => cy.openApp());
 
@@ -79,8 +79,30 @@ describe("Tutorial: Family", () => {
     });
     cy.tutorialNext();
 
-    // 6. Do it once: set a Character's Father, then find them among his Children.
+    // 6. Elisha's Relations: "mentor: Elijah", and "mentor of: Elisha" on Elijah.
     cy.tutorialStep(5);
+    fileOf("Elijah").then((elijahBefore) => {
+      cy.tutorialCommand("nav.search");
+      cy.get("[data-testid=palette] input[cmdk-input]").type("Elisha");
+      cy.contains("[data-testid=palette] [data-testid=palette-doc-name]", /^Elisha$/).click();
+      cy.get("[data-testid=palette]").should("not.exist");
+      cy.hubTitle("Elisha");
+      cy.get("[data-testid=hub-relations] [data-testid=hub-relation]")
+        .should("have.length", 1)
+        .and("contain", "mentor:")
+        .find("button")
+        .should("contain", "Elijah")
+        .click();
+      cy.hubTitle("Elijah");
+      cy.get("[data-testid=hub-relations] [data-testid=hub-relation][data-direction=in]")
+        .should("contain", "mentor of:")
+        .and("contain", "Elisha");
+      fileOf("Elijah").should("equal", elijahBefore);
+    });
+    cy.tutorialNext();
+
+    // 7. Do it once: set a Character's Father, then find them among his Children.
+    cy.tutorialStep(6);
     cy.openDoc("Timothy", { exact: true });
     cy.hubTitle("Timothy");
     cy.get("[data-testid=family-father-choose]").click();

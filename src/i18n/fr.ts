@@ -152,6 +152,11 @@ export const fr: Dict = {
   ties_characters: "Personnages présents",
   ties_places: "Lieux",
   tie_lifelong: "Toute sa vie",
+  relations: {
+    title: "Relations",
+    named: (label: string) => `${label} :`,
+    named_by: (label: string) => `${label} de :`,
+  },
   family: {
     title: "Famille",
     father: "Père",

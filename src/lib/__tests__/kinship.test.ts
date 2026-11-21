@@ -7,6 +7,7 @@ import {
   familyOf,
   kinGraph,
   parentRoleOf,
+  relationsOf,
   withSpouse,
   withoutSpouse,
   writtenLinks,
@@ -88,6 +89,7 @@ const kinship: Kinship = {
     edge(lot, "father", jacob),
   ],
   warnings: [],
+  relations: [],
 };
 
 const titles = (ds: DocSummary[]) => ds.map((d) => d.title);
@@ -194,7 +196,11 @@ describe("Add child", () => {
   });
 
   it("asks every time a Character who is both someone's father and someone's mother", () => {
-    const both = kinGraph({ edges: [edge(esau, "father", isaac), edge(dinah, "mother", isaac)], warnings: [] });
+    const both = kinGraph({
+      edges: [edge(esau, "father", isaac), edge(dinah, "mother", isaac)],
+      warnings: [],
+      relations: [],
+    });
     expect(parentRoleOf(both, "isaac")).toBeNull();
   });
 
@@ -240,5 +246,36 @@ describe("Spouses", () => {
   it("removes only the entries naming that spouse, and the Property with the last", () => {
     expect(withoutSpouse([link("[[Leah]]", leah), link("[[Rachel]]", rachel)], "leah")).toEqual(["[[Rachel]]"]);
     expect(withoutSpouse([link("[[Leah]]", leah)], "leah")).toBeNull();
+  });
+});
+
+describe("relationsOf", () => {
+  const [elijah, elisha, gehazi] = ["Elijah", "Elisha", "Gehazi"].map((t) => doc(t.toLowerCase(), t));
+  const k: Kinship = {
+    edges: [],
+    warnings: [],
+    relations: [
+      { character: elisha, property: "mentor", other: elijah },
+      { character: gehazi, property: "master", other: elisha },
+      { character: elisha, property: "servants", other: gehazi },
+    ],
+  };
+  const rows = (id: string) =>
+    relationsOf(k, id).map((r) => [r.property, r.inverse, r.other.title]);
+
+  it("lists the Relations a Character names, then those naming them", () => {
+    expect(rows("elisha")).toEqual([
+      ["mentor", false, "Elijah"],
+      ["servants", false, "Gehazi"],
+      ["master", true, "Gehazi"],
+    ]);
+  });
+
+  it("shows a Relation on the other end as its inverse", () => {
+    expect(rows("elijah")).toEqual([["mentor", true, "Elisha"]]);
+  });
+
+  it("is empty for a Character with none", () => {
+    expect(relationsOf(k, "abraham")).toEqual([]);
   });
 });

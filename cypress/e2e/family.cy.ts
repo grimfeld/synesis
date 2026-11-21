@@ -289,3 +289,70 @@ describe("Editing Kinship", () => {
     });
   });
 });
+
+// Relations (#153; CONTEXT.md, Relation): a link Property between Characters
+// that is not Kinship, shown on both Hubs in the Property's own word. Read
+// from the files as written; nothing is written.
+const relations = () => cy.get("[data-testid=hub-relations] [data-testid=hub-relation]");
+
+describe("Relations section", () => {
+  beforeEach(() => cy.openApp());
+
+  it("shows Elisha's mentor on both Hubs and leaves both files unchanged", () => {
+    characterFile("Elisha").then((elishaBefore) =>
+      characterFile("Elijah").then((elijahBefore) => {
+        expect(elijahBefore).not.to.contain("Elisha");
+        cy.openDoc("Elisha", { exact: true });
+        relations()
+          .should("have.length", 1)
+          .first()
+          .should("have.attr", "data-direction", "out")
+          .and("contain", "mentor:")
+          .and("contain", "Elijah");
+        // Named only on Elisha's side, read the other way on Elijah's.
+        relations().first().find("button").click();
+        cy.hubTitle("Elijah");
+        relations()
+          .should("have.length", 1)
+          .first()
+          .should("have.attr", "data-direction", "in")
+          .and("contain", "mentor of:")
+          .and("contain", "Elisha");
+        characterFile("Elisha").should("equal", elishaBefore);
+        characterFile("Elijah").should("equal", elijahBefore);
+      }),
+    );
+  });
+
+  it("leaves out Kinship and a link to a Place", () => {
+    // A servant whose father and home are links, beside one Relation.
+    cy.bridge("create_document", {
+      docType: "character",
+      title: "Gehazi",
+      fields: {
+        father: "[[Elijah]]",
+        home: "[[Jerusalem]]",
+        master: "[[Elisha]]",
+      },
+      body: "",
+    });
+    cy.openApp();
+    cy.openDoc("Gehazi", { exact: true });
+    relations().should("have.length", 1).and("contain", "master:").and("contain", "Elisha");
+    cy.get("[data-testid=hub-relation][data-property=father]").should("not.exist");
+    cy.get("[data-testid=hub-relation][data-property=home]").should("not.exist");
+    // The father is Kinship: shown in the Family section instead.
+    kin("father").should("contain", "Elijah");
+    cy.openDoc("Elisha", { exact: true });
+    cy.get("[data-testid=hub-relation][data-direction=in]").should("contain", "master of:").and("contain", "Gehazi");
+    cy.openDoc("Elijah", { exact: true });
+    cy.get("[data-testid=hub-relation][data-property=father]").should("not.exist");
+    relations().should("have.length", 1).and("contain", "mentor of:");
+    // A Place's Hub has no Relations, and a Character without any shows none.
+    cy.openDoc("Jerusalem", { exact: true });
+    cy.get("[data-testid=hub-relations]").should("not.exist");
+    cy.openDoc("Jacob", { exact: true });
+    cy.get("[data-testid=hub-family]").should("be.visible");
+    cy.get("[data-testid=hub-relations]").should("not.exist");
+  });
+});

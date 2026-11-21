@@ -78,6 +78,7 @@ import { KindPicker } from "@/components/KindPicker";
 import { EventDate, TypeDot } from "@/components/DocLink";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { FamilySection } from "@/components/FamilySection";
+import { RelationsSection } from "@/components/RelationsSection";
 import { IconButton } from "@/components/IconButton";
 import { PanelTitle } from "@/components/Field";
 import {
@@ -1121,6 +1122,7 @@ const HUB_SECTIONS: Record<DocType, ((p: SectionProps) => ReactNode) | null> = {
     <>
       <DatesSection doc={doc} fm={fm} onFmChange={onFmChange} />
       <FamilySection doc={doc} fm={fm} onFmChange={onFmChange} />
+      <RelationsSection doc={doc} />
       <TiesSection doc={doc} />
     </>
   ),

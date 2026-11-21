@@ -9,6 +9,11 @@
 //! children, siblings, a spouse named only by the other side — is derived by
 //! the UI (`src/lib/kinship.ts`), which the Hub and the Family tree share.
 //! Nothing here writes a file: bad data is reported, never corrected.
+//!
+//! The same answer carries the Relations (CONTEXT.md, Relation; PLAN §32):
+//! every other link Property on a Character whose target is a Character,
+//! named by the user in their own word (`mentor: "[[Elijah]]"`). Each is
+//! given once, as written; the "mentor of" side is read by the UI.
 use crate::document::DocType;
 use crate::index::DocSummary;
 use crate::Result;
@@ -73,11 +78,27 @@ pub enum KinshipWarning {
     },
 }
 
-/// Every Kinship edge in the Vault, and every warning.
+/// The link Properties on a Character that are never a Relation: Kinship's,
+/// and `aliases`, which names the Character itself.
+pub const NOT_RELATIONS: [&str; 4] = ["father", "mother", "spouses", "aliases"];
+
+/// One Relation as written: `character`'s `property` names `other`
+/// ("Elisha's mentor is Elijah"). Both ends are Characters; `property` is the
+/// Property's name as the user wrote it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CharacterRelation {
+    pub character: DocSummary,
+    pub property: String,
+    pub other: DocSummary,
+}
+
+/// Every Kinship edge in the Vault, every warning, and every Relation.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Kinship {
     pub edges: Vec<KinshipEdge>,
     pub warnings: Vec<KinshipWarning>,
+    #[serde(default)]
+    pub relations: Vec<CharacterRelation>,
 }
 
 /// One Kinship link as the index holds it: the Character whose front matter
@@ -159,6 +180,41 @@ pub fn read(
         }
     }
     drop_cycles(&mut out);
+    Ok(out)
+}
+
+/// Read the Relations from every link Property on a Character, given in
+/// Character order and, within one, in the order written. A link to anything
+/// but a Character (a Place, a Source, a page not yet written) is no Relation
+/// and no warning: `places: [[Bethel]]` is a Tie, not a mistake. Kinship
+/// Properties and `aliases` are skipped, as is a Character naming themself;
+/// the same Character named twice under one Property is one Relation.
+pub fn read_relations(
+    links: Vec<NamedKin>,
+    mut resolve: impl FnMut(&str) -> Result<Option<DocSummary>>,
+) -> Result<Vec<CharacterRelation>> {
+    let mut out = Vec::new();
+    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+    for l in links {
+        if NOT_RELATIONS.contains(&l.property.as_str())
+            || l.character.doc_type != DocType::Character
+        {
+            continue;
+        }
+        let Some(other) = resolve(&l.target)? else {
+            continue;
+        };
+        if other.doc_type != DocType::Character || other.id == l.character.id {
+            continue;
+        }
+        if seen.insert((l.character.id.clone(), l.property.clone(), other.id.clone())) {
+            out.push(CharacterRelation {
+                character: l.character,
+                property: l.property,
+                other,
+            });
+        }
+    }
     Ok(out)
 }
 

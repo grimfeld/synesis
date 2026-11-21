@@ -142,7 +142,8 @@ pub enum Query {
     /// or only those touching `id` (a Character or a Place) for its Hub.
     PlaceTies { id: Option<String> },
     /// Every Kinship edge in the Vault as written, with warnings for what
-    /// cannot be one (ADR 0024). The other direction is derived by the UI.
+    /// cannot be one (ADR 0024), and every Relation (PLAN §32). The other
+    /// direction is derived by the UI.
     Kinship,
     /// Every Journey with its Stops in travel order (ADR 0010).
     Journeys,

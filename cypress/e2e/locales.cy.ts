@@ -405,6 +405,30 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Relations (#153): "mentor de :" and the Character's chip share a
+      // wrapping row; a long user-chosen Property name is the longest label.
+      it("keeps a Character's Relations section inside the screen", () => {
+        cy.openDoc("Elijah", { exact: true });
+        cy.get("[data-testid=hub-relations]").scrollIntoView().should("be.visible");
+        cy.get("[data-testid=hub-relation][data-direction=in]").should("contain", "mentor");
+        expectNoOverflow();
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Gehazi, the servant of Elisha the man of God",
+          fields: { attendant_in_the_house_of: "[[Elisha]]" },
+          body: "",
+        });
+        cy.openApp();
+        cy.openDoc("Elisha", { exact: true });
+        // The vault copy lives for the whole spec, so the run in the other
+        // language left its Gehazi too: count at least, not exactly.
+        cy.get("[data-testid=hub-relation][data-direction=in][data-property=attendant_in_the_house_of]")
+          .should("have.length.at.least", 1)
+          .and("contain", "Gehazi, the servant of Elisha the man of God");
+        cy.get("[data-testid=hub-relation][data-direction=out][data-property=mentor]").should("have.length", 1);
+        expectNoOverflow();
+      });
+
       // Editing Kinship (#152) at 390px: the Character picker opens as the
       // phone Sheet with "Créer le Personnage « … »" for a long name, and Add
       // child asks "Qui est … pour … : le père ou la mère ?" with two buttons
