@@ -91,6 +91,12 @@ export default defineConfig({
           writeFileSync(path, text);
           return null;
         },
+        /** Make a folder, as one made in Finder would be. Confined like `file:write`. */
+        "dir:make"(path: string): null {
+          if (!testVaultRoot(path)) throw new Error(`refusing to write outside a seeded vault: ${path}`);
+          mkdirSync(path, { recursive: true });
+          return null;
+        },
         "file:read"(path: string): string | null {
           return existsSync(path) ? readFileSync(path, "utf8") : null;
         },

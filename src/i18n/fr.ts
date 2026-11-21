@@ -637,6 +637,37 @@ export const fr: Dict = {
   source_mode: "Mode source",
   cmd_palette: "Palette de commandes",
   cmd_hint: "Tapez > pour les commandes, ou choisissez un type pour ne chercher que lui.",
+  folders: {
+    menu: (name: string) => `Actions pour « ${name} »`,
+    group_menu: (group: string) => `${group} : plus d’actions`,
+    new_folder: "Nouveau dossier",
+    new_folder_in: (name: string) => `Nouveau dossier dans « ${name} »`,
+    name: "Nom",
+    delete: "Supprimer le dossier",
+    new_here: { note: "Nouvelle note ici", composition: "Nouvelle composition ici" },
+    in_folder: (name: string) => `Dans « ${name} »`,
+    move_command: "Déplacer vers un dossier…",
+    move_title: (title: string) => `Déplacer « ${title} » vers…`,
+    rename: "Renommer",
+    rename_title: (name: string) => `Renommer « ${name} »`,
+    move_folder_title: (name: string) => `Déplacer « ${name} » vers…`,
+    move_none_found: "Aucun dossier ne porte ce nom.",
+    move_find: "Trouver un dossier",
+    move_here: "là où elle est",
+    move_here_folder: "là où il est",
+    move_clash: (name: string, folder: string) => `« ${folder} » contient déjà « ${name} ».`,
+    move_none: "Seules une note ou une composition se rangent dans un dossier.",
+    doc_menu: (title: string) => `Actions pour « ${title} »`,
+    empty_name: "Un dossier a besoin d’un nom.",
+    dot: "Un nom de dossier ne peut pas commencer par un point.",
+    char: (c: string) => `Un nom de dossier ne peut pas contenir « ${c} ».`,
+    taken: (name: string) => `« ${name} » existe déjà ici.`,
+    not_empty: (name: string, files: string[]) => {
+      const shown = files.slice(0, 3).map((f) => `« ${f} »`).join(", ");
+      const more = files.length > 3 ? ` et ${files.length - 3} autres` : "";
+      return `« ${name} » contient encore ${shown}${more}. Seul un dossier vide peut être supprimé.`;
+    },
+  },
   tutorials: {
     command: (title: string) => `Tutoriel : ${title}`,
     open: "Tutoriels de cette vue",

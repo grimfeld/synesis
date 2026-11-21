@@ -77,8 +77,12 @@ export type Dialog =
       title?: string;
       body?: string;
       fields?: Record<string, string>;
+      /** "New Note here": the Folder it goes in, inside the type's folder (PLAN §31). */
+      folder?: string;
     }
   | { kind: "quick" }
+  /** "Move to folder…" (PLAN §31): the Folder picker for one document. */
+  | { kind: "move-to-folder"; id: string }
   | { kind: "search"; query?: string }
   | { kind: "goto-passage" }
   | { kind: "sync" }
@@ -228,6 +232,7 @@ interface Store {
     fields?: Frontmatter,
     body?: string,
     open?: boolean,
+    folder?: string,
   ) => Promise<DocumentPayload>;
   /**
    * "Duplicate as new Composition" (PLAN §14.8): copy the talk and its Board
@@ -568,8 +573,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       fields?: Frontmatter,
       body?: string,
       open = true,
+      folder?: string,
     ) => {
-      const d = await api.createDocument(type, title, fields, body);
+      const d = await api.createDocument(type, title, fields, body, folder);
       await refresh();
       // A new document changes what other pages show — a parent Source's
       // Contains list, a reading trail, the Library — and none of those are

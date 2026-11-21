@@ -207,6 +207,45 @@ impl State {
             "vault_info" => ok(self.vault()?.info().map_err(err)?),
             "rescan" => ok(self.vault_mut()?.scan().map_err(err)?),
             "query" => ok(self.vault()?.query(arg(&a, "query")?).map_err(err)?),
+            "list_folders" => ok(self.vault()?.folders(arg(&a, "docType")?).map_err(err)?),
+            "create_folder" => {
+                let (doc_type, parent, name): (engine::document::DocType, String, String) =
+                    (arg(&a, "docType")?, arg(&a, "parent")?, arg(&a, "name")?);
+                ok(self
+                    .vault_mut()?
+                    .create_folder(doc_type, &parent, &name)
+                    .map_err(err)?)
+            }
+            "move_document" => {
+                let (id, into): (String, String) = (arg(&a, "id")?, arg(&a, "into")?);
+                let v = self.vault_mut()?;
+                let view = v.move_document(&id, &into).map_err(err)?;
+                ok(api::payload(v, view))
+            }
+            "rename_folder" => {
+                let (doc_type, path, name): (engine::document::DocType, String, String) =
+                    (arg(&a, "docType")?, arg(&a, "path")?, arg(&a, "name")?);
+                ok(self
+                    .vault_mut()?
+                    .rename_folder(doc_type, &path, &name)
+                    .map_err(err)?)
+            }
+            "move_folder" => {
+                let (doc_type, path, into): (engine::document::DocType, String, String) =
+                    (arg(&a, "docType")?, arg(&a, "path")?, arg(&a, "into")?);
+                ok(self
+                    .vault_mut()?
+                    .move_folder(doc_type, &path, &into)
+                    .map_err(err)?)
+            }
+            "delete_folder" => {
+                let (doc_type, path): (engine::document::DocType, String) =
+                    (arg(&a, "docType")?, arg(&a, "path")?);
+                ok(self
+                    .vault_mut()?
+                    .delete_folder(doc_type, &path)
+                    .map_err(err)?)
+            }
             "get_document" => {
                 let v = self.vault()?;
                 let view = v.read(&arg::<String>(&a, "id")?).map_err(err)?;
@@ -221,12 +260,14 @@ impl State {
             "create_document" => {
                 let fields: Option<Map<String, Value>> = arg(&a, "fields")?;
                 let body: Option<String> = arg(&a, "body")?;
+                let folder: Option<String> = arg(&a, "folder")?;
                 let (doc_type, title): (engine::document::DocType, String) =
                     (arg(&a, "docType")?, arg(&a, "title")?);
                 let v = self.vault_mut()?;
                 let view = v
-                    .create(
+                    .create_in(
                         doc_type,
+                        folder.as_deref(),
                         &title,
                         &fields.unwrap_or_default(),
                         body.as_deref().unwrap_or(""),

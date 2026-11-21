@@ -279,6 +279,27 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
         // `Query` variant, not another line here that someone forgets.
         "query" => ok(query(state, arg(&a, "query")?)?),
         "get_document" => ok(get_document(state, arg(&a, "id")?)?),
+        "list_folders" => ok(list_folders(state, arg(&a, "docType")?)?),
+        "create_folder" => ok(create_folder(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "parent")?,
+            arg(&a, "name")?,
+        )?),
+        "move_document" => ok(move_document(state, arg(&a, "id")?, arg(&a, "into")?)?),
+        "rename_folder" => ok(rename_folder(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "path")?,
+            arg(&a, "name")?,
+        )?),
+        "move_folder" => ok(move_folder(
+            state,
+            arg(&a, "docType")?,
+            arg(&a, "path")?,
+            arg(&a, "into")?,
+        )?),
+        "delete_folder" => ok(delete_folder(state, arg(&a, "docType")?, arg(&a, "path")?)?),
         "save_document" => ok(save_document(
             state,
             app.state::<crate::windows::WindowState>(),
@@ -291,6 +312,7 @@ fn dispatch(app: &AppHandle, cmd: &str, a: Value) -> Result<Value, String> {
             arg(&a, "title")?,
             arg(&a, "fields")?,
             arg(&a, "body")?,
+            arg(&a, "folder")?,
         )?),
         "rename_document" => ok(rename_document(state, arg(&a, "id")?, arg(&a, "title")?)?),
         "duplicate_composition" => ok(duplicate_composition(

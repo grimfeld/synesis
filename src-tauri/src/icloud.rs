@@ -164,6 +164,7 @@ fn rescan(app: &AppHandle, root: &Path) {
                 changed,
                 removed: vec![],
                 boards: vec![],
+                folders: vec![],
             },
         );
     }

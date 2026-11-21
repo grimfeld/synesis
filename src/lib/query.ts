@@ -50,7 +50,9 @@ export const RELOAD_EVERYTHING = "*";
  */
 export function matches(deps: QueryDeps, change: ChangedPayload): boolean {
   if (deps.none) return false;
-  if (change.removed.length > 0) return true;
+  // A Folder made or removed outside the app changes no document: as coarse
+  // as a removal, and as rare.
+  if (change.removed.length > 0 || (change.folders?.length ?? 0) > 0) return true;
   if (deps.any) return true;
   if (deps.ids) return change.changed.some((d) => deps.ids!.includes(d.id));
   return change.changed.some((d) => deps.types!.includes(d.type));

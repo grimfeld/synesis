@@ -700,6 +700,76 @@ fn get_document(state: State<AppState>, id: String) -> CmdResult<DocumentPayload
     state.with_vault(|v| Ok(api::payload(v, v.read(&id)?)))
 }
 
+/// Make a Folder inside Notes or Compositions (PLAN §31).
+#[tauri::command]
+fn create_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    parent: String,
+    name: String,
+) -> CmdResult<String> {
+    state.with_vault_mut(|v| v.create_folder(doc_type, &parent, &name))
+}
+
+/// Delete an empty Folder; returns what stopped it, empty once it is gone.
+#[tauri::command]
+fn delete_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+) -> CmdResult<Vec<String>> {
+    state.with_vault_mut(|v| v.delete_folder(doc_type, &path))
+}
+
+/// Move a Note or Composition into a Folder of its type (PLAN §31).
+#[tauri::command]
+fn move_document(state: State<AppState>, id: String, into: String) -> CmdResult<DocumentPayload> {
+    let r = state.with_vault_mut(|v| {
+        let view = v.move_document(&id, &into)?;
+        Ok(api::payload(v, view))
+    });
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Rename a Folder; returns its new path.
+#[tauri::command]
+fn rename_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+    name: String,
+) -> CmdResult<String> {
+    let r = state.with_vault_mut(|v| v.rename_folder(doc_type, &path, &name));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// Move a Folder into another (`""` for the top); returns its new path.
+#[tauri::command]
+fn move_folder(
+    state: State<AppState>,
+    doc_type: DocType,
+    path: String,
+    into: String,
+) -> CmdResult<String> {
+    let r = state.with_vault_mut(|v| v.move_folder(doc_type, &path, &into));
+    if r.is_ok() {
+        pairing::after_write(&state);
+    }
+    r
+}
+
+/// The Folders inside Notes or Compositions (PLAN §31), for the sidebar.
+#[tauri::command]
+fn list_folders(state: State<AppState>, doc_type: DocType) -> CmdResult<Vec<String>> {
+    state.with_vault(|v| v.folders(doc_type))
+}
+
 #[tauri::command]
 fn save_document(
     state: State<AppState>,
@@ -726,10 +796,12 @@ fn create_document(
     title: String,
     fields: Option<Map<String, Value>>,
     body: Option<String>,
+    folder: Option<String>,
 ) -> CmdResult<DocumentPayload> {
     let r = state.with_vault_mut(|v| {
-        let view = v.create(
+        let view = v.create_in(
             doc_type,
+            folder.as_deref(),
             &title,
             &fields.unwrap_or_default(),
             body.as_deref().unwrap_or(""),
@@ -1473,6 +1545,12 @@ pub fn run() {
             rescan,
             query,
             get_document,
+            list_folders,
+            create_folder,
+            delete_folder,
+            move_document,
+            rename_folder,
+            move_folder,
             save_document,
             create_document,
             rename_document,
