@@ -4,7 +4,15 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, Kinship, KinRelation } from "../api";
 import { kinGraph } from "../kinship";
-import { BOX_HEIGHT, COUPLE_GAP, familyLayout, packRow, type FamilyLayout } from "../familyTree";
+import {
+  BOX_HEIGHT,
+  COUPLE_GAP,
+  familyLayout,
+  laneLevels,
+  packRow,
+  type FamilyLayout,
+  type GapRun,
+} from "../familyTree";
 
 function doc(title: string): DocSummary {
   return {
@@ -28,7 +36,11 @@ function doc(title: string): DocSummary {
 /** Edges as the engine answers them: `[child-or-spouse, relation, kin]` by title. */
 function layout(edges: [string, KinRelation, string][]): FamilyLayout {
   const k: Kinship = {
-    edges: edges.map(([c, relation, kin]) => ({ character: doc(c), relation, kin: doc(kin) })),
+    edges: edges.map(([c, relation, kin]) => ({
+      character: doc(c),
+      relation,
+      kin: doc(kin),
+    })),
     warnings: [],
     relations: [],
   };
@@ -157,7 +169,12 @@ describe("familyLayout", () => {
 
   it("leaves out Characters with no kin", () => {
     expect(l.people.some((p) => p.id === "paul")).toBe(false);
-    expect(layout([])).toMatchObject({ people: [], families: 0, width: 0, height: 0 });
+    expect(layout([])).toMatchObject({
+      people: [],
+      families: 0,
+      width: 0,
+      height: 0,
+    });
   });
 
   it("breaks a cycle and draws the rest", () => {
@@ -416,6 +433,22 @@ describe("familyLayout", () => {
     ).not.toThrow();
   });
 
+  it("never lets the upper of two parents in different rows drift after their child", () => {
+    // P3's child by G goes down beside G's unit wherever P3 stands: P3
+    // following it moved P3 further right on every pass, without end.
+    const t = layout([
+      ["P4", "spouse", "P0"],
+      ["K6", "mother", "P3"],
+      ["P0", "father", "G"],
+      ["X", "father", "G"],
+      ["X", "mother", "P3"],
+      ["G", "father", "GG"],
+    ]);
+    const boxes = t.people.reduce((sum, p) => sum + p.width, 0);
+    expect(t.width).toBeLessThan(boxes);
+    expect(box(t, "p3").x - (box(t, "g").x + box(t, "g").width)).toBeLessThan(200);
+  });
+
   it("is quick for hundreds of Characters", () => {
     const edges: [string, KinRelation, string][] = [];
     for (let i = 1; i < 600; i++) edges.push([`P${i}`, "father", `P${Math.floor((i - 1) / 3)}`]);
@@ -431,5 +464,81 @@ describe("packRow", () => {
     expect(packRow([0, 100, 200], [50, 50, 50], 10)).toEqual([0, 100, 200]);
     // Both want 0: they share the overlap.
     expect(packRow([0, 0], [40, 40], 10)).toEqual([-25, 25]);
+  });
+
+  it("keeps a unit at or right of its lower bound, and at or left of its upper one", () => {
+    expect(packRow([0], [50], 10, [20])).toEqual([20]);
+    expect(packRow([0, 100], [50, 50], 10, [30])).toEqual([30, 100]);
+    expect(packRow([100], [50], 10, [], [40])).toEqual([40]);
+    // Not bounded: as before.
+    expect(packRow([0, 100], [50, 50], 10, [-Infinity, -Infinity], [Infinity, Infinity])).toEqual([0, 100]);
+  });
+
+  it("lets a lower bound win over an upper one it contradicts", () => {
+    expect(packRow([0], [50], 10, [60], [40])).toEqual([60]);
+  });
+
+  it("carries a bound along the row, so the order and the gaps still hold", () => {
+    // The first must stand at 100 or right: the second, wanting 60, goes after it.
+    expect(packRow([0, 60], [50, 50], 10, [100])).toEqual([100, 160]);
+    // The second must stand at 20 or left: the first goes before it.
+    expect(packRow([0, 100], [50, 50], 10, [], [Infinity, 20])).toEqual([-40, 20]);
+    // Both, and they cannot both hold: the lower bound wins, carried on.
+    expect(packRow([0, 0], [50, 50], 10, [100, -Infinity], [Infinity, 120])).toEqual([100, 160]);
+  });
+});
+
+describe("laneLevels", () => {
+  const run = (a: number, b: number, tops: number[], downs: number[], kind: "" | "cross" | "head" = ""): GapRun => ({
+    a,
+    b,
+    tops,
+    downs,
+    cross: kind !== "",
+    head: kind === "head",
+  });
+
+  it("puts a run below where another's line comes down into the gap, and above where its lines go on down", () => {
+    // The second comes down at 150, inside the first: the first goes below it.
+    const [p, q] = laneLevels([run(0, 300, [0], [0]), run(100, 400, [150], [400])]);
+    expect(p).toBeGreaterThan(q);
+    // The second goes on down at 150, inside the first: the first goes above it.
+    const [r, s] = laneLevels([run(0, 300, [0], [0]), run(100, 400, [400], [150])]);
+    expect(r).toBeLessThan(s);
+  });
+
+  it("lets a run from parents in two rows go below when two runs each ask to be above the other", () => {
+    // The couple's run comes down at 50 and goes on down at 100, both inside the other.
+    const [couple, cross] = laneLevels([run(0, 100, [50], [0, 100]), run(20, 200, [200], [20], "cross")]);
+    expect(cross).toBeGreaterThan(couple);
+    // The same two runs, neither from two rows: each crosses the other wherever, and both get a lane.
+    const both = laneLevels([run(0, 100, [50], [0, 100]), run(20, 200, [200], [20])]);
+    expect(both.every((l) => l >= 0)).toBe(true);
+  });
+
+  it("keeps a run from parents in two rows below another's line coming down, when two such runs ask both ways", () => {
+    // The second comes down at 150 inside the first (the first goes below it)
+    // and goes on down at 200 inside it (the first would go above): below wins.
+    const [p, q] = laneLevels([run(0, 300, [0], [0], "cross"), run(100, 400, [150], [200], "cross")]);
+    expect(p).toBeGreaterThan(q);
+  });
+
+  it("breaks a circle of three asks without putting the run from two rows above a line coming down into it", () => {
+    // A must be above C (A comes down inside C), B above A, C above B.
+    const levels = laneLevels([run(0, 100, [50], []), run(60, 400, [80], []), run(40, 300, [250], [], "cross")]);
+    const [a, b, c] = levels;
+    expect(c).toBeGreaterThan(a);
+    expect(b).toBeLessThan(a);
+    expect(new Set(levels).size).toBe(3);
+  });
+
+  it("puts a run from a sloping bar below every other run in the gap, even one it does not overlap", () => {
+    const [other, head] = laneLevels([run(0, 10, [0], [10]), run(500, 600, [], [600], "head")]);
+    expect(head).toBeGreaterThan(other);
+  });
+
+  it("gives every run a lane when the asks go round in circles", () => {
+    const levels = laneLevels([run(0, 100, [50], [90]), run(40, 140, [90], [130]), run(80, 200, [130], [50])]);
+    expect(levels.every((l) => l >= 0)).toBe(true);
   });
 });
