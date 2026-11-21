@@ -5,6 +5,7 @@
 // localStorage it is handed, so the rules are unit-tested.
 import type { DocType, Lang } from "./api";
 import type { DeviceKind, Method } from "./syncRules";
+import type { ViewKind } from "./views";
 
 export const LANGS: Lang[] = ["en", "fr"];
 
@@ -149,6 +150,7 @@ export const FEATURE_TUTORIALS = [
   "versions",
   "delivery",
   "hubs",
+  "family-tree",
   "timeline",
   "map",
   "graph",
@@ -167,7 +169,7 @@ export function syncTutorialId(method: Method, kind: DeviceKind): string {
 
 /** Where a "?" can stand. The editor and a Hub depend on the page's type. */
 export type TutorialPlace =
-  | { kind: "home" | "library" | "clippings" | "timeline" | "map" | "graph" | "coverage" | "settings" | "board" | "welcome" }
+  | { kind: ViewKind | "board" | "welcome" }
   | { kind: "editor"; type: DocType }
   | { kind: "hub"; type: DocType };
 
@@ -199,6 +201,8 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["map"];
       case "graph":
         return ["graph"];
+      case "family-tree":
+        return ["family-tree"];
       case "coverage":
         return ["coverage", "passages"];
       case "board":
@@ -221,7 +225,8 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         if (SCRIPTURE.includes(place.type)) return ["passages", "hubs", "pictures"];
         if (place.type === "source") return ["library", "clippings", ...base];
         if (place.type === "place" || place.type === "journey") return ["map", ...base];
-        if (place.type === "event" || place.type === "character") return ["timeline", ...base];
+        if (place.type === "character") return ["family-tree", "timeline", ...base];
+        if (place.type === "event") return ["timeline", ...base];
         return base;
       }
     }
