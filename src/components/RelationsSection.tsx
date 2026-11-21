@@ -4,9 +4,9 @@
 // "mentor: Elijah" on Elisha and "mentor of: Elisha" on Elijah. Read-only:
 // a Relation is an ordinary Property, edited in Properties.
 import { useMemo } from "react";
-import { api, type DocumentPayload } from "@/lib/api";
+import type { DocumentPayload } from "@/lib/api";
 import { relationsOf } from "@/lib/kinship";
-import { useQuery } from "@/lib/useQuery";
+import { useKinship } from "@/lib/useKinship";
 import { propertyLabel, useT } from "@/i18n";
 import { PanelTitle } from "@/components/Field";
 import { DocLink } from "@/components/DocLink";
@@ -14,12 +14,7 @@ import { DocLink } from "@/components/DocLink";
 export function RelationsSection({ doc }: { doc: DocumentPayload }) {
   const t = useT();
   const id = doc.summary.id;
-  const { data } = useQuery({
-    key: ["kinship", id, doc.summary.mtime],
-    // As the Family section: any page can become, or stop being, a Character.
-    deps: { any: true },
-    fetch: () => api.kinship(),
-  });
+  const { data } = useKinship({ key: [id, doc.summary.mtime] });
   const rows = useMemo(() => (data ? relationsOf(data, id) : []), [data, id]);
   if (rows.length === 0) return null;
   return (

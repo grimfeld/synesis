@@ -25,8 +25,8 @@ import {
 } from "@/lib/kinship";
 import { joinFrontmatter, readField, removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
 import { live } from "@/lib/live";
-import { useQuery } from "@/lib/useQuery";
 import { useHasKin } from "@/lib/useHasKin";
+import { useKinship } from "@/lib/useKinship";
 import { useStore } from "@/lib/store";
 import { propertyLabel, useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
@@ -467,13 +467,9 @@ export function FamilySection({
 }) {
   const t = useT();
   const id = doc.summary.id;
-  const { data } = useQuery({
-    key: ["kinship", id, doc.summary.mtime],
-    // Any page can become, or stop being, the Character a link names: a
-    // Character retyped to a Note leaves the type lists, so no list will do.
-    deps: { any: true },
-    fetch: () => api.kinship(),
-  });
+  // Any page can become, or stop being, the Character a link names: a
+  // Character retyped to a Note leaves the type lists, so no list will do.
+  const { data } = useKinship({ key: [id, doc.summary.mtime] });
   const graph = useMemo(() => (data ? kinGraph(data) : null), [data]);
   const family = useMemo(() => (graph ? familyOf(graph, id) : null), [graph, id]);
   // The spouses this Character's own file names: the ones it can remove.
