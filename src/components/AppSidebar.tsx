@@ -1,20 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   BookOpenText,
-  CalendarRange,
   ChevronRight,
   Hash,
-  House,
-  LayoutGrid,
   CopyX,
   Link2Off,
-  MapPin,
   Plus,
-  Quote,
   Search,
-  Settings,
-  LibraryBig,
-  Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
 import {
@@ -35,6 +27,7 @@ import { useQuery } from "@/lib/useQuery";
 import { shortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useT } from "@/i18n";
+import { SIDEBAR_VIEWS, VIEW_REGISTRY } from "@/lib/views";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -81,15 +74,8 @@ const ORDER: DocType[] = [
   "place",
   "event",
 ];
-const VIEWS = [
-  { kind: "home", icon: House },
-  { kind: "timeline", icon: CalendarRange },
-  { kind: "coverage", icon: LayoutGrid },
-  { kind: "graph", icon: Waypoints },
-  { kind: "library", icon: LibraryBig },
-  { kind: "clippings", icon: Quote },
-  { kind: "map", icon: MapPin },
-] as const;
+
+const SettingsIcon = VIEW_REGISTRY.settings.icon;
 
 export function AppSidebar() {
   const s = useStore();
@@ -156,18 +142,21 @@ export function AppSidebar() {
           <SidebarGroupLabel>{t.views_label}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {VIEWS.map((v) => (
-                <SidebarMenuItem key={v.kind}>
-                  <SidebarMenuButton
-                    data-testid={`nav-${v.kind}`}
-                    isActive={s.view.kind === v.kind}
-                    onClick={() => s.navigate({ kind: v.kind })}
-                  >
-                    <v.icon />
-                    <span>{t.views[v.kind]}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {SIDEBAR_VIEWS.map((kind) => {
+                const Icon = VIEW_REGISTRY[kind].icon;
+                return (
+                  <SidebarMenuItem key={kind}>
+                    <SidebarMenuButton
+                      data-testid={`nav-${kind}`}
+                      isActive={s.view.kind === kind}
+                      onClick={() => s.navigate({ kind })}
+                    >
+                      <Icon />
+                      <span>{t.views[kind]}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -200,7 +189,7 @@ export function AppSidebar() {
               isActive={s.view.kind === "settings"}
               onClick={() => s.navigate({ kind: "settings" })}
             >
-              <Settings />
+              <SettingsIcon />
               <span>{t.views.settings}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>

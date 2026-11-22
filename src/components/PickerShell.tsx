@@ -36,12 +36,13 @@ export const TOUCH_TARGET_TRIGGER = "data-[size=default]:h-10 md:data-[size=defa
  * Shared by every picker (the Date picker, the calendar date picker); the
  * picker itself is `children`, the same in both.
  *
- * Test ids: the button is `${testId}-open`, the open picker `${testId}` with
- * `data-shell="popover" | "sheet"`.
+ * Test ids: the button is `${testId}-open` (a custom `trigger` brings its
+ * own), the open picker `${testId}` with `data-shell="popover" | "sheet"`.
  */
 export function PickerShell({
   label,
   icon,
+  trigger: customTrigger,
   testId,
   open,
   onOpenChange,
@@ -52,7 +53,12 @@ export function PickerShell({
   /** Names the button for screen readers and titles the picker. */
   label: string;
   /** The button's icon. */
-  icon: ReactNode;
+  icon?: ReactNode;
+  /**
+   * A button of the caller's own in place of the icon button (the Family
+   * section's "Choose…", "Add child"): it opens the same Popover or Sheet.
+   */
+  trigger?: ReactNode;
   testId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -62,7 +68,7 @@ export function PickerShell({
   children: ReactNode;
 }) {
   const mobile = useIsMobile();
-  const trigger = (
+  const trigger = customTrigger ?? (
     <Button
       type="button"
       variant="ghost"

@@ -2,6 +2,7 @@
 // only Commands and pictures that exist, and listed where the views say.
 import { describe, expect, it } from "vitest";
 import { knownCommandIds } from "@/lib/commands";
+import { VIEW_KINDS } from "@/lib/views";
 import { parse } from "@/components/Markdown";
 import {
   FEATURE_TUTORIALS,
@@ -136,7 +137,7 @@ function bundledFor(id: string, lang: string): string {
 
 describe("tutorialsFor", () => {
   const places: TutorialPlace[] = [
-    ...(["home", "library", "clippings", "timeline", "map", "graph", "coverage", "settings", "board", "welcome"] as const).map((kind) => ({ kind })),
+    ...[...VIEW_KINDS, "board" as const, "welcome" as const].map((kind) => ({ kind })),
     ...(["note", "clipping", "composition"] as DocType[]).map((type) => ({ kind: "editor" as const, type })),
     ...(["source", "book", "chapter", "verse", "place", "character", "concept", "event", "journey"] as DocType[]).map((type) => ({ kind: "hub" as const, type })),
   ];

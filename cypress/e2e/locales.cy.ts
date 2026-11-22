@@ -281,7 +281,7 @@ describe("Locale layout", () => {
       });
 
       it("keeps every view inside the screen", () => {
-        for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map"]) {
+        for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map", "family-tree"]) {
           cy.get("[data-sidebar=trigger]").first().click();
           cy.get(`[data-testid=nav-${view}]`).click();
           cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
@@ -381,6 +381,129 @@ describe("Locale layout", () => {
         // "1034 BCE – 1027 BCE" is the longest row the demo vault produces.
         cy.openDoc("Jerusalem");
         cy.get("[data-testid=hub-events] [data-testid=event-date]").should("have.length.greaterThan", 3);
+        expectNoOverflow();
+      });
+
+      // Jacob's Family is the longest the demo vault holds: four Spouses, his
+      // children under four mothers ("Avec Zilpah"), "Frères et sœurs" with
+      // "Par Isaac et Rebekah", and "Judah (son of Jacob)" as a chip. A
+      // Kinship warning is the longest line the section can carry.
+      it("keeps a Character's Family section inside the screen", () => {
+        cy.openDoc("Jacob", { exact: true });
+        cy.get("[data-testid=hub-family]").scrollIntoView().should("be.visible");
+        cy.get("[data-testid=family-child-group]").should("have.length", 4);
+        expectNoOverflow();
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Nahor",
+          fields: { father: ["[[Terah]]", "[[Jerusalem]]"] },
+          body: "",
+        });
+        cy.openApp();
+        cy.openDoc("Nahor", { exact: true });
+        cy.get("[data-testid=family-warning]").should("have.length", 2);
+        expectNoOverflow();
+      });
+
+      // Relations (#153): "mentor de :" and the Character's chip share a
+      // wrapping row; a long user-chosen Property name is the longest label.
+      it("keeps a Character's Relations section inside the screen", () => {
+        cy.openDoc("Elijah", { exact: true });
+        cy.get("[data-testid=hub-relations]").scrollIntoView().should("be.visible");
+        cy.get("[data-testid=hub-relation][data-direction=in]").should("contain", "mentor");
+        expectNoOverflow();
+        cy.bridge("create_document", {
+          docType: "character",
+          title: "Gehazi, the servant of Elisha the man of God",
+          fields: { attendant_in_the_house_of: "[[Elisha]]" },
+          body: "",
+        });
+        cy.openApp();
+        cy.openDoc("Elisha", { exact: true });
+        // The vault copy lives for the whole spec, so the run in the other
+        // language left its Gehazi too: count at least, not exactly.
+        cy.get("[data-testid=hub-relation][data-direction=in][data-property=attendant_in_the_house_of]")
+          .should("have.length.at.least", 1)
+          .and("contain", "Gehazi, the servant of Elisha the man of God");
+        cy.get("[data-testid=hub-relation][data-direction=out][data-property=mentor]").should("have.length", 1);
+        expectNoOverflow();
+      });
+
+      // The Family tree (#154) at 390px: "Arbre généalogique", the counts
+      // ("18 Personnages · 1 famille") and three zoom buttons share one header,
+      // and the empty state's message and "Me montrer comment" sit in the pane.
+      it("keeps the Family tree's controls and empty state inside the screen", () => {
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-family-tree]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=family-tree]").should("be.visible");
+        cy.get("[data-testid=family-tree-counts]").should("be.visible");
+        cy.get("[data-testid=family-tree-fit]").should("be.visible");
+        expectNoOverflow();
+        cy.intercept("POST", "**/invoke/query", (req) => {
+          if (req.body?.query?.kind === "kinship")
+            req.reply({ body: { kind: "kinship", value: { edges: [], warnings: [], relations: [] } } });
+          else req.continue();
+        });
+        cy.openApp();
+        cy.get("[data-sidebar=trigger]").first().click();
+        cy.get("[data-testid=nav-family-tree]").click();
+        cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
+        cy.get("[data-testid=family-tree-empty-tutorial]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // The focused Family tree (#155) at 390px: "Arbre généalogique : Judah (son
+      // of Jacob)" in the header, the search box, "Ancêtres" and "Descendants"
+      // with their selects and "Tout le monde" in the toolbar, then the card with
+      // the longest title in the demo's tree, "Recentrer ici" and "Ouvrir la page".
+      it("keeps the focused Family tree's generation controls and card inside the screen", () => {
+        cy.openDoc("Judah (son of Jacob)", { exact: true });
+        cy.get("[data-testid=hub-family-tree]").click();
+        cy.get("[data-testid=family-tree]").should("have.attr", "data-focus");
+        cy.get("[data-testid=family-tree-up]").should("be.visible");
+        cy.get("[data-testid=family-tree-down]").should("be.visible");
+        cy.get("[data-testid=family-tree-everyone]").should("be.visible");
+        cy.get("[data-testid=family-tree-search]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=family-tree-person][data-focus=true]").click();
+        cy.get("[data-testid=family-tree-card]").should("be.visible");
+        cy.get("[data-testid=family-tree-card-open]").should("be.visible");
+        expectNoOverflow();
+        // Closed first: over Judah's box, it may cover his father's.
+        cy.get("[data-testid=family-tree-card-close]").click();
+        cy.docByTitle("Jacob").then((jacob) => cy.get(`[data-testid=family-tree-person][data-id="${jacob.id}"]`).click());
+        cy.get("[data-testid=family-tree-card-focus]").should("be.visible");
+        expectNoOverflow();
+      });
+
+      // Editing Kinship (#152) at 390px: the Character picker opens as the
+      // phone Sheet with "Créer le Personnage « … »" for a long name, and Add
+      // child asks "Qui est … pour … : le père ou la mère ?" with two buttons
+      // side by side. The refusal naming the other father is the longest line.
+      it("keeps the Character picker and the father/mother question inside the screen", () => {
+        cy.openDoc("Paul");
+        cy.get("[data-testid=family-father-choose]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker]").should("have.attr", "data-shell", "sheet");
+        cy.get("[data-testid=family-picker-input]").type("Shelomith daughter of Dibri of the tribe of Dan");
+        cy.get("[data-testid=picker-create]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=family-picker-input]").clear().type("Abr");
+        cy.get("[data-testid=picker-option]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.get("[data-testid=family-picker]").should("not.exist");
+        cy.get("[data-testid=family-add-child]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker-input]").type("Timothy");
+        cy.contains("[data-testid=picker-option]", "Timothy").click();
+        cy.get("[data-testid=family-role-question]").should("be.visible");
+        expectNoOverflow();
+        cy.get("body").type("{esc}");
+        cy.openDoc("Abraham");
+        cy.get("[data-testid=family-add-child]").scrollIntoView().click();
+        cy.get("[data-testid=family-picker-input]").type("Jacob");
+        cy.contains("[data-testid=picker-option]", "Jacob").click();
+        cy.get("[data-testid=family-refused]").should("be.visible");
         expectNoOverflow();
       });
 
