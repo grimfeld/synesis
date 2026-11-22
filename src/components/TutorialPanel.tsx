@@ -22,7 +22,21 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 
 /** The "?" in a view's header. Hidden when the view lists no Tutorial. */
-export function TutorialButton({ place, deviceKind, className }: { place: TutorialPlace; deviceKind?: DeviceKind; className?: string }) {
+export function TutorialButton({
+  place,
+  deviceKind,
+  className,
+  testId = "tutorial-button",
+  label,
+}: {
+  place: TutorialPlace;
+  deviceKind?: DeviceKind;
+  className?: string;
+  /** A "?" outside a view's header (the sidebar's) is told apart from the view's own. */
+  testId?: string;
+  /** The button's name, when "open Tutorials" alone would not say for what. */
+  label?: string;
+}) {
   const t = useT();
   const s = useStore();
   const tut = useTutorials();
@@ -39,7 +53,7 @@ export function TutorialButton({ place, deviceKind, className }: { place: Tutori
   }, [grows, ids.join(",")]);
   if (!ids.length) return null;
   return (
-    <IconButton label={t.tutorials.open} data-testid="tutorial-button" className={className} onClick={() => tut.showList(ids, total)}>
+    <IconButton label={label ?? t.tutorials.open} data-testid={testId} className={className} onClick={() => tut.showList(ids, total)}>
       <CircleHelp />
     </IconButton>
   );

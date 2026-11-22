@@ -51,6 +51,7 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                                 changed,
                                 removed: vec![],
                                 boards: vec![],
+                                folders: vec![],
                             },
                         );
                     }
@@ -68,6 +69,7 @@ pub async fn ensure_started(app: &AppHandle, state: &AppState) -> CmdResult<Arc<
                                 changed,
                                 removed: vec![],
                                 boards: vec![],
+                                folders: vec![],
                             },
                         );
                     }

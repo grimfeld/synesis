@@ -61,6 +61,8 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { TypeDot } from "./DocLink";
+import { TutorialButton } from "./TutorialPanel";
+import { FolderTreeView, GroupFolderMenu, useFolderActions } from "./SidebarFolders";
 
 // Clipping is absent deliberately: it has no title to list, and it belongs to
 // its Source rather than to a folder of its own (ADR 0013). Clippings are
@@ -203,6 +205,7 @@ export function AppSidebar() {
 function DocumentsTab() {
   const s = useStore();
   const t = useT();
+  const folderActions = useFolderActions();
   const [open, setOpen] = useState<Record<string, boolean>>({
     note: true,
     composition: true,
@@ -228,7 +231,7 @@ function DocumentsTab() {
   useEffect(() => {
     if (activeIsSource) setOpen((o) => (o.source ? o : { ...o, source: true }));
   }, [active, activeIsSource]);
-  return (
+  return folderActions.provider(
     <>
       {ORDER.map((type) => {
         const list = byType.get(type) ?? [];
@@ -242,17 +245,37 @@ function DocumentsTab() {
             count={list.length}
             dot={<TypeDot type={type} />}
             action={
-              <SidebarGroupAction
-                className="top-2.5"
-                title={t.new_type[type]}
-                onClick={() => s.setDialog({ kind: "new", type })}
-              >
-                <Plus />
-              </SidebarGroupAction>
+              <>
+                {hasFolders(type) && (
+                  <GroupFolderMenu
+                    type={type}
+                    label={t.types_plural[type]}
+                    className="absolute top-2 right-[3.75rem]"
+                  />
+                )}
+                {hasFolders(type) && (
+                  <TutorialButton
+                    place={{ kind: "sidebar" }}
+                    testId={`sidebar-tutorial-${type}`}
+                    label={`${t.tutorials.open} · ${t.types_plural[type]}`}
+                    className="absolute top-2 right-9 size-6 text-sidebar-foreground/70 [&_svg]:size-3.5"
+                  />
+                )}
+                <SidebarGroupAction
+                  className="top-2.5"
+                  title={t.new_type[type]}
+                  onClick={() => s.setDialog({ kind: "new", type })}
+                >
+                  <Plus />
+                </SidebarGroupAction>
+              </>
             }
+            wideAction={hasFolders(type)}
           >
             {type === "source" ? (
               <SourceTree activeId={active} />
+            ) : hasFolders(type) ? (
+              <FolderTreeView type={type} docs={list} activeId={active} />
             ) : (
             <SidebarMenu>
               {list.map((d) => (
@@ -284,7 +307,7 @@ function DocumentsTab() {
       />
       <Unresolved />
       <AmbiguousTitles />
-    </>
+    </>,
   );
 }
 
@@ -357,6 +380,10 @@ function SourceTree({ activeId }: { activeId: string | null }) {
       })}
     </SidebarMenu>
   );
+}
+
+function hasFolders(type: DocType): type is "note" | "composition" {
+  return type === "note" || type === "composition";
 }
 
 function holds(n: SourceNode, id: string): boolean {
@@ -502,6 +529,7 @@ function CollapsibleGroup({
   action,
   children,
   testId,
+  wideAction,
 }: {
   open: boolean;
   onToggle: () => void;
@@ -511,6 +539,8 @@ function CollapsibleGroup({
   action?: ReactNode;
   children: ReactNode;
   testId?: string;
+  /** The action holds two buttons: keep the label clear of both. */
+  wideAction?: boolean;
 }) {
   return (
     <Collapsible
@@ -524,7 +554,7 @@ function CollapsibleGroup({
             data-testid={testId}
             className={cn(
               "w-full gap-2 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-              action && "pr-8",
+              action && (wideAction ? "pr-24" : "pr-8"),
             )}
           >
             <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/collapsible:rotate-90" />

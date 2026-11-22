@@ -137,7 +137,7 @@ function bundledFor(id: string, lang: string): string {
 
 describe("tutorialsFor", () => {
   const places: TutorialPlace[] = [
-    ...[...VIEW_KINDS, "board" as const, "welcome" as const].map((kind) => ({ kind })),
+    ...[...VIEW_KINDS, "board" as const, "welcome" as const, "sidebar" as const].map((kind) => ({ kind })),
     ...(["note", "clipping", "composition"] as DocType[]).map((type) => ({ kind: "editor" as const, type })),
     ...(["source", "book", "chapter", "verse", "place", "character", "concept", "event", "journey"] as DocType[]).map((type) => ({ kind: "hub" as const, type })),
   ];

@@ -133,6 +133,7 @@ export function tutorialIds(): string[] {
 /** The feature Tutorials, in the order the catalogue gives them (PLAN §25.10). */
 export const FEATURE_TUTORIALS = [
   "capture",
+  "folders",
   "passages",
   "mentions",
   "linkables",
@@ -170,6 +171,8 @@ export function syncTutorialId(method: Method, kind: DeviceKind): string {
 /** Where a "?" can stand. The editor and a Hub depend on the page's type. */
 export type TutorialPlace =
   | { kind: ViewKind | "board" | "welcome" }
+  /** The sidebar's Notes and Compositions groups, where Folders are (PLAN §31). */
+  | { kind: "sidebar" }
   | { kind: "editor"; type: DocType }
   | { kind: "hub"; type: DocType };
 
@@ -193,6 +196,8 @@ export function tutorialsFor(place: TutorialPlace, deviceKind?: DeviceKind): str
         return ["capture", "compositions"];
       case "library":
         return ["library"];
+      case "sidebar":
+        return ["folders"];
       case "clippings":
         return ["clippings"];
       case "timeline":

@@ -730,6 +730,38 @@ export const en = {
   source_mode: "Source mode",
   cmd_palette: "Command palette",
   cmd_hint: "Type > for commands, or pick a kind to search only that.",
+  // Folders inside Notes and Compositions (PLAN §31).
+  folders: {
+    menu: (name: string) => `Actions for “${name}”`,
+    group_menu: (group: string) => `${group}: more actions`,
+    new_folder: "New folder",
+    new_folder_in: (name: string) => `New folder in “${name}”`,
+    name: "Name",
+    delete: "Delete folder",
+    new_here: { note: "New Note here", composition: "New Composition here" } as Record<"note" | "composition", string>,
+    in_folder: (name: string) => `In “${name}”`,
+    move_command: "Move to folder…",
+    move_title: (title: string) => `Move “${title}” to…`,
+    rename: "Rename",
+    rename_title: (name: string) => `Rename “${name}”`,
+    move_folder_title: (name: string) => `Move “${name}” to…`,
+    move_none_found: "No folder has that name.",
+    move_find: "Find a folder",
+    move_here: "where it is",
+    move_here_folder: "where it is",
+    move_clash: (name: string, folder: string) => `“${folder}” already holds “${name}”.`,
+    move_none: "Only a Note or a Composition goes in a folder.",
+    doc_menu: (title: string) => `Actions for “${title}”`,
+    empty_name: "A folder needs a name.",
+    dot: "A folder name cannot start with a dot.",
+    char: (c: string) => `A folder name cannot contain “${c}”.`,
+    taken: (name: string) => `“${name}” is already there.`,
+    not_empty: (name: string, files: string[]) => {
+      const shown = files.slice(0, 3).map((f) => `“${f}”`).join(", ");
+      const more = files.length > 3 ? ` and ${files.length - 3} more` : "";
+      return `“${name}” still holds ${shown}${more}. Only an empty folder can be deleted.`;
+    },
+  },
   tutorials: {
     command: (title: string) => `Tutorial: ${title}`,
     open: "Tutorials for this view",

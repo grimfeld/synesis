@@ -822,6 +822,11 @@ export interface ChangedPayload {
    * changes the app announces itself.
    */
   boards?: string[];
+  /**
+   * Folders inside Notes or Compositions that appeared, were renamed or went
+   * away outside the app (PLAN §31). Absent from the app's own changes.
+   */
+  folders?: string[];
 }
 
 /**
@@ -994,6 +999,30 @@ export const api = {
   listDocuments: (docType?: DocType) =>
     query<DocSummary[]>({ kind: "list", docType: docType ?? null }),
   getDocument: (id: string) => invoke<DocumentPayload>("get_document", { id }),
+  /**
+   * The Folders inside Notes or Compositions (PLAN §31), nested and empty
+   * ones included, as paths relative to the type's folder (`Sermons/2026`).
+   */
+  listFolders: (docType: "note" | "composition") => invoke<string[]>("list_folders", { docType }),
+  /**
+   * Move a Note or Composition into a Folder of its type (`""` for the top).
+   * A Composition's Board and other Boards' cards follow it.
+   */
+  moveDocument: (id: string, into: string) => invoke<DocumentPayload>("move_document", { id, into }),
+  /** Rename a Folder; its documents stay inside it. Returns its new path. */
+  renameFolder: (docType: "note" | "composition", path: string, name: string) =>
+    invoke<string>("rename_folder", { docType, path, name }),
+  /** Move a Folder into another (`""` for the top). Returns its new path. */
+  moveFolder: (docType: "note" | "composition", path: string, into: string) =>
+    invoke<string>("move_folder", { docType, path, into }),
+  /** Make the Folder `name` inside `parent` (`""` for the top); returns its path. */
+  createFolder: (docType: "note" | "composition", parent: string, name: string) =>
+    invoke<string>("create_folder", { docType, parent, name }),
+  /**
+   * Delete an empty Folder. Returns what stopped it (paths inside it); an
+   * empty list means it is gone. OS clutter does not count.
+   */
+  deleteFolder: (docType: "note" | "composition", path: string) => invoke<string[]>("delete_folder", { docType, path }),
   saveDocument: (id: string, text: string) =>
     invoke<DocumentPayload>("save_document", { id, text }),
   createDocument: (
@@ -1001,12 +1030,15 @@ export const api = {
     title: string,
     fields?: Frontmatter,
     body?: string,
+    /** A Folder inside the type's folder ("New Note here", PLAN §31). */
+    folder?: string,
   ) =>
     invoke<DocumentPayload>("create_document", {
       docType,
       title,
       fields: fields ?? null,
       body: body ?? null,
+      folder: folder ?? null,
     }),
   renameDocument: (id: string, title: string) =>
     invoke<DocumentPayload>("rename_document", { id, title }),

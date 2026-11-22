@@ -269,6 +269,45 @@ fn move_file(from: &Path, to: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Files an operating system leaves in a folder by itself. They never make a
+/// Folder count as holding something, and are removed with it.
+const OS_CLUTTER: [&str; 2] = [".DS_Store", "Thumbs.db"];
+
+/// A Folder name as typed, checked: not empty, not starting with a dot, and
+/// free of what a file name cannot hold on some system (`/ \ : * ? " < > |`,
+/// control characters) and of what breaks a `[[link]]` through its path, as
+/// `sanitize_title` drops for a title (`# ^ [ ]`). Spaces around it are
+/// dropped and runs of spaces inside become one; its case is kept.
+pub fn check_folder_name(name: &str) -> Result<String> {
+    let name = name.split_whitespace().collect::<Vec<_>>().join(" ");
+    let name = name.as_str();
+    if name.is_empty() {
+        return Err(Error::Invalid("a Folder needs a name".into()));
+    }
+    if name.starts_with('.') {
+        return Err(Error::Invalid(
+            "a Folder name cannot start with a dot".into(),
+        ));
+    }
+    if let Some(c) = name
+        .chars()
+        .find(|c| "/\\:*?\"<>|#^[]".contains(*c) || c.is_control())
+    {
+        return Err(Error::Invalid(format!("a Folder name cannot hold “{c}”")));
+    }
+    Ok(name.to_string())
+}
+
+/// The entry in `dir` whose name is `name` ignoring case, if any.
+fn sibling_named(dir: &Path, name: &str) -> Option<String> {
+    let want = name.to_lowercase();
+    fs::read_dir(dir)
+        .ok()?
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .find(|n| n.to_lowercase() == want)
+}
+
 fn write_atomic(path: &Path, text: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -995,6 +1034,365 @@ impl Vault {
         Ok(true)
     }
 
+    /// The Folders inside a type's own folder (PLAN §31): every directory
+    /// under `Notes/` or `Compositions/`, nested ones and empty ones
+    /// included, as paths relative to that folder (`Sermons/2026`), sorted.
+    ///
+    /// Only Notes and Compositions have Folders. Hidden directories are
+    /// skipped as the scan skips them, and a link is never followed, nor
+    /// listed: a Folder that leads out of the Vault cannot be shown, so
+    /// nothing can be created or moved into it (#87).
+    pub fn folders(&self, doc_type: DocType) -> Result<Vec<String>> {
+        let top = Self::folder_root(doc_type)?;
+        let base = self.abs(top)?;
+        if !base.is_dir() || crate::vault_path::is_link(&base) {
+            return Ok(vec![]);
+        }
+        let mut out: Vec<String> = walkdir::WalkDir::new(&base)
+            .follow_links(false)
+            .min_depth(1)
+            .into_iter()
+            .filter_entry(is_walked)
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_type().is_dir())
+            .filter_map(|e| {
+                let rel = e.path().strip_prefix(&base).ok()?;
+                let rel = rel.to_string_lossy().replace('\\', "/");
+                // Checked as any path from the UI is: the shape, and no link
+                // on the way out of the Vault.
+                self.abs(&format!("{top}/{rel}")).ok()?;
+                Some(rel)
+            })
+            .collect();
+        out.sort();
+        Ok(out)
+    }
+
+    /// The Vault-relative path of the Folder `path` (relative to the type's
+    /// folder, `""` for the type's folder itself), checked: its shape, no
+    /// hidden segment, and no link on the way out of the Vault (#87).
+    fn folder_rel(&self, doc_type: DocType, path: &str) -> Result<String> {
+        let top = Self::folder_root(doc_type)?;
+        let path = path.trim_matches('/');
+        if crate::vault_path::is_link(&self.root.join(top)) {
+            return Err(Error::Invalid(format!("not a Folder: {top}")));
+        }
+        if path.is_empty() {
+            self.abs(top)?;
+            return Ok(top.to_string());
+        }
+        if path.split('/').any(|seg| seg.starts_with('.')) {
+            return Err(Error::Invalid(format!("not a Folder: {path}")));
+        }
+        let rel = format!("{top}/{path}");
+        self.abs(&rel)?;
+        // A link anywhere on the way, even one leading elsewhere inside the
+        // Vault (`Notes/Sync -> ../.bible-study`), is not a Folder: Folders
+        // are real directories under the type's folder, as `folders` lists them.
+        let mut at = self.root.join(top);
+        if crate::vault_path::is_link(&at) {
+            return Err(Error::Invalid(format!("not a Folder: {path}")));
+        }
+        for seg in path.split('/') {
+            at = at.join(seg);
+            if crate::vault_path::is_link(&at) {
+                return Err(Error::Invalid(format!("not a Folder: {path}")));
+            }
+        }
+        Ok(rel)
+    }
+
+    /// Make the Folder `name` inside `parent` (relative to the type's folder,
+    /// `""` for the top), keeping the name's capitalisation: a Folder has no
+    /// `title` to carry it. Refused, with nothing written, for a name that is
+    /// empty, starts with a dot or holds a character a file name cannot
+    /// (`/ \ : * ? " < > |`), or that a sibling already has, ignoring case.
+    /// Returns the new Folder's path relative to the type's folder.
+    pub fn create_folder(&mut self, doc_type: DocType, parent: &str, name: &str) -> Result<String> {
+        let name = check_folder_name(name)?;
+        let parent_rel = self.folder_rel(doc_type, parent)?;
+        let parent_abs = self.abs(&parent_rel)?;
+        if parent_abs.exists() && (!parent_abs.is_dir() || crate::vault_path::is_link(&parent_abs))
+        {
+            return Err(Error::Invalid(format!("not a Folder: {parent}")));
+        }
+        if !parent_abs.exists() && parent_rel != Self::folder_root(doc_type)? {
+            return Err(Error::NotFound(parent.to_string()));
+        }
+        if let Some(clash) = sibling_named(&parent_abs, &name) {
+            return Err(Error::Invalid(format!("“{clash}” is already there")));
+        }
+        let rel = format!("{parent_rel}/{name}");
+        fs::create_dir_all(&parent_abs)?;
+        // `create_dir`, not `create_dir_all`: a name the disk takes for an
+        // existing Folder's (a trailing dot on Windows, another Unicode
+        // spelling on macOS) is refused rather than reported as made.
+        match fs::create_dir(self.abs(&rel)?) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                return Err(Error::Invalid(format!("“{name}” is already there")));
+            }
+            Err(e) => return Err(e.into()),
+        }
+        let top = Self::folder_root(doc_type)?;
+        Ok(rel[top.len() + 1..].to_string())
+    }
+
+    /// Delete the Folder `path` (relative to the type's folder) if it holds no
+    /// file: tidying never deletes documents. OS clutter (`.DS_Store`,
+    /// `Thumbs.db`) does not count and goes with it, as do Folders inside it
+    /// that are empty too. Returns what stopped it, as paths relative to the
+    /// Folder (a document, a picture, a `.canvas`, a link, a file iCloud has
+    /// evicted), and deletes nothing when that list is not empty; an empty
+    /// list means the Folder is gone. The UI words the refusal in its own
+    /// language from that list.
+    pub fn delete_folder(&mut self, doc_type: DocType, path: &str) -> Result<Vec<String>> {
+        if path.trim_matches('/').is_empty() {
+            return Err(Error::Invalid("a type's own folder is not a Folder".into()));
+        }
+        let rel = self.folder_rel(doc_type, path)?;
+        let abs = self.abs(&rel)?;
+        if !abs.is_dir() || crate::vault_path::is_link(&abs) {
+            return Err(Error::NotFound(path.to_string()));
+        }
+        let mut held = Vec::new();
+        let mut clutter = Vec::new();
+        let mut dirs = Vec::new();
+        // Hidden entries are walked too: an evicted file's placeholder is one.
+        for e in walkdir::WalkDir::new(&abs).follow_links(false).min_depth(1) {
+            let e = e.map_err(|e| Error::Invalid(e.to_string()))?;
+            let name = e.file_name().to_string_lossy();
+            if e.file_type().is_dir() {
+                dirs.push(e.path().to_path_buf());
+            } else if e.file_type().is_file() && OS_CLUTTER.contains(&name.as_ref()) {
+                clutter.push(e.path().to_path_buf());
+            } else {
+                let inner = e.path().strip_prefix(&abs).unwrap_or(e.path());
+                held.push(inner.to_string_lossy().replace('\\', "/"));
+            }
+        }
+        if !held.is_empty() {
+            held.sort();
+            return Ok(held);
+        }
+        for f in clutter {
+            fs::remove_file(f)?;
+        }
+        // Deepest first; `remove_dir` never removes anything but an empty one.
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for d in dirs {
+            fs::remove_dir(d)?;
+        }
+        fs::remove_dir(&abs)?;
+        Ok(vec![])
+    }
+
+    /// Move the Note or Composition `id` into the Folder `into` (relative to
+    /// its type's folder, `""` for the top), through [`Vault::relocate`], so
+    /// a Composition's Board and other Boards' cards follow it (PLAN §31).
+    ///
+    /// A move never renames: a Folder already holding a file of the same
+    /// name, ignoring case, refuses it with the clash named, rather than
+    /// adding " 2". A move stays inside the document's own type's folder, so
+    /// a Note never lands in `Compositions/` (its `type` would still say
+    /// Note). A document stored outside its type's folder moves under it. A
+    /// file still downloading from the cloud is refused, as `rename` refuses
+    /// one. The Folder the document leaves is kept: the person arranged it.
+    pub fn move_document(&mut self, id: &str, into: &str) -> Result<DocumentView> {
+        let summary = self
+            .index
+            .get(id)?
+            .ok_or_else(|| Error::NotFound(id.into()))?;
+        let dest = self.folder_rel(summary.doc_type, into)?;
+        let dest_abs = self.abs(&dest)?;
+        let top = Self::folder_root(summary.doc_type)?;
+        if dest != top && (!dest_abs.is_dir() || crate::vault_path::is_link(&dest_abs)) {
+            return Err(Error::NotFound(into.to_string()));
+        }
+        let name = summary
+            .path
+            .rsplit('/')
+            .next()
+            .unwrap_or(&summary.path)
+            .to_string();
+        let to = format!("{dest}/{name}");
+        if to == summary.path {
+            return self.read(id);
+        }
+        let from_abs = self.abs(&summary.path)?;
+        let board = self.abs(&canvas::board_path(&summary.path))?;
+        if cloud::is_evicted(&from_abs) {
+            return Err(cloud::downloading(&from_abs));
+        }
+        if summary.doc_type == DocType::Composition && cloud::is_evicted(&board) {
+            return Err(cloud::downloading(&board));
+        }
+        let mut clash = sibling_named(&dest_abs, &name);
+        if clash.is_none() && summary.doc_type == DocType::Composition && board.exists() {
+            let board_name = canvas::board_path(&name);
+            clash = sibling_named(&dest_abs, &board_name);
+        }
+        if let Some(clash) = clash {
+            return Err(Error::Invalid(format!(
+                "“{clash}” is already in {}",
+                if into.trim_matches('/').is_empty() {
+                    top
+                } else {
+                    into
+                }
+            )));
+        }
+        self.relocate(id, &summary.path, &to, false, Origin::Here)?;
+        self.read(id)
+    }
+
+    /// Rename the Folder `path` (relative to the type's folder) to `name`,
+    /// by [`Vault::move_folder_to`]: its documents stay inside it, with their
+    /// titles and every `[[link]]` to them as they were (a link names a
+    /// title, not a path). Refused for a bad name (#148's rules) and for a
+    /// name a sibling already has, ignoring case: never merged. Returns the
+    /// Folder's new path.
+    pub fn rename_folder(&mut self, doc_type: DocType, path: &str, name: &str) -> Result<String> {
+        let name = check_folder_name(name)?;
+        let path = path.trim_matches('/');
+        let parent = path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        self.move_folder_to(doc_type, path, parent, &name)
+    }
+
+    /// Move the Folder `path` into the Folder `into` (both relative to the
+    /// type's folder, `""` for the top), by [`Vault::move_folder_to`].
+    /// Refused into itself or one of its own Folders. Returns its new path.
+    pub fn move_folder(&mut self, doc_type: DocType, path: &str, into: &str) -> Result<String> {
+        let path = path.trim_matches('/');
+        let name = path.rsplit('/').next().unwrap_or(path).to_string();
+        self.move_folder_to(doc_type, path, into.trim_matches('/'), &name)
+    }
+
+    /// Move the Folder `path` to `into/name`, everything in it included, and
+    /// every document inside through [`Vault::relocate_all`], so Boards stay
+    /// beside their Compositions and other Boards' cards follow (PLAN §31).
+    /// Refused, with nothing moved, when the place is taken (ignoring case,
+    /// unless it is the Folder itself: a rename that only changes case), when
+    /// `into` is the Folder or inside it, or when a file inside is still
+    /// downloading from the cloud.
+    fn move_folder_to(
+        &mut self,
+        doc_type: DocType,
+        path: &str,
+        into: &str,
+        name: &str,
+    ) -> Result<String> {
+        if path.is_empty() {
+            return Err(Error::Invalid("a type's own folder is not a Folder".into()));
+        }
+        let from_rel = self.folder_rel(doc_type, path)?;
+        let from_abs = self.abs(&from_rel)?;
+        if !from_abs.is_dir() || crate::vault_path::is_link(&from_abs) {
+            return Err(Error::NotFound(path.to_string()));
+        }
+        if into == path || into.starts_with(&format!("{path}/")) {
+            return Err(Error::Invalid(format!("“{path}” cannot go inside itself")));
+        }
+        let into_rel = self.folder_rel(doc_type, into)?;
+        let into_abs = self.abs(&into_rel)?;
+        if !into_abs.is_dir() || crate::vault_path::is_link(&into_abs) {
+            return Err(Error::NotFound(into.to_string()));
+        }
+        let to_path = if into.is_empty() {
+            name.to_string()
+        } else {
+            format!("{into}/{name}")
+        };
+        if to_path == path {
+            return Ok(to_path);
+        }
+        let own_parent = path.rsplit_once('/').map(|(p, _)| p).unwrap_or("");
+        let own_name = path.rsplit('/').next().unwrap_or(path);
+        if let Some(clash) = sibling_named(&into_abs, name) {
+            if !(into == own_parent && clash == own_name) {
+                return Err(Error::Invalid(format!("“{clash}” is already there")));
+            }
+        }
+        let evicted = walkdir::WalkDir::new(&from_abs)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .find(|e| cloud::is_placeholder(e.path()));
+        if let Some(e) = evicted {
+            let original = cloud::original_of(e.path()).unwrap_or_else(|| e.path().to_path_buf());
+            return Err(cloud::downloading(&original));
+        }
+        let to_rel = format!("{}/{to_path}", Self::folder_root(doc_type)?);
+        let to_abs = self.abs(&to_rel)?;
+        let prefix = format!("{from_rel}/");
+        let moves: Vec<(String, String, String)> = self
+            .index
+            .list(None)?
+            .into_iter()
+            .filter_map(|d| {
+                let rest = d.path.strip_prefix(&prefix)?.to_string();
+                Some((d.id, d.path, format!("{to_rel}/{rest}")))
+            })
+            .collect();
+        fs::rename(&from_abs, &to_abs)?;
+        // The files have moved, Boards beside their Compositions with them;
+        // from here every step runs for every document even if one fails,
+        // so an error never leaves the index half moved.
+        for (_, from, _) in &moves {
+            self.index.remove_path(from)?;
+        }
+        self.reindex_moved(&moves, false)?;
+        Ok(to_path)
+    }
+
+    /// The type's own folder, for a type that has Folders.
+    fn folder_root(doc_type: DocType) -> Result<&'static str> {
+        match doc_type {
+            DocType::Note | DocType::Composition => Ok(doc_type.default_folder()),
+            _ => Err(Error::Invalid(format!(
+                "a {} has no Folders",
+                doc_type.default_folder()
+            ))),
+        }
+    }
+
+    /// A folder appeared, was renamed or went away outside the app (Finder,
+    /// Obsidian). A folder's own event is often all the watcher hears: the
+    /// files moved with it raise none. So the documents indexed under `rel`
+    /// that are gone are forgotten, and the documents now under it are
+    /// indexed, each keeping its id, so a renamed Folder's documents move
+    /// rather than appear twice. Returns what changed and the paths removed.
+    pub fn folder_changed(&mut self, rel: &str) -> Result<(Vec<DocSummary>, Vec<String>)> {
+        let abs = self.abs(rel)?;
+        let prefix = format!("{rel}/");
+        let mut removed = Vec::new();
+        for d in self.index.list(None)? {
+            if d.path.starts_with(&prefix)
+                && !self.abs(&d.path).is_ok_and(|p| cloud::occupied(&p))
+                && self.vanished(&d.path)?
+            {
+                removed.push(d.path);
+            }
+        }
+        let mut changed = Vec::new();
+        if abs.is_dir() && !crate::vault_path::is_link(&abs) {
+            let files: Vec<String> = walkdir::WalkDir::new(&abs)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(is_walked)
+                .filter_map(|e| e.ok())
+                .filter(|e| e.file_type().is_file() && is_markdown(e.path()))
+                .filter_map(|e| self.rel(e.path()))
+                .collect();
+            for f in files {
+                if let Some(d) = self.index_file(&f)? {
+                    changed.push(d);
+                }
+            }
+        }
+        Ok((changed, removed))
+    }
+
     /// Everything under the Vault that iCloud has evicted, by the path it
     /// will have once downloaded: documents, Boards, attachments and the sync
     /// snapshots alike. The shell asks iCloud for each.
@@ -1251,15 +1649,44 @@ impl Vault {
         fields: &Map<String, Value>,
         body: &str,
     ) -> Result<DocumentView> {
+        self.create_in(doc_type, None, title, fields, body)
+    }
+
+    /// [`Vault::create`], inside the Folder `folder` (relative to the type's
+    /// folder) when one is given: "New Note here" (PLAN §31). Only a Note or
+    /// a Composition has Folders, and the Folder must already exist.
+    pub fn create_in(
+        &mut self,
+        doc_type: DocType,
+        folder: Option<&str>,
+        title: &str,
+        fields: &Map<String, Value>,
+        body: &str,
+    ) -> Result<DocumentView> {
         if doc_type.is_scripture() {
             return Err(Error::Invalid(
                 "Scripture pages are created by mentioning them".into(),
             ));
         }
-        // A new document always goes in its type's folder. There is no field
-        // to name another: a caller-chosen folder could name one outside the
-        // Vault (#87), and `folder` is written as an ordinary Property.
-        let folder = doc_type.default_folder();
+        // A new document goes in its type's folder, or in a Folder inside it
+        // (checked by `folder_rel`, so it cannot name one outside the Vault,
+        // #87). There is no field to name another: `folder` in `fields` is
+        // written as an ordinary Property.
+        let folder = match folder
+            .map(|f| f.trim_matches('/'))
+            .filter(|f| !f.is_empty())
+        {
+            Some(f) => {
+                let rel = self.folder_rel(doc_type, f)?;
+                let abs = self.abs(&rel)?;
+                if !abs.is_dir() || crate::vault_path::is_link(&abs) {
+                    return Err(Error::NotFound(f.to_string()));
+                }
+                rel
+            }
+            None => doc_type.default_folder().to_string(),
+        };
+        let folder = folder.as_str();
         let mut fields = fields.clone();
         // A Clipping is named by its Citation and never carries a title
         // (ADR 0013); the `title` argument is ignored for one, and a `title`
@@ -1445,55 +1872,136 @@ impl Vault {
         own_write: bool,
         origin: Origin,
     ) -> Result<Option<DocSummary>> {
-        if from != to {
-            let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
-            let (old_board, new_board) = (
-                self.abs(&canvas::board_path(from))?,
-                self.abs(&canvas::board_path(to))?,
-            );
-            if self.held_by_other(id, to)? {
-                return Err(Error::Invalid(format!(
-                    "{to} already holds another document"
-                )));
-            }
-            // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
-            // Note is the user's own Obsidian canvas and stays where it is.
-            let has_board = self
-                .index
-                .get(id)?
-                .is_some_and(|d| d.doc_type == DocType::Composition);
-            // A rename that only changes case names one file twice on a
-            // case-insensitive disk, so the Board "already there" is itself.
-            let same_board = same_file(&old_board, &new_board);
-            let mut moved = false;
-            if old_md.exists() {
-                move_file(&old_md, &new_md)?;
-                moved = true;
-            }
-            // A Board already at `to` that came from elsewhere (another
-            // Device's provider got there first) is kept; a move made here
-            // carries the Board as `rename` always has.
-            let board_free = origin == Origin::Here || same_board || !new_board.exists();
-            if has_board && old_board.exists() && board_free {
-                move_file(&old_board, &new_board)?;
-                moved = true;
-            }
-            self.index.remove_path(from)?;
-            if origin == Origin::Remote && moved {
-                self.prune_emptied(&old_md);
+        let mut out = self.relocate_all(
+            &[(id.to_string(), from.to_string(), to.to_string())],
+            own_write,
+            origin,
+        )?;
+        Ok(out.pop().flatten())
+    }
+
+    /// [`Vault::relocate`] for several documents that move together, as a
+    /// Folder's do. Each step runs for all of them before the next: the files
+    /// move, then every document is indexed at its new path, then other
+    /// Boards' cards are rewritten, then each moved Composition's own Board
+    /// refs are recorded again. A Board's refs resolve by path, so rewriting
+    /// one Board before all its targets are indexed would drop the cards
+    /// pointing at the ones not indexed yet.
+    fn relocate_all(
+        &mut self,
+        moves: &[(String, String, String)],
+        own_write: bool,
+        origin: Origin,
+    ) -> Result<Vec<Option<DocSummary>>> {
+        for (id, from, to) in moves {
+            if from != to {
+                self.relocate_files(id, from, to, origin)?;
             }
         }
-        let summary = self.index_file_as(to, own_write)?;
-        if summary
-            .as_ref()
-            .is_some_and(|d| d.doc_type == DocType::Place)
-        {
-            self.note_border_names()?;
+        self.reindex_moved(moves, own_write)
+    }
+
+    /// The index half of [`Vault::relocate_all`], for documents whose files
+    /// are already at `to` and whose `from` has left the index. Every step
+    /// runs for every document; the first error is returned at the end, so
+    /// one unreadable Board never leaves the others unindexed.
+    fn reindex_moved(
+        &mut self,
+        moves: &[(String, String, String)],
+        own_write: bool,
+    ) -> Result<Vec<Option<DocSummary>>> {
+        let mut first_err = None;
+        let mut keep = |r: Result<()>| {
+            if let Err(e) = r {
+                first_err.get_or_insert(e);
+            }
+        };
+        let mut out = Vec::with_capacity(moves.len());
+        let mut places = false;
+        for (_, _, to) in moves {
+            match self.index_file_as(to, own_write) {
+                Ok(summary) => {
+                    places |= summary
+                        .as_ref()
+                        .is_some_and(|d| d.doc_type == DocType::Place);
+                    out.push(summary);
+                }
+                Err(e) => {
+                    keep(Err(e));
+                    out.push(None);
+                }
+            }
         }
-        if from != to {
-            self.rewrite_boards(id, from, to)?;
+        if places {
+            keep(self.note_border_names());
         }
-        Ok(summary)
+        // Other Boards' cards are rewritten only for a document indexed at
+        // its new path: their refs resolve by path, so rewriting toward one
+        // the index does not hold would drop them.
+        for ((id, from, to), summary) in moves.iter().zip(&out) {
+            if from != to && summary.is_some() {
+                keep(self.rewrite_boards(id, from, to));
+            }
+        }
+        // Indexing a document anew forgets what its own Board holds; reading
+        // the Board at its new path records it again. By the id it has now:
+        // one whose frontmatter takes no `id` is known by its path.
+        for ((_, from, to), summary) in moves.iter().zip(&out) {
+            if let Some(d) = summary
+                .as_ref()
+                .filter(|d| from != to && d.doc_type == DocType::Composition)
+            {
+                let id = d.id.clone();
+                keep(self.read_board(&id).map(|_| ()));
+            }
+        }
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(out),
+        }
+    }
+
+    /// The file half of a relocation: the `.md` and a Composition's Board
+    /// move (each only if still at `from`), the old path leaves the index, and
+    /// a move from another Device tidies the folders it emptied.
+    fn relocate_files(&mut self, id: &str, from: &str, to: &str, origin: Origin) -> Result<()> {
+        let (old_md, new_md) = (self.abs(from)?, self.abs(to)?);
+        let (old_board, new_board) = (
+            self.abs(&canvas::board_path(from))?,
+            self.abs(&canvas::board_path(to))?,
+        );
+        if self.held_by_other(id, to)? {
+            return Err(Error::Invalid(format!(
+                "{to} already holds another document"
+            )));
+        }
+        // Only a Composition has a Board (ADR 0009): a `.canvas` beside a
+        // Note is the user's own Obsidian canvas and stays where it is.
+        let has_board = self
+            .index
+            .get(id)?
+            .is_some_and(|d| d.doc_type == DocType::Composition);
+        // A rename that only changes case names one file twice on a
+        // case-insensitive disk, so the Board "already there" is itself.
+        let same_board = same_file(&old_board, &new_board);
+        let mut moved = false;
+        if old_md.exists() {
+            move_file(&old_md, &new_md)?;
+            moved = true;
+        }
+        // A Board already at `to` that came from elsewhere (another
+        // Device's provider got there first) is kept; a move made here
+        // carries the Board as `rename` always has.
+        let board_free = origin == Origin::Here || same_board || !new_board.exists();
+        if has_board && old_board.exists() && board_free {
+            move_file(&old_board, &new_board)?;
+            moved = true;
+        }
+        self.index.remove_path(from)?;
+        if origin == Origin::Remote && moved {
+            self.prune_emptied(&old_md);
+        }
+        Ok(())
     }
 
     /// Whether `to` is a file other than the document `id`: indexed as
@@ -2940,5 +3448,660 @@ Antioch is where they met.
         assert!(v.fold_board_file("Notes/loose.canvas").unwrap().is_none());
         fs::write(dir.path().join(rel), "not json").unwrap();
         assert!(v.fold_board_file(rel).unwrap().is_none());
+    }
+
+    #[test]
+    fn folders_lists_nested_and_empty_folders() {
+        let (dir, v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Sermons/2026")).unwrap();
+        fs::write(dir.path().join("Notes/Sermons/2026/week 2.md"), "x\n").unwrap();
+        fs::create_dir_all(dir.path().join("Notes/Empty")).unwrap();
+        fs::create_dir_all(dir.path().join("Notes/.hidden")).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        assert_eq!(
+            v.folders(DocType::Note).unwrap(),
+            vec!["Empty", "Sermons", "Sermons/2026"]
+        );
+        assert_eq!(v.folders(DocType::Composition).unwrap(), vec!["Talks"]);
+        // Only Notes and Compositions have Folders.
+        assert!(v.folders(DocType::Source).is_err());
+        // A type whose folder does not exist yet simply has none.
+        fs::remove_dir_all(dir.path().join("Compositions")).unwrap();
+        assert!(v.folders(DocType::Composition).unwrap().is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_folder_is_never_listed() {
+        // #87: a Folder the UI could create or move into must be inside the Vault.
+        let (dir, v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(outside.path().join("Private")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.folders(DocType::Note).unwrap().is_empty());
+        // A type folder that is itself a link out of the Vault is refused.
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Compositions")).unwrap();
+        assert!(v.folders(DocType::Composition).is_err());
+    }
+
+    #[test]
+    fn a_folder_renamed_outside_the_app_moves_its_documents_once() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Old/Deep")).unwrap();
+        fs::write(dir.path().join("Notes/Old/a.md"), "A\n").unwrap();
+        fs::write(dir.path().join("Notes/Old/Deep/b.md"), "B\n").unwrap();
+        v.scan().unwrap();
+        let a = v.get_by_path("Notes/Old/a.md").unwrap().unwrap().id;
+        let count = v.list(None).unwrap().len();
+        fs::rename(dir.path().join("Notes/Old"), dir.path().join("Notes/New")).unwrap();
+        // The watcher hears both names, in either order.
+        let (_, removed) = v.folder_changed("Notes/Old").unwrap();
+        let (changed, _) = v.folder_changed("Notes/New").unwrap();
+        assert_eq!(removed.len(), 2);
+        assert_eq!(changed.len(), 2);
+        assert_eq!(v.get(&a).unwrap().unwrap().path, "Notes/New/a.md");
+        assert_eq!(v.list(None).unwrap().len(), count);
+        // And the other way round: the new name first.
+        fs::rename(dir.path().join("Notes/New"), dir.path().join("Notes/Newer")).unwrap();
+        v.folder_changed("Notes/Newer").unwrap();
+        v.folder_changed("Notes/New").unwrap();
+        assert_eq!(v.get(&a).unwrap().unwrap().path, "Notes/Newer/a.md");
+        assert_eq!(v.list(None).unwrap().len(), count);
+    }
+
+    #[test]
+    fn a_folder_is_created_with_its_typed_capitalisation() {
+        let (dir, mut v) = vault();
+        assert_eq!(
+            v.create_folder(DocType::Note, "", "  Sermons 2026 ")
+                .unwrap(),
+            "Sermons 2026"
+        );
+        assert!(dir.path().join("Notes/Sermons 2026").is_dir());
+        assert_eq!(
+            v.create_folder(DocType::Note, "Sermons 2026", "Week 2")
+                .unwrap(),
+            "Sermons 2026/Week 2"
+        );
+        // Compositions has no folder yet: its first Folder makes it.
+        v.create_folder(DocType::Composition, "", "Talks").unwrap();
+        assert!(dir.path().join("Compositions/Talks").is_dir());
+        // Only Notes and Compositions have Folders.
+        assert!(v.create_folder(DocType::Source, "", "Shelf").is_err());
+    }
+
+    #[test]
+    fn a_bad_folder_name_is_refused_and_nothing_is_written() {
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let before = fs::read_dir(dir.path().join("Notes")).unwrap().count();
+        for bad in [
+            "",
+            "   ",
+            ".hidden",
+            "a/b",
+            "a\\b",
+            "a:b",
+            "a*b",
+            "a?b",
+            "a\"b",
+            "a<b",
+            "a>b",
+            "a|b",
+            "a#b",
+            "a^b",
+            "a[b",
+            "a]b",
+            "SERMONS",
+            "sermons",
+            " Sermons ",
+        ] {
+            assert!(v.create_folder(DocType::Note, "", bad).is_err(), "{bad:?}");
+        }
+        assert_eq!(
+            fs::read_dir(dir.path().join("Notes")).unwrap().count(),
+            before
+        );
+        // A file with the name counts as a sibling too.
+        assert!(v.create_folder(DocType::Note, "", "first.md").is_err());
+        // A parent that is not there is refused, not made.
+        assert!(v.create_folder(DocType::Note, "Missing", "X").is_err());
+        assert!(!dir.path().join("Notes/Missing").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_cannot_be_made_or_deleted_outside_the_vault() {
+        // #87, for Folders: a parent given by the UI is checked like any path.
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        for parent in ["../..", "Linked", "Notes/../..", "/etc", ".bible-study"] {
+            assert!(
+                v.create_folder(DocType::Note, parent, "X").is_err(),
+                "{parent}"
+            );
+            assert!(v.delete_folder(DocType::Note, parent).is_err(), "{parent}");
+        }
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        let mut fields = Map::new();
+        fields.insert("x".into(), Value::Null);
+        assert!(v
+            .create_in(DocType::Note, Some("Linked"), "N", &fields, "")
+            .is_err());
+        assert!(v
+            .create_in(DocType::Note, Some("../.."), "N", &fields, "")
+            .is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+        // A link that stays inside the Vault is not a Folder either.
+        fs::create_dir_all(dir.path().join(".bible-study")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join(".bible-study"),
+            dir.path().join("Notes/Sync"),
+        )
+        .unwrap();
+        assert!(v.create_folder(DocType::Note, "Sync", "sub").is_err());
+        assert!(v
+            .create_in(DocType::Note, Some("Sync"), "N", &Map::new(), "")
+            .is_err());
+        assert!(v.delete_folder(DocType::Note, "Sync").is_err());
+        assert!(!dir.path().join(".bible-study/sub").exists());
+    }
+
+    #[test]
+    fn only_an_empty_folder_is_deleted_and_os_clutter_goes_with_it() {
+        let (dir, mut v) = vault();
+        let notes = dir.path().join("Notes");
+        fs::create_dir_all(notes.join("Tidy/Inner")).unwrap();
+        fs::write(notes.join("Tidy/.DS_Store"), "x").unwrap();
+        fs::write(notes.join("Tidy/Inner/Thumbs.db"), "x").unwrap();
+        assert!(v.delete_folder(DocType::Note, "Tidy").unwrap().is_empty());
+        assert!(!notes.join("Tidy").exists());
+
+        fs::create_dir_all(notes.join("Full/Pics")).unwrap();
+        fs::write(notes.join("Full/a.md"), "A\n").unwrap();
+        fs::write(notes.join("Full/Pics/p.png"), "x").unwrap();
+        fs::write(notes.join("Full/talk.canvas"), "{}").unwrap();
+        fs::write(notes.join("Full/.DS_Store"), "x").unwrap();
+        let held = v.delete_folder(DocType::Note, "Full").unwrap();
+        assert_eq!(held, vec!["Pics/p.png", "a.md", "talk.canvas"]);
+        assert!(notes.join("Full/a.md").exists());
+        assert!(
+            notes.join("Full/.DS_Store").exists(),
+            "nothing deleted on a refusal"
+        );
+        // A file iCloud evicted is still a document: its hidden placeholder counts.
+        fs::create_dir_all(notes.join("Evicted")).unwrap();
+        fs::write(notes.join("Evicted/.week 3.md.icloud"), "x").unwrap();
+        assert_eq!(
+            v.delete_folder(DocType::Note, "Evicted").unwrap(),
+            vec![".week 3.md.icloud"]
+        );
+        assert!(notes.join("Evicted").exists());
+        // So does a link, which is never followed nor removed.
+        #[cfg(unix)]
+        {
+            fs::create_dir_all(notes.join("Linking")).unwrap();
+            std::os::unix::fs::symlink(notes.join("Full"), notes.join("Linking/to-full")).unwrap();
+            assert_eq!(
+                v.delete_folder(DocType::Note, "Linking").unwrap(),
+                vec!["to-full"]
+            );
+            assert!(notes.join("Full/a.md").exists());
+        }
+        // The type's own folder is never a Folder to delete.
+        assert!(v.delete_folder(DocType::Note, "").is_err());
+        assert!(v.delete_folder(DocType::Note, "Nowhere").is_err());
+    }
+
+    #[test]
+    fn a_new_note_goes_inside_a_folder_only_when_asked() {
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let inside = v
+            .create_in(DocType::Note, Some("Sermons"), "Week 2", &Map::new(), "")
+            .unwrap();
+        assert_eq!(inside.summary.path, "Notes/Sermons/week 2.md");
+        assert!(dir.path().join("Notes/Sermons/week 2.md").exists());
+        let top = v.create(DocType::Note, "Week 3", &Map::new(), "").unwrap();
+        assert_eq!(top.summary.path, "Notes/week 3.md");
+        // A Folder that is not there is refused rather than made.
+        assert!(v
+            .create_in(DocType::Note, Some("Missing"), "X", &Map::new(), "")
+            .is_err());
+        assert!(!dir.path().join("Notes/Missing").exists());
+        // A type without Folders refuses one.
+        assert!(v
+            .create_in(DocType::Source, Some("Sermons"), "X", &Map::new(), "")
+            .is_err());
+    }
+
+    #[test]
+    fn a_note_moves_into_a_folder_and_keeps_its_title() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        let moved = v.move_document(&id, "Sermons").unwrap();
+        assert_eq!(moved.summary.path, "Notes/Sermons/First.md");
+        assert_eq!(moved.summary.title, "First");
+        assert!(!dir.path().join("Notes/First.md").exists());
+        // The Folder it left stays: the person arranged it.
+        assert!(dir.path().join("Notes").is_dir());
+        // And back to the top.
+        assert_eq!(
+            v.move_document(&id, "").unwrap().summary.path,
+            "Notes/First.md"
+        );
+        assert!(dir.path().join("Notes/Sermons").is_dir());
+    }
+
+    #[test]
+    fn a_move_onto_a_same_named_file_is_refused_and_never_adds_a_number() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        fs::create_dir_all(dir.path().join("Notes/Old")).unwrap();
+        fs::write(dir.path().join("Notes/Old/FIRST.md"), "Another.\n").unwrap();
+        let err = v.move_document(&id, "Old").unwrap_err().to_string();
+        assert!(err.contains("FIRST.md"), "{err}");
+        assert!(dir.path().join("Notes/First.md").exists());
+        assert!(!dir.path().join("Notes/Old/First 2.md").exists());
+    }
+
+    #[test]
+    fn a_move_stays_in_its_own_types_folder() {
+        // `into` is inside the document's own type's folder: a Note cannot be
+        // sent into Compositions/, nor anywhere outside the Vault (#87).
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        for into in [
+            "../Compositions/Talks",
+            "/Compositions/Talks",
+            "Talks",
+            "..",
+            ".hidden",
+        ] {
+            assert!(v.move_document(&id, into).is_err(), "{into}");
+        }
+        assert!(dir.path().join("Notes/First.md").exists());
+        // A type without Folders has nothing to move into.
+        let src = v
+            .create(DocType::Source, "A Book", &Map::new(), "")
+            .unwrap();
+        assert!(v.move_document(&src.summary.id, "").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_move_into_a_linked_folder_is_refused() {
+        let (dir, mut v) = vault();
+        let id = v.get_by_path("Notes/First.md").unwrap().unwrap().id;
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.move_document(&id, "Linked").is_err());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_file_still_downloading_is_not_moved() {
+        let (dir, mut v) = vault();
+        fs::write(dir.path().join("Notes/Gone.md"), "Here for now.\n").unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Notes/Gone.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        // iCloud evicts it: the file goes, a placeholder takes its place.
+        fs::remove_file(dir.path().join("Notes/Gone.md")).unwrap();
+        fs::write(dir.path().join("Notes/.Gone.md.icloud"), "x").unwrap();
+        assert!(v.move_document(&id, "Sermons").is_err());
+        assert!(dir.path().join("Notes/.Gone.md.icloud").exists());
+    }
+
+    #[test]
+    fn a_note_outside_its_folder_moves_under_it() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Study")).unwrap();
+        fs::write(
+            dir.path().join("Study/loose.md"),
+            "---\ntype: note\n---\nLoose.\n",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Study/loose.md").unwrap().unwrap().id;
+        v.create_folder(DocType::Note, "", "Sermons").unwrap();
+        assert_eq!(
+            v.move_document(&id, "Sermons").unwrap().summary.path,
+            "Notes/Sermons/loose.md"
+        );
+        assert!(!dir.path().join("Study/loose.md").exists());
+    }
+
+    #[test]
+    fn a_moved_composition_takes_its_board_and_other_boards_follow() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        let talk = v
+            .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+            .unwrap()
+            .summary;
+        let mut own = Canvas::default();
+        own.nodes
+            .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+        v.write_board(&talk.id, &own).unwrap();
+        let series = v
+            .create(DocType::Composition, "Series", &Map::new(), "")
+            .unwrap()
+            .summary;
+        let mut board = Canvas::default();
+        let mut card = Node::new("c1", NodeKind::File, 0, 0, 300, 120);
+        card.file = Some(talk.path.clone());
+        board.nodes.push(card);
+        v.write_board(&series.id, &board).unwrap();
+        v.create_folder(DocType::Composition, "", "Talks").unwrap();
+
+        let moved = v.move_document(&talk.id, "Talks").unwrap().summary;
+        assert_eq!(moved.path, "Compositions/Talks/talk.md");
+        assert!(dir.path().join("Compositions/Talks/talk.canvas").exists());
+        assert!(!dir.path().join("Compositions/talk.canvas").exists());
+        assert_eq!(v.read_board(&talk.id).unwrap().unwrap().nodes.len(), 1);
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/Talks/talk.md")
+        );
+    }
+
+    #[test]
+    fn a_renamed_folder_keeps_its_documents_titles_and_links() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Sermons/2026")).unwrap();
+        fs::write(
+            dir.path().join("Notes/Sermons/2026/week 2.md"),
+            "---\ntitle: Week 2\n---\nShepherd.\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("Notes/Sermons/pic.png"), "png").unwrap();
+        fs::write(dir.path().join("Notes/linker.md"), "See [[Week 2]].\n").unwrap();
+        v.scan().unwrap();
+        let week = v
+            .get_by_path("Notes/Sermons/2026/week 2.md")
+            .unwrap()
+            .unwrap();
+        let linker = v.get_by_path("Notes/linker.md").unwrap().unwrap();
+        let count = v.list(None).unwrap().len();
+
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Sermons", "Talks").unwrap(),
+            "Talks"
+        );
+        let after = v.get(&week.id).unwrap().unwrap();
+        assert_eq!(after.path, "Notes/Talks/2026/week 2.md");
+        assert_eq!(after.title, "Week 2");
+        assert!(
+            dir.path().join("Notes/Talks/pic.png").exists(),
+            "everything in it moves"
+        );
+        assert!(!dir.path().join("Notes/Sermons").exists());
+        assert!(v
+            .read(&linker.id)
+            .unwrap()
+            .text
+            .ends_with("See [[Week 2]].\n"));
+        assert_eq!(v.backlinks(&week.id).unwrap().len(), 1);
+        assert_eq!(v.list(None).unwrap().len(), count);
+        // A case-only rename is not a clash with itself.
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Talks", "TALKS").unwrap(),
+            "TALKS"
+        );
+        assert_eq!(
+            v.get(&week.id).unwrap().unwrap().path,
+            "Notes/TALKS/2026/week 2.md"
+        );
+    }
+
+    #[test]
+    fn a_folder_holding_a_document_that_takes_no_id_still_moves_whole() {
+        // Frontmatter that is not a mapping cannot take an `id` line, so the
+        // document's id comes from its path and the moved file does not say
+        // it: the move must not take that for another document's file.
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/Odd")).unwrap();
+        fs::write(
+            dir.path().join("Notes/Odd/list.md"),
+            "---\n- a\n- b\n---\nBody.\n",
+        )
+        .unwrap();
+        fs::write(dir.path().join("Notes/Odd/plain.md"), "Plain.\n").unwrap();
+        fs::create_dir_all(dir.path().join("Notes/Elsewhere")).unwrap();
+        // The same for a Composition, whose Board moves beside it.
+        fs::create_dir_all(dir.path().join("Compositions/Odd")).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Given")).unwrap();
+        fs::write(
+            dir.path().join("Compositions/Odd/talk.md"),
+            "---\n- a\n---\nTalk.\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("Compositions/Odd/talk.canvas"),
+            "{\"nodes\":[],\"edges\":[]}",
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let count = v.list(None).unwrap().len();
+
+        assert_eq!(
+            v.move_folder(DocType::Note, "Odd", "Elsewhere").unwrap(),
+            "Elsewhere/Odd"
+        );
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Odd/list.md")
+            .unwrap()
+            .is_some());
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Odd/plain.md")
+            .unwrap()
+            .is_some());
+        assert!(v.get_by_path("Notes/Odd/list.md").unwrap().is_none());
+        assert_eq!(v.list(None).unwrap().len(), count);
+        assert_eq!(
+            v.rename_folder(DocType::Note, "Elsewhere/Odd", "Even")
+                .unwrap(),
+            "Elsewhere/Even"
+        );
+        assert!(v
+            .get_by_path("Notes/Elsewhere/Even/list.md")
+            .unwrap()
+            .is_some());
+        assert_eq!(v.list(None).unwrap().len(), count);
+        assert_eq!(
+            v.move_folder(DocType::Composition, "Odd", "Given").unwrap(),
+            "Given/Odd"
+        );
+        let talk = v
+            .get_by_path("Compositions/Given/Odd/talk.md")
+            .unwrap()
+            .unwrap();
+        assert!(dir
+            .path()
+            .join("Compositions/Given/Odd/talk.canvas")
+            .exists());
+        v.read_board(&talk.id).unwrap();
+        assert_eq!(v.list(None).unwrap().len(), count);
+    }
+
+    #[test]
+    fn a_folder_is_never_renamed_onto_a_sibling_nor_moved_into_itself() {
+        let (dir, mut v) = vault();
+        for f in ["Notes/A/B/C", "Notes/D"] {
+            fs::create_dir_all(dir.path().join(f)).unwrap();
+        }
+        fs::write(dir.path().join("Notes/A/x.md"), "X\n").unwrap();
+        v.scan().unwrap();
+        assert!(v.rename_folder(DocType::Note, "A", "d").is_err());
+        assert!(v.rename_folder(DocType::Note, "A", ".hidden").is_err());
+        assert!(v.rename_folder(DocType::Note, "A", "a/b").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A/B").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "A/B/C").is_err());
+        assert!(v.move_folder(DocType::Note, "", "D").is_err());
+        assert!(dir.path().join("Notes/A/x.md").exists());
+        // Into a sibling, and back to the top.
+        assert_eq!(v.move_folder(DocType::Note, "A/B", "D").unwrap(), "D/B");
+        assert!(dir.path().join("Notes/D/B/C").is_dir());
+        assert_eq!(v.move_folder(DocType::Note, "D/B", "").unwrap(), "B");
+        // A Folder of the same name already at the destination refuses it.
+        fs::create_dir_all(dir.path().join("Notes/D/b")).unwrap();
+        assert!(v.move_folder(DocType::Note, "B", "D").is_err());
+        assert!(dir.path().join("Notes/B/C").is_dir());
+    }
+
+    #[test]
+    fn a_composition_is_not_moved_onto_another_board() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        let talk = v
+            .create(DocType::Composition, "Talk", &Map::new(), "Body.")
+            .unwrap()
+            .summary;
+        let mut own = Canvas::default();
+        own.nodes
+            .push(Node::new("n1", NodeKind::Text, 0, 0, 300, 120));
+        v.write_board(&talk.id, &own).unwrap();
+        fs::create_dir_all(dir.path().join("Compositions/Talks")).unwrap();
+        fs::write(
+            dir.path().join("Compositions/Talks/TALK.canvas"),
+            "{\"nodes\":[]}",
+        )
+        .unwrap();
+        let err = v.move_document(&talk.id, "Talks").unwrap_err().to_string();
+        assert!(err.contains("TALK.canvas"), "{err}");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("Compositions/Talks/TALK.canvas")).unwrap(),
+            "{\"nodes\":[]}"
+        );
+        assert!(dir.path().join("Compositions/talk.md").exists());
+        assert!(dir.path().join("Compositions/talk.canvas").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_is_not_renamed_or_moved_through_a_link() {
+        let (dir, mut v) = vault();
+        let outside = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("Notes/A")).unwrap();
+        std::os::unix::fs::symlink(outside.path(), dir.path().join("Notes/Linked")).unwrap();
+        assert!(v.move_folder(DocType::Note, "A", "Linked").is_err());
+        assert!(v.move_folder(DocType::Note, "Linked", "A").is_err());
+        assert!(v.rename_folder(DocType::Note, "Linked", "X").is_err());
+        assert!(v.move_folder(DocType::Note, "A", "../..").is_err());
+        assert!(dir.path().join("Notes/A").is_dir());
+        assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_folder_still_downloading_is_not_moved() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Notes/A")).unwrap();
+        fs::write(dir.path().join("Notes/A/.away.md.icloud"), "x").unwrap();
+        assert!(v.rename_folder(DocType::Note, "A", "B").is_err());
+        assert!(dir.path().join("Notes/A").is_dir());
+    }
+
+    #[test]
+    fn a_moved_folder_keeps_boards_beside_their_compositions_and_other_boards_follow() {
+        use crate::canvas::{Node, NodeKind};
+        let (dir, mut v) = vault();
+        v.create_folder(DocType::Composition, "", "Old").unwrap();
+        v.create_folder(DocType::Composition, "", "New").unwrap();
+        let talk = v
+            .create_in(
+                DocType::Composition,
+                Some("Old"),
+                "Talk",
+                &Map::new(),
+                "Body.",
+            )
+            .unwrap()
+            .summary;
+        let note = v
+            .create(DocType::Note, "Seed", &Map::new(), "A thought.")
+            .unwrap()
+            .summary;
+        // The Talk's own Board holds a card for the Note.
+        let mut own = Canvas::default();
+        let mut card = Node::new("n1", NodeKind::File, 0, 0, 300, 120);
+        card.file = Some(note.path.clone());
+        own.nodes.push(card);
+        v.write_board(&talk.id, &own).unwrap();
+        // Another Board holds a card for the Talk.
+        let series = v
+            .create(DocType::Composition, "Series", &Map::new(), "")
+            .unwrap()
+            .summary;
+        let mut board = Canvas::default();
+        let mut c = Node::new("c1", NodeKind::File, 0, 0, 300, 120);
+        c.file = Some(talk.path.clone());
+        board.nodes.push(c);
+        v.write_board(&series.id, &board).unwrap();
+
+        assert_eq!(
+            v.move_folder(DocType::Composition, "Old", "New").unwrap(),
+            "New/Old"
+        );
+        let moved = v.get(&talk.id).unwrap().unwrap();
+        assert_eq!(moved.path, "Compositions/New/Old/talk.md");
+        assert!(dir.path().join("Compositions/New/Old/talk.canvas").exists());
+        assert!(!dir.path().join("Compositions/Old").exists());
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/New/Old/talk.md")
+        );
+        // The Talk's own Board still counts the Note as on it.
+        assert_eq!(v.read_board(&talk.id).unwrap().unwrap().nodes.len(), 1);
+        let on_board: Vec<String> = v
+            .query(Query::BoardsReferencing {
+                id: note.id.clone(),
+            })
+            .map(|a| match a {
+                Answer::Docs(d) => d.into_iter().map(|d| d.id).collect(),
+                _ => vec![],
+            })
+            .unwrap();
+        assert_eq!(on_board, vec![talk.id.clone()]);
+        // Renaming it does the same.
+        v.rename_folder(DocType::Composition, "New/Old", "Renamed")
+            .unwrap();
+        assert!(dir
+            .path()
+            .join("Compositions/New/Renamed/talk.canvas")
+            .exists());
+        let after = v.read_board(&series.id).unwrap().unwrap();
+        assert_eq!(
+            after.node("c1").unwrap().file.as_deref(),
+            Some("Compositions/New/Renamed/talk.md")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_linked_type_folder_takes_no_move() {
+        let (dir, mut v) = vault();
+        fs::create_dir_all(dir.path().join("Study")).unwrap();
+        fs::write(
+            dir.path().join("Study/loose.md"),
+            "---\ntype: composition\n---\nX\n",
+        )
+        .unwrap();
+        fs::create_dir_all(dir.path().join(".bible-study/elsewhere")).unwrap();
+        std::os::unix::fs::symlink(
+            dir.path().join(".bible-study/elsewhere"),
+            dir.path().join("Compositions"),
+        )
+        .unwrap();
+        v.scan().unwrap();
+        let id = v.get_by_path("Study/loose.md").unwrap().unwrap().id;
+        assert!(v.move_document(&id, "").is_err());
+        assert!(dir.path().join("Study/loose.md").exists());
     }
 }
