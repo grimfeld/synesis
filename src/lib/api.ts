@@ -404,6 +404,52 @@ export interface PlaceTie {
   end: BibleDate | null;
 }
 
+/** What the Character naming a Kinship tie says the other one is (ADR 0024). */
+export type KinRelation = "father" | "mother" | "spouse";
+
+/** One Kinship tie as written: `character` names `kin` as its `relation`. */
+export interface KinshipEdge {
+  character: DocSummary;
+  relation: KinRelation;
+  kin: DocSummary;
+}
+
+/**
+ * Kinship data the engine cannot read as a tie, reported on `character`'s
+ * Hub. The tie is left out of the edges; the file is never touched.
+ */
+export type KinshipWarning =
+  | {
+      kind: "not_a_character";
+      character: DocSummary;
+      property: string;
+      target: DocSummary;
+    }
+  | {
+      kind: "two_values";
+      character: DocSummary;
+      property: string;
+      targets: string[];
+    }
+  | { kind: "cycle"; character: DocSummary; path: DocSummary[] };
+
+/**
+ * One Relation as written (CONTEXT.md, Relation; PLAN §32): `character`'s
+ * `property`, in the user's own word, names `other` ("Elisha's mentor is Elijah").
+ */
+export interface CharacterRelation {
+  character: DocSummary;
+  property: string;
+  other: DocSummary;
+}
+
+/** Every Kinship edge in the Vault, every warning (ADR 0024), and every Relation. */
+export interface Kinship {
+  edges: KinshipEdge[];
+  warnings: KinshipWarning[];
+  relations: CharacterRelation[];
+}
+
 /** One Tag carried by a dated document: the Timeline's Tag filter (PLAN §17). */
 export interface DocTag {
   doc: string;
@@ -830,6 +876,7 @@ export type Query =
   | { kind: "eventLinks" }
   | { kind: "timelineTags" }
   | { kind: "placeTies"; id: string | null }
+  | { kind: "kinship" }
   | { kind: "journeys" }
   | { kind: "placeFacts" }
   | { kind: "kindSuggestions" }
@@ -1069,6 +1116,8 @@ export const api = {
   /** Every Character↔Place tie, or only those touching one Character or Place. */
   placeTies: (id: string | null = null) =>
     query<PlaceTie[]>({ kind: "placeTies", id }),
+  /** Every Kinship edge and Relation as written, with warnings; derive with `src/lib/kinship.ts`. */
+  kinship: () => query<Kinship>({ kind: "kinship" }),
   placeFacts: () => query<PlaceFact[]>({ kind: "placeFacts" }),
   /** Places without a kind the gazetteer can name (PLAN §27.13). */
   kindSuggestions: () => query<KindSuggestion[]>({ kind: "kindSuggestions" }),

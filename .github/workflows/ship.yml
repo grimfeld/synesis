@@ -24,6 +24,8 @@ on:
   workflow_dispatch:
 
 env:
+  # Every gh call reads its repository from here: `land` has no checkout for gh to read it from.
+  GH_REPO: ${{ github.repository }}
   SHIP_LABEL: ship
   CONFLICTS_LABEL: conflicts
   MERGE_METHOD: merge

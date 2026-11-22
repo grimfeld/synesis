@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180" role="img">
+  <!-- Kinship: two parents joined as spouses; below, their children, each linked up to the father and mother it names; a sibling bracket joins the children. -->
+  <g stroke="#8b8f97" stroke-width="1.5" fill="none" stroke-linecap="round">
+    <!-- the spouses' tie -->
+    <line x1="132" y1="40" x2="188" y2="40" stroke-dasharray="4 4"/>
+    <!-- each child names its father and its mother -->
+    <path d="M70 124 C70 90 104 80 104 54"/>
+    <path d="M70 124 C70 90 216 80 216 54"/>
+    <path d="M160 124 C160 96 104 84 104 54"/>
+    <path d="M160 124 C160 96 216 84 216 54"/>
+    <path d="M250 124 C250 90 104 80 104 54"/>
+    <path d="M250 124 C250 90 216 80 216 54"/>
+  </g>
+  <!-- the father and the mother -->
+  <rect x="76" y="26" width="56" height="28" rx="14" fill="#5b7fd1" fill-opacity="0.85"/>
+  <rect x="188" y="26" width="56" height="28" rx="14" fill="#5b7fd1" fill-opacity="0.85"/>
+  <!-- the children -->
+  <g fill="#6aa27b" fill-opacity="0.85">
+    <rect x="42" y="124" width="56" height="28" rx="14"/>
+    <rect x="132" y="124" width="56" height="28" rx="14"/>
+    <rect x="222" y="124" width="56" height="28" rx="14"/>
+  </g>
+  <!-- siblings: read from the parents they share -->
+  <path d="M70 152 V164 H250 V152 M160 152 V164" stroke="#d18b5b" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+</svg>

@@ -88,3 +88,89 @@ export function setField(
 export function removeField(fm: string, key: string): string {
   return setField(fm, key, null);
 }
+
+/** `"a \"b\""` → `a "b"`, `'it''s'` → `it's`, `bare # note` → `bare`; `undefined` for a nested list or map. */
+function readScalar(raw: string): string | null | undefined {
+  const v = raw.trim();
+  if (v.startsWith('"')) {
+    const m = /^"((?:[^"\\]|\\.)*)"\s*(?:#.*)?$/.exec(v);
+    return m ? m[1].replace(/\\(.)/g, "$1") : undefined;
+  }
+  if (v.startsWith("'")) {
+    const m = /^'((?:[^']|'')*)'\s*(?:#.*)?$/.exec(v);
+    return m ? m[1].replace(/''/g, "'") : undefined;
+  }
+  // Flow maps and lists, block scalars (`|`, `>`), anchors, aliases and tags.
+  if (/^[[{|>&*!]/.test(v)) return undefined;
+  const bare = v.replace(/(^|\s+)#.*$/, "").trim();
+  return bare === "" || bare === "~" || bare === "null" ? null : bare;
+}
+
+/** The items of a flow list's inside (`"[[Leah]]", Rachel`); `undefined` when one is not a scalar. */
+function readFlowItems(inner: string): string[] | undefined {
+  const out: string[] = [];
+  let i = 0;
+  const n = inner.length;
+  while (i < n) {
+    while (i < n && /\s/.test(inner[i])) i++;
+    if (i >= n) break;
+    let item: string;
+    const q = inner[i];
+    if (q === '"' || q === "'") {
+      let j = i + 1;
+      while (j < n) {
+        if (q === '"' && inner[j] === "\\") j += 2;
+        else if (inner[j] === q && q === "'" && inner[j + 1] === "'") j += 2;
+        else if (inner[j] === q) break;
+        else j++;
+      }
+      if (j >= n) return undefined;
+      item = inner.slice(i, j + 1);
+      i = j + 1;
+    } else {
+      const j = inner.indexOf(",", i);
+      item = inner.slice(i, j < 0 ? n : j);
+      i = j < 0 ? n : j;
+    }
+    const v = readScalar(item);
+    if (v === undefined) return undefined;
+    if (v !== null) out.push(v);
+    while (i < n && /\s/.test(inner[i])) i++;
+    if (i < n && inner[i] !== ",") return undefined;
+    i++;
+  }
+  return out;
+}
+
+/**
+ * `key`'s value as written in `fm`, for reading back what `setField` wrote: a
+ * scalar as a string, a flow (`[a, "b"]`) or block (`- a`) list of scalars as
+ * strings, `null` when absent or empty. `undefined` for any other form (a
+ * map, a nested list), which the caller then reads from the parsed front
+ * matter instead.
+ */
+export function readField(fm: string, key: string): string | string[] | null | undefined {
+  const lines = fmLines(fm);
+  const re = keyRegex(key);
+  const idx = lines.findIndex((l) => re.test(l));
+  if (idx < 0) return null;
+  const rest = lines[idx].slice(lines[idx].indexOf(":") + 1).trim();
+  if (rest === "" || rest.startsWith("#")) {
+    const items: string[] = [];
+    for (let i = idx + 1; i < lines.length && /^(\s+\S|\s*-\s)/.test(lines[i]); i++) {
+      const m = /^\s*-\s+(.*)$/.exec(lines[i]);
+      if (!m) return undefined;
+      const v = readScalar(m[1]);
+      if (v === undefined) return undefined;
+      if (v !== null) items.push(v);
+    }
+    return items.length ? items : null;
+  }
+  if (rest.startsWith("[")) {
+    const m = /^\[(.*)\]\s*(?:#.*)?$/.exec(rest);
+    return m ? readFlowItems(m[1]) : undefined;
+  }
+  // A plain scalar folded over indented lines is not one this reads.
+  if (idx + 1 < lines.length && /^\s+\S/.test(lines[idx + 1])) return undefined;
+  return readScalar(rest);
+}

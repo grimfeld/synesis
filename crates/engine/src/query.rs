@@ -141,6 +141,10 @@ pub enum Query {
     /// Every Character↔Place tie, from Characters' `places` and from Events,
     /// or only those touching `id` (a Character or a Place) for its Hub.
     PlaceTies { id: Option<String> },
+    /// Every Kinship edge in the Vault as written, with warnings for what
+    /// cannot be one (ADR 0024), and every Relation (PLAN §32). The other
+    /// direction is derived by the UI.
+    Kinship,
     /// Every Journey with its Stops in travel order (ADR 0010).
     Journeys,
     /// Tags, Books and mention counts per Place, for the Map's filters.
@@ -199,6 +203,7 @@ pub enum Answer {
     Dates(Vec<DatedProperty>),
     EventLinks(Vec<EventLink>),
     PlaceTies(Vec<PlaceTie>),
+    Kinship(crate::kinship::Kinship),
     DocTags(Vec<DocTag>),
     Journeys(Vec<Journey>),
     PlaceFacts(Vec<PlaceFact>),
@@ -307,6 +312,7 @@ mod wire_tests {
             Query::PlaceTies {
                 id: Some("x".into()),
             },
+            Query::Kinship,
             Query::VerseCoverage {
                 book: 1,
                 chapter: 1,

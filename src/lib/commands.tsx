@@ -10,7 +10,6 @@ import {
   Upload,
   ArrowRight,
   BookOpenText,
-  CalendarRange,
   CircleHelp,
   Code,
   Download,
@@ -22,16 +21,12 @@ import {
   Presentation,
   Dices,
   FilePlus,
-  House,
   LayoutGrid,
   MapPin,
   Network,
   PenLine,
   RefreshCw,
   Search,
-  Settings,
-  LibraryBig,
-  Quote,
   SquareSplitHorizontal,
   AppWindow,
   Waypoints,
@@ -41,10 +36,12 @@ import {
 } from "lucide-react";
 import { CREATABLE_TYPES, WRITING_TYPES, type DocType } from "@/lib/api";
 import { useStore } from "@/lib/store";
+import { useHasKin } from "@/lib/useHasKin";
 import { IS_MAC } from "@/lib/keys";
 import { useT } from "@/i18n";
 import type { Dict } from "@/i18n/en";
 import { tutorial, tutorialIds } from "@/lib/tutorials";
+import { VIEW_KINDS, VIEW_REGISTRY, navCommandId } from "@/lib/views";
 import { useTutorials } from "@/lib/tutorialState";
 import { useAppearance } from "@/lib/appearance";
 import { useFillKinds } from "@/lib/fillKinds";
@@ -147,6 +144,11 @@ export function useCommands(): Command[] {
   const importBorder = useImportBorder();
   const drawBorder = useDrawBorder();
   const regionIds = useRegionIds();
+  // Read only while a Character is open, so no other view pays for it.
+  const readingId = s.view.kind === "doc" ? s.view.id : null;
+  const characterHasKin = useHasKin(readingId, {
+    enabled: !!readingId && s.docsById.get(readingId)?.type === "character",
+  });
   return useMemo(() => {
     const list: Command[] = [];
     // ---- create + capture
@@ -186,35 +188,13 @@ export function useCommands(): Command[] {
       shortcut: "Mod+Shift+P",
       run: () => s.setDialog({ kind: "search", query: ">" }),
     });
-    const views: {
-      kind:
-        | "home"
-        | "graph"
-        | "library"
-        | "clippings"
-        | "map"
-        | "timeline"
-        | "coverage"
-        | "settings";
-      icon: LucideIcon;
-      title: string;
-    }[] = [
-      { kind: "home", icon: House, title: t.views.home },
-      { kind: "graph", icon: Waypoints, title: t.views.graph },
-      { kind: "library", icon: LibraryBig, title: t.views.library },
-      { kind: "clippings", icon: Quote, title: t.views.clippings },
-      { kind: "map", icon: MapPin, title: t.views.map },
-      { kind: "timeline", icon: CalendarRange, title: t.views.timeline },
-      { kind: "coverage", icon: LayoutGrid, title: t.views.coverage },
-      { kind: "settings", icon: Settings, title: t.views.settings },
-    ];
-    for (const v of views)
+    for (const kind of VIEW_KINDS)
       list.push({
-        id: `nav.${v.kind}`,
-        title: `${t.go_to} ${v.title}`,
+        id: navCommandId(kind),
+        title: `${t.go_to} ${t.views[kind]}`,
         group: "navigate",
-        icon: v.icon,
-        run: () => s.navigate({ kind: v.kind }),
+        icon: VIEW_REGISTRY[kind].icon,
+        run: () => s.navigate({ kind }),
       });
     list.push({
       id: "nav.back",
@@ -322,6 +302,17 @@ export function useCommands(): Command[] {
         keywords: "graph local neighbours links connections network",
         run: () => s.navigate({ kind: "graph", focus: id }),
       });
+      // The Family tree focused on this Character (#155): only on a Character
+      // with kin, as the Hub's button (`useHasKin`, one rule for both).
+      if (characterHasKin)
+        list.push({
+          id: "doc.show_in_family_tree",
+          title: t.family_tree.show_in,
+          group: "navigate",
+          icon: Network,
+          keywords: "family tree genealogy ancestors descendants parents children kin kinship",
+          run: () => s.navigate({ kind: "family-tree", focus: id }),
+        });
     }
     // The Board of the Composition being read. Named "Board" per the glossary,
     // with "mind map" in the keywords so the palette finds it either way.
@@ -514,7 +505,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds]);
+  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds, characterHasKin]);
 }
 
 /**
@@ -529,7 +520,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "create.quick",
     "nav.search",
     "nav.commands",
-    ...["home", "graph", "library", "clippings", "map", "timeline", "coverage", "settings"].map((v) => `nav.${v}`),
+    ...VIEW_KINDS.map(navCommandId),
     "nav.back",
     "nav.forward",
     "pane.open_other",
@@ -547,6 +538,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.split",
     "doc.deliver",
     "doc.local_graph",
+    "doc.show_in_family_tree",
     "board.export",
     "doc.duplicate",
     "doc.move_to_folder",

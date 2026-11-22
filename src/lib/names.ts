@@ -1,6 +1,6 @@
 // Client-side mirror of titles and aliases for instant link resolution and
 // autocomplete. Normalisation matches engine::index::norm.
-import type { DocType, NameEntry } from "./api";
+import type { DocSummary, DocType, NameEntry } from "./api";
 
 export function norm(s: string): string {
   return s
@@ -67,4 +67,50 @@ export class NameIndex {
     out.sort((a, b) => b.score - a.score || a.e.name.localeCompare(b.e.name));
     return out.slice(0, limit).map((x) => x.e);
   }
+}
+
+/** One candidate of a picker searching by title and Alias. */
+export interface NameMatch {
+  doc: DocSummary;
+  /** The Alias it was found by, when its title does not hold what was typed. */
+  alias: string | null;
+}
+
+/**
+ * The `docs` whose title or one of whose Aliases (from `entries`) holds `q`,
+ * accent- and case-insensitive: those found by title first, in `docs` order,
+ * then those found by an Alias only. Each once. `exact` is set when a title or
+ * an Alias is exactly what was typed, so a picker offers no "Create" for it.
+ */
+export function matchByName(
+  docs: DocSummary[],
+  entries: NameEntry[],
+  q: string,
+  limit = 8,
+): { matches: NameMatch[]; exact: NameMatch | null } {
+  const f = fold(q.trim());
+  const byId = new Map(docs.map((d) => [d.id, d]));
+  const out: NameMatch[] = [];
+  const seen = new Set<string>();
+  let exact: NameMatch | null = null;
+  for (const d of docs) {
+    const t = fold(d.title);
+    if (f && !t.includes(f)) continue;
+    const m = { doc: d, alias: null };
+    if (f && t === f && !exact) exact = m;
+    out.push(m);
+    seen.add(d.id);
+  }
+  if (f)
+    for (const e of entries) {
+      if (!e.alias || seen.has(e.id)) continue;
+      const d = byId.get(e.id);
+      const a = fold(e.name);
+      if (!d || !a.includes(f)) continue;
+      const m = { doc: d, alias: e.name };
+      if (a === f && !exact) exact = m;
+      out.push(m);
+      seen.add(e.id);
+    }
+  return { matches: out.slice(0, limit), exact };
 }

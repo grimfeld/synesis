@@ -71,6 +71,7 @@ export const en = {
     map: "Map",
     timeline: "Timeline",
     coverage: "Coverage",
+    "family-tree": "Family tree",
     settings: "Settings",
   },
   timeline_hint:
@@ -150,6 +151,90 @@ export const en = {
   ties_characters: "Characters here",
   ties_places: "Places",
   tie_lifelong: "Whole life",
+  /** A Character's Hub, Relations section (CONTEXT.md, Relation; PLAN §32). */
+  relations: {
+    title: "Relations",
+    /** "mentor:" on the Character naming the other; the label is the Property's own word. */
+    named: (label: string) => `${label}:`,
+    /** "mentor of:" on the Character named. */
+    named_by: (label: string) => `${label} of:`,
+  },
+  /** A Character's Hub, Family section (ADR 0024). */
+  family: {
+    title: "Family",
+    father: "Father",
+    mother: "Mother",
+    spouses: "Spouses",
+    children: "Children",
+    siblings: "Siblings",
+    /** An empty Father or Mother slot. */
+    not_named: "Not named",
+    /** Children grouped under the other parent each names. */
+    with_other: (name: string) => `With ${name}`,
+    mother_not_named: "Mother not named",
+    father_not_named: "Father not named",
+    /** Siblings grouped by the parents they share. */
+    through: (names: string) => `Through ${names}`,
+    and: " and ",
+    warn_not_character: (property: string, target: string) =>
+      `${property} names ${target}, which is not a Character. It is left out of the family.`,
+    warn_two_values: (property: string, targets: string) =>
+      `${property} holds more than one link (${targets}). A Character has only one, so neither is shown.`,
+    warn_cycle: (path: string) =>
+      `This Character is their own ancestor: ${path}. Those ties are left out of the family.`,
+    // Editing (#152).
+    /** An empty Father or Mother slot's button, opening the Character picker. */
+    choose: "Choose…",
+    choose_father: "Choose the father",
+    choose_mother: "Choose the mother",
+    clear_father: "Clear the father",
+    clear_mother: "Clear the mother",
+    add_spouse: "Add spouse",
+    add_child: "Add child",
+    remove_spouse: (name: string) => `Remove ${name} from the spouses`,
+    /** The Character picker's search box. */
+    search: "Search Characters…",
+    /** The picker's row when no Character has the typed name. */
+    create_character: (name: string) => `Create Character “${name}”`,
+    /** Add child, the first time: which parent this Character is. */
+    role_question: (parent: string, child: string) => `Is ${parent} the father or the mother of ${child}?`,
+    refused_father: (child: string, existing: string) =>
+      `${child} already has a father: ${existing}. Nothing was written.`,
+    refused_mother: (child: string, existing: string) =>
+      `${child} already has a mother: ${existing}. Nothing was written.`,
+    /** A Father, Mother or Spouse change the file did not take. */
+    save_failed: "The change could not be saved. It is kept here and will be saved with your next edit.",
+  },
+  /** The Family tree view (PLAN §32). */
+  family_tree: {
+    counts: (people: number, families: number) =>
+      `${people} ${people === 1 ? "Character" : "Characters"} · ${families} ${families === 1 ? "family" : "families"}`,
+    /** A person's box, for a screen reader: it opens their card. */
+    person: (name: string) => `${name}: show the card`,
+    /** The Command and the Hub's button (#155). */
+    show_in: "Show in Family tree",
+    focus_title: (name: string) => `Family tree: ${name}`,
+    up: "Ancestors",
+    down: "Descendants",
+    all: "All",
+    everyone: "Everyone",
+    focus_here: "Focus here",
+    open_hub: "Open Hub",
+    born: (date: string) => `born ${date}`,
+    died: (date: string) => `died ${date}`,
+    search: "Find a Character",
+    search_none: "No one by that name in this tree.",
+    /** Read out by a screen reader as the search's matches change. */
+    search_count: (n: number) => (n === 1 ? "1 match" : `${n} matches`),
+    no_kin: (name: string) =>
+      `${name} has no kin yet. Name their father, mother or spouses under Family on their Hub, and their family is drawn here.`,
+    gone: "This Character is no longer in the Vault.",
+    empty: "No Character has kin yet. Name a Character's father, mother or spouses under Family on their Hub, and their family is drawn here.",
+    empty_tutorial: "Show me how",
+    load_failed: "The Family tree could not be read from the Vault.",
+    draw_failed: "The family tree could not be drawn.",
+    retry: "Try again",
+  },
   start: "Start",
   end: "End",
   versions: "Versions",
@@ -206,16 +291,19 @@ export const en = {
     died: "Died",
     duration: "Duration (minutes)",
     end: "End",
+    father: "Father",
     kind: "Kind",
     lat: "Latitude",
     locator: "Locator",
     lon: "Longitude",
     modern_name: "Modern name",
+    mother: "Mother",
     occasion: "Occasion",
     parent: "Part of",
     place: "Place",
     places: "Places",
     source: "Source",
+    spouses: "Spouses",
     start: "Start",
     url: "URL",
   },
@@ -402,6 +490,8 @@ export const en = {
   add_many_confirm: (n: number) => `Create ${n} Sources?`,
   add_many_hint: "Paste a list of titles to create them all at once.",
   create_named: (n: string) => `Create “${n}”`,
+  /** A picker's row for a document with the typed name that cannot be chosen here. */
+  picker_excluded: "Not available here",
   child_count: (n: number) => (n === 1 ? "1 part" : `${n} parts`),
   scroll_left: "Scroll left",
   scroll_right: "Scroll right",

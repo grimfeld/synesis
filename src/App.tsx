@@ -17,6 +17,7 @@ import { ClippingsView } from "./views/ClippingsView";
 import { HomeView } from "./views/HomeView";
 import { MapView } from "./views/MapView";
 import { CoverageView } from "./views/CoverageView";
+import { FamilyTreeView } from "./views/FamilyTreeView";
 import { SettingsView } from "./views/SettingsView";
 import { Welcome } from "./views/Welcome";
 import { api } from "./lib/api";
@@ -102,8 +103,15 @@ function PaneView() {
       return <TimelineView />;
     case "coverage":
       return <CoverageView />;
+    case "family-tree":
+      return <FamilyTreeView view={s.view} />;
     case "settings":
       return <SettingsView />;
+    default: {
+      // A kind with no case is a type error here, not a blank Pane (spec #145).
+      const missing: never = s.view;
+      return missing;
+    }
   }
 }
 

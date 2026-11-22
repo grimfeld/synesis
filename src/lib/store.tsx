@@ -211,6 +211,8 @@ interface Store {
   secondaryWindow: boolean;
   refresh: () => Promise<unknown>;
   navigate: (v: View) => void;
+  /** Show `v` in place of this Pane's view, as no step of its history (the Family tree's generations). */
+  replaceView: (v: View) => void;
   back: () => void;
   forward: () => void;
   /** `other`: in the other Pane (Cmd/Ctrl-click, spec #35). */
@@ -272,16 +274,19 @@ const BUILTIN_SCHEMA: PropertySchema = {
     died: "date",
     duration: "number",
     end: "date",
+    father: "link",
     kind: "text",
     lat: "number",
     locator: "text",
     lon: "number",
     modern_name: "text",
+    mother: "link",
     occasion: "text",
     parent: "link",
     place: "link",
     places: "list",
     source: "link",
+    spouses: "list",
     start: "date",
     url: "text",
   },
@@ -521,6 +526,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (window.innerWidth < 900) setSidebarOpen(false);
   }, []);
 
+  const replaceView = useCallback((v: View) => dispatchPanes({ type: "replace", view: v }), []);
   const back = useCallback(() => dispatchPanes({ type: "back" }), []);
   const forward = useCallback(() => dispatchPanes({ type: "forward" }), []);
 
@@ -792,6 +798,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     secondaryWindow: SECONDARY_WINDOW,
     refresh,
     navigate,
+    replaceView,
     back,
     forward,
     openDoc,
@@ -858,6 +865,7 @@ export function PaneScope({ index, two, children }: { index: PaneIndex; two: boo
     canForward: p.forward.length > 0,
     docTab: p.docTab,
     splitRatio: p.splitRatio,
+    replaceView: (v) => dispatchPanes({ type: "replace", view: v, pane: index }),
     back: () => dispatchPanes({ type: "back", pane: index }),
     forward: () => dispatchPanes({ type: "forward", pane: index }),
     setDocTab: (tab) => dispatchPanes({ type: "setDocTab", tab, pane: index }),
