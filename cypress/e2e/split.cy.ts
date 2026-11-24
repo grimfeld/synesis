@@ -1,5 +1,11 @@
 // The talk and its Board side by side (PLAN §22). Cypress runs at 1280x720,
 // which fits both sides once the sidebar is out of the way.
+import { dragRowOntoLine, storedText } from "../support/drag";
+
+/** A Material drawer row's button, by document id. */
+const drawerRow = (id: string) =>
+  `[data-testid=board-drawer] [data-testid=board-drawer-row][data-doc="${id}"] button`;
+
 describe("Split", () => {
   beforeEach(() => cy.openApp());
 
@@ -165,5 +171,119 @@ describe("Split", () => {
     // Room again: the split the user chose comes back.
     cy.viewport(1280, 720);
     cy.get("[data-testid=split]").should("exist");
+  });
+
+  // Spec #202: the drawer's material drags into the talk beside it, as the
+  // side panel's does, and a drag never places it on the Board.
+  it("drags a Candidate from the Material drawer into the talk", () => {
+    cy.bridge<{ summary: { id: string; path: string } }>("create_document", {
+      docType: "clipping",
+      title: "",
+      fields: {
+        source: "[[Keep Enduring with Joy]]",
+        locator: "par. 9",
+        tags: ["endurance"],
+      },
+      body: "> Joy from the drawer.\n",
+    }).then(({ summary }) => {
+      const stem = summary.path.replace(/\.md$/, "").split("/").pop();
+      const embed = `![[${stem}|Keep Enduring with Joy · par. 9]]`;
+      cy.openApp();
+      openSplit();
+      cy.get("[data-testid=board-drawer-open]").click();
+      cy.get(drawerRow(summary.id)).should("have.attr", "draggable", "true");
+      dragRowOntoLine(
+        drawerRow(summary.id),
+        "Ro 15:5 calls God",
+        "[data-testid=split-talk]",
+      );
+      cy.get("[data-testid=split-talk] .cm-content").should("contain", embed);
+      cy.get("[data-testid=split-talk] .cm-embed-box").should(
+        "contain",
+        "Joy from the drawer.",
+      );
+      cy.wait(1000);
+      storedText("Talk on endurance").should(
+        "contain",
+        `Ro 15:5 calls God the one who supplies endurance.\n\n${embed}`,
+      );
+      // Not placed: no card, and the drawer row is not marked as on the Board.
+      cy.get("[data-testid=board-canvas]").should(
+        "not.contain",
+        "Joy from the drawer.",
+      );
+      cy.docByTitle("Talk on endurance").then((talk) => {
+        cy.bridge<{ nodes: { file?: string }[] } | null>("get_board", {
+          id: talk.id,
+        }).then((board) => {
+          expect((board?.nodes ?? []).map((n) => n.file)).not.to.include(summary.path);
+        });
+      });
+    });
+  });
+
+  it("drags a Vault search result from the drawer in as a link", () => {
+    // No shared Tag or Passage, so it is reached only by the drawer's search.
+    cy.bridge<{ summary: { id: string } }>("create_document", {
+      docType: "note",
+      title: "Drawer searched note",
+      fields: {},
+      body: "",
+    }).then(({ summary }) => {
+      cy.openApp();
+      openSplit();
+      cy.get("[data-testid=board-drawer-open]").click();
+      cy.get("[data-testid=board-drawer] input").type("Drawer searched");
+      cy.get(drawerRow(summary.id)).should("have.attr", "draggable", "true");
+      dragRowOntoLine(
+        drawerRow(summary.id),
+        "Jas 1:2 sounds impossible",
+        "[data-testid=split-talk]",
+      );
+      cy.get("[data-testid=split-talk] .cm-content").should(
+        "contain",
+        "[[Drawer searched note]]",
+      );
+      cy.wait(1000);
+      storedText("Talk on endurance").then((text) => {
+        const line = text
+          .split("\n")
+          .find((l) => l.includes("[[Drawer searched note]]"));
+        expect(line).to.contain("sounds impossible");
+      });
+      cy.get("[data-testid=board-canvas]").should(
+        "not.contain",
+        "Drawer searched note",
+      );
+      // A click still places it.
+      cy.get(drawerRow(summary.id)).click();
+      cy.get("[data-testid=board-canvas]").should(
+        "contain",
+        "Drawer searched note",
+      );
+    });
+  });
+
+  it("does not let drawer rows drag while Reading mode is on", () => {
+    openSplit();
+    cy.get("[data-testid=board-drawer-open]").click();
+    cy.get("[data-testid=board-drawer-row] button")
+      .first()
+      .should("have.attr", "draggable", "true");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.get("[data-testid=board-drawer-row] button[draggable=true]").should(
+      "not.exist",
+    );
+    cy.get("[data-testid=reading-toggle]").click();
+  });
+
+  it("does not let drawer rows drag with the Board alone on screen", () => {
+    // No text beside it to drop into: a row only places, by its click.
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=tab-board]").click();
+    cy.get("[data-testid=board-drawer-row] button").should("have.length.at.least", 1);
+    cy.get("[data-testid=board-drawer-row] button[draggable=true]").should(
+      "not.exist",
+    );
   });
 });

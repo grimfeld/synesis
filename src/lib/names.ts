@@ -47,6 +47,17 @@ export class NameIndex {
     return this.byNorm.get(norm(last));
   }
 
+  /**
+   * Whether two documents carry `title`, so a `[[title]]` written for one
+   * could resolve to the other: such a link is written as a path instead.
+   */
+  ambiguous(title: string): boolean {
+    const k = norm(title);
+    let n = 0;
+    for (const e of this.entries) if (!e.alias && norm(e.name) === k && ++n > 1) return true;
+    return false;
+  }
+
   has(target: string): boolean {
     return this.resolve(target) !== undefined;
   }

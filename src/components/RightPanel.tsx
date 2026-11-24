@@ -68,6 +68,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
+import { useDocDrag } from "@/lib/useDocDrag";
 import { DatePreview } from "./DatePreview";
 import { CalendarPicker } from "./CalendarPicker";
 import { DatePicker } from "./DatePicker";
@@ -216,6 +217,8 @@ export function RightPanel({
           items={candidates}
           total={candidatesData?.total ?? 0}
           detected={detected}
+          composition={id}
+          locked={locked}
           // Placing a card is an edit to the Board, so not while locked.
           onPlace={locked ? undefined : (c) => placeCandidate(c)}
         />
@@ -1143,12 +1146,18 @@ export function Candidates({
   items,
   total,
   detected,
+  composition,
+  locked = false,
   onPlace,
 }: {
   items: Candidate[];
   /** How many Candidates match in all; more than `items` when the list is cut. */
   total: number;
   detected: DetectedRange[];
+  /** The Composition whose text the rows drag into (spec #202). */
+  composition?: string;
+  /** Reading mode: the text takes nothing, so no row is draggable. */
+  locked?: boolean;
   /** Put an unused Candidate on the Composition's Board; absent while locked. */
   onPlace?: (c: Candidate) => void;
 }) {
@@ -1173,7 +1182,7 @@ export function Candidates({
             {live ? t.loading : t.no_candidates}
           </div>
         ) : (
-          <CandidateList items={unused} onPlace={onPlace} />
+          <CandidateList items={unused} composition={composition} onPlace={onPlace} locked={locked} />
         )}
         {total > items.length && (
           <p
@@ -1192,7 +1201,7 @@ export function Candidates({
           defaultOpen={false}
         >
           <div data-testid="on-board" />
-          <CandidateList items={placed} />
+          <CandidateList items={placed} composition={composition} locked={locked} />
         </Section>
       )}
       {used.length > 0 && (
@@ -1203,7 +1212,7 @@ export function Candidates({
           defaultOpen={false}
         >
           <div data-testid="used-material" />
-          <CandidateList items={used} />
+          <CandidateList items={used} composition={composition} locked={locked} />
         </Section>
       )}
     </>
@@ -1212,64 +1221,102 @@ export function Candidates({
 
 function CandidateList({
   items,
+  composition,
+  locked,
   onPlace,
 }: {
   items: Candidate[];
+  composition?: string;
+  locked: boolean;
+  onPlace?: (c: Candidate) => void;
+}) {
+  return (
+    <ul className="space-y-0.5">
+      {items.map((c) => (
+        <CandidateRow
+          key={c.doc.id}
+          c={c}
+          composition={composition}
+          locked={locked}
+          onPlace={onPlace}
+        />
+      ))}
+    </ul>
+  );
+}
+
+/**
+ * One Candidate: a click opens it, a drag brings it into the Composition's
+ * text (spec #202), in every section alike.
+ */
+function CandidateRow({
+  c,
+  composition,
+  locked,
+  onPlace,
+}: {
+  c: Candidate;
+  composition?: string;
+  locked: boolean;
   onPlace?: (c: Candidate) => void;
 }) {
   const s = useStore();
   const t = useT();
+  // Reading mode removes the drag, as it hides "Place on the Board".
+  const drag = useDocDrag(c.doc, composition, !locked);
   return (
-    <ul className="space-y-0.5">
-      {items.map((c) => (
-        <li key={c.doc.id} className="flex items-start gap-0.5" data-testid="candidate">
-          <button
-            type="button"
-            className="min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent"
-            onClick={s.openDocOnClick(c.doc.id)}
-          >
-            <div className="flex items-center gap-2 text-sm">
-              <TypeDot type={c.doc.type} />
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {c.doc.label}
-              </span>
-              <EventDate doc={c.doc} />
-            </div>
-            <div className="mt-0.5 flex flex-wrap gap-1 pl-4">
-              {c.shared_tags.map((x) => (
-                <Badge
-                  key={"t" + x}
-                  variant="secondary"
-                  className="h-4 px-1 text-[10px] font-normal text-tag"
-                >
-                  #{x}
-                </Badge>
-              ))}
-              {c.shared_passages.map((x) => (
-                <Badge
-                  key={"p" + x}
-                  variant="secondary"
-                  className="h-4 px-1 text-[10px] font-normal text-passage"
-                >
-                  {x}
-                </Badge>
-              ))}
-            </div>
-          </button>
-          {onPlace && (
-            <IconButton
-              label={t.board_add_material}
-              data-testid="candidate-place"
-              size="icon-xs"
-              className="mt-1 shrink-0 text-muted-foreground"
-              onClick={() => onPlace(c)}
+    <li className="flex items-start gap-0.5" data-testid="candidate" data-doc={c.doc.id}>
+      <button
+        type="button"
+        data-testid="candidate-open"
+        className={cn(
+          "min-w-0 flex-1 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent",
+          drag.props.draggable && "cursor-grab active:cursor-grabbing",
+          drag.dragging && "opacity-40",
+        )}
+        onClick={s.openDocOnClick(c.doc.id)}
+        {...drag.props}
+      >
+        <div className="flex items-center gap-2 text-sm">
+          <TypeDot type={c.doc.type} />
+          <span className="min-w-0 flex-1 truncate font-medium">
+            {c.doc.label}
+          </span>
+          <EventDate doc={c.doc} />
+        </div>
+        <div className="mt-0.5 flex flex-wrap gap-1 pl-4">
+          {c.shared_tags.map((x) => (
+            <Badge
+              key={"t" + x}
+              variant="secondary"
+              className="h-4 px-1 text-[10px] font-normal text-tag"
             >
-              <LayoutDashboard />
-            </IconButton>
-          )}
-        </li>
-      ))}
-    </ul>
+              #{x}
+            </Badge>
+          ))}
+          {c.shared_passages.map((x) => (
+            <Badge
+              key={"p" + x}
+              variant="secondary"
+              className="h-4 px-1 text-[10px] font-normal text-passage"
+            >
+              {x}
+            </Badge>
+          ))}
+        </div>
+      </button>
+      {onPlace && (
+        <IconButton
+          label={t.board_add_material}
+          data-testid="candidate-place"
+          size="icon-xs"
+          className="mt-1 shrink-0 text-muted-foreground"
+          onClick={() => onPlace(c)}
+        >
+          <LayoutDashboard />
+        </IconButton>
+      )}
+    </li>
   );
 }
 

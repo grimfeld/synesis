@@ -24,7 +24,7 @@ import {
   Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
-import { api, fmString, type DetectedRange } from "@/lib/api";
+import { api, type DetectedRange } from "@/lib/api";
 import { splitFrontmatter } from "@/lib/frontmatter";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
@@ -37,6 +37,7 @@ import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { RightPanel } from "@/components/RightPanel";
+import { clippingCitation, clippingSourceName } from "@/lib/linkText";
 import { TutorialButton } from "@/components/TutorialPanel";
 import { tutorial, tutorialsFor, type TutorialPlace } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
@@ -196,17 +197,9 @@ export function DocView({ id }: { id: string }) {
   const activeTab: DocTab = s.docTab === "split" && !canSplit ? "talk" : s.docTab;
   // A Clipping has no title, so its header is its Citation (ADR 0013): the
   // Source it names and where within it, read the way it would be said aloud.
-  // The `source` property is a wikilink, and the brackets are not the name.
-  const sourceName = fmString(doc.frontmatter.source)
-    .replace(/^\[\[|\]\]$/g, "")
-    .split("|")[0]
-    .trim();
+  const sourceName = clippingSourceName(doc.frontmatter);
   const citation =
-    sum.type === "clipping"
-      ? [sourceName, fmString(doc.frontmatter.locator).trim()]
-          .filter(Boolean)
-          .join(" · ")
-      : undefined;
+    sum.type === "clipping" ? clippingCitation(doc.frontmatter) : undefined;
 
   // The talk: title, Properties and the editor, scrolling as one. Shared by
   // the Talk tab and the left side of a split.
@@ -243,6 +236,8 @@ export function DocView({ id }: { id: string }) {
           readOnly={locked}
           // A Clipping has no title, so its Pictures take its Source's (ADR 0019).
           pictureTitle={sum.type === "clipping" ? sourceName : sum.title}
+          // Material dragged from this Composition's Candidates lands here only.
+          dropOwner={sum.type === "composition" ? sum.id : undefined}
         />
       </div>
     </div>

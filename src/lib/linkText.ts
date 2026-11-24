@@ -1,4 +1,4 @@
-import type { DocSummary } from "./api";
+import { fmString, type DocSummary, type Frontmatter } from "./api";
 import { resolve } from "./findOccurrence";
 
 /**
@@ -26,6 +26,53 @@ export function linkText(
   return matched === target.title
     ? `[[${target.title}]]`
     : `[[${target.title}|${matched}]]`;
+}
+
+/** A file's name without its folders or `.md`: what a wikilink names it by. */
+export function fileStem(path: string): string {
+  return path.replace(/\.md$/, "").split("/").pop() ?? path;
+}
+
+/**
+ * The Source a Clipping names. The `source` property is a wikilink, and
+ * neither its brackets nor its alias are the Source's name.
+ */
+export function clippingSourceName(fm: Frontmatter): string {
+  return fmString(fm.source)
+    .trim()
+    .replace(/^\[\[|\]\]$/g, "")
+    .split("|")[0]
+    .trim();
+}
+
+/**
+ * A Clipping's Citation as the app says it: the Source it names and the
+ * Locator within it, joined by " · " (ADR 0013).
+ */
+export function clippingCitation(fm: Frontmatter): string {
+  return [clippingSourceName(fm), fmString(fm.locator).trim()].filter(Boolean).join(" · ");
+}
+
+/**
+ * The Embed that brings a Clipping into a Composition, in ADR 0013's aliased
+ * form: `![[<file's stem>|<Citation>]]`. The stem is stable and unique, the
+ * alias is what a person reads. As for `linkText`, an ambiguous stem is
+ * written as a path. The alias cannot hold what would end the link (`|`,
+ * brackets, a line break), so those become look-alikes rather than vanish.
+ */
+export function embedLink(
+  clipping: DocSummary,
+  citation: string,
+  ambiguous: boolean,
+): string {
+  const target = ambiguous ? clipping.path.replace(/\.md$/, "") : fileStem(clipping.path);
+  const alias = citation
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "/")
+    .replace(/\[/g, "(")
+    .replace(/\]/g, ")")
+    .trim();
+  return alias ? `![[${target}|${alias}]]` : `![[${target}]]`;
 }
 
 /**

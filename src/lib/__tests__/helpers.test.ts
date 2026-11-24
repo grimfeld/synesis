@@ -99,6 +99,19 @@ describe("NameIndex", () => {
     { id: "3", name: "Paul in Ephesus", type: "note", alias: false },
   ]);
 
+  it("calls a title ambiguous only when two documents carry it", () => {
+    const two = new NameIndex([
+      { id: "a", name: "Antioch", type: "place", alias: false },
+      { id: "b", name: "antioch", type: "place", alias: false },
+      { id: "1", name: "Paul", type: "character", alias: false },
+      { id: "2", name: "Paul", type: "note", alias: true },
+    ]);
+    expect(two.ambiguous("Antioch")).to.equal(true);
+    // An Alias never makes a title ambiguous: titles win over aliases.
+    expect(two.ambiguous("Paul")).to.equal(false);
+    expect(two.ambiguous("Rome")).to.equal(false);
+  });
+
   it("normalises like the engine", () => {
     expect(norm("  Undeserved-Kindness ")).to.equal("undeserved kindness");
   });
