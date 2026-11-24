@@ -15,7 +15,7 @@ A verbatim excerpt from a Source, kept as-is. The words are someone else's; the 
 _Avoid_: Quote, snippet, highlight
 
 **Composition**:
-A talk or piece of content the user writes for others, by hand and from scratch. Notes are consulted while composing but are never copied into it; Clippings may be embedded so a quotation and its Source travel together.
+A talk or piece of content the user writes for others, by hand and from scratch. Notes are consulted while composing but are never copied into it; Clippings may be embedded so a quotation and its Source travel together. A Composition may be drawing on Sources: the works the writer is preparing from. Attaching a Source does not cite or quote it; it only widens the Candidates.
 _Avoid_: Talk, sermon, essay, article (these are kinds of Composition, not the term)
 
 **Embed**:
@@ -222,7 +222,7 @@ Marks that fall too close together to draw apart, shown as one mark carrying how
 _Avoid_: Group, bundle, stack
 
 **Candidate**:
-A document that shares a Tag or a Passage with a Composition and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used. Placing it on the Composition's Board does not: the Board is where nothing is committed yet, so a Candidate there is marked as on the Board and stays a Candidate.
+A document that shares a Tag or a Passage with a Composition, or that cites a Source the Composition is drawing on (or one of its parts), and is not yet Mentioned by it: material the writer might still pull in. Once the Composition Mentions it (inline, as an Embed, or as a Tag) it stops being a Candidate and counts as used. Placing it on the Composition's Board does not: the Board is where nothing is committed yet, so a Candidate there is marked as on the Board and stays a Candidate.
 _Avoid_: Suggestion, related, recommendation
 
 **Board**:

@@ -10,6 +10,7 @@ import {
   Upload,
   ArrowRight,
   BookOpenText,
+  BookPlus,
   CircleHelp,
   Code,
   Download,
@@ -377,6 +378,17 @@ export function useCommands(): Command[] {
           keywords: "deliver present presentation talk give timer lectern full screen",
           run: () => s.openDelivery(doc.id),
         });
+        // Attach a Source the talk draws on (spec #205): the same picker as
+        // the Sources row's button. Not while locked, where the row hides it.
+        if (!s.readingMode)
+          list.push({
+            id: "composition.addSource",
+            title: t.add_source,
+            group: "editor",
+            icon: BookPlus,
+            keywords: "source sources attach draw on preparing book article candidates material",
+            run: () => s.setDialog({ kind: "add-source", id: doc.id }),
+          });
       }
       // The capture box on a Source Hub. Reaching it by hand means scrolling
       // back up past a long list of Clippings, which is what the box exists to
@@ -537,6 +549,7 @@ export function knownCommandIds(creatable: DocType[] = CREATABLE_TYPES): string[
     "doc.board",
     "doc.split",
     "doc.deliver",
+    "composition.addSource",
     "doc.local_graph",
     "doc.show_in_family_tree",
     "board.export",

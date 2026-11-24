@@ -112,6 +112,8 @@
   --passage-inferred: #8aa66a;
   --link: #3b5a8a;
   --tag: #7c4dbd;
+  /* A Candidate's "from <Source>" reason (spec #205). */
+  --from-source: #2a7a6c;
   --unresolved: #9aa1ab;
 }
 
@@ -191,6 +193,7 @@
   --passage-inferred: #7f9b66;
   --link: #8fb0e0;
   --tag: #b797e8;
+  --from-source: #6cc7b6;
   --unresolved: #6f7680;
 }
 
@@ -254,6 +257,7 @@
   --color-passage: var(--passage);
   --color-link: var(--link);
   --color-tag: var(--tag);
+  --color-from-source: var(--from-source);
   --color-unresolved: var(--unresolved);
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);

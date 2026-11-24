@@ -73,6 +73,7 @@ import { DatePreview } from "./DatePreview";
 import { CalendarPicker } from "./CalendarPicker";
 import { DatePicker } from "./DatePicker";
 import { PanelTitle } from "./Field";
+import { SourcesRow } from "./CompositionSources";
 
 interface Props {
   doc: DocumentPayload;
@@ -214,6 +215,16 @@ export function RightPanel({
       )}
       {type === "composition" && (
         <Candidates
+          sources={
+            <SourcesRow
+              composition={id}
+              fm={fm}
+              parsed={doc.frontmatter.sources}
+              refs={candidatesData?.sources}
+              onFmChange={onFmChange}
+              locked={locked}
+            />
+          }
           items={candidates}
           total={candidatesData?.total ?? 0}
           detected={detected}
@@ -1143,6 +1154,7 @@ export function Linkables({
 }
 
 export function Candidates({
+  sources,
   items,
   total,
   detected,
@@ -1150,6 +1162,8 @@ export function Candidates({
   locked = false,
   onPlace,
 }: {
+  /** The Sources row at the top (spec #205). */
+  sources?: ReactNode;
   items: Candidate[];
   /** How many Candidates match in all; more than `items` when the list is cut. */
   total: number;
@@ -1176,6 +1190,7 @@ export function Candidates({
         count={unused.length}
         hint={t.candidates_hint}
       >
+        {sources}
         <div data-testid="candidates" />
         {unused.length === 0 ? (
           <div className="text-xs text-muted-foreground">
@@ -1301,6 +1316,19 @@ function CandidateRow({
               className="h-4 px-1 text-[10px] font-normal text-passage"
             >
               {x}
+            </Badge>
+          ))}
+          {c.shared_sources.map((x) => (
+            <Badge
+              key={"s" + x}
+              variant="secondary"
+              data-testid="candidate-from-source"
+              className="h-auto min-h-4 max-w-full shrink px-1 text-[10px] font-normal text-from-source"
+            >
+              <span className="min-w-0 truncate">
+                {t.candidate_from(x)}
+                <em>{x}</em>
+              </span>
             </Badge>
           ))}
         </div>

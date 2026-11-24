@@ -559,6 +559,8 @@ export interface Candidate {
   doc: DocSummary;
   shared_tags: string[];
   shared_passages: string[];
+  /** Titles of the attached Sources whose reading trail holds it ("from *Title*"). */
+  shared_sources: string[];
   score: number;
   /** The Composition already Mentions this document (link, Embed or Tag). */
   used: boolean;
@@ -573,6 +575,14 @@ export interface CandidateList {
   total: number;
   /** Every match the prose does not yet use, on the Board or not. */
   unused_total: number;
+  /** The Composition's `sources` entries in order; `doc` is null unless the name resolves to a Source. */
+  sources: SourceRef[];
+}
+
+/** One `sources` entry of a Composition: the name as written and the Source it names. */
+export interface SourceRef {
+  name: string;
+  doc: DocSummary | null;
 }
 
 /** A node on a Board. JSON Canvas 1.0 (ADR 0009). */

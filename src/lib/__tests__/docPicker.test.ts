@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, NameEntry } from "../api";
-import { canCreate, enterChoice, moveActive, searchPicker } from "../docPicker";
+import {
+  addSourceFilter,
+  canCreate,
+  enterChoice,
+  moveActive,
+  resolveSourceName,
+  resolveTarget,
+  searchPicker,
+  sourceEntry,
+  sourceNames,
+} from "../docPicker";
+import { NameIndex } from "../names";
 import { readField, setField } from "../frontmatter";
 
 const d = (id: string, title: string): DocSummary =>
@@ -107,5 +118,61 @@ describe("readField", () => {
     expect(readField(`---\nfather: *a\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nfather: !!str Isaac\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nfather: Isaac son\n  of Abraham\n---\n`, "father")).toBeUndefined();
+  });
+});
+
+describe("Add Source picker", () => {
+  const src = (id: string, title: string): DocSummary =>
+    ({ id, title, label: title, type: "source", path: `Sources/${title}.md` }) as DocSummary;
+  const joy = src("joy", "Keep Enduring with Joy");
+  const ch1 = src("ch1", "Chapter One");
+  const note = { ...d("n", "Chapter One"), type: "note" } as DocSummary;
+  const all = [joy, ch1, note, isaac];
+
+  it("reads names from the Property's entries as written", () => {
+    expect(sourceNames(["[[Keep Enduring with Joy]]", "Bare", "[[A|shown]]", ""])).toEqual([
+      "Keep Enduring with Joy",
+      "Bare",
+      "A",
+    ]);
+  });
+
+  it("offers only Sources, without the attached ones", () => {
+    const allowed = addSourceFilter(["keep enduring with joy"], all);
+    expect(all.filter(allowed).map((x) => x.id)).toEqual(["ch1"]);
+    expect(all.filter(addSourceFilter([], all)).map((x) => x.id)).toEqual(["joy", "ch1"]);
+  });
+
+  it("knows an attached Source by its path or an Alias", () => {
+    const names = new NameIndex([{ name: "KEJ", id: "joy", type: "source", alias: true }]);
+    expect(resolveSourceName("Sources/Keep Enduring with Joy", all)?.id).toBe("joy");
+    expect(resolveSourceName("keep-enduring  with joy", all)?.id).toBe("joy");
+    expect(resolveSourceName("kej", all, names)?.id).toBe("joy");
+    expect(all.filter(addSourceFilter(["KEJ"], all, names)).map((x) => x.id)).toEqual(["ch1"]);
+  });
+
+  it("resolves as the engine does, then keeps only a Source", () => {
+    // "Chapter One" is also a Note's title, at a shorter path: the engine
+    // sends [[Chapter One]] to the Note, so the entry names no Source.
+    expect(resolveTarget("Chapter One", all)?.id).toBe("n");
+    expect(resolveSourceName("Chapter One", all)).toBeNull();
+    expect(resolveSourceName("Sources/Chapter One", all)?.id).toBe("ch1");
+    expect(resolveSourceName("Isaac", all)).toBeNull();
+    expect(resolveSourceName("Gone", all)).toBeNull();
+  });
+
+  it("writes a path link for a Source whose title another document shares", () => {
+    const names = new NameIndex([
+      { name: "Keep Enduring with Joy", id: "joy", type: "source", alias: false },
+      { name: "Chapter One", id: "ch1", type: "source", alias: false },
+      { name: "Chapter One", id: "n", type: "note", alias: false },
+    ]);
+    expect(sourceEntry(joy, names)).toBe("[[Keep Enduring with Joy]]");
+    const entry = sourceEntry(ch1, names);
+    expect(entry).toBe("[[Sources/Chapter One|Chapter One]]");
+    // Written so, it names the Source: attached, and no longer offered.
+    const attached = sourceNames([entry]);
+    expect(resolveSourceName(attached[0], all, names)?.id).toBe("ch1");
+    expect(all.filter(addSourceFilter(attached, all, names)).map((x) => x.id)).toEqual(["joy"]);
   });
 });

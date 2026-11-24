@@ -303,6 +303,7 @@ export const en = {
     place: "Place",
     places: "Places",
     source: "Source",
+    sources: "Sources",
     spouses: "Spouses",
     start: "Start",
     url: "URL",
@@ -658,6 +659,21 @@ export const en = {
   close: "Close",
   shared_tags: "Tags",
   shared_passages: "Passages",
+  /**
+   * What goes before a Source's title on a Candidate it came in through
+   * ("from *Title*"), space included: a function, since French elides before
+   * a vowel ("d’*Insight*").
+   */
+  candidate_from: (_title: string) => "from ",
+  /** The Sources row at the top of a Composition's Candidates (spec #205). */
+  sources_row: "Sources",
+  sources_row_hint: "Attach the Sources you're preparing from; what cites them becomes Candidates.",
+  add_source: "Add Source",
+  add_source_hint: "Only Sources not yet attached to this Composition are offered.",
+  add_source_placeholder: "Find a Source…",
+  remove_source: (title: string) => `Remove ${title}`,
+  source_not_open: "Open the Composition to attach a Source.",
+  source_unresolved: "Not a Source in this Vault",
   type: "Type",
   folder: "Folder",
   hover_open: "Open",

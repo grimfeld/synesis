@@ -10,7 +10,7 @@ describe("Clippings", () => {
 
   it("shows every Clipping as its own words, with its Citation", () => {
     openClippings();
-    cy.get("[data-testid=clipping-card]").should("have.length", 4);
+    cy.get("[data-testid=clipping-card]").should("have.length", 5);
     // The card is the quote, not a name someone invented for it.
     cy.get("[data-testid=clippings]")
       .should("contain", "Endurance is not merely putting up")
@@ -33,7 +33,7 @@ describe("Clippings", () => {
       "Endurance is not merely putting up",
     );
     cy.get("[data-testid=clippings-clear]").click();
-    cy.get("[data-testid=clipping-card]").should("have.length", 4);
+    cy.get("[data-testid=clipping-card]").should("have.length", 5);
   });
 
   it("opens a Clipping on its Citation, with no title to edit", () => {

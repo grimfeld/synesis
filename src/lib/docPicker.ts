@@ -1,7 +1,8 @@
 // What `DocPicker` (src/components/Dialogs.tsx) offers for what was typed, and
 // what its keys choose. Pure, so the choices are tested without a Vault.
-import type { DocSummary, NameEntry } from "./api";
-import { fold, matchByName, type NameMatch } from "./names";
+import { linkTarget, type DocSummary, type NameEntry } from "./api";
+import { linkText } from "./linkText";
+import { fold, matchByName, norm, type NameIndex, type NameMatch } from "./names";
 
 export interface PickerSearch {
   /** The candidates shown, those the picker's filter allows. */
@@ -84,4 +85,89 @@ export function enterChoice(
   if (exact) return { kind: "doc", doc: exact };
   if (matches.length === 0 && create) return { kind: "create" };
   return null;
+}
+
+// ---- Add Source (spec #205): the picker offers only Sources, without the
+// ones the Composition's `sources` Property already names.
+
+/** The entries of a `sources` Property as written (`[[Title]]`, a bare name), as names. */
+export function sourceNames(raw: string[]): string[] {
+  return raw.map((v) => linkTarget(v)).filter((n): n is string => !!n);
+}
+
+/**
+ * The document a link target names, resolved as the engine's `Index::resolve`
+ * does: a vault path (case-insensitive), then the last segment's `norm`
+ * against every title (the shortest path wins), then against an Alias in
+ * `names`, then against a file's stem. Over every type, as the engine does.
+ */
+export function resolveTarget(target: string, docs: DocSummary[], names?: NameIndex): DocSummary | null {
+  const t = target.trim();
+  if (!t) return null;
+  const shortest = (xs: DocSummary[]) =>
+    xs.reduce<DocSummary | null>((a, d) => (!a || d.path.length < a.path.length ? d : a), null);
+  if (t.includes("/")) {
+    const p = `${t.replace(/\.md$/, "")}.md`.toLowerCase();
+    const d = docs.find((x) => x.path.toLowerCase() === p);
+    if (d) return d;
+  }
+  const last = t.split("/").pop()!;
+  const n = norm(last);
+  const byTitle = shortest(docs.filter((d) => norm(d.title) === n));
+  if (byTitle) return byTitle;
+  const alias = names?.entries.find((e) => e.alias && norm(e.name) === n);
+  const byAlias = alias && docs.find((d) => d.id === alias.id);
+  if (byAlias) return byAlias;
+  const stem = last.trim().toLowerCase();
+  return shortest(
+    docs.filter((d) => {
+      const p = d.path.toLowerCase();
+      return p === `${stem}.md` || p.endsWith(`/${stem}.md`);
+    }),
+  );
+}
+
+/**
+ * The Source a `sources` entry names: the document the engine resolves it to
+ * (`resolveTarget`), only if that is a Source. A Note sharing the Source's
+ * title, with a shorter path, takes `[[Title]]` in the engine, so it does
+ * here too, and the entry names no Source.
+ */
+export function resolveSourceName(name: string, docs: DocSummary[], names?: NameIndex): DocSummary | null {
+  const d = resolveTarget(name, docs, names);
+  return d?.type === "source" ? d : null;
+}
+
+/** What the Add Source picker may offer: a Source, not one already attached. */
+export function addSourceFilter(
+  attached: string[],
+  docs: DocSummary[],
+  names?: NameIndex,
+): (d: DocSummary) => boolean {
+  const ids = new Set(
+    attached.map((n) => resolveSourceName(n, docs, names)?.id).filter((x): x is string => !!x),
+  );
+  return (d) => d.type === "source" && !ids.has(d.id);
+}
+
+/**
+ * The `sources` entry that attaches `source`: `[[Title]]`, or a path link
+ * when another document carries the same title and `[[Title]]` could resolve
+ * to it (`linkText`, as a dropped link is written).
+ */
+export function sourceEntry(source: DocSummary, names: NameIndex): string {
+  return linkText(source, source.title, names.ambiguous(source.title));
+}
+
+/**
+ * A `sources` Property's entries as written, read from the front matter text
+ * (`readField`), or from the parsed front matter for a form that does not
+ * read back (`parsed`, the document's `frontmatter.sources`).
+ */
+export function sourcesEntries(raw: string | string[] | null | undefined, parsed?: unknown): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") return raw ? [raw] : [];
+  if (raw === null) return [];
+  if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+  return typeof parsed === "string" && parsed ? [parsed] : [];
 }

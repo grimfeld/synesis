@@ -113,6 +113,168 @@ describe("Candidates", () => {
     });
   });
 
+  // Spec #205: the demo talk draws on "Keep Enduring with Joy", and its par. 15
+  // Clipping shares neither a Tag nor a Passage with the talk.
+  it("lists a Clipping that comes in only through a Source, with its reason", () => {
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=right-panel] [data-testid=candidates]")
+      .parent()
+      .contains("[data-testid=candidate]", "Joy does not wait for the trial to end")
+      .as("row");
+    cy.get("@row")
+      .find("[data-testid=candidate-from-source]")
+      .should("have.length", 1)
+      .and("contain", "Keep Enduring with Joy");
+    // Dragging still works on a row that came in this way.
+    cy.get("@row").find("[data-testid=candidate-open]").should("have.attr", "draggable", "true");
+  });
+
+  // Spec #205: the Sources row. Its own Composition and Source, so the
+  // demo talk's Candidates, which the other tests count on, never change.
+  it("attaches a Source from the Sources row, and removing it takes its Clippings away", () => {
+    const row = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.bridge("create_document", { docType: "composition", title: "Sourced talk", fields: { tags: ["cysourced"] }, body: "Opening words.\n" });
+    cy.bridge<{ summary: { id: string } }>("create_document", { docType: "source", title: "Cy Source Book", fields: { kind: "book" }, body: "" }).then(({ summary: book }) => {
+      cy.bridge("create_document", { docType: "source", title: "Cy Other Source", fields: { kind: "article" }, body: "" });
+      cy.bridge<{ summary: { id: string } }>("create_document", {
+        docType: "clipping",
+        title: "",
+        fields: { source: "[[Cy Source Book]]", locator: "p. 7" },
+        body: "> Words kept from the cy book.\n",
+      }).then(({ summary: clip }) => {
+        cy.openApp();
+        cy.openDoc("Sourced talk");
+        // The text below the front matter, which attaching never touches.
+        const bodyOf = (text: string) => text.slice(text.indexOf("\n---", 3));
+        storedText("Sourced talk").then(bodyOf).as("before");
+        // Empty: the button and its hint, and no Candidate from the book.
+        cy.get(`${row} [data-testid=sources-row-hint]`).should("be.visible");
+        cy.get(`${row} [data-testid=source-chip]`).should("not.exist");
+        cy.get(`[data-testid=right-panel] [data-testid=candidate][data-doc="${clip.id}"]`).should("not.exist");
+        // The picker offers Sources only.
+        cy.get(`${row} [data-testid=add-source]`).click();
+        cy.get("[data-testid=add-source-dialog]").should("be.visible");
+        cy.get("[data-testid=add-source-input]").type("Cy");
+        cy.get("[data-testid=picker-option]").should("have.length.greaterThan", 0);
+        cy.get(`[data-testid=picker-option][data-id="${clip.id}"]`).should("not.exist");
+        cy.contains("[data-testid=picker-option]", "Cy Source Book").click();
+        cy.get("[data-testid=add-source-dialog]").should("not.exist");
+        cy.get(`${row} [data-testid=source-chip][data-doc="${book.id}"]`).should("contain", "Cy Source Book");
+        cy.get(`${row} [data-testid=sources-row-hint]`).should("not.exist");
+        cy.wait(1000);
+        storedText("Sourced talk").should("contain", 'sources: ["[[Cy Source Book]]"]');
+        // What cites the book is a Candidate now, saying where it came from.
+        cy.get(`[data-testid=right-panel] [data-testid=candidate][data-doc="${clip.id}"]`)
+          .find("[data-testid=candidate-from-source]")
+          .should("contain", "Cy Source Book");
+        // An attached Source is not offered again.
+        cy.get(`${row} [data-testid=add-source]`).click();
+        cy.get("[data-testid=add-source-input]").type("Cy");
+        cy.contains("[data-testid=picker-option]", "Cy Other Source").should("exist");
+        cy.get(`[data-testid=picker-option][data-id="${book.id}"]`).should("not.exist");
+        cy.get("[data-testid=add-source-input]").type("{esc}");
+        cy.get("[data-testid=add-source-dialog]").should("not.exist");
+        // Removing the chip takes the Source out of the Property, and its
+        // Clipping out of the panel; the text is as it was.
+        cy.get(`${row} [data-testid=source-chip][data-doc="${book.id}"] [data-testid=source-chip-remove]`).click();
+        cy.get(`${row} [data-testid=source-chip]`).should("not.exist");
+        cy.get(`[data-testid=right-panel] [data-testid=candidate][data-doc="${clip.id}"]`).should("not.exist");
+        cy.wait(1000);
+        cy.get<string>("@before").then((before) => storedText("Sourced talk").then(bodyOf).should("equal", before));
+      });
+    });
+  });
+
+  it("shows an entry that is not a Source as a struck-through chip, still removable", () => {
+    cy.bridge("create_document", {
+      docType: "composition",
+      title: "Loosely sourced talk",
+      fields: { sources: ["[[Undeserved kindness in Romans]]", "[[A Source long gone]]"] },
+      body: "",
+    });
+    cy.openApp();
+    cy.openDoc("Loosely sourced talk");
+    const row = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.get(`${row} [data-testid=source-chip-unresolved]`).should("have.length", 2);
+    cy.get(`${row} [data-testid=source-chip-unresolved]`)
+      .first()
+      .should("contain", "Undeserved kindness in Romans")
+      .find("[data-testid=source-chip-hint]")
+      .should("contain", "Not a Source in this Vault");
+    cy.get(`${row} [data-testid=source-chip-unresolved] .line-through`).should("have.length", 2);
+    // The panel still loads.
+    cy.get("[data-testid=right-panel] [data-testid=candidates]").should("exist");
+    cy.get(`${row} [data-testid=source-chip-unresolved]`)
+      .contains("A Source long gone")
+      .parents("[data-testid=source-chip-unresolved]")
+      .find("[data-testid=source-chip-remove]")
+      .click();
+    cy.get(`${row} [data-testid=source-chip-unresolved]`).should("have.length", 1);
+    cy.wait(1000);
+    storedText("Loosely sourced talk")
+      .should("contain", "Undeserved kindness in Romans")
+      .and("not.contain", "A Source long gone");
+  });
+
+  it("shows the Sources chips without Add or remove while Reading mode is on", () => {
+    cy.openDoc("Talk on endurance");
+    const row = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.get(`${row} [data-testid=source-chip]`).should("contain", "Keep Enduring with Joy");
+    cy.get(`${row} [data-testid=add-source]`).should("exist");
+    cy.get(`${row} [data-testid=source-chip-remove]`).should("exist");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.get(`${row} [data-testid=source-chip]`).should("contain", "Keep Enduring with Joy");
+    cy.get(`${row} [data-testid=add-source]`).should("not.exist");
+    cy.get(`${row} [data-testid=source-chip-remove]`).should("not.exist");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.get(`${row} [data-testid=add-source]`).should("exist");
+  });
+
+  it("has no Sources row on a Note", () => {
+    cy.openDoc("Undeserved kindness in Romans");
+    cy.get("[data-testid=right-panel]").should("exist");
+    cy.get("[data-testid=sources-row]").should("not.exist");
+    cy.get("[data-testid=add-source]").should("not.exist");
+  });
+
+  // Spec #205: the palette's Add Source opens the Sources row's picker, on
+  // its own Composition so the demo talk's Candidates stay as they are.
+  it("offers Add Source in the palette on a Composition, opening the Sources picker", () => {
+    const row = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.bridge("create_document", { docType: "composition", title: "Palette sourced talk", fields: { tags: ["cypalette"] }, body: "Opening words.\n" });
+    cy.openApp();
+    cy.openDoc("Palette sourced talk");
+    cy.get(`${row} [data-testid=source-chip]`).should("not.exist");
+    cy.runCommand("Add Source");
+    cy.get("[data-testid=add-source-dialog]").should("be.visible");
+    cy.get("[data-testid=add-source-input]").type("Morning Worship");
+    cy.contains("[data-testid=picker-option]", "Morning Worship 2024-05-14").click();
+    cy.get("[data-testid=add-source-dialog]").should("not.exist");
+    cy.get(`${row} [data-testid=source-chip]`).should("have.length", 1).and("contain", "Morning Worship 2024-05-14");
+    // Its Clipping (1 Cor 13, #love) shares nothing with this talk.
+    cy.get('[data-testid=right-panel] [data-testid=candidate][data-doc="01M26CD0EEXFE0PK4AMKDQEJXE"]')
+      .find("[data-testid=candidate-from-source]")
+      .should("contain", "Morning Worship 2024-05-14");
+    cy.wait(1000);
+    storedText("Palette sourced talk").should("contain", 'sources: ["[[Morning Worship 2024-05-14]]"]');
+  });
+
+  it("offers no Add Source in the palette on a Note, nor while Reading mode is on", () => {
+    cy.openDoc("Undeserved kindness in Romans");
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette]").should("not.contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.openDoc("Talk on endurance");
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette]").should("not.contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=reading-toggle]").click();
+  });
+
   it("says how many Candidates there are when the list is cut at 50", () => {
     // Under the limit the panel is as it always was.
     cy.openDoc("Talk on endurance");

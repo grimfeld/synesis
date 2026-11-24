@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { CalendarPicker } from "@/components/CalendarPicker";
+import { AddSource } from "@/components/CompositionSources";
 import { cn } from "cn";
 import {
   api,
@@ -39,7 +40,12 @@ import { formatShortcut, shortcut } from "@/lib/keys";
 import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
-import { canCreate as offersCreate, enterChoice, moveActive, searchPicker } from "@/lib/docPicker";
+import {
+  canCreate as offersCreate,
+  enterChoice,
+  moveActive,
+  searchPicker,
+} from "@/lib/docPicker";
 import {
   parsePaletteQuery,
   toggleTypeFilter,
@@ -129,6 +135,8 @@ export function Dialogs() {
       return <PairingRequest node={d.node} name={d.name} platform={d.platform} onClose={close} />;
     case "create-link":
       return <CreateLink target={d.target} onClose={close} />;
+    case "add-source":
+      return <AddSource id={d.id} onClose={close} />;
     case "delete":
       return <ConfirmDelete id={d.id} onClose={close} />;
     case "confirm":
@@ -492,7 +500,7 @@ export function stamp(d = new Date()) {
 }
 
 /** A modal shell: always open while mounted, closes through onClose. */
-function Shell({
+export function Shell({
   title,
   description,
   wide,
@@ -1992,3 +2000,4 @@ function CalendarDateField({
     />
   );
 }
+
