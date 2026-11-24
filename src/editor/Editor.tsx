@@ -213,8 +213,15 @@ const fillLayout = Prec.high(
   }),
 );
 
-/** At rest, a press is the Board's: CodeMirror neither selects nor focuses. */
-const passPresses = EditorView.domEventHandlers({ mousedown: () => true });
+/**
+ * At rest, a press is the Board's: CodeMirror neither selects nor focuses.
+ * Nor is it a text box to assistive technology (CodeMirror's own role): it
+ * is the text it shows.
+ */
+const passPresses = [
+  EditorView.domEventHandlers({ mousedown: () => true }),
+  EditorView.contentAttributes.of({ role: "document" }),
+];
 /** The content's accessible name, when one is given; nothing otherwise. */
 function nameAttrs(label?: string, labelledBy?: string) {
   if (!label && !labelledBy) return [];
