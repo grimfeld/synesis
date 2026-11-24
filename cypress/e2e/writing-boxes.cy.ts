@@ -737,4 +737,40 @@ describe("Writing boxes: a Board's bubbles", () => {
     bubble("Who ran").find(".cm-wikilink").contains("Paul").click();
     cy.get("[data-testid=hub-header]").should("exist");
   });
+
+  it("renders in the Delivery view, opens a link over it, and Escape closes the card before the view", () => {
+    cy.get("[data-testid=deliver]").click();
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=delivery-face-board]").should("have.attr", "aria-selected", "true");
+    /** The Delivery view's own bubble, not the Board's on the page behind it. */
+    const delivered = (text: string) =>
+      cy.get("[data-testid=delivery]").contains("[data-testid=board-bubble]", text);
+    delivered("Who ran").within(() => {
+      cy.get(".cm-content").should("have.attr", "contenteditable", "false");
+      cy.get(".cm-content").should("not.contain", "**").and("not.contain", "[[");
+      cy.get("[data-testid=picture][data-state=shown]").should("exist");
+    });
+    // Not editable there.
+    delivered("Trials feel like").dblclick();
+    cy.get(editingBox).should("not.exist");
+    // A link opens in the view's one card, and nothing navigates.
+    delivered("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hover-card]").should("have.length", 1).and("be.visible").and("contain", "Paul");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=hub-header]").should("not.exist");
+    // Escape closes the card first; the view stays, on the same face.
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=hover-card]").should("not.exist");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=delivery-face-board]").should("have.attr", "aria-selected", "true");
+    delivered("Who ran").should("be.visible");
+    // A Passage the same way; then Escape leaves the view.
+    delivered("Who ran").find(".cm-passage").click();
+    cy.get("[data-testid=hover-card]").should("have.length", 1).and("be.visible");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=hover-card]").should("not.exist");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=delivery]").should("not.exist");
+  });
 });

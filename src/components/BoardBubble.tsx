@@ -25,6 +25,8 @@ export interface BoardBubbleProps {
   /** The Device's Source mode, followed while editing; at rest a bubble always renders. */
   sourceMode: boolean;
   placeholder: string;
+  /** The editor's accessible name, localized. */
+  label: string;
   onEdit: (id: string) => void;
   onDone: (id: string, text: string) => void;
 }
@@ -40,6 +42,7 @@ export const BoardBubble = memo(function BoardBubble({
   tags,
   sourceMode,
   placeholder,
+  label,
   onEdit,
   onDone,
 }: BoardBubbleProps) {
@@ -118,6 +121,7 @@ export const BoardBubble = memo(function BoardBubble({
         names={names}
         tags={tags}
         placeholder={placeholder}
+        ariaLabel={label}
         sourceMode={editing && sourceMode}
         still={!editing}
         activeWhileFocused

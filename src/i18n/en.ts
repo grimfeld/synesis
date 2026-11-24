@@ -402,6 +402,7 @@ export const en = {
   board_empty:
     "Nothing on this Board yet. Add a note, or drag material in from the right.",
   board_note_empty: "Empty note",
+  board_note_text: "Note text",
   board_add_note: "Add note",
   board_add_group: "Add group",
   board_group: "Group",
