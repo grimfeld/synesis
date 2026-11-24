@@ -73,6 +73,12 @@ function SheetContent({
             <Button
               variant="ghost"
               className="absolute top-3 right-3"
+              // Below the status bar and clear of the side inset on the edges
+              // the Sheet touches (index.css, the --safe-* variables).
+              style={{
+                top: side === "bottom" ? undefined : "calc(var(--safe-top) + 0.75rem)",
+                right: side === "left" ? undefined : "calc(var(--safe-right) + 0.75rem)",
+              }}
               size="icon-sm"
             >
               <XIcon

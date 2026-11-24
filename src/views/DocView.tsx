@@ -473,8 +473,9 @@ export function DocView({ id }: { id: string }) {
         <Sheet open={s.panelOpen} onOpenChange={s.setPanelOpen}>
           <SheetContent
             side="right"
-            // pt leaves the close button its own row above the first section.
-            className="w-[86vw] gap-0 p-0 pt-10 sm:max-w-sm"
+            // pt leaves the close button its own row above the first section,
+            // below the safe area's top inset (the other edges: index.css).
+            className="w-[86vw] gap-0 pt-[calc(var(--safe-top)+2.5rem)] sm:max-w-sm"
           >
             <SheetHeader className="sr-only">
               <SheetTitle>{t.toggle_panel}</SheetTitle>

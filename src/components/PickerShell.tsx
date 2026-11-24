@@ -99,7 +99,10 @@ export function PickerShell({
           data-testid={testId}
           data-shell="sheet"
           onFocusOutside={triggerless ? (e) => e.preventDefault() : undefined}
-          className={cn("gap-2 px-4 pb-6", className)}
+          className={cn(
+            "gap-2 pr-[calc(var(--safe-right)+1rem)] pb-[calc(var(--safe-bottom)+1.5rem)] pl-[calc(var(--safe-left)+1rem)]",
+            className,
+          )}
         >
           <SheetHeader className="min-w-0 px-0 pb-0">
             <SheetTitle>{label}</SheetTitle>

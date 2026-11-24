@@ -739,6 +739,11 @@ a talk is not only written in the app, it is given from it.
     the lock beside its tabs, and at 390px Delete was pushed off the screen.
     The two moved are the ones used least while reading; the panel toggle and
     the lock stay in reach.
+15. **The Delivery view keeps its content inside the device's safe area**
+    (#203): its bar sits below the status bar, its text and Board clear the
+    home indicator and side insets, and its background still fills the screen.
+    Sheets pad the edges they touch the same way. One set of `--safe-*`
+    variables in `index.css` serves `#root`, the view and Sheets.
 
 ### Build order
 

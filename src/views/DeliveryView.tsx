@@ -208,7 +208,9 @@ export function DeliveryView({ id }: { id: string }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col bg-background text-foreground"
+      // Fills the screen behind the status bar; its content stays inside the
+      // safe area (index.css, the --safe-* variables), as #root's does.
+      className="fixed inset-0 z-50 flex flex-col bg-background pt-(--safe-top) pr-(--safe-right) pb-(--safe-bottom) pl-(--safe-left) text-foreground"
       data-testid="delivery"
       role="dialog"
       aria-modal="true"
