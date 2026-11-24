@@ -87,6 +87,9 @@ pub const BUILTIN: &[(&str, PropertyType)] = &[
     ("place", PropertyType::Link),
     ("places", PropertyType::List),
     ("source", PropertyType::Link),
+    // The Sources a Composition is drawing on (spec #205): wiki links whose
+    // reading trails widen its Candidates.
+    ("sources", PropertyType::List),
     ("spouses", PropertyType::List),
     ("start", PropertyType::Date),
     ("url", PropertyType::Text),
@@ -181,6 +184,7 @@ mod tests {
         assert_eq!(s.type_of("lat"), PropertyType::Number);
         assert_eq!(s.type_of("born"), PropertyType::Date);
         assert_eq!(s.type_of("source"), PropertyType::Link);
+        assert_eq!(s.type_of("sources"), PropertyType::List);
         assert_eq!(s.type_of("duration"), PropertyType::Number);
         assert_eq!(s.type_of("whatever"), PropertyType::Text);
     }

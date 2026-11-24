@@ -118,6 +118,22 @@ describe("Candidates", () => {
     });
   });
 
+  // Spec #205: the demo talk draws on "Keep Enduring with Joy", and its par. 15
+  // Clipping shares neither a Tag nor a Passage with the talk.
+  it("lists a Clipping that comes in only through a Source, with its reason", () => {
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=right-panel] [data-testid=candidates]")
+      .parent()
+      .contains("[data-testid=candidate]", "Joy does not wait for the trial to end")
+      .as("row");
+    cy.get("@row")
+      .find("[data-testid=candidate-from-source]")
+      .should("have.length", 1)
+      .and("contain", "Keep Enduring with Joy");
+    // Dragging still works on a row that came in this way.
+    cy.get("@row").find("[data-testid=candidate-open]").should("have.attr", "draggable", "true");
+  });
+
   it("says how many Candidates there are when the list is cut at 50", () => {
     // Under the limit the panel is as it always was.
     cy.openDoc("Talk on endurance");

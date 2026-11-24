@@ -278,11 +278,18 @@ pub struct PlaceFact {
     pub mentions: u32,
 }
 
+/// Why a document is a Candidate, while the query gathers them: shared
+/// Tags, shared Passages, and the titles of the attached Sources reaching it.
+type Reasons = (Vec<String>, Vec<String>, Vec<String>);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
     pub doc: DocSummary,
     pub shared_tags: Vec<String>,
     pub shared_passages: Vec<String>,
+    /// Titles of the Sources the Composition is drawing on whose reading
+    /// trail holds this document (spec #205), shown as "from *Title*".
+    pub shared_sources: Vec<String>,
     pub score: u32,
     /// The Composition already Mentions this document (inline link, Embed or
     /// Tag naming it), so it is used material rather than a Candidate.
@@ -302,6 +309,19 @@ pub struct CandidateList {
     pub total: u32,
     /// Every match the prose does not yet use (on the Board or not).
     pub unused_total: u32,
+    /// The Composition's `sources` entries, in the order written, each with
+    /// the Source it names, so the panel can draw resolved and unresolved
+    /// chips without a second round-trip.
+    pub sources: Vec<SourceRef>,
+}
+
+/// One `sources` entry of a Composition: the name as written, and the Source
+/// it resolves to. `doc` is `None` when the name resolves to nothing or to a
+/// document that is not a Source; such an entry brings in no Candidates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceRef {
+    pub name: String,
+    pub doc: Option<DocSummary>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1951,9 +1971,11 @@ impl Index {
         Ok(facts)
     }
 
-    /// Documents sharing Tags or Verses with `id`, for the Composition sidebar.
+    /// Documents sharing Tags or Verses with `id`, or in the reading trail of
+    /// a Source it is drawing on (its `sources` Property), for the Composition
+    /// sidebar.
     pub fn candidates(&self, id: &str, lang: Lang, limit: usize) -> Result<CandidateList> {
-        let mut by_doc: HashMap<String, (Vec<String>, Vec<String>)> = HashMap::new();
+        let mut by_doc: HashMap<String, Reasons> = HashMap::new();
         let mut st = self.conn.prepare(
             "SELECT o.doc_id, o.tag FROM tags o WHERE o.norm IN (SELECT norm FROM tags WHERE doc_id = ?1) AND o.doc_id != ?1 GROUP BY o.doc_id, o.norm",
         )?;
@@ -1985,6 +2007,37 @@ impl Index {
                 e.1.push(s);
             }
         }
+        // The Sources it is drawing on: each entry as written, resolved only
+        // when it names a Source. Their reading trails are Candidates too —
+        // the same set the Source's page gathers, minus Compositions.
+        let mut st = self.conn.prepare(
+            "SELECT target FROM links WHERE from_id = ?1 AND property = 'sources' ORDER BY start",
+        )?;
+        let names: Vec<String> = st
+            .query_map([id], |r| r.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
+        let mut sources = Vec::new();
+        let mut attached: HashSet<String> = HashSet::new();
+        for name in names {
+            let doc = self
+                .resolve(&name)?
+                .filter(|d| d.doc_type == DocType::Source);
+            if let Some(src) = &doc {
+                if attached.insert(src.id.clone()) {
+                    for t in self.source_trail(&src.id)? {
+                        if t.doc.id == id || t.doc.doc_type == DocType::Composition {
+                            continue;
+                        }
+                        by_doc
+                            .entry(t.doc.id)
+                            .or_default()
+                            .2
+                            .push(src.title.clone());
+                    }
+                }
+            }
+            sources.push(SourceRef { name, doc });
+        }
         // Names the Composition itself points at in its prose: link targets
         // (inline and Embed) and Tags. Board refs are deliberately excluded —
         // material on the Board is placed, not used (PLAN §17.6).
@@ -1997,18 +2050,22 @@ impl Index {
         }
         let on_board: HashSet<String> = self.board_targets(id)?.into_iter().collect();
         let mut out = Vec::new();
-        for (doc_id, (tags, passages)) in by_doc {
+        for (doc_id, (tags, passages, from)) in by_doc {
+            if attached.contains(&doc_id) {
+                continue;
+            }
             if let Some(doc) = self.get(&doc_id)? {
                 if doc.doc_type.is_scripture() {
                     continue;
                 }
                 let used = self.names_of(&doc)?.iter().any(|n| linked.contains(n));
                 let placed = on_board.contains(&doc.id);
-                let score = (tags.len() * 2 + passages.len()) as u32;
+                let score = (tags.len() * 2 + passages.len() + from.len() * 2) as u32;
                 out.push(Candidate {
                     doc,
                     shared_tags: tags,
                     shared_passages: passages,
+                    shared_sources: from,
                     score,
                     used,
                     on_board: placed,
@@ -2032,6 +2089,7 @@ impl Index {
             items: out,
             total,
             unused_total,
+            sources,
         })
     }
 
@@ -4338,6 +4396,129 @@ Ro 5:3",
         assert_eq!(c.items.len(), 60);
         assert_eq!(c.total, 60);
         assert_eq!(c.unused_total, 55);
+    }
+
+    /// A book with one chapter, a Clipping on each, and a Composition drawing
+    /// on whichever Sources `sources` names (spec #205).
+    fn drawing_on(sources: &str) -> Index {
+        idx_with(&[
+            ("book", "Sources/Keep Enduring.md", "---\ntype: source\nkind: book\n---\n"),
+            ("ch1", "Sources/Keep Enduring ch1.md", "---\ntype: source\nparent: \"[[Keep Enduring]]\"\n---\n"),
+            ("cb", "Clippings/Book quote.md", "---\ntype: clipping\nsource: \"[[Keep Enduring]]\"\n---\nOn the book"),
+            ("cc", "Clippings/Chapter quote.md", "---\ntype: clipping\nsource: \"[[Keep Enduring ch1]]\"\ntags: [endurance]\n---\nOn the chapter"),
+            ("other", "Compositions/Other talk.md", "---\ntype: composition\n---\nSee [[Keep Enduring]]"),
+            ("n", "Notes/Plain.md", "A note on [[Keep Enduring]]"),
+            ("comp", "Compositions/Talk.md", &format!("---\ntype: composition\ntags: [endurance]\nsources: {sources}\n---\nBody")),
+        ])
+    }
+
+    #[test]
+    fn candidates_reach_through_an_attached_source() {
+        let idx = drawing_on("[\"[[Keep Enduring]]\"]");
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        let rows: Vec<(&str, u32)> = c
+            .items
+            .iter()
+            .map(|x| (x.doc.id.as_str(), x.score))
+            .collect();
+        // The chapter's Clipping is reached through the book and shares a
+        // Tag: 4, above the Source-only ones at 2. The book itself and the
+        // other Composition citing it are never Candidates.
+        assert_eq!(rows, vec![("cc", 4), ("cb", 2), ("n", 2)]);
+        let cb = &c.items[1];
+        assert_eq!(cb.shared_sources, vec!["Keep Enduring"]);
+        assert!(cb.shared_tags.is_empty() && cb.shared_passages.is_empty());
+        assert!(c.items.iter().all(|x| !x.used));
+        assert_eq!(c.total, 3);
+        assert_eq!(c.unused_total, 3);
+        assert_eq!(c.sources.len(), 1);
+        assert_eq!(c.sources[0].name, "Keep Enduring");
+        assert_eq!(c.sources[0].doc.as_ref().unwrap().id, "book");
+    }
+
+    #[test]
+    fn an_attached_chapter_reaches_only_what_cites_it() {
+        let idx = drawing_on("[\"[[Keep Enduring ch1]]\"]");
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        let ids: Vec<_> = c.items.iter().map(|x| x.doc.id.as_str()).collect();
+        assert_eq!(ids, vec!["cc"]);
+        assert_eq!(c.items[0].shared_sources, vec!["Keep Enduring ch1"]);
+    }
+
+    #[test]
+    fn an_attached_source_never_marks_its_clippings_used() {
+        let idx = drawing_on("[\"[[Keep Enduring]]\"]");
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        assert!(c.items.iter().all(|x| !x.used));
+        // Mentioning the Clipping does.
+        let idx = idx_with(&[
+            (
+                "book",
+                "Sources/Keep Enduring.md",
+                "---\ntype: source\n---\n",
+            ),
+            (
+                "cb",
+                "Clippings/Book quote.md",
+                "---\ntype: clipping\nsource: \"[[Keep Enduring]]\"\n---\nQuote",
+            ),
+            (
+                "cx",
+                "Clippings/Another.md",
+                "---\ntype: clipping\nsource: \"[[Keep Enduring]]\"\n---\nQuote",
+            ),
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---\ntype: composition\nsources: [\"[[Keep Enduring]]\"]\n---\n![[Book quote]]",
+            ),
+        ]);
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        let rows: Vec<(&str, bool)> = c
+            .items
+            .iter()
+            .map(|x| (x.doc.id.as_str(), x.used))
+            .collect();
+        assert_eq!(rows, vec![("cx", false), ("cb", true)]);
+        assert_eq!(c.total, 2);
+        assert_eq!(c.unused_total, 1);
+    }
+
+    #[test]
+    fn unresolved_and_non_source_entries_contribute_nothing() {
+        let idx = idx_with(&[
+            ("note", "Notes/Just a note.md", "A note"),
+            (
+                "cn",
+                "Clippings/On the note.md",
+                "---\ntype: clipping\nsource: \"[[Just a note]]\"\n---\nQuote",
+            ),
+            (
+                "comp",
+                "Compositions/Talk.md",
+                "---\ntype: composition\nsources: [\"[[Gone]]\", \"[[Just a note]]\"]\n---\nBody",
+            ),
+        ]);
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        assert!(c.items.is_empty());
+        assert_eq!(c.total, 0);
+        let names: Vec<(&str, bool)> = c
+            .sources
+            .iter()
+            .map(|s| (s.name.as_str(), s.doc.is_some()))
+            .collect();
+        assert_eq!(names, vec![("Gone", false), ("Just a note", false)]);
+    }
+
+    #[test]
+    fn a_source_lists_the_composition_drawing_on_it_in_backlinks() {
+        let idx = drawing_on("[\"[[Keep Enduring]]\"]");
+        let b = idx.backlinks("book", Lang::En).unwrap();
+        let comp = b
+            .iter()
+            .find(|x| x.doc.id == "comp")
+            .expect("comp in backlinks");
+        assert_eq!(comp.property.as_deref(), Some("sources"));
     }
 
     #[test]

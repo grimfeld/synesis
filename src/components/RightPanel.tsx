@@ -1303,6 +1303,18 @@ function CandidateRow({
               {x}
             </Badge>
           ))}
+          {c.shared_sources.map((x) => (
+            <Badge
+              key={"s" + x}
+              variant="secondary"
+              data-testid="candidate-from-source"
+              className="h-auto min-h-4 max-w-full shrink px-1 text-[10px] font-normal text-from-source"
+            >
+              <span className="min-w-0 truncate">
+                {t.candidate_from} <em>{x}</em>
+              </span>
+            </Badge>
+          ))}
         </div>
       </button>
       {onPlace && (

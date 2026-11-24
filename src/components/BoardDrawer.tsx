@@ -33,7 +33,7 @@ export function BoardDrawer({
   const [query, setQuery] = useState("");
 
   // A Candidate is anything sharing a Tag or a Passage with the Composition,
-  // so anything written may become one.
+  // or cited from a Source it is drawing on, so anything written may become one.
   const { data: itemsData } = useQuery<CandidateList>({
     key: [compositionId],
     deps: { any: true },
