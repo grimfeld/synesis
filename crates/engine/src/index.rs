@@ -278,9 +278,16 @@ pub struct PlaceFact {
     pub mentions: u32,
 }
 
-/// Why a document is a Candidate, while the query gathers them: shared
-/// Tags, shared Passages, and the titles of the attached Sources reaching it.
-type Reasons = (Vec<String>, Vec<String>, Vec<String>);
+/// Why a document is a Candidate, while the query gathers them.
+#[derive(Default)]
+struct Reasons {
+    tags: Vec<String>,
+    passages: Vec<String>,
+    /// Titles of the attached Sources whose reading trail holds it.
+    sources: Vec<String>,
+    /// The document itself, when a reading trail already loaded it.
+    doc: Option<DocSummary>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Candidate {
@@ -1983,7 +1990,7 @@ impl Index {
             Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
         })? {
             let (d, t) = r?;
-            by_doc.entry(d).or_default().0.push(t);
+            by_doc.entry(d).or_default().tags.push(t);
         }
         let mut st = self.conn.prepare(
             "SELECT o.doc_id, o.book, o.p_start_ch, o.p_start_v, o.p_end_ch, o.p_end_v FROM mentions o
@@ -2003,8 +2010,8 @@ impl Index {
             let (d, p) = r?;
             let e = by_doc.entry(d).or_default();
             let s = p.display(lang);
-            if !e.1.contains(&s) {
-                e.1.push(s);
+            if !e.passages.contains(&s) {
+                e.passages.push(s);
             }
         }
         // The Sources it is drawing on: each entry as written, resolved only
@@ -2018,21 +2025,26 @@ impl Index {
             .collect::<rusqlite::Result<_>>()?;
         let mut sources = Vec::new();
         let mut attached: HashSet<String> = HashSet::new();
+        // Every `parent` link, resolved once for all the attached Sources:
+        // only built when there is one, since it reads the whole Vault's.
+        let mut children = None;
         for name in names {
             let doc = self
                 .resolve(&name)?
                 .filter(|d| d.doc_type == DocType::Source);
             if let Some(src) = &doc {
                 if attached.insert(src.id.clone()) {
-                    for t in self.source_trail(&src.id)? {
+                    if children.is_none() {
+                        children = Some(self.source_children()?);
+                    }
+                    let tree = children.as_ref().expect("built above");
+                    for t in self.source_trail_in(src.clone(), tree)? {
                         if t.doc.id == id || t.doc.doc_type == DocType::Composition {
                             continue;
                         }
-                        by_doc
-                            .entry(t.doc.id)
-                            .or_default()
-                            .2
-                            .push(src.title.clone());
+                        let e = by_doc.entry(t.doc.id.clone()).or_default();
+                        e.sources.push(src.title.clone());
+                        e.doc.get_or_insert(t.doc);
                     }
                 }
             }
@@ -2050,22 +2062,27 @@ impl Index {
         }
         let on_board: HashSet<String> = self.board_targets(id)?.into_iter().collect();
         let mut out = Vec::new();
-        for (doc_id, (tags, passages, from)) in by_doc {
+        for (doc_id, why) in by_doc {
             if attached.contains(&doc_id) {
                 continue;
             }
-            if let Some(doc) = self.get(&doc_id)? {
+            let doc = match why.doc {
+                Some(d) => Some(d),
+                None => self.get(&doc_id)?,
+            };
+            if let Some(doc) = doc {
                 if doc.doc_type.is_scripture() {
                     continue;
                 }
                 let used = self.names_of(&doc)?.iter().any(|n| linked.contains(n));
                 let placed = on_board.contains(&doc.id);
-                let score = (tags.len() * 2 + passages.len() + from.len() * 2) as u32;
+                let score =
+                    (why.tags.len() * 2 + why.passages.len() + why.sources.len() * 2) as u32;
                 out.push(Candidate {
                     doc,
-                    shared_tags: tags,
-                    shared_passages: passages,
-                    shared_sources: from,
+                    shared_tags: why.tags,
+                    shared_passages: why.passages,
+                    shared_sources: why.sources,
                     score,
                     used,
                     on_board: placed,
@@ -2147,6 +2164,13 @@ impl Index {
 
     /// Child Sources of a Source (via the `parent` property), recursively.
     pub fn source_descendants(&self, id: &str) -> Result<Vec<DocSummary>> {
+        self.descendants_in(id, &self.source_children()?)
+    }
+
+    /// Every document's children by id, from every `parent` link in the
+    /// Vault, each resolved once. Reads the whole Vault's `parent` links, so a
+    /// query walking several Sources builds it once and shares it.
+    fn source_children(&self) -> Result<HashMap<String, Vec<String>>> {
         let mut st = self
             .conn
             .prepare("SELECT from_id, target FROM links WHERE property = 'parent'")?;
@@ -2159,16 +2183,25 @@ impl Index {
                 children.entry(parent.id).or_default().push(from);
             }
         }
+        Ok(children)
+    }
+
+    /// `source_descendants`, walking a `children` map already built.
+    fn descendants_in(
+        &self,
+        id: &str,
+        children: &HashMap<String, Vec<String>>,
+    ) -> Result<Vec<DocSummary>> {
         let mut out = Vec::new();
         let mut stack = vec![id.to_string()];
         let mut seen = HashSet::new();
         while let Some(cur) = stack.pop() {
-            for c in children.get(&cur).cloned().unwrap_or_default() {
+            for c in children.get(&cur).into_iter().flatten() {
                 if seen.insert(c.clone()) {
-                    if let Some(d) = self.get(&c)? {
+                    if let Some(d) = self.get(c)? {
                         out.push(d);
                     }
-                    stack.push(c);
+                    stack.push(c.clone());
                 }
             }
         }
@@ -2238,11 +2271,21 @@ impl Index {
 
     /// Everything cited from a Source or its descendants, ordered by Locator.
     pub fn source_trail(&self, id: &str) -> Result<Vec<TrailEntry>> {
-        let mut sources = vec![match self.get(id)? {
-            Some(d) => d,
-            None => return Ok(vec![]),
-        }];
-        sources.extend(self.source_descendants(id)?);
+        match self.get(id)? {
+            Some(d) => self.source_trail_in(d, &self.source_children()?),
+            None => Ok(vec![]),
+        }
+    }
+
+    /// `source_trail` of a Source already loaded, walking a `children` map
+    /// already built.
+    fn source_trail_in(
+        &self,
+        source: DocSummary,
+        children: &HashMap<String, Vec<String>>,
+    ) -> Result<Vec<TrailEntry>> {
+        let mut sources = self.descendants_in(&source.id, children)?;
+        sources.insert(0, source);
         let mut out = Vec::new();
         let mut seen = HashSet::new();
         for s in &sources {
@@ -4434,6 +4477,20 @@ Ro 5:3",
         assert_eq!(c.sources.len(), 1);
         assert_eq!(c.sources[0].name, "Keep Enduring");
         assert_eq!(c.sources[0].doc.as_ref().unwrap().id, "book");
+    }
+
+    #[test]
+    fn an_attached_source_sharing_a_tag_is_still_not_a_candidate() {
+        let idx = idx_with(&[
+            ("book", "Sources/Keep Enduring.md", "---\ntype: source\ntags: [endurance]\n---\n"),
+            ("cb", "Clippings/Book quote.md", "---\ntype: clipping\nsource: \"[[Keep Enduring]]\"\n---\nOn the book"),
+            ("comp", "Compositions/Talk.md", "---\ntype: composition\ntags: [endurance]\nsources: [\"[[Keep Enduring]]\"]\n---\nBody"),
+        ]);
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        let ids: Vec<_> = c.items.iter().map(|x| x.doc.id.as_str()).collect();
+        assert_eq!(ids, vec!["cb"]);
+        assert_eq!(c.total, 1);
+        assert_eq!(c.unused_total, 1);
     }
 
     #[test]

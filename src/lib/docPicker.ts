@@ -1,7 +1,8 @@
 // What `DocPicker` (src/components/Dialogs.tsx) offers for what was typed, and
 // what its keys choose. Pure, so the choices are tested without a Vault.
 import { linkTarget, type DocSummary, type NameEntry } from "./api";
-import { fold, matchByName, type NameMatch } from "./names";
+import { linkText } from "./linkText";
+import { fold, matchByName, norm, type NameIndex, type NameMatch } from "./names";
 
 export interface PickerSearch {
   /** The candidates shown, those the picker's filter allows. */
@@ -95,34 +96,67 @@ export function sourceNames(raw: string[]): string[] {
 }
 
 /**
- * The Source a `sources` entry names, as the engine resolves it closely
- * enough for the picker: its last path segment against a Source's title, or
- * against an Alias in `entries`, accent- and case-insensitive. `null` when
- * nothing of type `source` answers to it.
+ * The document a link target names, resolved as the engine's `Index::resolve`
+ * does: a vault path (case-insensitive), then the last segment's `norm`
+ * against every title (the shortest path wins), then against an Alias in
+ * `names`, then against a file's stem. Over every type, as the engine does.
  */
-export function resolveSourceName(
-  name: string,
-  docs: DocSummary[],
-  entries: NameEntry[] = [],
-): DocSummary | null {
-  const n = fold(name.trim().split("/").pop()!.replace(/\.md$/i, "").trim());
-  if (!n) return null;
-  const byTitle = docs.find((d) => d.type === "source" && fold(d.title) === n);
+export function resolveTarget(target: string, docs: DocSummary[], names?: NameIndex): DocSummary | null {
+  const t = target.trim();
+  if (!t) return null;
+  const shortest = (xs: DocSummary[]) =>
+    xs.reduce<DocSummary | null>((a, d) => (!a || d.path.length < a.path.length ? d : a), null);
+  if (t.includes("/")) {
+    const p = `${t.replace(/\.md$/, "")}.md`.toLowerCase();
+    const d = docs.find((x) => x.path.toLowerCase() === p);
+    if (d) return d;
+  }
+  const last = t.split("/").pop()!;
+  const n = norm(last);
+  const byTitle = shortest(docs.filter((d) => norm(d.title) === n));
   if (byTitle) return byTitle;
-  const e = entries.find((x) => x.type === "source" && fold(x.name) === n);
-  return (e && docs.find((d) => d.id === e.id)) ?? null;
+  const alias = names?.entries.find((e) => e.alias && norm(e.name) === n);
+  const byAlias = alias && docs.find((d) => d.id === alias.id);
+  if (byAlias) return byAlias;
+  const stem = last.trim().toLowerCase();
+  return shortest(
+    docs.filter((d) => {
+      const p = d.path.toLowerCase();
+      return p === `${stem}.md` || p.endsWith(`/${stem}.md`);
+    }),
+  );
+}
+
+/**
+ * The Source a `sources` entry names: the document the engine resolves it to
+ * (`resolveTarget`), only if that is a Source. A Note sharing the Source's
+ * title, with a shorter path, takes `[[Title]]` in the engine, so it does
+ * here too, and the entry names no Source.
+ */
+export function resolveSourceName(name: string, docs: DocSummary[], names?: NameIndex): DocSummary | null {
+  const d = resolveTarget(name, docs, names);
+  return d?.type === "source" ? d : null;
 }
 
 /** What the Add Source picker may offer: a Source, not one already attached. */
 export function addSourceFilter(
   attached: string[],
   docs: DocSummary[],
-  entries: NameEntry[] = [],
+  names?: NameIndex,
 ): (d: DocSummary) => boolean {
   const ids = new Set(
-    attached.map((n) => resolveSourceName(n, docs, entries)?.id).filter((x): x is string => !!x),
+    attached.map((n) => resolveSourceName(n, docs, names)?.id).filter((x): x is string => !!x),
   );
   return (d) => d.type === "source" && !ids.has(d.id);
+}
+
+/**
+ * The `sources` entry that attaches `source`: `[[Title]]`, or a path link
+ * when another document carries the same title and `[[Title]]` could resolve
+ * to it (`linkText`, as a dropped link is written).
+ */
+export function sourceEntry(source: DocSummary, names: NameIndex): string {
+  return linkText(source, source.title, names.ambiguous(source.title));
 }
 
 /**

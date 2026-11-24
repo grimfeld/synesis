@@ -2,7 +2,9 @@
 //! which builds this file at two commits and runs them side by side.
 //!
 //! `perfbench gen <dir> [scale]`: write a Vault (scale 1: 3,000 Notes, 1,000
-//! Places, 30 regions with 2,000-point Borders, 300 Characters, 3,000 Events).
+//! Places, 30 regions with 2,000-point Borders, 300 Characters, 3,000 Events,
+//! 30 book Sources of 10 chapters each with 1,500 Clippings citing them, and a
+//! Composition drawing on three of the books).
 //! `perfbench run <vault> <data> [--keep]`: print `name<TAB>median ms` lines.
 //! Without `--keep` the data folder is wiped first and `open_cold` is timed.
 //!
@@ -26,6 +28,10 @@ const QUERIES: &[(&str, &str)] = &[
     ("q_place_ties", r#"{"kind":"placeTies","id":null}"#),
     ("q_regions", r#"{"kind":"regions"}"#),
     ("q_borders", r#"{"kind":"borders"}"#),
+    (
+        "q_candidates_sources",
+        r#"{"kind":"candidates","id":"perf-composition"}"#,
+    ),
 ];
 
 fn main() {
@@ -134,6 +140,7 @@ fn generate(dir: &Path, scale: f64) {
     let n = |base: f64| ((base * scale) as usize).max(1);
     let (notes, places, regions, characters, events) =
         (n(3000.0), n(1000.0), n(30.0), n(300.0), n(3000.0));
+    let (books_n, chapters, clippings) = (n(30.0), 10, n(1500.0));
     let mut r = Rng(0x5eed_5eed_5eed_5eed);
     let books = ["Gen", "Exo", "Isa", "Jer", "Mat", "Joh", "Rom", "Psa"];
     for i in 0..notes {
@@ -218,4 +225,33 @@ fn generate(dir: &Path, scale: f64) {
             &format!("---\ntype: event\ntitle: \"Event {i}\"\nstart: \"{start} BCE\"\nplace: \"[[Place {place}]]\"\ncharacters: [{ch}]\n---\nSomething happened (Gen 1:1).\n"),
         );
     }
+    // Sources with parts, Clippings citing the parts, and a Composition
+    // drawing on three books: the `candidates` reach through `parent` links.
+    for i in 0..books_n {
+        write(
+            dir,
+            &format!("Sources/book {i}.md"),
+            &format!("---\ntype: source\nkind: book\ntitle: \"Book {i}\"\n---\n"),
+        );
+        for c in 0..chapters {
+            write(
+                dir,
+                &format!("Sources/book {i} ch {c}.md"),
+                &format!("---\ntype: source\ntitle: \"Book {i} ch {c}\"\nparent: \"[[Book {i}]]\"\n---\n"),
+            );
+        }
+    }
+    for i in 0..clippings {
+        let (b, c) = (r.below(books_n), r.below(chapters));
+        write(
+            dir,
+            &format!("Clippings/clipping {i}.md"),
+            &format!("---\ntype: clipping\ntitle: \"Clipping {i}\"\nsource: \"[[Book {b} ch {c}]]\"\ntags: [\"t{}\"]\n---\nKept.\n", i % 40),
+        );
+    }
+    write(
+        dir,
+        "Compositions/talk.md",
+        "---\nid: perf-composition\ntype: composition\ntitle: \"Talk\"\ntags: [\"t3\"]\nsources: [\"[[Book 0]]\", \"[[Book 1]]\", \"[[Book 2]]\"]\n---\nOn Jas 1:2-4.\n",
+    );
 }
