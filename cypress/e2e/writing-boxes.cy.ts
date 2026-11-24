@@ -574,3 +574,106 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
       });
   });
 });
+
+// A Board's text bubbles are the editor too (spec #207, #226): rendered and
+// locked at rest, a link or Passage opening on click, edited in place after a
+// double-click with the editor's help, the Board's keys standing aside.
+describe("Writing boxes: a Board's bubbles", () => {
+  const TRIALS = "a1b2c3d4e5f60002";
+  const WHO_RAN = "a1b2c3d4e5f60006";
+  const RICH = "Who ran before us — **[[Paul]]**, and Heb 12:1-3.\n![[insight on the scriptures.png|80]]";
+  /** The bubble that holds `text` (at rest or being edited). */
+  const bubble = (text: string) => cy.contains("[data-testid=board-bubble]", text);
+  const editingBox = "[data-testid=board-bubble][data-editing]";
+  type Saved = { nodes: { id: string; text?: string }[] };
+  const saved = (check: (b: Saved) => void) => {
+    cy.wait(700); // the Board save is debounced
+    cy.docByTitle("Talk on endurance").then((d) => {
+      cy.bridge<Saved>("get_board", { id: d.id }).should(check);
+    });
+  };
+  const openBoard = () => {
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-sidebar=trigger]").first().click();
+    cy.get("[data-testid=tab-board]").click();
+    cy.get("[data-testid=board-canvas]").should("exist");
+  };
+
+  // The demo Board as shipped, one bubble given a link, bold and a Picture.
+  beforeEach(() => {
+    cy.readFile("examples/demo-vault/Compositions/talk on endurance.canvas").then((raw) => {
+      const board = typeof raw === "string" ? JSON.parse(raw) : raw;
+      board.nodes = board.nodes.map((n: { id: string }) => (n.id === WHO_RAN ? { ...n, text: RICH } : n));
+      cy.docByTitle("Talk on endurance").then((d) => cy.bridge("save_board", { id: d.id, board }));
+    });
+    cy.openApp();
+    openBoard();
+  });
+
+  it("renders its markdown at rest and opens a link on click", () => {
+    bubble("Who ran").within(() => {
+      cy.get(".cm-content").should("have.attr", "contenteditable", "false");
+      // Rendered: the markup hidden, the link and Passage decorated, the Picture drawn.
+      cy.get(".cm-content").should("not.contain", "**").and("not.contain", "[[");
+      cy.get(".cm-wikilink").should("contain", "Paul");
+      cy.get(".cm-passage").should("contain", "Heb 12:1-3");
+      cy.get("[data-testid=picture][data-state=shown]").should("exist");
+    });
+    // A Passage shows its card, as on a Writing page.
+    bubble("Who ran").find(".cm-passage").click();
+    cy.get("[data-testid=hover-card]").should("be.visible");
+    cy.get("body").type("{esc}");
+    bubble("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+
+  it("edits on double-click with autocomplete and Passages, the Board's keys inert, and saves on Escape", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(editingBox).should("have.length", 1).and("contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`).should("have.attr", "contenteditable", "true");
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} See [[Geth", { delay: 150 });
+    cy.get(".cm-tooltip-autocomplete").should("be.visible").and("contain", "Gethsemane");
+    cy.get(`${editingBox} .cm-content`).type("{enter}");
+    cy.get(`${editingBox} .cm-wikilink`).should("contain", "Gethsemane");
+    cy.get(`${editingBox} .cm-content`).type("{end} and Jas 1:2-4");
+    cy.get(`${editingBox} .cm-passage`).should("contain", "Jas 1:2-4").trigger("mouseover");
+    cy.get("[data-testid=hover-card]").should("be.visible");
+    // Delete and select-all are the editor's: the selected node stays, and
+    // the Board's selection stays one node.
+    cy.get(`${editingBox} .cm-content`).type("{del}{ctrl}a{rightarrow}");
+    cy.get(`[data-node-id=${TRIALS}]`).should("exist");
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get(`${editingBox} .cm-content`).type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    bubble("Trials feel like").find(".cm-content").should("have.attr", "contenteditable", "false");
+    saved((b) => {
+      const n = b.nodes.find((x) => x.id === TRIALS);
+      expect(n, "the bubble kept").to.exist;
+      expect(n!.text).to.contain("Gethsemane").and.contain("Jas 1:2-4");
+      expect(b.nodes).to.have.length(8);
+    });
+    // And it survives a reload.
+    cy.openApp();
+    openBoard();
+    bubble("Trials feel like").find(".cm-wikilink").should("contain", "Gethsemane");
+  });
+
+  it("runs editor Commands in the bubble and saves on a click elsewhere", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end}{enter}bold me{shift}{home}{ctrl}b");
+    cy.get("[data-testid=board-canvas]").click("bottom");
+    cy.get(editingBox).should("not.exist");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.contain("**bold me**");
+    });
+  });
+
+  it("renders and opens on a Board opened for reading, and edits nothing", () => {
+    cy.get("[data-testid=board-mode]").click();
+    bubble("Trials feel like").dblclick();
+    cy.get(editingBox).should("not.exist");
+    bubble("Trials feel like").find(".cm-content").should("have.attr", "contenteditable", "false");
+    bubble("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+});

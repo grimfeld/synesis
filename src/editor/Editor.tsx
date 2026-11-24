@@ -11,6 +11,7 @@ import {
   keymap,
   drawSelection,
   placeholder as cmPlaceholder,
+  tooltips,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -125,6 +126,26 @@ interface Props {
    */
   lines?: { min: number; max: number };
   /**
+   * A Board bubble at rest (spec #207): rendered as when reading, every line
+   * in Live Preview, and locked, checkboxes too; a press passes through to
+   * the Board (the editor neither selects nor takes focus), so the bubble
+   * still moves and selects. A click on a link, Tag or Passage still opens
+   * it. Turned off, the same editor is editable in place.
+   */
+  still?: boolean;
+  /**
+   * A Board bubble's layout (spec #207): the editor fills its container's
+   * height and scrolls inside, with no padding of its own. Read once at mount.
+   */
+  fill?: boolean;
+  /**
+   * The autocomplete popup and other tooltips go on `document.body` rather
+   * than beside the editor: a Board bubble sits in a scaled SVG
+   * `foreignObject`, where a popup beside it would be zoomed and clipped.
+   * Read once at mount.
+   */
+  tooltipsOnBody?: boolean;
+  /**
    * Prose size in CSS pixels, when not the editor's own: the Delivery view's
    * adjustable size (PLAN §23.11).
    */
@@ -174,6 +195,18 @@ function boxLayout({ min, max }: { min: number; max: number }) {
   );
 }
 
+/** A Board bubble's layout (spec #207): its node's height, scrolling inside. */
+const fillLayout = Prec.high(
+  EditorView.theme({
+    "&": { height: "100%" },
+    ".cm-scroller": { overflow: "auto", padding: "0" },
+    ".cm-content": { maxWidth: "none", padding: "0", minHeight: "100%" },
+  }),
+);
+
+/** At rest, a press is the Board's: CodeMirror neither selects nor focuses. */
+const passPresses = EditorView.domEventHandlers({ mousedown: () => true });
+
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
 const editorKeymap = keymap.of(
   EDITOR_COMMANDS.filter((c) => c.shortcut).map((c) => ({
@@ -202,6 +235,9 @@ export function Editor({
   onEscape,
   navigate = true,
   lines,
+  still = false,
+  fill = false,
+  tooltipsOnBody = false,
   fontSize,
   compact = false,
   onReady,
@@ -236,6 +272,9 @@ export function Editor({
   const envCompartment = useRef(new Compartment());
   const modeCompartment = useRef(new Compartment());
   const lockCompartment = useRef(new Compartment());
+  const stillCompartment = useRef(new Compartment());
+  const locking = () =>
+    readOnly || still ? lock({ checkboxes: checkboxes && !still }) : [];
 
   useEffect(() => {
     if (!host.current) return;
@@ -284,11 +323,14 @@ export function Editor({
         pictureInput,
         docDropHost.of({ owner: () => dropOwnerRef.current }),
         docDrop,
-        lockCompartment.current.of(readOnly ? lock({ checkboxes }) : []),
+        lockCompartment.current.of(locking()),
+        stillCompartment.current.of(still ? passPresses : []),
+        tooltipsOnBody ? tooltips({ parent: document.body }) : [],
         history(),
         drawSelection(),
         EditorView.lineWrapping,
         lines ? boxLayout(lines) : [],
+        fill ? fillLayout : [],
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
           // Through variables, so a caller can size the prose from the host
@@ -440,14 +482,16 @@ export function Editor({
     });
   }, [sourceMode]);
 
-  // Reading mode on and off.
+  // Reading mode on and off; a Board bubble opened for editing and closed.
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: lockCompartment.current.reconfigure(
-        readOnly ? lock({ checkboxes }) : [],
-      ),
+      effects: [
+        lockCompartment.current.reconfigure(locking()),
+        stillCompartment.current.reconfigure(still ? passPresses : []),
+      ],
     });
-  }, [readOnly, checkboxes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readOnly, checkboxes, still]);
 
   // External value changes (reload from disk, a restored Version). Through the
   // lock: the text changing under a reader is not the reader editing it.
@@ -502,5 +546,5 @@ export function Editor({
         "--editor-measure": "36em",
       } as React.CSSProperties)
     : undefined;
-  return <div ref={host} style={style} />;
+  return <div ref={host} style={style} className={fill ? "h-full" : undefined} />;
 }

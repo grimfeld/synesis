@@ -12,6 +12,7 @@ A Board is where you think a talk out before you write it: your own bubbles, mat
 
 ## Good to know
 
+- A bubble is the editor: at rest it shows its markdown rendered, Pictures drawn, and a click on a link or a Passage opens it. Double-click it to write, with `[[` for documents, `#` for Tags, Passages marked as you type and the editor Commands such as [Bold](command:editor.bold); click elsewhere or press Escape to finish.
 - The Board is saved beside the Composition as a `.canvas` file, which Obsidian opens as a canvas of its own.
 - A Version of the Composition covers its Board too, and restoring one restores both.
 - **Fit to Board** shows everything at once; [Export the Board](command:board.export) saves it as a picture (PNG or SVG), from the toolbar or from anywhere on the Composition.
