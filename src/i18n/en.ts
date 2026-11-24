@@ -303,6 +303,7 @@ export const en = {
     place: "Place",
     places: "Places",
     source: "Source",
+    sources: "Sources",
     spouses: "Spouses",
     start: "Start",
     url: "URL",
@@ -658,6 +659,8 @@ export const en = {
   close: "Close",
   shared_tags: "Tags",
   shared_passages: "Passages",
+  /** Before a Source's title on a Candidate it came in through: "from *Title*". */
+  candidate_from: "from",
   type: "Type",
   folder: "Folder",
   hover_open: "Open",

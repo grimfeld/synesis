@@ -7,6 +7,7 @@ occasion: "Public talk"
 duration: 25
 date: "2026-09-20"
 tags: ["endurance"]
+sources: ["[[Keep Enduring with Joy]]"]
 ---
 # Enduring with joy
 

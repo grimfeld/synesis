@@ -12,7 +12,7 @@ describe("Tutorial: Clippings", () => {
     // 1. Every Clipping as its own words, with its Citation; narrow and clear.
     cy.tutorialStep(0);
     cy.tutorialCommand("nav.clippings");
-    cy.get("[data-testid=clipping-card]").should("have.length", 4);
+    cy.get("[data-testid=clipping-card]").should("have.length", 5);
     cy.get("[data-testid=clipping-card]")
       .contains("Endurance is not merely putting up")
       .parent()
@@ -22,7 +22,7 @@ describe("Tutorial: Clippings", () => {
     cy.get("[data-testid=clippings-tag-endurance]").click();
     cy.get("[data-testid=clipping-card]").should("have.length", 1);
     cy.get("[data-testid=clippings-clear]").click();
-    cy.get("[data-testid=clipping-card]").should("have.length", 4);
+    cy.get("[data-testid=clipping-card]").should("have.length", 5);
     cy.tutorialNext();
 
     // 2. A Clipping opens on its Citation, with no title.
@@ -57,7 +57,7 @@ describe("Tutorial: Clippings", () => {
       cy.contains("chap. 5");
     });
     cy.tutorialCommand("nav.clippings");
-    cy.get("[data-testid=clipping-card]").should("have.length", 5);
+    cy.get("[data-testid=clipping-card]").should("have.length", 6);
     cy.get("[data-testid=clipping-card]")
       .first()
       .should("contain", "Words from the Tutorial, kept as they were written.")
