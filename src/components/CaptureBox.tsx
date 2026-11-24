@@ -5,16 +5,13 @@
 // own behaviour: Ctrl/⌘+Enter submits, a click opens nothing (the text is
 // unsaved), and the box grows with its text to a maximum, then scrolls.
 // Reading mode does not lock it.
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
 import { EditorView } from "@codemirror/view";
 import { Editor } from "@/editor/Editor";
-import type { EditorEnv } from "@/editor/decorations";
+import { useEditorEnv } from "@/editor/useEditorEnv";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
-import { api, namesApi } from "@/lib/api";
-import { deliverLatest } from "@/lib/latest";
-import { splitFrontmatter } from "@/lib/frontmatter";
-import { NameIndex } from "@/lib/names";
+import { useNames } from "@/lib/useNames";
 import { useStore } from "@/lib/store";
 import { cn } from "cn";
 
@@ -76,32 +73,9 @@ export function CaptureBox({
   "data-testid": testId,
 }: CaptureBoxProps) {
   const s = useStore();
-  const [names, setNames] = useState(() => new NameIndex());
+  const names = useNames();
   const [hover, setHover] = useState<HoverState | null>(null);
-  useEffect(
-    () => deliverLatest(namesApi.names(), (n) => setNames(new NameIndex(n))),
-    [s.changeTick, s.docs],
-  );
-  const env = useMemo<EditorEnv>(
-    () => ({
-      names,
-      // The Editor opens nothing from a box (`navigate={false}`); these are
-      // here for the type, and for a hover card's own buttons.
-      onOpenLink: (target, other) => void s.openLink(target, other),
-      onOpenPassage: (p) => s.openPassage(p),
-      onPassageHover: (i) =>
-        setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
-      onLinkHover: (i) =>
-        setHover(i ? { kind: "link", target: i.target, x: i.x, y: i.y } : null),
-      embedText: async (target) => {
-        const r = await api.resolveLink(target);
-        if (!r) return null;
-        const full = await api.getDocument(r.id);
-        return { title: r.title, body: splitFrontmatter(full.text).body };
-      },
-    }),
-    [names, s],
-  );
+  const env = useEditorEnv(names, setHover);
   const lines = useMemo(() => ({ min: minLines, max: maxLines }), [minLines, maxLines]);
   return (
     <div

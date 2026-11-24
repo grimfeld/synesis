@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -24,15 +23,14 @@ import {
   Waypoints,
 } from "lucide-react";
 import { cn } from "cn";
-import { api, type DetectedRange } from "@/lib/api";
-import { splitFrontmatter } from "@/lib/frontmatter";
+import type { DetectedRange } from "@/lib/api";
 import { formatShortcut } from "@/lib/keys";
 import { useStore } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { BoardView } from "@/views/BoardView";
-import type { EditorEnv } from "@/editor/decorations";
+import { useEditorEnv } from "@/editor/useEditorEnv";
 import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
@@ -140,24 +138,7 @@ export function DocView({ id }: { id: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
-  const env = useMemo<EditorEnv>(
-    () => ({
-      names: d.names,
-      onOpenLink: (target, other) => void s.openLink(target, other),
-      onOpenPassage: (p) => s.openPassage(p),
-      onPassageHover: (i) =>
-        setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
-      onLinkHover: (i) =>
-        setHover(i ? { kind: "link", target: i.target, x: i.x, y: i.y } : null),
-      embedText: async (target) => {
-        const r = await api.resolveLink(target);
-        if (!r) return null;
-        const full = await api.getDocument(r.id);
-        return { title: r.title, body: splitFrontmatter(full.text).body };
-      },
-    }),
-    [d.names, s],
-  );
+  const env = useEditorEnv(d.names, setHover);
 
   const doc = d.doc;
   if (!doc)

@@ -58,7 +58,7 @@ import {
   type SourceKind,
 } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
-import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
+import { removeField, setField } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
@@ -72,6 +72,7 @@ import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { attachPictures } from "@/editor/pictures";
 import type { EditorEnv } from "@/editor/decorations";
+import { useEditorEnv } from "@/editor/useEditorEnv";
 import { DocPicker, stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
 import { KindPicker } from "@/components/KindPicker";
@@ -194,24 +195,7 @@ export function HubView({ id }: { id: string }) {
     refetchUnlinked();
   }, [refetchBacklinks, refetchUnlinked]);
 
-  const env = useMemo<EditorEnv>(
-    () => ({
-      names: d.names,
-      onOpenLink: (target, other) => void s.openLink(target, other),
-      onOpenPassage: (p) => s.openPassage(p),
-      onPassageHover: (i) =>
-        setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
-      onLinkHover: (i) =>
-        setHover(i ? { kind: "link", target: i.target, x: i.x, y: i.y } : null),
-      embedText: async (target) => {
-        const r = await api.resolveLink(target);
-        if (!r) return null;
-        const full = await api.getDocument(r.id);
-        return { title: r.title, body: splitFrontmatter(full.text).body };
-      },
-    }),
-    [d.names, s],
-  );
+  const env = useEditorEnv(d.names, setHover);
 
   if (!doc)
     return (
