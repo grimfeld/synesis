@@ -13,4 +13,4 @@ Une Note, c'est votre propre réflexion, souvent sur un passage que vous lisez. 
 - Une référence biblique dans une capture, comme `Ro 12:2`, devient un passage comme partout ailleurs.
 - La zone est l'éditeur, comme dans une Note : `[[` propose les documents et `#` les tags, un passage est repéré pendant la saisie, les commandes de l'éditeur comme [Gras](command:editor.bold) et [Insérer une image](command:editor.picture) agissent sur elle, et une image déposée ou collée y est gardée dans le dossier `Attachments`.
 - Un titre daté se change plus tard : cliquez sur le titre en haut de la Note et tapez-en un autre.
-- Sur la page d'une Source, une zone semblable garde plutôt un Extrait ou une Note tirés de cette Source.
+- Sur la page d'une Source, une zone semblable, l'éditeur elle aussi, garde plutôt un Extrait ou une Note tirés de cette Source ; une image qu'on y dépose porte le nom de la Source.

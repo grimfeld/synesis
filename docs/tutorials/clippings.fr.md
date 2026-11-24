@@ -11,3 +11,4 @@ Un Extrait garde les mots de quelqu'un d'autre tels quels, avec la Source d'où 
 
 - La même zone écrit plutôt une Note sur la Source : sélectionnez **Note** avant de taper.
 - Un Extrait est enregistré comme une citation dans un fichier markdown nommé d'après sa référence : il se lit de la même façon dans Obsidian.
+- La zone est l'éditeur, comme dans une Note : `[[` propose les documents et `#` les tags, un passage est repéré pendant la saisie, les commandes de l'éditeur comme [Italique](command:editor.italic) et [Insérer une image](command:editor.picture) agissent sur elle, et une image déposée ou collée y est gardée dans le dossier `Attachments`, nommée d'après la Source. Tapez les mots tels quels : chaque ligne est mise en citation quand l'Extrait est gardé, italiques et liens compris. Ctrl+Entrée (Cmd+Entrée sur Mac) le garde aussi, et laisse la zone prête pour le suivant.

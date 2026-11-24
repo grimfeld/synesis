@@ -11,3 +11,4 @@ A Clipping keeps someone else's words exactly as they wrote them, together with 
 
 - The same box writes a Note about the Source instead: select **Note** before you type.
 - A Clipping is stored as a quotation in a markdown file named after its Citation, so it reads the same in Obsidian.
+- The box is the editor, as in a Note: `[[` offers documents and `#` offers Tags, a Passage is marked as you type, editor Commands such as [Italic](command:editor.italic) and [Insert picture](command:editor.picture) act on it, and a picture dropped or pasted in is kept in the `Attachments` folder, named after the Source. Type the words bare: each line is quoted when the Clipping is kept, italics and links included. Ctrl+Enter (Cmd+Enter on a Mac) keeps it too, and leaves the box ready for the next one.
