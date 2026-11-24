@@ -12,6 +12,8 @@ import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@/lib/useQuery";
+import { useStore } from "@/lib/store";
+import { useDocDrag } from "@/components/useDocDrag";
 
 export function BoardDrawer({
   compositionId,
@@ -111,50 +113,81 @@ export function BoardDrawer({
         </p>
       ) : (
         <ul className="px-1.5 pb-3">
-          {rows.map((doc) => {
-            const placed = onPath(doc.path);
-            const cand = unused.find((c) => c.doc.id === doc.id);
-            return (
-              <li key={doc.id}>
-                <button
-                  type="button"
-                  disabled={placed}
-                  className={cn(
-                    "w-full rounded-md px-2 py-1.5 text-left transition-colors",
-                    placed
-                      ? "cursor-default opacity-50"
-                      : "hover:bg-accent",
-                  )}
-                  onClick={() => !placed && onAdd(doc)}
-                  title={placed ? t.board_already : t.board_add_material}
-                >
-                  <span className="flex items-center gap-2 text-sm">
-                    <TypeDot type={doc.type} />
-                    <span className="min-w-0 flex-1 truncate">{doc.label}</span>
-                    {placed && (
-                      <span className="shrink-0 text-[10px] text-muted-foreground">
-                        {t.board_on}
-                      </span>
-                    )}
-                  </span>
-                  {cand && cand.shared_tags.length > 0 && (
-                    <span className="mt-0.5 flex flex-wrap gap-1 pl-4">
-                      {cand.shared_tags.slice(0, 3).map((x) => (
-                        <span
-                          key={x}
-                          className="rounded bg-muted px-1 text-[10px] text-muted-foreground"
-                        >
-                          #{x}
-                        </span>
-                      ))}
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
+          {rows.map((doc) => (
+            <DrawerRow
+              key={doc.id}
+              doc={doc}
+              composition={compositionId}
+              placed={onPath(doc.path)}
+              sharedTags={unused.find((c) => c.doc.id === doc.id)?.shared_tags}
+              onAdd={onAdd}
+            />
+          ))}
         </ul>
       )}
     </aside>
+  );
+}
+
+/**
+ * One row of material. A click places it on the Board; a drag carries it into
+ * the Composition's text instead (spec #202), even when it is already on the
+ * Board, so a placed row is only marked, not disabled (a disabled button
+ * cannot be dragged). Reading mode leaves the text read-only, so nothing drags.
+ */
+function DrawerRow({
+  doc,
+  composition,
+  placed,
+  sharedTags,
+  onAdd,
+}: {
+  doc: DocSummary;
+  composition: string;
+  placed: boolean;
+  sharedTags?: string[];
+  onAdd: (doc: DocSummary) => void;
+}) {
+  const t = useT();
+  const { readingMode } = useStore();
+  const drag = useDocDrag(doc, composition, !readingMode);
+  return (
+    <li data-testid="board-drawer-row" data-doc={doc.id}>
+      <button
+        type="button"
+        aria-disabled={placed || undefined}
+        className={cn(
+          "w-full rounded-md px-2 py-1.5 text-left transition-colors",
+          placed ? "cursor-default opacity-50" : "hover:bg-accent",
+          drag.props.draggable && "cursor-grab active:cursor-grabbing",
+          drag.dragging && "opacity-40",
+        )}
+        onClick={() => !placed && onAdd(doc)}
+        title={placed ? t.board_already : t.board_add_material}
+        {...drag.props}
+      >
+        <span className="flex items-center gap-2 text-sm">
+          <TypeDot type={doc.type} />
+          <span className="min-w-0 flex-1 truncate">{doc.label}</span>
+          {placed && (
+            <span className="shrink-0 text-[10px] text-muted-foreground">
+              {t.board_on}
+            </span>
+          )}
+        </span>
+        {sharedTags && sharedTags.length > 0 && (
+          <span className="mt-0.5 flex flex-wrap gap-1 pl-4">
+            {sharedTags.slice(0, 3).map((x) => (
+              <span
+                key={x}
+                className="rounded bg-muted px-1 text-[10px] text-muted-foreground"
+              >
+                #{x}
+              </span>
+            ))}
+          </span>
+        )}
+      </button>
+    </li>
   );
 }
