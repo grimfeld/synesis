@@ -159,8 +159,7 @@ function CompositionCard({ doc, when }: { doc: DocSummary; when: string }) {
   const { data: count } = useQuery({
     key: [doc.id],
     deps: { any: true },
-    fetch: async () =>
-      (await api.candidates(doc.id)).filter((x) => !x.used).length,
+    fetch: async () => (await api.candidates(doc.id)).unused_total,
   });
   return (
     <li>

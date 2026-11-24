@@ -29,7 +29,7 @@
 //! question the index answers, and it stays in the command that does it.
 use crate::document::DocType;
 use crate::index::{
-    AmbiguousTitle, Backlink, BoardExcerpt, Candidate, CoverageCell, DatedProperty, DocSummary,
+    AmbiguousTitle, Backlink, BoardExcerpt, CandidateList, CoverageCell, DatedProperty, DocSummary,
     DocTag, EventLink, Graph, GraphLevel, Journey, LibraryEntry, PlaceFact, PlaceTie, RegionMember,
     SearchHit, TrailEntry, UnlinkedMentions, UnresolvedLink,
 };
@@ -193,7 +193,7 @@ pub enum Answer {
     BoardExcerpts(HashMap<String, BoardExcerpt>),
     UnlinkedMentions(UnlinkedMentions),
     AmbiguousTitles(Vec<AmbiguousTitle>),
-    Candidates(Vec<Candidate>),
+    Candidates(CandidateList),
     Graph(Graph),
     Search(Vec<SearchHit>),
     Tags(Vec<TagCount>),

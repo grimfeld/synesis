@@ -86,12 +86,13 @@ describe("Candidates", () => {
 
   it("Home counts only unused Candidates", () => {
     cy.docByTitle("Talk on endurance").then((d) => {
-      cy.query<{ used: boolean }[]>({ kind: "candidates", id: d.id }).then((c) => {
+      cy.query<{ items: { used: boolean }[]; unused_total: number }>({ kind: "candidates", id: d.id }).then((c) => {
         // Material on the Board still counts: it is not used until the prose
         // says so, which is what the Home count is about.
-        const unused = c.filter((x) => !x.used).length;
+        const unused = c.items.filter((x) => !x.used).length;
+        expect(c.unused_total).to.equal(unused);
         expect(
-          c.some((x) => x.used),
+          c.items.some((x) => x.used),
           "demo vault has used material",
         ).to.be.true;
         cy.get("[data-testid=home-progress]")
@@ -100,6 +101,41 @@ describe("Candidates", () => {
           .should("contain", `${unused} candidate`);
       });
     });
+  });
+
+  it("says how many Candidates there are when the list is cut at 50", () => {
+    // Under the limit the panel is as it always was.
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=right-panel] [data-testid=candidate]").should("exist");
+    cy.get("[data-testid=candidates-more]").should("not.exist");
+    // A Composition of its own, with a Tag nothing in the demo Vault uses, so
+    // the 55 Notes sharing it change no other test's Candidates.
+    cy.bridge("create_document", {
+      docType: "composition",
+      title: "Overflow talk",
+      fields: { tags: ["cyoverflow"] },
+      body: "",
+    });
+    Cypress._.times(55, (i) => {
+      cy.bridge("create_document", {
+        docType: "note",
+        title: `Overflow note ${String(i).padStart(2, "0")}`,
+        fields: { tags: ["cyoverflow"] },
+        body: "",
+      });
+    });
+    cy.openApp();
+    // Home counts all 55 unused Candidates, not the 50 the list holds.
+    cy.get("[data-testid=home-progress]")
+      .contains("Overflow talk")
+      .parents("li")
+      .should("contain", "55 candidates");
+    cy.openDoc("Overflow talk");
+    cy.get("[data-testid=right-panel] [data-testid=candidate]").should("have.length", 50);
+    cy.get("[data-testid=right-panel] [data-testid=candidates-more]").should(
+      "contain",
+      "Showing 50 of 55",
+    );
   });
 
   it("linking a Candidate from the Composition moves it to Used", () => {

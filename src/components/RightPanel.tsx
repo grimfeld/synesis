@@ -8,6 +8,7 @@ import {
   type Backlink,
   type BacklinkKind,
   type Candidate,
+  type CandidateList,
   type DetectedRange,
   type DocSummary,
   type DocumentPayload,
@@ -122,7 +123,7 @@ export function RightPanel({
     deps: { any: true },
     fetch: () => api.backlinks(id),
   });
-  const { data: candidatesData } = useQuery<Candidate[]>({
+  const { data: candidatesData } = useQuery<CandidateList>({
     key: [id, doc.summary.mtime],
     deps: { any: true },
     enabled: type === "composition",
@@ -141,7 +142,7 @@ export function RightPanel({
     fetch: () => api.sourceChildren(id),
   });
   const backlinks = useMemo(() => backlinksData ?? [], [backlinksData]);
-  const candidates = useMemo(() => candidatesData ?? [], [candidatesData]);
+  const candidates = useMemo(() => candidatesData?.items ?? [], [candidatesData]);
   const trail = useMemo(() => trailData ?? [], [trailData]);
   const children = useMemo(() => childrenData ?? [], [childrenData]);
 
@@ -213,6 +214,7 @@ export function RightPanel({
       {type === "composition" && (
         <Candidates
           items={candidates}
+          total={candidatesData?.total ?? 0}
           detected={detected}
           // Placing a card is an edit to the Board, so not while locked.
           onPlace={locked ? undefined : (c) => placeCandidate(c)}
@@ -1139,15 +1141,19 @@ export function Linkables({
 
 export function Candidates({
   items,
+  total,
   detected,
   onPlace,
 }: {
   items: Candidate[];
+  /** How many Candidates match in all; more than `items` when the list is cut. */
+  total: number;
   detected: DetectedRange[];
   /** Put an unused Candidate on the Composition's Board; absent while locked. */
   onPlace?: (c: Candidate) => void;
 }) {
   const t = useT();
+  const fmt = useFormat();
   const live = detected.length;
   // Three states, not two: material on the Board is placed but not committed,
   // so it stays a Candidate and is marked rather than moved away (PLAN §17.6).
@@ -1168,6 +1174,14 @@ export function Candidates({
           </div>
         ) : (
           <CandidateList items={unused} onPlace={onPlace} />
+        )}
+        {total > items.length && (
+          <p
+            className="mt-2 min-w-0 text-xs text-muted-foreground"
+            data-testid="candidates-more"
+          >
+            {t.candidates_more(fmt.number(items.length), fmt.number(total))}
+          </p>
         )}
       </Section>
       {placed.length > 0 && (
