@@ -280,6 +280,21 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // Home's quick-capture box is the editor (spec #206): full width of its
+      // card, its placeholder and a long unbroken line wrapped inside it.
+      it("keeps Home's capture box inside its card on a phone", () => {
+        cy.get("[data-testid=home-quick-box]").then(($box) => {
+          const card = $box.closest("[data-testid=home-quick]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(card.left);
+          expect(box.right).to.be.lte(card.right);
+          expect(box.width).to.be.greaterThan(card.width * 0.8);
+        });
+        expectNoOverflow();
+        cy.get("[data-testid=home-quick] .cm-content").type("x".repeat(80) + " Jas 1:2-4");
+        expectNoOverflow();
+      });
+
       it("keeps every view inside the screen", () => {
         for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map", "family-tree"]) {
           cy.get("[data-sidebar=trigger]").first().click();

@@ -30,6 +30,14 @@ export function useHasEditor(): boolean {
   return useSyncExternalStore(registry.subscribe, () => registry.active() !== null);
 }
 
+/**
+ * True while the active editor is a capture box. Reading mode does not lock a
+ * box (spec #206), so its Commands stay offered there.
+ */
+export function useBoxActive(): boolean {
+  return useSyncExternalStore(registry.subscribe, () => registry.boxActive());
+}
+
 const inKeepZone = (el: EventTarget | null) =>
   el instanceof Element && el.closest(`[${KEEPS_EDITOR_ATTR}]`) !== null;
 
