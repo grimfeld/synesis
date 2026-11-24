@@ -29,8 +29,8 @@ export interface BoardBubbleProps {
   /** The editor's accessible name while it is being edited, localized. */
   label: string;
   onEdit: (id: string) => void;
-  /** The text as typed so far, while editing. */
-  onDraft: (id: string, text: string) => void;
+  /** The text as typed so far, while editing; null once it is back to what it opened with. */
+  onDraft: (id: string, text: string | null) => void;
   /** Editing is over: the text, or null when it was left as it opened. */
   onDone: (id: string, text: string | null) => void;
 }
@@ -132,7 +132,7 @@ export const BoardBubble = memo(function BoardBubble({
         value={openedWith.current ?? text}
         onChange={(t) => {
           draft.current = t;
-          if (editingNow.current) onDraft(id, t);
+          if (editingNow.current) onDraft(id, t === openedWith.current ? null : t);
         }}
         env={env}
         names={names}

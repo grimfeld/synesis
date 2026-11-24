@@ -729,15 +729,22 @@ describe("Writing boxes: a Board's bubbles", () => {
     });
   });
 
-  it("opens a selected bubble with Enter or F2, the caret after its text, named only while edited", () => {
+  it("opens a selected bubble with Enter or F2, the caret after its text, a named text box only while edited", () => {
     // At rest a bubble is its text, not a text box.
-    bubble("Trials feel like").find(".cm-content").should("not.have.attr", "aria-label");
+    bubble("Trials feel like")
+      .find(".cm-content")
+      .should("have.attr", "role", "document")
+      .and("not.have.attr", "aria-label");
     bubble("Trials feel like").click();
     cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
     cy.get("[data-testid=board-root]").should("have.focus");
     cy.focused().type("{enter}");
     cy.get(editingBox).should("have.length", 1).and("contain", "Trials feel like");
-    cy.get(`${editingBox} .cm-content`).should("have.focus").and("have.attr", "aria-label");
+    cy.get(`${editingBox} .cm-content`)
+      .should("have.focus")
+      .and("have.attr", "role", "textbox")
+      .and("have.attr", "aria-label")
+      .and("not.be.empty");
     // Enter opened it and typed nothing: the text is as it was.
     cy.get(`${editingBox} .cm-line`).should("have.length", 2);
     cy.focused().type(" by keyboard");
@@ -752,6 +759,95 @@ describe("Writing boxes: a Board's bubbles", () => {
     cy.get(editingBox).should("have.length", 1).and("contain", "by keyboard");
     cy.get(`${editingBox} .cm-content`).should("have.focus").type("{esc}");
     cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    // Enter on a toolbar button presses it, the bubble still selected: the
+    // keydown, then the click a browser makes of it. A new note opens, not
+    // the selected bubble.
+    cy.get("[data-testid=board-add-note]").focus().trigger("keydown", { key: "Enter" });
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-add-note]").should("have.focus").click();
+    cy.get(editingBox).should("have.length", 1).and("not.contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`).should("have.focus").type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    // A file card selected: Enter opens no editor.
+    cy.contains("[data-testid=board-canvas] div", "Endurance is not merely putting up").click();
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    cy.focused().type("{enter}");
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-canvas] .cm-content[contenteditable=true]").should("not.exist");
+    cy.get("[data-testid=board-root]").should("have.focus");
+  });
+
+  // PLAN §17.14: the Board reloads from disk while a bubble is open (Obsidian,
+  // a sync). The bubble keeps what is being typed; closing saves it over the
+  // outside text, and a bubble closed as it opened saves nothing, so the
+  // outside text stays. The watcher's event does not reach a plain browser,
+  // so the test plays it (`__devEmit`, src/lib/devbridge.ts) once the engine
+  // has folded the file in.
+  describe("edited outside the app while a bubble is open", () => {
+    const CLOSE = "a1b2c3d4e5f60007";
+    const OUTSIDE = "Changed outside the app.";
+    const MARK = "Also changed outside.";
+    const editOutside = () =>
+      cy.docByTitle("Talk on endurance").then((talk) => {
+        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        cy.task<string>("file:read", file).then((text) => {
+          const board = JSON.parse(text);
+          board.nodes = board.nodes.map((n: { id: string }) =>
+            n.id === TRIALS ? { ...n, text: OUTSIDE } : n.id === CLOSE ? { ...n, text: MARK } : n,
+          );
+          cy.task("file:write", { path: file, text: JSON.stringify(board, null, 2) });
+        });
+        const folded = (tries = 30): void => {
+          cy.bridge<Saved>("get_board", { id: talk.id }).then((b) => {
+            if (b.nodes.find((n) => n.id === CLOSE)?.text === MARK) return;
+            if (tries <= 0) throw new Error("the watcher never folded the canvas");
+            cy.wait(250);
+            folded(tries - 1);
+          });
+        };
+        folded();
+        cy.window().then((win) =>
+          (win as unknown as { __devEmit: (e: string, p: unknown) => void }).__devEmit("vault:changed", {
+            changed: [],
+            removed: [],
+            boards: [talk.id],
+          }),
+        );
+        // The Board reloaded: the other bubble shows the outside text.
+        bubble(MARK).should("exist");
+      });
+
+    it("saves what was typed over the outside text", () => {
+      bubble("Trials feel like").dblclick();
+      cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} typed in the app", { delay: 50 });
+      editOutside();
+      // Still being typed, as typed.
+      cy.get(editingBox).should("contain", "typed in the app").and("not.contain", OUTSIDE);
+      cy.get(`${editingBox} .cm-content`).type("{esc}");
+      cy.get(editingBox).should("not.exist");
+      bubble("typed in the app").should("contain", "Trials feel like");
+      cy.get("[data-testid=board-canvas]").should("not.contain", OUTSIDE);
+      saved((b) => {
+        const text = b.nodes.find((x) => x.id === TRIALS)!.text;
+        expect(text).to.contain("Trials feel like").and.match(/ typed in the app$/);
+        expect(b.nodes.find((x) => x.id === CLOSE)!.text).to.equal(MARK);
+      });
+    });
+
+    it("keeps the outside text when the bubble closes unchanged", () => {
+      bubble("Trials feel like").dblclick();
+      cy.get(`${editingBox} .cm-content`).should("have.focus");
+      editOutside();
+      cy.get(`${editingBox} .cm-content`).type("{esc}");
+      cy.get(editingBox).should("not.exist");
+      bubble(OUTSIDE).should("exist");
+      cy.get("[data-testid=board-canvas]").should("not.contain", "Trials feel like");
+      saved((b) => {
+        expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.equal(OUTSIDE);
+      });
+    });
   });
 
   it("keeps what was typed when a palette Command leaves the Board with the bubble open", () => {

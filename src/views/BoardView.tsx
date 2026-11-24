@@ -752,8 +752,11 @@ export function BoardView({
   }, [pageEnv, delivering, onPeek]);
   // Stable, so a bubble's editor re-renders for its own text only.
   const editBubble = useCallback((nodeId: string) => setEditing(nodeId), []);
-  const bubbleDraft = useCallback((nodeId: string, text: string) => {
-    openDraft.current = { node: nodeId, text };
+  const bubbleDraft = useCallback((nodeId: string, text: string | null) => {
+    // Back to what it opened with: leaving saves nothing, as closing would.
+    if (text === null) {
+      if (openDraft.current?.node === nodeId) openDraft.current = null;
+    } else openDraft.current = { node: nodeId, text };
   }, []);
   const bubbleDone = useCallback((nodeId: string, text: string | null) => {
     setEditing((cur) => (cur === nodeId ? null : cur));
