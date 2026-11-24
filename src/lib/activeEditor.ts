@@ -14,6 +14,8 @@
 export interface ActiveEditor<V> {
   /** The editor Commands act on: a box holding focus, else the Writing page. */
   active(): V | null;
+  /** Whether `active()` is a box (unlocked by Reading mode), not the Writing page. */
+  boxActive(): boolean;
   /** A Writing page becomes the one Commands fall back to. */
   register(view: V): void;
   /** `view` unmounts or stops being the Writing page: forget every claim it holds. */
@@ -41,6 +43,7 @@ export function createActiveEditor<V>(): ActiveEditor<V> {
   };
   return {
     active,
+    boxActive: () => box !== null,
     register: (view) =>
       change(() => {
         page = view;

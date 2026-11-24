@@ -12,7 +12,7 @@ import { ViewHeader } from "@/components/ViewHeader";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Kbd } from "@/components/ui/kbd";
-import { Textarea } from "@/components/ui/textarea";
+import { CaptureBox } from "@/components/CaptureBox";
 
 const DAY = 86_400_000;
 
@@ -108,6 +108,8 @@ function QuickCapture() {
   const s = useStore();
   const t = useT();
   const [text, setText] = useState("");
+  // Bumped to empty the box after a capture, which keeps its focus.
+  const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
     if (!text.trim() || busy) return;
@@ -115,6 +117,7 @@ function QuickCapture() {
     try {
       await s.createDoc("note", stamp(), {}, text.trim() + "\n", false);
       setText("");
+      setRevision((r) => r + 1);
     } finally {
       setBusy(false);
     }
@@ -128,15 +131,17 @@ function QuickCapture() {
         </CardTitle>
       </CardHeader>
       <CardContent className="grid gap-2">
-        <Textarea
-          rows={3}
-          className="font-prose text-[15px]"
-          placeholder={t.quick_capture_hint}
+        {/* The editor (spec #206). Untitled, so a Picture is named by the
+            time of the drop (ADR 0019). */}
+        <CaptureBox
+          data-testid="home-quick-box"
           value={text}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-          }}
+          revision={revision}
+          onChange={setText}
+          onSubmit={submit}
+          placeholder={t.quick_capture_hint}
+          minLines={3}
+          maxLines={12}
         />
         <div className="flex justify-end">
           <Button size="sm" onClick={submit} disabled={!text.trim() || busy}>

@@ -3,6 +3,7 @@ import {
   Annotation,
   EditorState,
   Compartment,
+  Prec,
   Transaction,
 } from "@codemirror/state";
 import {
@@ -100,6 +101,30 @@ interface Props {
    */
   activeWhileFocused?: boolean;
   /**
+   * A capture box's submit key (spec #206): Ctrl/⌘+Enter calls this instead
+   * of inserting a blank line. Enter stays a new line, and picks the
+   * completion while the autocomplete popup is open.
+   */
+  onSubmit?: () => void;
+  /**
+   * A capture box's Escape (a dialog closing, spec #206). The autocomplete
+   * popup has Escape first: with it open, Escape only closes it. Return
+   * false to leave the key to the editor's other bindings.
+   */
+  onEscape?: () => boolean | void;
+  /**
+   * False in a capture box, whose text is unsaved (spec #206): clicking a
+   * link, Tag, Passage or Embed title places the cursor and opens nothing.
+   * Hover cards still show.
+   */
+  navigate?: boolean;
+  /**
+   * A capture box's height in lines (spec #206): it starts `min` lines tall,
+   * grows with its text to `max`, then scrolls inside. Also gives it a box's
+   * slim padding and the full width of its container.
+   */
+  lines?: { min: number; max: number };
+  /**
    * Prose size in CSS pixels, when not the editor's own: the Delivery view's
    * adjustable size (PLAN §23.11).
    */
@@ -123,6 +148,30 @@ interface Props {
    * drag from the Candidates panel lands only in the text it belongs to.
    */
   dropOwner?: string;
+}
+
+/**
+ * A capture box's layout (spec #206): full width, slim padding, `min` lines
+ * tall at first, growing to `max` lines and then scrolling inside. Lines are
+ * in the prose line height, in the editor's own font size (`em` here).
+ */
+function boxLayout({ min, max }: { min: number; max: number }) {
+  const lh = "var(--prose-line-height)";
+  return Prec.high(
+    EditorView.theme({
+      ".cm-scroller": {
+        overflow: "auto",
+        padding: "8px 0",
+        maxHeight: `calc(${max} * ${lh} * 1em + 16px)`,
+      },
+      // The whole empty box takes a click, not only its first line.
+      ".cm-content": {
+        minHeight: `calc(${min} * ${lh} * 1em)`,
+        maxWidth: "none",
+        padding: "0 12px",
+      },
+    }),
+  );
 }
 
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
@@ -149,6 +198,10 @@ export function Editor({
   checkboxes = true,
   register = true,
   activeWhileFocused = false,
+  onSubmit,
+  onEscape,
+  navigate = true,
+  lines,
   fontSize,
   compact = false,
   onReady,
@@ -162,6 +215,12 @@ export function Editor({
   dropOwnerRef.current = dropOwner;
   const tRef = useRef(t);
   tRef.current = t;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const member = useRef<LiveMember | null>(null);
@@ -198,8 +257,13 @@ export function Editor({
       get names() {
         return namesRef.current;
       },
-      onOpenLink: (t, o) => envRef.current.onOpenLink(t, o),
-      onOpenPassage: (p, a) => envRef.current.onOpenPassage(p, a),
+      // A capture box opens nothing: leaving would lose its unsaved text.
+      onOpenLink: (t, o) => {
+        if (navigateRef.current) envRef.current.onOpenLink(t, o);
+      },
+      onOpenPassage: (p, a) => {
+        if (navigateRef.current) envRef.current.onOpenPassage(p, a);
+      },
       onPassageHover: (i) => envRef.current.onPassageHover(i),
       onLinkHover: (i) => envRef.current.onLinkHover(i),
       embedText: (t) => envRef.current.embedText(t),
@@ -224,6 +288,7 @@ export function Editor({
         history(),
         drawSelection(),
         EditorView.lineWrapping,
+        lines ? boxLayout(lines) : [],
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
           // Through variables, so a caller can size the prose from the host
@@ -264,6 +329,29 @@ export function Editor({
           () => tagsRef.current,
         ),
         cmPlaceholder(placeholder ?? ""),
+        // A capture box's own keys. The autocomplete popup's keymap is
+        // higher still, so Enter and Escape reach it first while it is open.
+        Prec.high(
+          keymap.of([
+            {
+              key: "Mod-Enter",
+              run: () => {
+                const submit = onSubmitRef.current;
+                if (!submit) return false;
+                submit();
+                return true;
+              },
+            },
+            {
+              key: "Escape",
+              run: () => {
+                const escape = onEscapeRef.current;
+                if (!escape) return false;
+                return escape() !== false;
+              },
+            },
+          ]),
+        ),
         editorKeymap,
         keymap.of([
           ...closeBracketsKeymap,

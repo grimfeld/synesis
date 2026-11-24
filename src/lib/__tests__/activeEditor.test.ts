@@ -105,4 +105,16 @@ describe("createActiveEditor", () => {
     r.blur("box", { kept: false });
     expect(l).toHaveBeenCalledTimes(2);
   });
+
+  it("says whether the active editor is a box, which Reading mode does not lock", () => {
+    const r = createActiveEditor<string>();
+    r.register("page");
+    expect(r.boxActive()).toBe(false);
+    r.focus("box");
+    expect(r.boxActive()).toBe(true);
+    r.blur("box", { kept: true });
+    expect(r.boxActive()).toBe(true);
+    r.focusElsewhere();
+    expect(r.boxActive()).toBe(false);
+  });
 });

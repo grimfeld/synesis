@@ -31,12 +31,14 @@ describe("Home", () => {
   });
 
   it("quick capture creates a Note", () => {
-    cy.get("[data-testid=home-quick] textarea").type(
+    cy.get("[data-testid=home-quick] .cm-content").type(
       "Captured from Cypress, see Ro 12:2.{ctrl}{enter}",
     );
     // The Note is titled with a timestamp and lands at the top of Recent.
     cy.get("[data-testid=home-recent] li").first().should("contain.text", "20");
-    cy.get("[data-testid=home-quick] textarea").should("have.value", "");
+    // Emptied for the next capture: the placeholder shows again.
+    cy.get("[data-testid=home-quick] .cm-content").should("not.contain", "Captured from Cypress");
+    cy.get("[data-testid=home-quick] .cm-placeholder").should("exist");
     cy.query<{ title: string; type: string }[]>({
       kind: "list",
       docType: "note",
