@@ -1555,6 +1555,9 @@ function Palette({
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent
         data-testid="palette"
+        // Focus moving here from a capture box keeps the box the editor that
+        // Commands act on (src/editor/active.ts, spec #206).
+        data-keeps-editor=""
         className="top-[18%] translate-y-0 overflow-hidden p-0 sm:max-w-xl"
         showCloseButton={false}
       >
