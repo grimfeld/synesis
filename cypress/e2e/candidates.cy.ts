@@ -237,6 +237,44 @@ describe("Candidates", () => {
     cy.get("[data-testid=add-source]").should("not.exist");
   });
 
+  // Spec #205: the palette's Add Source opens the Sources row's picker, on
+  // its own Composition so the demo talk's Candidates stay as they are.
+  it("offers Add Source in the palette on a Composition, opening the Sources picker", () => {
+    const row = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.bridge("create_document", { docType: "composition", title: "Palette sourced talk", fields: { tags: ["cypalette"] }, body: "Opening words.\n" });
+    cy.openApp();
+    cy.openDoc("Palette sourced talk");
+    cy.get(`${row} [data-testid=source-chip]`).should("not.exist");
+    cy.runCommand("Add Source");
+    cy.get("[data-testid=add-source-dialog]").should("be.visible");
+    cy.get("[data-testid=add-source-input]").type("Morning Worship");
+    cy.contains("[data-testid=picker-option]", "Morning Worship 2024-05-14").click();
+    cy.get("[data-testid=add-source-dialog]").should("not.exist");
+    cy.get(`${row} [data-testid=source-chip]`).should("have.length", 1).and("contain", "Morning Worship 2024-05-14");
+    // Its Clipping (1 Cor 13, #love) shares nothing with this talk.
+    cy.get('[data-testid=right-panel] [data-testid=candidate][data-doc="01M26CD0EEXFE0PK4AMKDQEJXE"]')
+      .find("[data-testid=candidate-from-source]")
+      .should("contain", "Morning Worship 2024-05-14");
+    cy.wait(1000);
+    storedText("Palette sourced talk").should("contain", 'sources: ["[[Morning Worship 2024-05-14]]"]');
+  });
+
+  it("offers no Add Source in the palette on a Note, nor while Reading mode is on", () => {
+    cy.openDoc("Undeserved kindness in Romans");
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette]").should("not.contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.openDoc("Talk on endurance");
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette] [cmdk-item]").should("contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.palette(">Add Source");
+    cy.get("[data-testid=palette]").should("not.contain", "Add Source");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=reading-toggle]").click();
+  });
+
   it("says how many Candidates there are when the list is cut at 50", () => {
     // Under the limit the panel is as it always was.
     cy.openDoc("Talk on endurance");
