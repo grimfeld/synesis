@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { cn } from "cn";
-import { api, type Candidates, type DocSummary } from "@/lib/api";
+import { api, type CandidateList, type DocSummary } from "@/lib/api";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
@@ -32,7 +32,7 @@ export function BoardDrawer({
 
   // A Candidate is anything sharing a Tag or a Passage with the Composition,
   // so anything written may become one.
-  const { data: itemsData } = useQuery<Candidates>({
+  const { data: itemsData } = useQuery<CandidateList>({
     key: [compositionId],
     deps: { any: true },
     fetch: () => api.candidates(compositionId),

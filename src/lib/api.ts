@@ -566,8 +566,8 @@ export interface Candidate {
   on_board: boolean;
 }
 
-/** A Composition's Candidates, cut at 50, with how many there are in all. */
-export interface Candidates {
+/** A Composition's Candidates, cut at the engine's limit, with how many there are in all. */
+export interface CandidateList {
   items: Candidate[];
   /** Every Candidate that matches, before the cut. */
   total: number;
@@ -1163,7 +1163,7 @@ export const api = {
   history: (id: string) => invoke<HistoryPoint[]>("history", { id }),
   gazetteer: (query: string, limit = 8) =>
     invoke<GazetteerHit[]>("gazetteer", { query, limit }),
-  candidates: (id: string) => query<Candidates>({ kind: "candidates", id }),
+  candidates: (id: string) => query<CandidateList>({ kind: "candidates", id }),
   getBoard: (id: string) => invoke<Board | null>("get_board", { id }),
   saveBoard: (id: string, board: Board) =>
     invoke<void>("save_board", { id, board }),

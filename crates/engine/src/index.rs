@@ -295,7 +295,7 @@ pub struct Candidate {
 /// A Composition's Candidates: the first `limit` of them, and how many there
 /// are in all, so a cut list can say so and a count need not read the list.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Candidates {
+pub struct CandidateList {
     /// The Candidates in the order the panel lists them, cut at the limit.
     pub items: Vec<Candidate>,
     /// Every Candidate that matches, before the cut.
@@ -1952,7 +1952,7 @@ impl Index {
     }
 
     /// Documents sharing Tags or Verses with `id`, for the Composition sidebar.
-    pub fn candidates(&self, id: &str, lang: Lang, limit: usize) -> Result<Candidates> {
+    pub fn candidates(&self, id: &str, lang: Lang, limit: usize) -> Result<CandidateList> {
         let mut by_doc: HashMap<String, (Vec<String>, Vec<String>)> = HashMap::new();
         let mut st = self.conn.prepare(
             "SELECT o.doc_id, o.tag FROM tags o WHERE o.norm IN (SELECT norm FROM tags WHERE doc_id = ?1) AND o.doc_id != ?1 GROUP BY o.doc_id, o.norm",
@@ -2028,7 +2028,7 @@ impl Index {
         let total = out.len() as u32;
         let unused_total = out.iter().filter(|c| !c.used).count() as u32;
         out.truncate(limit);
-        Ok(Candidates {
+        Ok(CandidateList {
             items: out,
             total,
             unused_total,

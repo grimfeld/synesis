@@ -330,7 +330,7 @@ export const fr: Dict = {
   candidates_hint:
     "Notes et Extraits partageant des Tags ou des Passages avec cette Composition, pas encore liés depuis celle-ci.",
   candidates_more: (shown: string, total: string) =>
-    `${shown} affichées sur ${total}`,
+    `${shown} affichés sur ${total}`,
   no_candidates:
     "Ajoutez des Tags ou des Passages à cette Composition pour voir la matière liée.",
   used_material: "Utilisé dans cette Composition",
