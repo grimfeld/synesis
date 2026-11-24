@@ -264,7 +264,7 @@ export function TutorialPanel() {
       return (
         <div
           data-tutorial-panel data-testid="tutorial-strip"
-          className="fixed inset-x-0 bottom-0 z-40 flex min-h-12 items-center gap-2 border-t bg-background px-3 py-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
+          className="fixed inset-x-0 bottom-0 z-40 flex min-h-12 items-center gap-2 border-t bg-background px-3 py-1 pb-[max(0.25rem,var(--safe-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.08)]"
         >
           <button type="button" onClick={() => setExpanded(true)} data-testid="tutorial-expand" className="flex min-w-0 flex-1 items-center gap-2 text-left text-sm" aria-label={t.tutorials.expand}>
             <ChevronUp className="size-4 shrink-0 text-muted-foreground" />
@@ -281,7 +281,7 @@ export function TutorialPanel() {
       <aside
         data-tutorial-panel data-testid="tutorial-panel"
         data-layout="sheet"
-        className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] min-w-0 flex-col rounded-t-xl border-t bg-background pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
+        className="fixed inset-x-0 bottom-0 z-40 flex max-h-[62vh] min-w-0 flex-col rounded-t-xl border-t bg-background pb-[var(--safe-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
       >
         {header}
         {body}
