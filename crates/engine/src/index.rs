@@ -292,6 +292,18 @@ pub struct Candidate {
     pub on_board: bool,
 }
 
+/// A Composition's Candidates: the first `limit` of them, and how many there
+/// are in all, so a cut list can say so and a count need not read the list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Candidates {
+    /// The Candidates in the order the panel lists them, cut at the limit.
+    pub items: Vec<Candidate>,
+    /// Every Candidate that matches, before the cut.
+    pub total: u32,
+    /// Every match the prose does not yet use (on the Board or not).
+    pub unused_total: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TrailEntry {
     pub doc: DocSummary,
@@ -1940,7 +1952,7 @@ impl Index {
     }
 
     /// Documents sharing Tags or Verses with `id`, for the Composition sidebar.
-    pub fn candidates(&self, id: &str, lang: Lang, limit: usize) -> Result<Vec<Candidate>> {
+    pub fn candidates(&self, id: &str, lang: Lang, limit: usize) -> Result<Candidates> {
         let mut by_doc: HashMap<String, (Vec<String>, Vec<String>)> = HashMap::new();
         let mut st = self.conn.prepare(
             "SELECT o.doc_id, o.tag FROM tags o WHERE o.norm IN (SELECT norm FROM tags WHERE doc_id = ?1) AND o.doc_id != ?1 GROUP BY o.doc_id, o.norm",
@@ -2013,8 +2025,14 @@ impl Index {
                 .then(b.score.cmp(&a.score))
                 .then(a.doc.title.cmp(&b.doc.title))
         });
+        let total = out.len() as u32;
+        let unused_total = out.iter().filter(|c| !c.used).count() as u32;
         out.truncate(limit);
-        Ok(out)
+        Ok(Candidates {
+            items: out,
+            total,
+            unused_total,
+        })
     }
 
     /// Replace a Composition's Board refs: the documents its Board's `file`
@@ -3804,7 +3822,7 @@ tags: [judgment]
         let trail = idx.source_trail("wt").unwrap();
         let locs: Vec<_> = trail.iter().map(|t| t.locator.clone().unwrap()).collect();
         assert_eq!(locs, vec!["par. 3", "par. 12"]);
-        let c = idx.candidates("comp", Lang::En, 10).unwrap();
+        let c = idx.candidates("comp", Lang::En, 10).unwrap().items;
         let ids: Vec<_> = c.iter().map(|x| x.doc.id.as_str()).collect();
         assert_eq!(ids, vec!["c1", "n"]);
         assert_eq!(c[1].shared_passages, vec!["Romans 5:3-5"]);
@@ -4113,7 +4131,7 @@ Body",
         idx.set_board_refs("comp", &["Notes/Steadfast.md".into()])
             .unwrap();
 
-        let c = idx.candidates("comp", Lang::En, 10).unwrap();
+        let c = idx.candidates("comp", Lang::En, 10).unwrap().items;
         let steadfast = c.iter().find(|x| x.doc.id == "n1").unwrap();
         let patience = c.iter().find(|x| x.doc.id == "n2").unwrap();
         assert!(steadfast.on_board, "board ref not reported");
@@ -4271,7 +4289,7 @@ tags: [endurance]
 Ro 5:3",
             ),
         ]);
-        let c = idx.candidates("comp", Lang::En, 10).unwrap();
+        let c = idx.candidates("comp", Lang::En, 10).unwrap().items;
         let rows: Vec<(&str, bool)> = c.iter().map(|x| (x.doc.id.as_str(), x.used)).collect();
         // Unused first, then used; within each, by score (n1 also shares the Passage) then title.
         assert_eq!(
@@ -4284,6 +4302,42 @@ Ro 5:3",
                 ("k", true)
             ]
         );
+    }
+
+    #[test]
+    fn candidates_count_every_match_past_the_limit() {
+        // 60 Notes share the Composition's Tag; the Composition links 5 of
+        // them, so 55 are unused. The list stops at 50; the totals do not.
+        let notes: Vec<(String, String, String)> = (0..60)
+            .map(|i| {
+                (
+                    format!("n{i:02}"),
+                    format!("Notes/N{i:02}.md"),
+                    "---\ntags: [endurance]\n---\nBody".to_string(),
+                )
+            })
+            .collect();
+        let comp = (
+            "comp".to_string(),
+            "Compositions/Talk.md".to_string(),
+            "---\ntype: composition\ntags: [endurance]\n---\n[[N00]] [[N01]] [[N02]] [[N03]] [[N04]]"
+                .to_string(),
+        );
+        let docs: Vec<(&str, &str, &str)> = notes
+            .iter()
+            .chain(std::iter::once(&comp))
+            .map(|(a, b, c)| (a.as_str(), b.as_str(), c.as_str()))
+            .collect();
+        let idx = idx_with(&docs);
+        let c = idx.candidates("comp", Lang::En, 50).unwrap();
+        assert_eq!(c.items.len(), 50);
+        assert_eq!(c.total, 60);
+        assert_eq!(c.unused_total, 55);
+        // Under the limit the totals match the list.
+        let c = idx.candidates("comp", Lang::En, 100).unwrap();
+        assert_eq!(c.items.len(), 60);
+        assert_eq!(c.total, 60);
+        assert_eq!(c.unused_total, 55);
     }
 
     #[test]
