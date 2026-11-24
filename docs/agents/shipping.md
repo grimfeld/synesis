@@ -3,6 +3,8 @@
 How work gets from a branch to main in this repository. Written by `/ship:setup-ship`; the
 `ship` plugin's skills (`pr-review`, `night-shift`, `land`) read it. Keep it true when the process changes.
 
+The repository enables the `ship` plugin itself: `.claude/settings.json` declares the `grimfeld` marketplace (grimfeld/skills) and enables `ship@grimfeld`, so every Claude Code session on a clone, cloud or local, has the `ship:` skills without user-level setup.
+
 ## The rule
 
 A PR reaches `main` only after a person has reviewed it and added the **`ship`** label.
@@ -75,7 +77,7 @@ Bookkeeping files (a conflict only in these is mechanical):
 
 Required on `main`: `Typecheck, tests, fmt, clippy, Tauri build check` (CI), and `ship`.
 
-Run locally before marking a PR ready: `npm run check` (typecheck, unit tests, clippy with `-D warnings`), plus `cargo test -p engine` and the Cypress spec of any UI feature touched (`npx cypress run --spec cypress/e2e/<spec>.cy.ts`, with `npm run tauri dev` running).
+Run locally before marking a PR ready: `npm run check` (rustfmt check, typecheck, unit tests, clippy with `-D warnings`), plus `cargo test -p engine` and the Cypress spec of any UI feature touched (`npx cypress run --spec cypress/e2e/<spec>.cy.ts`, with `npm run tauri dev` running).
 
 ## After merge
 
