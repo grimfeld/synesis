@@ -68,7 +68,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DocLink, EventDate, TypeDot } from "./DocLink";
-import { useDocDrag } from "./useDocDrag";
+import { useDocDrag } from "@/lib/useDocDrag";
 import { DatePreview } from "./DatePreview";
 import { CalendarPicker } from "./CalendarPicker";
 import { DatePicker } from "./DatePicker";

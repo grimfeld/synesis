@@ -13,13 +13,14 @@ import { TypeDot } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
 import { useQuery } from "@/lib/useQuery";
 import { useStore } from "@/lib/store";
-import { useDocDrag } from "@/components/useDocDrag";
+import { useDocDrag } from "@/lib/useDocDrag";
 
 export function BoardDrawer({
   compositionId,
   onAdd,
   onPath,
   defaultOpen = true,
+  dragToText = false,
 }: {
   compositionId: string;
   onAdd: (doc: DocSummary) => void;
@@ -27,6 +28,11 @@ export function BoardDrawer({
   onPath: (path: string) => boolean;
   /** Whether it starts open. Beside the talk it does not (PLAN §22.3). */
   defaultOpen?: boolean;
+  /**
+   * Whether rows drag into the Composition's text: only while the Board is
+   * split beside its talk, the one place that text is on screen (spec #202).
+   */
+  dragToText?: boolean;
 }) {
   const t = useT();
   const [open, setOpen] = useState(defaultOpen);
@@ -117,7 +123,7 @@ export function BoardDrawer({
             <DrawerRow
               key={doc.id}
               doc={doc}
-              composition={compositionId}
+              composition={dragToText ? compositionId : undefined}
               placed={onPath(doc.path)}
               sharedTags={unused.find((c) => c.doc.id === doc.id)?.shared_tags}
               onAdd={onAdd}
@@ -143,7 +149,8 @@ function DrawerRow({
   onAdd,
 }: {
   doc: DocSummary;
-  composition: string;
+  /** The Composition its drag carries into; undefined: the row does not drag. */
+  composition?: string;
   placed: boolean;
   sharedTags?: string[];
   onAdd: (doc: DocSummary) => void;

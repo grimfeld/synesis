@@ -19,3 +19,10 @@ export function dragRowOntoLine(row: string, line: string, within = "") {
   cy.get(row).trigger("dragend", { dataTransfer: data });
   cy.get(row).should("not.have.attr", "data-dragging");
 }
+
+/** The stored text of a document, read from the test Vault's file. */
+export function storedText(title: string) {
+  return cy
+    .docByTitle(title)
+    .then((d) => cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`));
+}
