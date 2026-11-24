@@ -5,7 +5,7 @@ use crate::canvas::{self, Canvas};
 use crate::cloud;
 use crate::document::{self, DocType, Link, ParsedDoc, TagRef};
 use crate::index::{
-    self, Backlink, Candidate, CoverageCell, DocSummary, Graph, GraphLevel, Index, Linkable,
+    self, Backlink, Candidates, CoverageCell, DocSummary, Graph, GraphLevel, Index, Linkable,
     SearchHit, UnlinkedMentions, UnresolvedLink,
 };
 use crate::meta::VaultMeta;
@@ -2380,7 +2380,7 @@ impl Vault {
         self.index.tags()
     }
     /// Every Journey with its Stops in travel order (ADR 0010).
-    pub fn candidates(&self, id: &str) -> Result<Vec<Candidate>> {
+    pub fn candidates(&self, id: &str) -> Result<Candidates> {
         self.index.candidates(id, self.lang, 50)
     }
     /// Every Clipping with its Citation, or those of one Source (ADR 0013).

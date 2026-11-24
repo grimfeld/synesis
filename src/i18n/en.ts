@@ -354,6 +354,8 @@ export const en = {
   candidates: "Candidate material",
   candidates_hint:
     "Notes and Clippings sharing Tags or Passages with this Composition, not yet linked from it.",
+  candidates_more: (shown: string, total: string) =>
+    `Showing ${shown} of ${total}`,
   no_candidates:
     "Add Tags or Passages to this Composition to see related material.",
   used_material: "Used in this Composition",

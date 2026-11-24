@@ -67,6 +67,7 @@ fn main() -> engine::Result<()> {
             "candidates for {}: {:?}",
             c.title,
             v.candidates(&c.id)?
+                .items
                 .iter()
                 .map(|x| (
                     x.doc.title.clone(),

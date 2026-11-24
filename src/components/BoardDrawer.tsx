@@ -7,7 +7,7 @@
 import { useMemo, useState } from "react";
 import { ChevronRight, Search } from "lucide-react";
 import { cn } from "cn";
-import { api, type Candidate, type DocSummary } from "@/lib/api";
+import { api, type Candidates, type DocSummary } from "@/lib/api";
 import { useT } from "@/i18n";
 import { TypeDot } from "@/components/DocLink";
 import { Input } from "@/components/ui/input";
@@ -32,12 +32,12 @@ export function BoardDrawer({
 
   // A Candidate is anything sharing a Tag or a Passage with the Composition,
   // so anything written may become one.
-  const { data: itemsData } = useQuery<Candidate[]>({
+  const { data: itemsData } = useQuery<Candidates>({
     key: [compositionId],
     deps: { any: true },
     fetch: () => api.candidates(compositionId),
   });
-  const items = useMemo(() => itemsData ?? [], [itemsData]);
+  const items = useMemo(() => itemsData?.items ?? [], [itemsData]);
 
   // The search box follows what is being typed.
   const q = query.trim();
