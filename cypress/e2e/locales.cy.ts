@@ -762,3 +762,31 @@ describe("Locale layout", () => {
     });
   }
 });
+
+// The Source capture box is the editor (spec #206, #225): in either mode it
+// takes its card's width on a phone, and a long line wraps inside it.
+describe("Locale layout: the Source capture box", () => {
+  afterEach(() => cy.bridge("set_language", { lang: "en" }));
+
+  for (const lang of LANGS) {
+    it(`keeps the Source capture box inside its card on a phone (${lang})`, () => {
+      cy.bridge("set_language", { lang });
+      cy.viewport(390, 844);
+      cy.openApp();
+      cy.openDoc("Keep Enduring with Joy");
+      for (const mode of ["clipping", "note"] as const) {
+        cy.get(`[data-testid=capture-as-${mode}]`).click();
+        cy.get("[data-testid=capture-text]").then(($box) => {
+          const card = $box.closest("[data-testid=hub-capture]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(card.left);
+          expect(box.right).to.be.lte(card.right);
+          expect(box.width).to.be.greaterThan(card.width * 0.8);
+        });
+        expectNoOverflow();
+        cy.get("[data-testid=capture-text] .cm-content").type("x".repeat(80) + " Jas 1:2-4");
+        expectNoOverflow();
+      }
+    });
+  }
+});

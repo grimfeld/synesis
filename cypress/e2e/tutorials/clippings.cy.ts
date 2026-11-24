@@ -46,9 +46,9 @@ describe("Tutorial: Clippings", () => {
     // 4. Do it once: keep a Clipping from the box, then find it in Clippings.
     cy.tutorialStep(3);
     cy.tutorialCommand("doc.capture");
-    cy.focused().should("have.attr", "data-testid", "capture-text");
+    cy.focused().should("have.class", "cm-content").closest("[data-testid=capture-text]").should("exist");
     cy.get("[data-testid=capture-as-clipping]").should("have.attr", "aria-pressed", "true");
-    cy.get("[data-testid=capture-text]").type("Words from the Tutorial, kept as they were written.");
+    cy.get("[data-testid=capture-text] .cm-content").type("Words from the Tutorial, kept as they were written.");
     cy.get("[data-testid=capture-locator]").type("chap. 5");
     cy.get("[data-testid=capture-submit]").click();
     cy.hubTitle("Jesus, the Way");

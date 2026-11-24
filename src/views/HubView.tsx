@@ -101,7 +101,7 @@ import { TutorialButton } from "@/components/TutorialPanel";
 import { PaneButtons } from "@/components/Panes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
-import { Textarea } from "@/components/ui/textarea";
+import { CaptureBox } from "@/components/CaptureBox";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2079,7 +2079,9 @@ function SourceCapture({ source }: { source: DocSummary }) {
   const [locator, setLocator] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  const area = useRef<HTMLTextAreaElement>(null);
+  // Bumped to empty the box after a capture without losing its focus.
+  const [revision, setRevision] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
   const clipping = type === "clipping";
 
   const submit = async () => {
@@ -2096,18 +2098,23 @@ function SourceCapture({ source }: { source: DocSummary }) {
         // Citation in these fields (ADR 0013).
         clipping ? "" : title.trim() || stamp(),
         fields,
+        // Typed bare, stored quoted on every line, markdown kept inside.
         clipping ? quoteBody(text) : text.trim() + "\n",
         // Stay on the Source: capturing five passages from one chapter is the
         // point, and opening each one defeats it.
         false,
       );
       setText("");
+      setRevision((r) => r + 1);
       setLocator("");
       setTitle("");
     } finally {
       setBusy(false);
-      // After re-enabling, not before: a disabled textarea cannot take focus.
-      requestAnimationFrame(() => area.current?.focus());
+      // Back to the box for the next one, also from the button or the
+      // Locator's Enter. A failed create keeps the text there.
+      requestAnimationFrame(() =>
+        boxRef.current?.querySelector<HTMLElement>(".cm-content")?.focus(),
+      );
     }
   };
 
@@ -2115,7 +2122,7 @@ function SourceCapture({ source }: { source: DocSummary }) {
     <section
       data-testid="hub-capture"
       className={cn(
-        "mb-6 rounded-lg border-l-2 bg-card p-3",
+        "mb-6 min-w-0 rounded-lg border-l-2 bg-card p-3",
         clipping ? "border-l-type-clipping" : "border-l-type-note",
       )}
     >
@@ -2140,21 +2147,24 @@ function SourceCapture({ source }: { source: DocSummary }) {
           {t.capture_from(source.title)}
         </span>
       </div>
-      <Textarea
-        ref={area}
-        rows={3}
-        data-testid="capture-text"
-        className="font-prose text-[15px]"
-        placeholder={
-          clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
-        }
-        value={text}
-        disabled={busy}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-        }}
-      />
+      {/* The editor (spec #206). A Picture is named after the Source in
+          either mode (ADR 0019). Keyed by mode so the placeholder follows. */}
+      <div ref={boxRef} className="min-w-0">
+        <CaptureBox
+          key={type}
+          data-testid="capture-text"
+          value={text}
+          revision={revision}
+          onChange={setText}
+          onSubmit={submit}
+          placeholder={
+            clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
+          }
+          minLines={3}
+          maxLines={12}
+          pictureTitle={source.title}
+        />
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Input
           data-testid={clipping ? "capture-locator" : "capture-title"}

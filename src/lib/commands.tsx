@@ -406,7 +406,7 @@ export function useCommands(): Command[] {
           keywords: "capture clipping note keep quote excerpt source",
           run: () =>
             document
-              .querySelector<HTMLTextAreaElement>("[data-testid=capture-text]")
+              .querySelector<HTMLElement>("[data-testid=capture-text] .cm-content")
               ?.focus(),
         });
       }
