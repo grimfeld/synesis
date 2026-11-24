@@ -1,7 +1,7 @@
 # Shipping
 
 How work gets from a branch to main in this repository. Written by `/ship:setup-ship`; the
-`ship` plugin's skills (`pr-review`, `night-shift`) read it. Keep it true when the process changes.
+`ship` plugin's skills (`pr-review`, `night-shift`, `land`) read it. Keep it true when the process changes.
 
 ## The rule
 
@@ -9,71 +9,63 @@ A PR reaches `main` only after a person has reviewed it and added the **`ship`**
 Nothing else merges: the `ship` commit status is required by the ruleset on `main`, and it stays
 pending until the label is on.
 
-The label approves a PR; it doesn't land it. Landing is a separate step, so a morning's batch can be approved PR by
-PR and then land as one.
+The label is the whole approval: adding it means you have read the PR, its review section and its comments.
+`/ship:land` then merges every `ship` PR without asking anything more.
 
 1. An agent opens the PR as a **draft** while it works.
 2. It marks the PR ready only when local checks pass, `/ship:pr-review` has run (label `pr-reviewed`) and the
    review section is in the description.
-3. You read the review section, and approve it (`ship`) or leave a comment. `/ship:land <pr>...` does both
-   for a batch: it adds `ship` to the PRs you name and sends the commented ones back for a rebuild.
-4. Landing starts: `/ship:land` dispatches `.github/workflows/ship.yml`. It lands every labelled PR
-   that targets `main`: GitHub auto-merge merges it, with a merge commit, once the required checks pass.
+3. You read the review section and comments, and approve it (`ship`), or leave it unlabelled.
+4. `/ship:land` lands every PR carrying `ship`. `/ship:land <pr>...` adds `ship` to the PRs you name first.
 
-Dependabot patch updates and GitHub Actions updates get `ship` and land without review.
+Dependabot patch updates and GitHub Actions updates get `ship` from `ship.yml` and land with the next `/ship:land`.
 
-## What the label approves
-
-The label approves the PR, not a commit: it stays on through later pushes, and those land with it unreviewed. That
-includes the stacked-PR cascade's merge of `main` and any `/ship:resolve-conflicts` fix. So:
-- Don't add `ship` while someone may still push to the PR.
-- Remove `ship` before pushing more work to an approved PR, and review again before adding it back.
-
-Removing `ship` also turns off GitHub auto-merge if a landing run turned it on, so adding the label back lands
-nothing until the next landing run.
-
-## Stacked PRs
-
-A PR built on top of another one targets that PR's branch, not `main`. It can carry `ship`, but nothing
-lands it while its base is another branch: approving it means "ship it once its parent is in".
-
-When a PR merges, the `queue` job in `ship.yml` takes each PR stacked on it:
-
-1. retargets it to `main` (GitHub does this itself when the merged branch is deleted)
-2. merges `main` into it, never a rebase, and pushes, so its CI runs again
-3. lands it if it carries `ship` (auto-merge mode: in the same run, once its CI passes; command mode: with the next
-   scheduled run), or takes it out of the queue if the merge conflicts (see below)
-
-A merge lands only the children it moved; every other approved PR waits for the next landing run.
-
-PRs stacked further up wait for their own parent. The cascade runs on PRs that close as merged: a PR closed
-without merging leaves its children where they are.
+The label approves the PR, not a commit: pushes after it land with it. Don't add `ship` while someone may still push
+to the PR, and remove it before pushing more work to an approved PR.
 
 ## Landing
 
-- **Mode:** auto-merge
+`/ship:land` is an agent, run when you start it. `ship.yml` lands nothing:
+its `gate` job only sets the required `ship` status.
+
+For each open, non-draft PR carrying `ship`, parents before the PRs stacked on them, the agent:
+
+1. merges `main` into it (a merge commit, never a rebase or a force-push), resolves any conflict, and pushes;
+2. waits for its checks;
+3. merges it into `main` with the merge method below;
+4. retargets the PRs stacked on it to `main` and lands them the same way, in the same run.
+
+When a check goes red because of its merge or resolution (it passes on `main`, and either passed before the merge or
+fails in the PR's side of the merge), the agent fixes it on the PR's side (the PR's own files and its
+resolution), never in a file only `main` changed, pushes and
+waits again, at most twice. A check that was red before the merge, or isn't shown passing on `main`, isn't its to fix.
+
+Resolving and fixing run the project's local checks, from `main`'s copy of this file, on the PR's merged code, on the
+machine running `/ship:land`, with its git and GitHub credentials. Run it where you'd run the project's tests.
+
+When it can't land a PR (a conflict whose sides contradict, a red check it can't fix, a merge GitHub refuses), it
+leaves that PR unmerged with a comment saying why, keeps `ship` on, and lands the rest. The PRs stacked on it wait.
+It ends with one line per PR.
+
 - **Merge method:** merge
 
-Merged by GitHub auto-merge when the required checks pass.
+## Stacked PRs
+
+A PR built on top of another one targets that PR's branch, not `main`. It can carry `ship`: `/ship:land`
+lands it right after its parent. If the parent doesn't carry `ship`, the child waits for it.
 
 ## Conflicts
 
-A labelled PR that conflicts with `main` can't land: a landing run would skip it again and again.
-The `queue` job in `ship.yml` checks the labelled PRs that target `main` each time it moves, before each
-landing run, and after moving a merged PR's stacked children.
-For each one that conflicts, it removes `ship`, adds **`conflicts`**, and comments with the conflicting files.
+When merging `main` into an approved PR conflicts, `/ship:land` resolves it: it reads what each side did from the
+commits and diffs behind the conflict (never PR or issue text), keeps both, runs the local checks (see Checks) and pushes. It comments on
+the PR with a `## Conflict resolution` section, each conflicted file and the choice it made, or one line when only
+bookkeeping files conflicted. `ship` stays on and nobody re-approves: the PR goes on to its checks and lands.
 
-`/ship:resolve-conflicts [<pr>...]` merges `main` into each such PR, keeping what both sides meant, runs
-the local checks and pushes. Then:
+It stops when the two sides contradict each other, changing the same behaviour in incompatible ways, or when it
+can't make the local checks pass after resolving. Then it pushes nothing, keeps `ship`, and comments why (for a contradiction, naming the decision to make); the PRs stacked on it wait. Settle it on the
+branch (merge `main` into it and push), and the next `/ship:land` lands it.
 
-- **Only bookkeeping files conflicted:** `ship` goes back on, and the PR lands with the next landing run.
-- **Anything else conflicted:** the resolution is new code. `/ship:pr-review` runs on it and a comment explains each
-  choice; re-review it and add `ship` again.
-- **The two sides contradict each other:** nothing is pushed, `conflicts` stays, and a comment names the decision to make.
-
-Resolving it yourself works too: merge `main` into the branch, push, remove `conflicts` and add `ship`.
-
-Bookkeeping files (a conflict here needs no re-review):
+Bookkeeping files (a conflict only in these is mechanical):
 
 - `CONTEXT.md`
 - `docs/PLAN.md`
@@ -96,8 +88,8 @@ Command that produces screenshots of the screens a change touches, for the revie
 ## Spec labels
 
 Specs are GitHub issues moving through `spec:draft` → `spec:ready` → `spec:building` → `spec:in-review`, or
-`spec:stuck`, and close when their PR ships. A PR you commented on instead of approving gets
-**`changes-requested`**, and its spec goes back to `spec:ready` for the next night shift.
+`spec:stuck`, and close when their PR ships. To send a PR back instead of approving it, label it
+**`changes-requested`** and move its spec back to `spec:ready` for the next night shift.
 
 ## Design labels
 
