@@ -435,3 +435,13 @@
    pointer events back from the body Radix disables. Only then, so it never
    covers a popover or menu the rest of the time. */
 body:has([data-slot="dialog-overlay"]) [data-tutorial-panel] { z-index: 60; pointer-events: auto; }
+
+/* A Sheet's close button, below the status bar and clear of the side inset on
+   the edges the Sheet touches. Outside every layer, so it beats the button's
+   own top-3 / right-3 utilities. */
+.sheet-panel:not([data-side="bottom"]) > [data-slot="sheet-close"] {
+  top: calc(var(--safe-top) + 0.75rem);
+}
+.sheet-panel:not([data-side="left"]) > [data-slot="sheet-close"] {
+  right: calc(var(--safe-right) + 0.75rem);
+}

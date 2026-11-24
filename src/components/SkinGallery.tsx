@@ -224,7 +224,7 @@ function Gallery() {
       <aside
         data-testid="skin-gallery"
         data-layout="sheet"
-        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[62vh] min-w-0 flex-col rounded-t-xl border-t bg-background pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
+        className="fixed inset-x-0 bottom-0 z-50 flex max-h-[62vh] min-w-0 flex-col rounded-t-xl border-t bg-background pb-[var(--safe-bottom)] shadow-[0_-4px_16px_rgba(0,0,0,0.12)]"
       >
         {header}
         {body}

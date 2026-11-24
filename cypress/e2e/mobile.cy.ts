@@ -41,7 +41,7 @@ describe("Mobile sidebar", () => {
     cy.get("[data-sidebar=sidebar][data-mobile=true]").then(($s) => {
       expect($s[0].getBoundingClientRect().top).to.eq(0);
       // The sheet's own content: its first box sits below the inset.
-      const content = $s[0].querySelector(":scope > div.h-full");
+      const content = $s[0].querySelector("[data-testid=sidebar-mobile-content]");
       expect(content?.getBoundingClientRect().top).to.be.gte(40);
     });
   });
