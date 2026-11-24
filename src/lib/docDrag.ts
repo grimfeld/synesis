@@ -26,11 +26,21 @@ export function activeDocDrag(): DocDrag | null {
   return active;
 }
 
+let listening = false;
+
 /** Start carrying `drag` on `dt`. */
 export function writeDocDrag(dt: DataTransfer, drag: DocDrag) {
   dt.setData(DOC_DRAG_TYPE, JSON.stringify(drag));
   dt.effectAllowed = "copy";
   active = drag;
+  // The row ends its own drag, but a row unmounted mid-drag never hears its
+  // `dragend`; the window hears every drop and every drag that ends in it.
+  // In the bubble phase, after the editor's own `drop` has read the drag.
+  if (!listening && typeof window !== "undefined") {
+    listening = true;
+    window.addEventListener("dragend", endDocDrag);
+    window.addEventListener("drop", endDocDrag);
+  }
 }
 
 /** The drag ended, dropped or not. */
@@ -55,6 +65,19 @@ export function readDocDrag(dt: DataTransfer | null | undefined): DocDrag | null
   } catch {
     return null;
   }
+}
+
+/**
+ * The document dropped from `dt`, only if it is the drag this window started:
+ * the payload alone can be written by any page or app, so a drop is trusted
+ * only when it names the same document and Composition as the drag in
+ * progress here. Null for anything else.
+ */
+export function droppedDocDrag(dt: DataTransfer | null | undefined): DocDrag | null {
+  const drag = readDocDrag(dt);
+  return drag && active && active.id === drag.id && active.composition === drag.composition
+    ? drag
+    : null;
 }
 
 /**

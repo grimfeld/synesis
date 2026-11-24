@@ -1,24 +1,14 @@
 // Walks the Candidates Tutorial (docs/tutorials/candidates.en.md) step by
 // step, doing what each step says, so a change to the Candidates panel that
 // outdates the Tutorial fails here (PLAN §25.13).
+import { dragRowOntoLine } from "../../support/drag";
+
 describe("Tutorial: Candidates", () => {
   /** A Candidate row's button in the panel, by document id. */
   const candidateRow = (id: string) =>
     `[data-testid=right-panel] [data-testid=candidate][data-doc="${id}"] [data-testid=candidate-open]`;
 
-  /**
-   * Drag a Candidate row onto the editor line holding `line`, the way the
-   * browser would: one DataTransfer from `dragstart` to `dragend` (as in
-   * candidates.cy.ts, spec #202).
-   */
-  function dragOntoLine(id: string, line: string) {
-    const data = new DataTransfer();
-    cy.get(candidateRow(id)).trigger("dragstart", { dataTransfer: data });
-    cy.get(candidateRow(id)).should("have.attr", "data-dragging", "true");
-    cy.contains(".cm-line", line).trigger("dragover", { dataTransfer: data });
-    cy.contains(".cm-line", line).trigger("drop", { dataTransfer: data });
-    cy.get(candidateRow(id)).trigger("dragend", { dataTransfer: data });
-  }
+  const dragOntoLine = (id: string, line: string) => dragRowOntoLine(candidateRow(id), line);
 
   beforeEach(() => cy.openApp());
 

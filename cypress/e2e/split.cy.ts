@@ -1,19 +1,11 @@
 // The talk and its Board side by side (PLAN §22). Cypress runs at 1280x720,
 // which fits both sides once the sidebar is out of the way.
-import { dragRowOntoLine } from "../support/drag";
+import { dragRowOntoLine, storedText } from "../support/drag";
 
 /** A Material drawer row's button, by document id. */
 const drawerRow = (id: string) =>
   `[data-testid=board-drawer] [data-testid=board-drawer-row][data-doc="${id}"] button`;
 
-/** The stored text of a document. */
-function storedText(title: string) {
-  return cy
-    .docByTitle(title)
-    .then((d) =>
-      cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`),
-    );
-}
 describe("Split", () => {
   beforeEach(() => cy.openApp());
 
@@ -283,5 +275,15 @@ describe("Split", () => {
       "not.exist",
     );
     cy.get("[data-testid=reading-toggle]").click();
+  });
+
+  it("does not let drawer rows drag with the Board alone on screen", () => {
+    // No text beside it to drop into: a row only places, by its click.
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=tab-board]").click();
+    cy.get("[data-testid=board-drawer-row] button").should("have.length.at.least", 1);
+    cy.get("[data-testid=board-drawer-row] button[draggable=true]").should(
+      "not.exist",
+    );
   });
 });
