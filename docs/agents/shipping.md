@@ -77,7 +77,7 @@ Bookkeeping files (a conflict only in these is mechanical):
 
 Required on `main`: `Typecheck, tests, fmt, clippy, Tauri build check` (CI), and `ship`.
 
-Run locally before marking a PR ready: `npm run check` (typecheck, unit tests, clippy with `-D warnings`), plus `cargo test -p engine` and the Cypress spec of any UI feature touched (`npx cypress run --spec cypress/e2e/<spec>.cy.ts`, with `npm run tauri dev` running).
+Run locally before marking a PR ready: `npm run check` (rustfmt check, typecheck, unit tests, clippy with `-D warnings`), plus `cargo test -p engine` and the Cypress spec of any UI feature touched (`npx cypress run --spec cypress/e2e/<spec>.cy.ts`, with `npm run tauri dev` running).
 
 ## After merge
 
