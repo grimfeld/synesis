@@ -8,7 +8,7 @@ import {
   type Backlink,
   type BacklinkKind,
   type Candidate,
-  type Candidates as CandidatesResult,
+  type CandidateList,
   type DetectedRange,
   type DocSummary,
   type DocumentPayload,
@@ -124,7 +124,7 @@ export function RightPanel({
     deps: { any: true },
     fetch: () => api.backlinks(id),
   });
-  const { data: candidatesData } = useQuery<CandidatesResult>({
+  const { data: candidatesData } = useQuery<CandidateList>({
     key: [id, doc.summary.mtime],
     deps: { any: true },
     enabled: type === "composition",
