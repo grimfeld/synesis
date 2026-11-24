@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { House, PenLine, Zap } from "lucide-react";
 import { api, WRITING_TYPES, type DocSummary } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Kbd } from "@/components/ui/kbd";
 import { CaptureBox } from "@/components/CaptureBox";
+import { captureRest } from "@/lib/captureRest";
 
 const DAY = 86_400_000;
 
@@ -108,15 +109,23 @@ function QuickCapture() {
   const s = useStore();
   const t = useT();
   const [text, setText] = useState("");
+  // The box's text as of now, which a create in flight reads when it ends.
+  const textRef = useRef("");
+  const change = (v: string) => {
+    textRef.current = v;
+    setText(v);
+  };
   // Bumped to empty the box after a capture, which keeps its focus.
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const submit = async () => {
-    if (!text.trim() || busy) return;
+    const submitted = textRef.current;
+    if (!submitted.trim() || busy) return;
     setBusy(true);
     try {
-      await s.createDoc("note", stamp(), {}, text.trim() + "\n", false);
-      setText("");
+      await s.createDoc("note", stamp(), {}, submitted.trim() + "\n", false);
+      // The box stays editable meanwhile: keep what was typed since.
+      change(captureRest(submitted, textRef.current));
       setRevision((r) => r + 1);
     } finally {
       setBusy(false);
@@ -137,7 +146,7 @@ function QuickCapture() {
           data-testid="home-quick-box"
           value={text}
           revision={revision}
-          onChange={setText}
+          onChange={change}
           onSubmit={submit}
           placeholder={t.quick_capture_hint}
           ariaLabel={t.quick_capture_box}

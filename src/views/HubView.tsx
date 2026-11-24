@@ -102,6 +102,7 @@ import { PaneButtons } from "@/components/Panes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
 import { CaptureBox } from "@/components/CaptureBox";
+import { captureRest } from "@/lib/captureRest";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -2076,6 +2077,12 @@ function SourceCapture({ source }: { source: DocSummary }) {
   const t = useT();
   const [type, setType] = useState<"clipping" | "note">("clipping");
   const [text, setText] = useState("");
+  // The box's text as of now, which a create in flight reads when it ends.
+  const textRef = useRef("");
+  const change = (v: string) => {
+    textRef.current = v;
+    setText(v);
+  };
   const [locator, setLocator] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
@@ -2085,7 +2092,8 @@ function SourceCapture({ source }: { source: DocSummary }) {
   const clipping = type === "clipping";
 
   const submit = async () => {
-    if (!text.trim() || busy) return;
+    const submitted = textRef.current;
+    if (!submitted.trim() || busy) return;
     setBusy(true);
     try {
       const fields: Record<string, string> = {
@@ -2099,12 +2107,13 @@ function SourceCapture({ source }: { source: DocSummary }) {
         clipping ? "" : title.trim() || stamp(),
         fields,
         // Typed bare, stored quoted on every line, markdown kept inside.
-        clipping ? quoteBody(text) : text.trim() + "\n",
+        clipping ? quoteBody(submitted) : submitted.trim() + "\n",
         // Stay on the Source: capturing five passages from one chapter is the
         // point, and opening each one defeats it.
         false,
       );
-      setText("");
+      // The box stays editable meanwhile: keep what was typed since.
+      change(captureRest(submitted, textRef.current));
       setRevision((r) => r + 1);
       setLocator("");
       setTitle("");
@@ -2155,7 +2164,7 @@ function SourceCapture({ source }: { source: DocSummary }) {
           data-testid="capture-text"
           value={text}
           revision={revision}
-          onChange={setText}
+          onChange={change}
           onSubmit={submit}
           placeholder={
             clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
