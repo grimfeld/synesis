@@ -62,6 +62,28 @@ describe("createActiveEditor", () => {
     expect(r.active()).toBe("page");
   });
 
+  it("drops a kept box when the palette closes with focus falling to the body", () => {
+    const r = createActiveEditor<string>();
+    r.register("page");
+    r.focus("box");
+    r.blur("box", { kept: true });
+    // No focusin anywhere: only the palette closing says the keep is over.
+    r.keepEnded();
+    expect(r.active()).toBe("page");
+    expect(r.boxActive()).toBe(false);
+  });
+
+  it("keeps a box that took focus back before the palette's close was handled", () => {
+    const r = createActiveEditor<string>();
+    r.register("page");
+    r.focus("box");
+    r.blur("box", { kept: true });
+    // The Command focused the box again (bold), then the close is handled.
+    r.focus("box");
+    r.keepEnded();
+    expect(r.active()).toBe("box");
+  });
+
   it("ignores focus landing elsewhere while the box itself has focus", () => {
     const r = createActiveEditor<string>();
     r.focus("box");

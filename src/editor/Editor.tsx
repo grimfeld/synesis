@@ -431,9 +431,10 @@ export function Editor({
   // With two Panes, Commands act on the editor in the last-used one: the
   // flag moves as the user moves between them (spec #35).
   useEffect(() => {
-    if (activeWhileFocused) return;
-    if (register) setActiveEditor(viewRef.current);
-    else releaseActiveEditor(viewRef.current);
+    const v = viewRef.current;
+    if (activeWhileFocused || !v) return;
+    if (register) setActiveEditor(v);
+    else releaseActiveEditor(v);
   }, [register, activeWhileFocused]);
 
   // Live Preview <-> Source mode.

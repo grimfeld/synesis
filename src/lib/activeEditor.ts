@@ -6,8 +6,8 @@
 //   focus and gives it back on blur, so a Command never hits the Writing page
 //   behind the box. Opening the Command palette moves focus out of the box,
 //   so a blur into the palette keeps the claim ("kept") until focus lands
-//   anywhere else or the box unmounts; a Command run from the palette then
-//   still reaches the box.
+//   anywhere else, the palette closes without focus coming back, or the box
+//   unmounts; a Command run from the palette then still reaches the box.
 //
 // Pure: the DOM glue (which blur is into the palette) is in src/editor/active.ts.
 
@@ -26,6 +26,12 @@ export interface ActiveEditor<V> {
   blur(view: V, opts: { kept: boolean }): void;
   /** Focus landed outside every box and outside the palette. */
   focusElsewhere(): void;
+  /**
+   * The palette closed, or focus left it for nowhere (the page's body, which
+   * no focusin announces): a box still holding a kept claim gives it back.
+   * A box that has taken focus again keeps it.
+   */
+  keepEnded(): void;
   subscribe(listener: () => void): () => void;
 }
 
@@ -36,6 +42,12 @@ export function createActiveEditor<V>(): ActiveEditor<V> {
   let kept = false;
   const listeners = new Set<() => void>();
   const active = () => box ?? page;
+  const dropKept = () => {
+    if (box !== null && kept) {
+      box = null;
+      kept = false;
+    }
+  };
   const change = (fn: () => void) => {
     const before = active();
     fn();
@@ -67,13 +79,8 @@ export function createActiveEditor<V>(): ActiveEditor<V> {
         if (opts.kept) kept = true;
         else box = null;
       }),
-    focusElsewhere: () =>
-      change(() => {
-        if (box !== null && kept) {
-          box = null;
-          kept = false;
-        }
-      }),
+    focusElsewhere: () => change(dropKept),
+    keepEnded: () => change(dropKept),
     subscribe: (l) => {
       listeners.add(l);
       return () => listeners.delete(l);

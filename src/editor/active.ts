@@ -10,12 +10,15 @@ import { createActiveEditor } from "@/lib/activeEditor";
 
 const registry = createActiveEditor<EditorView>();
 
-/** Marks the Command palette: focus moving into it keeps a box the active editor. */
+/**
+ * Marks the Command palette: focus moving into it keeps a box the active
+ * editor. The palette calls `keepZoneClosed` when it closes.
+ */
 export const KEEPS_EDITOR_ATTR = "data-keeps-editor";
 
 /** A Writing page (or a Hub's About) becomes the editor Commands act on. */
-export function setActiveEditor(view: EditorView | null) {
-  if (view) registry.register(view);
+export function setActiveEditor(view: EditorView) {
+  registry.register(view);
 }
 /** Forget every claim `view` holds (unmount, or its Pane is no longer active). */
 export function releaseActiveEditor(view: EditorView | null) {
@@ -42,6 +45,20 @@ const inKeepZone = (el: EventTarget | null) =>
   el instanceof Element && el.closest(`[${KEEPS_EDITOR_ATTR}]`) !== null;
 
 /**
+ * The Command palette closed (or focus left it for the body, which no
+ * focusin announces): a box's kept claim ends. Deferred one task, so a
+ * Command the palette started (it runs on a timeout once the palette closes)
+ * still reaches the box; a box that has taken focus back by then keeps it,
+ * and so does a palette that still holds focus (StrictMode's rehearsed
+ * unmount, a click on the palette's own background).
+ */
+export function keepZoneClosed() {
+  window.setTimeout(() => {
+    if (!inKeepZone(document.activeElement)) registry.keepEnded();
+  }, 0);
+}
+
+/**
  * Make `view` the active editor only while it has focus (a capture box,
  * spec #206). Focus moving into the Command palette keeps the claim, so a
  * Command picked there still reaches the box; focus landing anywhere else
@@ -60,14 +77,20 @@ export function claimWhileFocused(view: EditorView): () => void {
     if (inKeepZone(e.target)) return;
     registry.focusElsewhere();
   };
+  // Focus leaving the palette for nowhere fires no focusin to end the keep.
+  const onDocFocusOut = (e: FocusEvent) => {
+    if (e.relatedTarget === null && inKeepZone(e.target)) keepZoneClosed();
+  };
   dom.addEventListener("focusin", onFocusIn);
   dom.addEventListener("focusout", onFocusOut);
   document.addEventListener("focusin", onDocFocusIn);
+  document.addEventListener("focusout", onDocFocusOut);
   if (view.hasFocus) registry.focus(view);
   return () => {
     dom.removeEventListener("focusin", onFocusIn);
     dom.removeEventListener("focusout", onFocusOut);
     document.removeEventListener("focusin", onDocFocusIn);
+    document.removeEventListener("focusout", onDocFocusOut);
     registry.release(view);
   };
 }

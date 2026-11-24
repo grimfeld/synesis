@@ -100,6 +100,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CaptureBox, closeBoxPopup } from "@/components/CaptureBox";
+import { keepZoneClosed } from "@/editor/active";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import L from "leaflet";
 import { diffLines, diffStats } from "@/lib/diff";
@@ -1492,6 +1493,9 @@ function Palette({
   const s = useStore();
   const t = useT();
   const commands = useCommands();
+  // A capture box that lost focus to the palette stays the editor Commands
+  // act on while it is open; closing it ends that, wherever focus falls.
+  useEffect(() => keepZoneClosed, []);
   const [q, setQ] = useState(initial);
   const [names, setNames] = useState<NameIndex>(() => new NameIndex());
   // The app language's names for each kind of page, so `type:` can be typed
