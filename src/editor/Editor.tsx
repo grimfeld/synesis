@@ -41,6 +41,7 @@ import {
 } from "./decorations";
 import { livePreview } from "./livePreview";
 import { pictureDisplay, pictureHost, pictureInput } from "./pictures";
+import { docDrop, docDropHost } from "./docDrop";
 import { useT } from "@/i18n";
 import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
@@ -103,6 +104,12 @@ interface Props {
    * document's, its Hub's for an About, its Source's for a Clipping.
    */
   pictureTitle?: string;
+  /**
+   * The Composition whose dragged material this editor accepts (spec #202):
+   * its own id, in the editor of a Composition. Absent everywhere else, so a
+   * drag from the Candidates panel lands only in the text it belongs to.
+   */
+  dropOwner?: string;
 }
 
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
@@ -132,10 +139,13 @@ export function Editor({
   compact = false,
   onReady,
   pictureTitle = "",
+  dropOwner,
 }: Props) {
   const t = useT();
   const pictureTitleRef = useRef(pictureTitle);
   pictureTitleRef.current = pictureTitle;
+  const dropOwnerRef = useRef(dropOwner);
+  dropOwnerRef.current = dropOwner;
   const tRef = useRef(t);
   tRef.current = t;
   const host = useRef<HTMLDivElement>(null);
@@ -194,6 +204,8 @@ export function Editor({
           }),
         }),
         pictureInput,
+        docDropHost.of({ owner: () => dropOwnerRef.current }),
+        docDrop,
         lockCompartment.current.of(readOnly ? lock({ checkboxes }) : []),
         history(),
         drawSelection(),

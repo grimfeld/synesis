@@ -37,6 +37,7 @@ import { DocHeader } from "@/components/DocHeader";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
 import { IconButton } from "@/components/IconButton";
 import { RightPanel } from "@/components/RightPanel";
+import { clippingCitation } from "@/lib/linkText";
 import { TutorialButton } from "@/components/TutorialPanel";
 import { tutorial, tutorialsFor, type TutorialPlace } from "@/lib/tutorials";
 import { useTutorials } from "@/lib/tutorialState";
@@ -202,11 +203,7 @@ export function DocView({ id }: { id: string }) {
     .split("|")[0]
     .trim();
   const citation =
-    sum.type === "clipping"
-      ? [sourceName, fmString(doc.frontmatter.locator).trim()]
-          .filter(Boolean)
-          .join(" · ")
-      : undefined;
+    sum.type === "clipping" ? clippingCitation(doc.frontmatter) : undefined;
 
   // The talk: title, Properties and the editor, scrolling as one. Shared by
   // the Talk tab and the left side of a split.
@@ -243,6 +240,8 @@ export function DocView({ id }: { id: string }) {
           readOnly={locked}
           // A Clipping has no title, so its Pictures take its Source's (ADR 0019).
           pictureTitle={sum.type === "clipping" ? sourceName : sum.title}
+          // Material dragged from this Composition's Candidates lands here only.
+          dropOwner={sum.type === "composition" ? sum.id : undefined}
         />
       </div>
     </div>

@@ -1,4 +1,4 @@
-import type { DocSummary } from "./api";
+import { fmString, type DocSummary, type Frontmatter } from "./api";
 import { resolve } from "./findOccurrence";
 
 /**
@@ -26,6 +26,43 @@ export function linkText(
   return matched === target.title
     ? `[[${target.title}]]`
     : `[[${target.title}|${matched}]]`;
+}
+
+/**
+ * A Clipping's Citation as the app says it: the Source it names and the
+ * Locator within it, joined by " · " (ADR 0013). The `source` property is a
+ * wikilink, and neither its brackets nor its alias are the Source's name.
+ */
+export function clippingCitation(fm: Frontmatter): string {
+  const source = fmString(fm.source)
+    .trim()
+    .replace(/^\[\[|\]\]$/g, "")
+    .split("|")[0]
+    .trim();
+  return [source, fmString(fm.locator).trim()].filter(Boolean).join(" · ");
+}
+
+/**
+ * The Embed that brings a Clipping into a Composition, in ADR 0013's aliased
+ * form: `![[<file's stem>|<Citation>]]`. The stem is stable and unique, the
+ * alias is what a person reads. As for `linkText`, an ambiguous stem is
+ * written as a path. The alias cannot hold what would end the link (`|`,
+ * brackets, a line break), so those become look-alikes rather than vanish.
+ */
+export function embedLink(
+  clipping: DocSummary,
+  citation: string,
+  ambiguous: boolean,
+): string {
+  const path = clipping.path.replace(/\.md$/, "");
+  const target = ambiguous ? path : path.split("/").pop()!;
+  const alias = citation
+    .replace(/\s+/g, " ")
+    .replace(/\|/g, "/")
+    .replace(/\[/g, "(")
+    .replace(/\]/g, ")")
+    .trim();
+  return alias ? `![[${target}|${alias}]]` : `![[${target}]]`;
 }
 
 /**
