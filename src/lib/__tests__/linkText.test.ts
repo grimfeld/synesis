@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { clippingCitation, embedLink, linkInBody, linkText } from "../linkText";
+import {
+  clippingCitation,
+  clippingSourceName,
+  embedLink,
+  fileStem,
+  linkInBody,
+  linkText,
+} from "../linkText";
 import type { DocSummary } from "../api";
 
 const doc = (title: string, path: string): DocSummary =>
@@ -132,5 +139,19 @@ describe("clippingCitation", () => {
     expect(clippingCitation({ source: "[[Insight: Ephesus]]" })).toBe("Insight: Ephesus");
     expect(clippingCitation({ locator: "p. 3" })).toBe("p. 3");
     expect(clippingCitation({})).toBe("");
+  });
+});
+
+describe("fileStem", () => {
+  it("drops the folders and `.md`", () => {
+    expect(fileStem("Clippings/a/x 1.md")).toBe("x 1");
+    expect(fileStem("x.md")).toBe("x");
+  });
+});
+
+describe("clippingSourceName", () => {
+  it("is the Source's name without the link's brackets or alias", () => {
+    expect(clippingSourceName({ source: " [[Keep Enduring|KEJ]] " })).toBe("Keep Enduring");
+    expect(clippingSourceName({})).toBe("");
   });
 });
