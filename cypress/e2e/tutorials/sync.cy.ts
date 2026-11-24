@@ -57,7 +57,7 @@ describe("Tutorial: Folder sync", () => {
       }
       // The do-it-once step: this device's half of it, the test Note.
       cy.tutorialCommand("create.quick");
-      cy.get("[role=dialog] textarea").type(
+      cy.get("[data-testid=quick-capture-box] .cm-content").type(
         "sync test from this device{ctrl}{enter}",
       );
       cy.get(".cm-content").should("contain", "sync test from this device");

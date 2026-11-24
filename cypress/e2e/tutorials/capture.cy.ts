@@ -19,7 +19,7 @@ describe("Tutorial: Quick capture & Notes", () => {
     // 2. The Quick capture Command opens the same box as a dialog.
     cy.tutorialStep(1);
     cy.tutorialCommand("create.quick");
-    cy.get("[role=dialog]").should("contain", "Quick capture").find("textarea").should("exist");
+    cy.get("[role=dialog]").should("contain", "Quick capture").find("[data-testid=quick-capture-box] .cm-content").should("exist");
     cy.get("body").type("{esc}");
     cy.get("[role=dialog]").should("not.exist");
     cy.tutorialNext();
