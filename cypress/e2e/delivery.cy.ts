@@ -24,6 +24,22 @@ describe("Delivery view", () => {
     );
   });
 
+  // iPad: the view is a fixed overlay outside #root's padding, so it pads its
+  // own content by the safe area (--safe-*, index.css) while its background
+  // still starts at the very top. A test can set the variable, not env().
+  it("keeps its controls below a top inset, its background from the top", () => {
+    cy.document().then((d) => d.documentElement.style.setProperty("--safe-top", "40px"));
+    deliver();
+    cy.get("[data-testid=delivery]").then(($v) => {
+      expect($v[0].getBoundingClientRect().top).to.eq(0);
+    });
+    for (const id of ["delivery-exit", "delivery-face-talk"]) {
+      cy.get(`[data-testid=${id}]`).then(($b) => {
+        expect($b[0].getBoundingClientRect().top).to.be.gte(40);
+      });
+    }
+  });
+
   it("exits on Escape", () => {
     deliver();
     cy.get("body").type("{esc}");

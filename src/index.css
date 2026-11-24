@@ -16,6 +16,13 @@
    inline variables on <html> by src/lib/appearance.tsx (PLAN §22). */
 :root {
   color-scheme: light;
+  /* The device's safe area (notch, status bar, home indicator, window
+     controls), one source for #root, the Delivery view and Sheets. A test can
+     override these, which it cannot do with env(). */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
   --radius: 0.625rem;
   /* typography: what a Skin may change (src/lib/skin.ts, typographyVars) */
   --font-prose-stack: "Source Serif 4 Variable", Georgia, serif;
@@ -269,10 +276,26 @@
   }
   /* iOS reports the notch / home indicator through env(); Android pads natively (scripts/android-post-init.mjs). */
   #root {
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    padding-left: env(safe-area-inset-left, 0px);
-    padding-right: env(safe-area-inset-right, 0px);
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+    padding-right: var(--safe-right);
+  }
+  /* A Sheet is a fixed overlay outside #root's padding: its panel pads the
+     edges it touches (its backdrop stays edge to edge). In the base layer, so
+     a Sheet that sets its own padding replaces this and adds the inset itself.
+     A class, not data-slot: the mobile sidebar overrides data-slot. */
+  .sheet-panel[data-side="left"] {
+    padding: var(--safe-top) 0 var(--safe-bottom) var(--safe-left);
+  }
+  .sheet-panel[data-side="right"] {
+    padding: var(--safe-top) var(--safe-right) var(--safe-bottom) 0;
+  }
+  .sheet-panel[data-side="top"] {
+    padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
+  }
+  .sheet-panel[data-side="bottom"] {
+    padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
   }
   body {
     @apply bg-background text-foreground;
@@ -412,3 +435,13 @@
    pointer events back from the body Radix disables. Only then, so it never
    covers a popover or menu the rest of the time. */
 body:has([data-slot="dialog-overlay"]) [data-tutorial-panel] { z-index: 60; pointer-events: auto; }
+
+/* A Sheet's close button, below the status bar and clear of the side inset on
+   the edges the Sheet touches. Outside every layer, so it beats the button's
+   own top-3 / right-3 utilities. */
+.sheet-panel:not([data-side="bottom"]) > [data-slot="sheet-close"] {
+  top: calc(var(--safe-top) + 0.75rem);
+}
+.sheet-panel:not([data-side="left"]) > [data-slot="sheet-close"] {
+  right: calc(var(--safe-right) + 0.75rem);
+}

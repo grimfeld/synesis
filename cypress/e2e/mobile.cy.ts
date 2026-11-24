@@ -29,6 +29,23 @@ describe("Mobile sidebar", () => {
     cy.get("[data-sidebar=sidebar][data-mobile=true]").should("not.exist");
   });
 
+  // iOS: the Sheet is a fixed overlay outside #root's padding, so its panel
+  // pads the edges it touches by the safe area (--safe-*, index.css); its
+  // backdrop still covers the screen.
+  it("keeps the sheet's content below a top inset, its backdrop from the top", () => {
+    cy.document().then((d) => d.documentElement.style.setProperty("--safe-top", "40px"));
+    openSheet();
+    cy.get("[data-slot=sheet-overlay]").then(($o) => {
+      expect($o[0].getBoundingClientRect().top).to.eq(0);
+    });
+    cy.get("[data-sidebar=sidebar][data-mobile=true]").then(($s) => {
+      expect($s[0].getBoundingClientRect().top).to.eq(0);
+      // The sheet's own content: its first box sits below the inset.
+      const content = $s[0].querySelector("[data-testid=sidebar-mobile-content]");
+      expect(content?.getBoundingClientRect().top).to.be.gte(40);
+    });
+  });
+
   it("shows the side panel as a sheet that can be closed again", () => {
     openSheet();
     cy.get("[data-testid=doc-item]").contains("Endurance in trials").click();
