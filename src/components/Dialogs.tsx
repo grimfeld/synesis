@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import { CalendarPicker } from "@/components/CalendarPicker";
+import { AddSource } from "@/components/CompositionSources";
 import { cn } from "cn";
 import {
   api,
@@ -40,17 +41,11 @@ import { FRONTMATTER, SPAN, titleFor } from "@/lib/docTypes";
 import { useQuery } from "@/lib/useQuery";
 import { NameIndex } from "@/lib/names";
 import {
-  addSourceFilter,
   canCreate as offersCreate,
   enterChoice,
   moveActive,
   searchPicker,
-  sourceNames,
-  sourcesEntries,
 } from "@/lib/docPicker";
-import { readField, setField } from "@/lib/frontmatter";
-import { live } from "@/lib/live";
-import { toast } from "sonner";
 import {
   parsePaletteQuery,
   toggleTypeFilter,
@@ -505,7 +500,7 @@ export function stamp(d = new Date()) {
 }
 
 /** A modal shell: always open while mounted, closes through onClose. */
-function Shell({
+export function Shell({
   title,
   description,
   wide,
@@ -2031,56 +2026,3 @@ function CalendarDateField({
   );
 }
 
-/**
- * Add Source (spec #205): a Source for the open Composition's `sources`
- * Property. Opened from the Candidates panel's Sources row and from the
- * palette, so it writes the front matter through the document's live copy
- * (`editFm`, the path every Property edit takes), never through the text.
- */
-const SOURCE_ONLY: DocType[] = ["source"];
-
-function AddSource({ id, onClose }: { id: string; onClose: () => void }) {
-  const s = useStore();
-  const t = useT();
-  const [value, setValue] = useState("");
-  const [entries, setEntries] = useState<NameEntry[]>([]);
-  useEffect(() => {
-    namesApi.names().then(setEntries).catch(console.error);
-  }, []);
-  const current = () => {
-    const d = live.peek(id);
-    if (!d) return null;
-    const snap = d.snapshot();
-    return { d, fm: snap.fm, list: sourcesEntries(readField(snap.fm, "sources"), snap.doc?.frontmatter.sources) };
-  };
-  // What is attached as the dialog opens: picking one closes it.
-  const [attached] = useState(() => sourceNames(current()?.list ?? []));
-  const filter = useMemo(() => addSourceFilter(attached, s.docs, entries), [attached, s.docs, entries]);
-  const add = (doc: DocSummary) => {
-    const c = current();
-    if (!c) return void toast.error(t.source_not_open);
-    if (s.readingMode) return void toast(t.reading_locked);
-    c.d.editFm(setField(c.fm, "sources", [...c.list, `[[${doc.title}]]`]));
-    onClose();
-  };
-  return (
-    <Shell title={t.add_source} description={t.add_source_hint} onClose={onClose}>
-      <div data-testid="add-source-dialog" className="min-w-0">
-        <DocPicker
-          types={SOURCE_ONLY}
-          filter={filter}
-          aliases
-          autoFocus
-          inlineList
-          value={value}
-          placeholder={t.add_source_placeholder}
-          testId="add-source-input"
-          onChange={(v, doc) => {
-            setValue(v);
-            if (doc) add(doc);
-          }}
-        />
-      </div>
-    </Shell>
-  );
-}
