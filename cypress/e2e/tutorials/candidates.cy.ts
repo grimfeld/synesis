@@ -41,10 +41,32 @@ describe("Tutorial: Candidates", () => {
     cy.get("[data-testid=doc-title]").should("have.value", "Talk on endurance");
     cy.tutorialNext();
 
-    // 3. Do it once: drag a Candidate into the text, then link another from
+    // 3. Attach a Source with the palette's Add Source (spec #205). The talk
+    // already draws on "Keep Enduring with Joy"; "Insight on the Scriptures"
+    // is a book whose part "Insight: Ephesus" has a Clipping sharing nothing
+    // with the talk, so it comes in only through the book.
+    cy.tutorialStep(2);
+    const ephesusClipping = "01M26CD0M8DS5XFH3Z53RRQ51F";
+    const sourcesRow = "[data-testid=right-panel] [data-testid=sources-row]";
+    cy.get(`[data-testid=right-panel] [data-testid=candidate][data-doc="${ephesusClipping}"]`).should("not.exist");
+    cy.tutorialCommand("composition.addSource");
+    cy.get("[data-testid=add-source-dialog]").should("be.visible");
+    cy.get("[data-testid=add-source-input]").type("Insight on");
+    cy.contains("[data-testid=picker-option]", "Insight on the Scriptures").click();
+    cy.get("[data-testid=add-source-dialog]").should("not.exist");
+    cy.get(`${sourcesRow} [data-testid=source-chip]`)
+      .should("have.length", 2)
+      .and("contain", "Insight on the Scriptures");
+    cy.get(`[data-testid=right-panel] [data-testid=candidates]`)
+      .parent()
+      .find(`[data-testid=candidate][data-doc="${ephesusClipping}"] [data-testid=candidate-from-source]`)
+      .should("contain", "Insight on the Scriptures");
+    cy.tutorialNext();
+
+    // 4. Do it once: drag a Candidate into the text, then link another from
     // a new line; both move to Used. "Week 10" shares Ro 5:3-5 with the talk
     // and is neither used nor on the Board.
-    cy.tutorialStep(2);
+    cy.tutorialStep(3);
     cy.docByTitle("Week 10").then((week) => {
       cy.get("[data-testid=right-panel] [data-testid=candidates]")
         .parent()
