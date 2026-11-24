@@ -4,7 +4,7 @@ Un candidat est un document de votre coffre, le plus souvent une Note ou un Extr
 
 1. Ouvrez une de vos Compositions depuis **Compositions en cours** sur l'[Accueil](command:nav.home), où chaque carte compte ses candidats, ou créez-en une avec [Nouvelle Composition](command:create.composition) (son bouton **Supprimer** dans l'en-tête l'enlève). Si elle n'a encore ni tag ni Passage, ajoutez un tag à la fin avec [Insérer un tag](command:editor.tag).
 2. Regardez **Matière candidate** dans le panneau de droite (**Afficher / masquer le panneau** dans l'en-tête l'affiche). Chaque candidat indique les tags et Passages qu'il partage avec la Composition. Cliquez sur l'un d'eux pour le lire, puis revenez avec [Retour](command:nav.back).
-3. Essayez une fois : utilisez un candidat. Sur une nouvelle ligne de votre Composition, lancez [Insérer un lien](command:editor.link) et tapez son titre, ou incorporez un Extrait avec [Insérer une incorporation](command:editor.embed). Il quitte **Matière candidate** et passe dans **Utilisé dans cette Composition**.
+3. Essayez une fois : utilisez un candidat. Sur un ordinateur, faites-le glisser depuis **Matière candidate** dans votre texte, là où il a sa place : un Extrait arrive comme une incorporation sur sa propre ligne, tout le reste comme un lien. Ou bien, sur une nouvelle ligne de votre Composition, lancez [Insérer un lien](command:editor.link) et tapez son titre, ou incorporez un Extrait avec [Insérer une incorporation](command:editor.embed). Il quitte **Matière candidate** et passe dans **Utilisé dans cette Composition**.
 
 ## À savoir
 

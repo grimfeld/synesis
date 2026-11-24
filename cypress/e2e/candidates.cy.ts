@@ -1,5 +1,6 @@
 // Candidates on a Composition: shared material the Composition does not yet
 // link, versus material it already links, embeds or tags ("Used").
+import { dragRowOntoLine } from "../support/drag";
 
 /** The stored text of a document. */
 function storedText(title: string) {
@@ -10,19 +11,8 @@ function storedText(title: string) {
 const candidateRow = (id: string) =>
   `[data-testid=right-panel] [data-testid=candidate][data-doc="${id}"] [data-testid=candidate-open]`;
 
-/**
- * Drag a Candidate row onto the editor line holding `line`, the way the
- * browser would: one DataTransfer from `dragstart` to `dragend` (spec #202).
- */
-function dragOntoLine(id: string, line: string) {
-  const data = new DataTransfer();
-  cy.get(candidateRow(id)).trigger("dragstart", { dataTransfer: data });
-  cy.get(candidateRow(id)).should("have.attr", "data-dragging", "true");
-  cy.contains(".cm-line", line).trigger("dragover", { dataTransfer: data });
-  cy.contains(".cm-line", line).trigger("drop", { dataTransfer: data });
-  cy.get(candidateRow(id)).trigger("dragend", { dataTransfer: data });
-  cy.get(candidateRow(id)).should("not.have.attr", "data-dragging");
-}
+/** Drag a Candidate row from the panel onto the editor line holding `line`. */
+const dragOntoLine = (id: string, line: string) => dragRowOntoLine(candidateRow(id), line);
 
 const undoKey = Cypress.platform === "darwin" ? "{cmd}z" : "{ctrl}z";
 describe("Candidates", () => {
