@@ -2381,7 +2381,8 @@ impl Vault {
     }
     /// A Composition's Candidates, cut at the limit, with their totals.
     pub fn candidates(&self, id: &str) -> Result<CandidateList> {
-        self.index.candidates(id, self.lang, crate::query::CANDIDATE_LIMIT)
+        self.index
+            .candidates(id, self.lang, crate::query::CANDIDATE_LIMIT)
     }
     /// Every Clipping with its Citation, or those of one Source (ADR 0013).
     /// The Tags on each of `ids`, for filtering a list the caller already has.
