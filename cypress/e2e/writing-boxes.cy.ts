@@ -42,6 +42,25 @@ function capturedNotes() {
   });
 }
 
+/**
+ * The box's textbox (CodeMirror's content) has an accessible name: its own
+ * `aria-label`, or a visible label it points to with `aria-labelledby`.
+ */
+function hasAccessibleName(box: string) {
+  content(box)
+    .should("have.attr", "role", "textbox")
+    .then(($c) => {
+      const label = $c.attr("aria-label")?.trim();
+      const by = $c.attr("aria-labelledby");
+      if (label) return;
+      expect(by, "aria-label or aria-labelledby").to.be.a("string").and.not.be.empty;
+      cy.document().then((doc) => {
+        const names = by!.split(/\s+/).map((id) => doc.getElementById(id)?.textContent?.trim() ?? "");
+        expect(names.join(" ").trim(), "the labelling element's text").to.not.be.empty;
+      });
+    });
+}
+
 /** Run `fn` with the raw markdown showing (Source mode), then go back to Live Preview. */
 function inSource(box: string, fn: () => void) {
   content(box).type("{ctrl}e");
@@ -53,6 +72,10 @@ describe("Writing boxes: Home's quick capture", () => {
   beforeEach(() => {
     cy.openApp();
     cy.get("h1").should("contain", "Home");
+  });
+
+  it("has an accessible name", () => {
+    hasAccessibleName(HOME);
   });
 
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {
@@ -197,6 +220,13 @@ describe("Writing boxes: the Source capture box", () => {
     cy.get("[data-testid=hub-capture]").should("exist");
   });
 
+  it("has an accessible name in both modes", () => {
+    for (const mode of ["clipping", "note"] as const) {
+      cy.get(`[data-testid=capture-as-${mode}]`).click();
+      hasAccessibleName(BOX);
+    }
+  });
+
   for (const mode of ["clipping", "note"] as const) {
     it(`autocompletes links and Tags and decorates a Passage (${mode})`, () => {
       cy.get(`[data-testid=capture-as-${mode}]`).click();
@@ -302,8 +332,16 @@ describe("Writing boxes: the Source capture box", () => {
     cy.openDoc("Talk on endurance");
     cy.get("[data-testid=reading-toggle]").click();
     cy.openDoc(SOURCE);
-    content(BOX).click().type("Read, then kept{ctrl}{enter}");
+    content(BOX).click().type("Read, then kept");
+    // An editor Command from the palette still reaches the box: Reading mode
+    // locks the Writing page, not the box.
+    content(BOX).type("{ctrl}a");
+    cy.runCommand("Bold");
+    content(BOX).should("contain", "Read, then kept");
+    cy.get("[data-testid=capture-locator]").type("par. 77");
+    content(BOX).type("{ctrl}{enter}");
     cy.get("[data-testid=hub-clippings]").should("contain", "Read, then kept");
+    clippingText("par. 77").should("contain", "> **Read, then kept**");
     cy.openDoc("Talk on endurance");
     cy.get("[data-testid=reading-toggle]").click();
   });
@@ -425,6 +463,11 @@ describe("Writing boxes: the Quick capture dialog", () => {
     cy.get("h1").should("contain", "Home");
   });
 
+  it("has an accessible name", () => {
+    openQuick();
+    hasAccessibleName(QUICK);
+  });
+
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {
     openQuick();
     completes(QUICK);
@@ -512,6 +555,12 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
     cy.get("h1").should("contain", "Home");
   });
 
+  it("has an accessible name, from its visible label", () => {
+    openClipping();
+    hasAccessibleName(CLIP);
+    content(CLIP).should("have.attr", "aria-labelledby");
+  });
+
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {
     openClipping();
     completes(CLIP);
@@ -561,6 +610,18 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
     cy.get(`${CLIP} [data-testid=picture][data-state=shown]`).should("exist");
     content(CLIP).invoke("text").should("contain", "Attachments/keep enduring with joy a35094.png");
     cy.task<boolean>("file:exists", vaultFile("Attachments/keep enduring with joy a35094.png")).should("eq", true);
+  });
+
+  it("navigates nowhere when a link or Passage is clicked", () => {
+    openClipping();
+    content(CLIP).type("See [[Paul]] and Jas 1:2-4");
+    cy.get(`${CLIP} .cm-wikilink`).contains("Paul").click();
+    cy.get(`${CLIP} .cm-wikilink`).contains("Paul").click({ ctrlKey: true });
+    cy.get(`${CLIP} .cm-passage`).contains("Jas 1:2-4").click({ ctrlKey: true });
+    cy.get("[role=dialog]").should("exist");
+    content(CLIP).should("contain", "Jas 1:2-4");
+    cy.get("h1").should("contain", "Home");
+    cy.get("[data-testid=panes]").should("not.have.attr", "data-count", "2");
   });
 
   it("starts 6 lines tall", () => {

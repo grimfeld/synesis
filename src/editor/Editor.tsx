@@ -98,7 +98,8 @@ interface Props {
    * only while it has focus (or while focus is in the Command palette opened
    * from it), then the Writing page again. It never registers as the page's
    * editor, whatever `register` says. The other embedded-box options (submit
-   * key, Escape, no navigation on click, growing height) belong next to it.
+   * key, no navigation on click, growing height, accessible name) belong next
+   * to it. Escape in a dialog is the dialog's: `closeBoxPopup`.
    */
   activeWhileFocused?: boolean;
   /**
@@ -108,11 +109,19 @@ interface Props {
    */
   onSubmit?: () => void;
   /**
-   * A capture box's Escape (a dialog closing, spec #206). The autocomplete
-   * popup has Escape first: with it open, Escape only closes it. Return
-   * false to leave the key to the editor's other bindings.
+   * Escape inside the editor (a Board bubble closing, spec #207). The
+   * autocomplete popup has Escape first: with it open, Escape only closes it.
+   * Return false to leave the key to the editor's other bindings.
    */
   onEscape?: () => boolean | void;
+  /**
+   * The text box's accessible name (a capture box, spec #206), on the
+   * editable content, which is what a screen reader announces as the
+   * textbox. `ariaLabelledBy` names it after a visible label's id instead.
+   * A Writing page sets neither.
+   */
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
   /**
    * False in a capture box, whose text is unsaved (spec #206): clicking a
    * link, Tag, Passage or Embed title places the cursor and opens nothing.
@@ -206,6 +215,14 @@ const fillLayout = Prec.high(
 
 /** At rest, a press is the Board's: CodeMirror neither selects nor focuses. */
 const passPresses = EditorView.domEventHandlers({ mousedown: () => true });
+/** The content's accessible name, when one is given; nothing otherwise. */
+function nameAttrs(label?: string, labelledBy?: string) {
+  if (!label && !labelledBy) return [];
+  return EditorView.contentAttributes.of({
+    ...(label ? { "aria-label": label } : {}),
+    ...(labelledBy ? { "aria-labelledby": labelledBy } : {}),
+  });
+}
 
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
 const editorKeymap = keymap.of(
@@ -233,6 +250,8 @@ export function Editor({
   activeWhileFocused = false,
   onSubmit,
   onEscape,
+  ariaLabel,
+  ariaLabelledBy,
   navigate = true,
   lines,
   still = false,
@@ -275,6 +294,7 @@ export function Editor({
   const stillCompartment = useRef(new Compartment());
   const locking = () =>
     readOnly || still ? lock({ checkboxes: checkboxes && !still }) : [];
+  const labelCompartment = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -331,6 +351,7 @@ export function Editor({
         EditorView.lineWrapping,
         lines ? boxLayout(lines) : [],
         fill ? fillLayout : [],
+        labelCompartment.current.of(nameAttrs(ariaLabel, ariaLabelledBy)),
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
           // Through variables, so a caller can size the prose from the host
@@ -371,8 +392,8 @@ export function Editor({
           () => tagsRef.current,
         ),
         cmPlaceholder(placeholder ?? ""),
-        // A capture box's own keys. The autocomplete popup's keymap is
-        // higher still, so Enter and Escape reach it first while it is open.
+        // A capture box's own key. The autocomplete popup's keymap is higher
+        // still, so Enter reaches it first while it is open.
         Prec.high(
           keymap.of([
             {
@@ -468,9 +489,10 @@ export function Editor({
   // With two Panes, Commands act on the editor in the last-used one: the
   // flag moves as the user moves between them (spec #35).
   useEffect(() => {
-    if (activeWhileFocused) return;
-    if (register) setActiveEditor(viewRef.current);
-    else releaseActiveEditor(viewRef.current);
+    const v = viewRef.current;
+    if (activeWhileFocused || !v) return;
+    if (register) setActiveEditor(v);
+    else releaseActiveEditor(v);
   }, [register, activeWhileFocused]);
 
   // Live Preview <-> Source mode.
@@ -481,6 +503,13 @@ export function Editor({
       ),
     });
   }, [sourceMode]);
+
+  // The accessible name follows the app language.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: labelCompartment.current.reconfigure(nameAttrs(ariaLabel, ariaLabelledBy)),
+    });
+  }, [ariaLabel, ariaLabelledBy]);
 
   // Reading mode on and off; a Board bubble opened for editing and closed.
   useEffect(() => {

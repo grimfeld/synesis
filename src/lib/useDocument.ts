@@ -6,12 +6,11 @@
 // by every Pane showing that document, so two Panes on the same Note show the
 // same text and never save over each other (issue #50). Edits are relayed to
 // other Windows showing the document through the engine (issue #51).
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { api, namesApi } from "@/lib/api";
-import { NameIndex } from "@/lib/names";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { api } from "@/lib/api";
+import { useNames } from "@/lib/useNames";
 import { useStore } from "@/lib/store";
 import { live } from "@/lib/live";
-import { deliverLatest } from "@/lib/latest";
 import type { LiveBody, LiveDocument } from "@/lib/liveDocument";
 
 export type { SaveStatus } from "@/lib/liveDocument";
@@ -35,16 +34,11 @@ export function useDocument(id: string) {
   const s = useStore();
   const d = useLive(id);
   const snap = useSyncExternalStore(d.subscribe, d.snapshot);
-  const [names, setNames] = useState(() => new NameIndex());
+  const names = useNames();
 
   useEffect(() => {
     d.load({ once: true }).catch(console.error);
   }, [d]);
-
-  useEffect(
-    () => deliverLatest(namesApi.names(), (n) => setNames(new NameIndex(n))),
-    [s.changeTick, s.docs],
-  );
 
   const load = useCallback(() => d.load(), [d]);
 

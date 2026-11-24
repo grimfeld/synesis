@@ -20,8 +20,6 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "cn";
-import { api } from "@/lib/api";
-import { splitFrontmatter } from "@/lib/frontmatter";
 import { useStore, type DocTab } from "@/lib/store";
 import { useDocument } from "@/lib/useDocument";
 import { splitFits } from "@/lib/split";
@@ -37,6 +35,7 @@ import {
 import { useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
+import { embedText } from "@/editor/useEditorEnv";
 import { BoardView } from "@/views/BoardView";
 import { SplitPanes } from "@/components/SplitPanes";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
@@ -131,12 +130,7 @@ export function DeliveryView({ id }: { id: string }) {
         i && peekAt({ kind: "passage", passages: i.p, x: i.x, y: i.y }),
       onLinkHover: (i) =>
         i && peekAt({ kind: "link", target: i.target, x: i.x, y: i.y }),
-      embedText: async (target) => {
-        const r = await api.resolveLink(target);
-        if (!r) return null;
-        const full = await api.getDocument(r.id);
-        return { title: r.title, body: splitFrontmatter(full.text).body };
-      },
+      embedText,
     }),
     [d.names, peekAt],
   );

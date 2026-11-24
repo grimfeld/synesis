@@ -7,6 +7,27 @@ import { expectNoOverflow } from "../support/layout";
 const LANGS = ["en", "fr"] as const;
 
 /**
+ * Type `[[Ge` into the capture box's editor and check the autocomplete popup
+ * opens on screen (spec #206), then close it and empty the box again.
+ */
+function expectCompletionOnScreen(box: string) {
+  cy.get(`${box} .cm-content`).click().type("[[Ge", { delay: 150 });
+  cy.get(".cm-tooltip-autocomplete").should(($p) => {
+    const r = $p[0].getBoundingClientRect();
+    const win = $p[0].ownerDocument.defaultView!;
+    expect(r.width, "popup width").to.be.greaterThan(0);
+    expect(r.left, "popup left").to.be.gte(0);
+    expect(r.top, "popup top").to.be.gte(0);
+    expect(r.right, "popup right").to.be.lte(win.innerWidth);
+    expect(r.bottom, "popup bottom").to.be.lte(win.innerHeight);
+  });
+  // The first Escape closes only the popup, in a dialog too.
+  cy.get(`${box} .cm-content`).type("{esc}");
+  cy.get(".cm-tooltip-autocomplete").should("not.exist");
+  cy.get(`${box} .cm-content`).type("{ctrl}a{backspace}");
+}
+
+/**
  * A fresh Character, opened from the sidebar, with its lifespan just added
  * through "Add Date". Made through the engine rather than the palette: a spec
  * should not have to know what the Command is called in each language.
@@ -305,6 +326,8 @@ describe("Locale layout", () => {
           expect(box.width).to.be.greaterThan(dialog.width * 0.8);
         });
         expectNoOverflow();
+        expectCompletionOnScreen("[data-testid=quick-capture-box]");
+        cy.get("[role=dialog]").should("exist");
         // The on-screen keyboard resizes the viewport (`interactive-widget`),
         // here to what a phone keeps above it, and the box is filled past
         // its maximum: the box gives up height, the Create button stays.
@@ -832,6 +855,7 @@ describe("Locale layout: the Source capture box", () => {
           expect(box.width).to.be.greaterThan(card.width * 0.8);
         });
         expectNoOverflow();
+        expectCompletionOnScreen("[data-testid=capture-text]");
         cy.get("[data-testid=capture-text] .cm-content").type("x".repeat(80) + " Jas 1:2-4");
         expectNoOverflow();
       }
