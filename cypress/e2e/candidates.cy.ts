@@ -1,11 +1,6 @@
 // Candidates on a Composition: shared material the Composition does not yet
 // link, versus material it already links, embeds or tags ("Used").
-import { dragRowOntoLine } from "../support/drag";
-
-/** The stored text of a document. */
-function storedText(title: string) {
-  return cy.docByTitle(title).then((d) => cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`));
-}
+import { dragRowOntoLine, storedText } from "../support/drag";
 
 /** A Candidate row's button in the panel, by document id. */
 const candidateRow = (id: string) =>
@@ -214,6 +209,37 @@ describe("Candidates", () => {
       cy.get("[data-testid=right-panel]")
         .contains("Used in this Composition")
         .click();
+      cy.get("[data-testid=right-panel] [data-testid=used-material]")
+        .parent()
+        .find(`[data-doc="${summary.id}"]`)
+        .should("exist");
+    });
+  });
+
+  it("drags a used Clipping in again from Used, as a second reference", () => {
+    cy.bridge<{ summary: { id: string; path: string } }>("create_document", {
+      docType: "clipping",
+      title: "",
+      fields: { source: "[[Keep Enduring with Joy]]", locator: "par. 6", tags: ["endurance"] },
+      body: "> Joy twice over.\n",
+    }).then(({ summary }) => {
+      const stem = summary.path.replace(/\.md$/, "").split("/").pop();
+      const embed = `![[${stem}|Keep Enduring with Joy · par. 6]]`;
+      const count = (text: string) => text.split(embed).length - 1;
+      cy.openApp();
+      cy.openDoc("Talk on endurance");
+      dragOntoLine(summary.id, "Ro 15:5 calls God");
+      cy.wait(1000);
+      storedText("Talk on endurance").then((text) => expect(count(text)).to.equal(1));
+      // Saved, it is listed under Used, and its row there drags the same way.
+      cy.get("[data-testid=right-panel]").contains("Used in this Composition").click();
+      cy.get("[data-testid=right-panel] [data-testid=used-material]")
+        .parent()
+        .find(candidateRow(summary.id))
+        .should("have.attr", "draggable", "true");
+      dragOntoLine(summary.id, "Jas 1:2 sounds impossible");
+      cy.wait(1000);
+      storedText("Talk on endurance").then((text) => expect(count(text)).to.equal(2));
       cy.get("[data-testid=right-panel] [data-testid=used-material]")
         .parent()
         .find(`[data-doc="${summary.id}"]`)
