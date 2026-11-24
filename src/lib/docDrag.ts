@@ -56,3 +56,18 @@ export function readDocDrag(dt: DataTransfer | null | undefined): DocDrag | null
     return null;
   }
 }
+
+/**
+ * Whether an editor showing Composition `owner` (undefined: no Composition)
+ * takes `drag` (null: none from this window, or unreadable). Only the
+ * Composition the drag belongs to, and only while it can be written: any other
+ * editor, a read-only one (Reading mode) included, shows no drop indication
+ * and inserts nothing.
+ */
+export function acceptsDocDrag(
+  drag: DocDrag | null,
+  owner: string | undefined,
+  readOnly: boolean,
+): boolean {
+  return !!drag && !readOnly && owner != null && owner === drag.composition;
+}
