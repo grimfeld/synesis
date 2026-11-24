@@ -1177,6 +1177,8 @@ export function BoardView({
           onAdd={addDocument}
           onPath={(path) => board.nodes.some((n) => n.file === path)}
           defaultOpen={!beside}
+          // Only beside the talk is there text on screen to drop into (spec #202).
+          dragToText={beside && !delivering}
         />
       )}
     </div>

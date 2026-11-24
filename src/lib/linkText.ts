@@ -28,18 +28,29 @@ export function linkText(
     : `[[${target.title}|${matched}]]`;
 }
 
+/** A file's name without its folders or `.md`: what a wikilink names it by. */
+export function fileStem(path: string): string {
+  return path.replace(/\.md$/, "").split("/").pop() ?? path;
+}
+
 /**
- * A Clipping's Citation as the app says it: the Source it names and the
- * Locator within it, joined by " · " (ADR 0013). The `source` property is a
- * wikilink, and neither its brackets nor its alias are the Source's name.
+ * The Source a Clipping names. The `source` property is a wikilink, and
+ * neither its brackets nor its alias are the Source's name.
  */
-export function clippingCitation(fm: Frontmatter): string {
-  const source = fmString(fm.source)
+export function clippingSourceName(fm: Frontmatter): string {
+  return fmString(fm.source)
     .trim()
     .replace(/^\[\[|\]\]$/g, "")
     .split("|")[0]
     .trim();
-  return [source, fmString(fm.locator).trim()].filter(Boolean).join(" · ");
+}
+
+/**
+ * A Clipping's Citation as the app says it: the Source it names and the
+ * Locator within it, joined by " · " (ADR 0013).
+ */
+export function clippingCitation(fm: Frontmatter): string {
+  return [clippingSourceName(fm), fmString(fm.locator).trim()].filter(Boolean).join(" · ");
 }
 
 /**
@@ -54,8 +65,7 @@ export function embedLink(
   citation: string,
   ambiguous: boolean,
 ): string {
-  const path = clipping.path.replace(/\.md$/, "");
-  const target = ambiguous ? path : path.split("/").pop()!;
+  const target = ambiguous ? clipping.path.replace(/\.md$/, "") : fileStem(clipping.path);
   const alias = citation
     .replace(/\s+/g, " ")
     .replace(/\|/g, "/")

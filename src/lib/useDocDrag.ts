@@ -23,6 +23,7 @@ export interface DocDragSource {
     onDragEnd?: () => void;
     onClickCapture?: (e: MouseEvent) => void;
     onPointerDown?: () => void;
+    onKeyDown?: () => void;
   };
 }
 
@@ -38,7 +39,9 @@ export function useDocDrag(
 ): DocDragSource {
   const isMobile = useIsMobile();
   const [dragging, setDragging] = useState(false);
-  // A click right after a drag is the drag's, not the row's.
+  // A click right after a drag is the drag's, not the row's. The next press
+  // of the pointer or of a key starts afresh, so Enter or Space after a drag
+  // still opens the row.
   const dragged = useRef(false);
   if (!enabled || isMobile || !composition) return { dragging: false, props: {} };
   return {
@@ -47,6 +50,9 @@ export function useDocDrag(
       draggable: true,
       "data-dragging": dragging || undefined,
       onPointerDown: () => {
+        dragged.current = false;
+      },
+      onKeyDown: () => {
         dragged.current = false;
       },
       onDragStart: (e) => {
