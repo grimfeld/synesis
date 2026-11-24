@@ -1147,6 +1147,7 @@ function NewDocument({
   const titleRef = useRef<HTMLInputElement>(null);
   useEffect(() => titleRef.current?.focus(), []);
   const formRef = useRef<HTMLFormElement>(null);
+  const clippingLabel = useId();
 
   const fetchMeta = async () => {
     if (!f.url) return;
@@ -1326,9 +1327,12 @@ function NewDocument({
                 a <label>: the editor is not a form control. A Picture is
                 named after the Source, when one is chosen (ADR 0019). */}
             <div className="grid min-w-0 gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">{t.clipping_text}</span>
+              <span id={clippingLabel} className="text-xs font-medium text-muted-foreground">
+                {t.clipping_text}
+              </span>
               <CaptureBox
                 data-testid="clipping-text"
+                ariaLabelledBy={clippingLabel}
                 value={body}
                 onChange={setBody}
                 onSubmit={() => formRef.current?.requestSubmit()}
@@ -1446,6 +1450,7 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
         value={text}
         onChange={setText}
         onSubmit={submit}
+        ariaLabel={t.quick_capture_box}
         minLines={6}
         maxLines={12}
         autofocus

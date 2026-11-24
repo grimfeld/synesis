@@ -2160,6 +2160,7 @@ function SourceCapture({ source }: { source: DocSummary }) {
           placeholder={
             clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
           }
+          ariaLabel={clipping ? t.clipping_text : t.capture_note_text}
           minLines={3}
           maxLines={12}
           pictureTitle={source.title}

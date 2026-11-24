@@ -42,6 +42,25 @@ function capturedNotes() {
   });
 }
 
+/**
+ * The box's textbox (CodeMirror's content) has an accessible name: its own
+ * `aria-label`, or a visible label it points to with `aria-labelledby`.
+ */
+function hasAccessibleName(box: string) {
+  content(box)
+    .should("have.attr", "role", "textbox")
+    .then(($c) => {
+      const label = $c.attr("aria-label")?.trim();
+      const by = $c.attr("aria-labelledby");
+      if (label) return;
+      expect(by, "aria-label or aria-labelledby").to.be.a("string").and.not.be.empty;
+      cy.document().then((doc) => {
+        const names = by!.split(/\s+/).map((id) => doc.getElementById(id)?.textContent?.trim() ?? "");
+        expect(names.join(" ").trim(), "the labelling element's text").to.not.be.empty;
+      });
+    });
+}
+
 /** Run `fn` with the raw markdown showing (Source mode), then go back to Live Preview. */
 function inSource(box: string, fn: () => void) {
   content(box).type("{ctrl}e");
@@ -53,6 +72,10 @@ describe("Writing boxes: Home's quick capture", () => {
   beforeEach(() => {
     cy.openApp();
     cy.get("h1").should("contain", "Home");
+  });
+
+  it("has an accessible name", () => {
+    hasAccessibleName(HOME);
   });
 
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {
@@ -195,6 +218,13 @@ describe("Writing boxes: the Source capture box", () => {
     cy.openApp();
     cy.openDoc(SOURCE);
     cy.get("[data-testid=hub-capture]").should("exist");
+  });
+
+  it("has an accessible name in both modes", () => {
+    for (const mode of ["clipping", "note"] as const) {
+      cy.get(`[data-testid=capture-as-${mode}]`).click();
+      hasAccessibleName(BOX);
+    }
   });
 
   for (const mode of ["clipping", "note"] as const) {
@@ -425,6 +455,11 @@ describe("Writing boxes: the Quick capture dialog", () => {
     cy.get("h1").should("contain", "Home");
   });
 
+  it("has an accessible name", () => {
+    openQuick();
+    hasAccessibleName(QUICK);
+  });
+
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {
     openQuick();
     completes(QUICK);
@@ -510,6 +545,12 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
   beforeEach(() => {
     cy.openApp();
     cy.get("h1").should("contain", "Home");
+  });
+
+  it("has an accessible name, from its visible label", () => {
+    openClipping();
+    hasAccessibleName(CLIP);
+    content(CLIP).should("have.attr", "aria-labelledby");
   });
 
   it("autocompletes links with [[ and Tags with #, Enter picking the completion", () => {

@@ -140,6 +140,7 @@ function QuickCapture() {
           onChange={setText}
           onSubmit={submit}
           placeholder={t.quick_capture_hint}
+          ariaLabel={t.quick_capture_box}
           minLines={3}
           maxLines={12}
         />

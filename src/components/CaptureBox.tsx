@@ -40,9 +40,13 @@ export interface CaptureBoxProps {
   onChange: (text: string) => void;
   /** Ctrl/⌘+Enter. */
   onSubmit: () => void;
-  /** Escape, after the autocomplete popup has had it (a dialog closing). */
-  onEscape?: () => boolean | void;
   placeholder?: string;
+  /**
+   * The box's accessible name (the editable content is the textbox): a
+   * localized label, or `ariaLabelledBy`, the id of a visible one.
+   */
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
   /** Starting height in lines; the box grows to `maxLines`, then scrolls. */
   minLines?: number;
   maxLines?: number;
@@ -61,8 +65,9 @@ export function CaptureBox({
   revision,
   onChange,
   onSubmit,
-  onEscape,
   placeholder,
+  ariaLabel,
+  ariaLabelledBy,
   minLines = 3,
   maxLines = 12,
   pictureTitle = "",
@@ -119,7 +124,8 @@ export function CaptureBox({
         activeWhileFocused
         navigate={false}
         onSubmit={onSubmit}
-        onEscape={onEscape}
+        ariaLabel={ariaLabel}
+        ariaLabelledBy={ariaLabelledBy}
         lines={lines}
         pictureTitle={pictureTitle}
       />
