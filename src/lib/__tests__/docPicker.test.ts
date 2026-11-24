@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { DocSummary, NameEntry } from "../api";
-import { canCreate, enterChoice, moveActive, searchPicker } from "../docPicker";
+import {
+  addSourceFilter,
+  canCreate,
+  enterChoice,
+  moveActive,
+  resolveSourceName,
+  searchPicker,
+  sourceNames,
+} from "../docPicker";
 import { readField, setField } from "../frontmatter";
 
 const d = (id: string, title: string): DocSummary =>
@@ -107,5 +115,42 @@ describe("readField", () => {
     expect(readField(`---\nfather: *a\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nfather: !!str Isaac\n---\n`, "father")).toBeUndefined();
     expect(readField(`---\nfather: Isaac son\n  of Abraham\n---\n`, "father")).toBeUndefined();
+  });
+});
+
+describe("Add Source picker", () => {
+  const src = (id: string, title: string): DocSummary =>
+    ({ id, title, label: title, type: "source", path: `Sources/${title}.md` }) as DocSummary;
+  const joy = src("joy", "Keep Enduring with Joy");
+  const ch1 = src("ch1", "Chapter One");
+  const note = { ...d("n", "Chapter One"), type: "note" } as DocSummary;
+  const all = [joy, ch1, note, isaac];
+
+  it("reads names from the Property's entries as written", () => {
+    expect(sourceNames(["[[Keep Enduring with Joy]]", "Bare", "[[A|shown]]", ""])).toEqual([
+      "Keep Enduring with Joy",
+      "Bare",
+      "A",
+    ]);
+  });
+
+  it("offers only Sources, without the attached ones", () => {
+    const allowed = addSourceFilter(["keep enduring with joy"], all);
+    expect(all.filter(allowed).map((x) => x.id)).toEqual(["ch1"]);
+    expect(all.filter(addSourceFilter([], all)).map((x) => x.id)).toEqual(["joy", "ch1"]);
+  });
+
+  it("knows an attached Source by its path or an Alias", () => {
+    const entries: NameEntry[] = [{ name: "KEJ", id: "joy", type: "source", alias: true }];
+    expect(resolveSourceName("Sources/Keep Enduring with Joy", all)?.id).toBe("joy");
+    expect(resolveSourceName("kej", all, entries)?.id).toBe("joy");
+    expect(all.filter(addSourceFilter(["KEJ"], all, entries)).map((x) => x.id)).toEqual(["ch1"]);
+  });
+
+  it("resolves a name only to a Source", () => {
+    // "Chapter One" is also a Note's title; only the Source answers.
+    expect(resolveSourceName("Chapter One", all)?.id).toBe("ch1");
+    expect(resolveSourceName("Isaac", all)).toBeNull();
+    expect(resolveSourceName("Gone", all)).toBeNull();
   });
 });

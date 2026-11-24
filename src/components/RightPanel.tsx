@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronRight, ExternalLink, LayoutDashboard, Link2, Trash2 } from "lucide-react";
+import { ChevronRight, ExternalLink, LayoutDashboard, Link2, Plus, Trash2, X } from "lucide-react";
 import { cn } from "cn";
 import {
   api,
@@ -15,6 +15,7 @@ import {
   type HistoryPoint,
   type Linkable,
   type PropertyType,
+  type SourceRef,
   type Version,
   type TrailEntry,
   type UnlinkedMention,
@@ -32,7 +33,8 @@ import {
   viaSummary,
   type BacklinkGroup,
 } from "@/lib/backlinks";
-import { removeField, setField } from "@/lib/frontmatter";
+import { readField, removeField, setField } from "@/lib/frontmatter";
+import { resolveSourceName, sourcesEntries } from "@/lib/docPicker";
 import { checkNewProperty, nameTyped } from "@/lib/propertyName";
 import { resolve } from "@/lib/findOccurrence";
 import { linkInBody } from "@/lib/linkText";
@@ -214,6 +216,16 @@ export function RightPanel({
       )}
       {type === "composition" && (
         <Candidates
+          sources={
+            <SourcesRow
+              composition={id}
+              fm={fm}
+              parsed={doc.frontmatter.sources}
+              refs={candidatesData?.sources}
+              onFmChange={onFmChange}
+              locked={locked}
+            />
+          }
           items={candidates}
           total={candidatesData?.total ?? 0}
           detected={detected}
@@ -1143,6 +1155,7 @@ export function Linkables({
 }
 
 export function Candidates({
+  sources,
   items,
   total,
   detected,
@@ -1150,6 +1163,8 @@ export function Candidates({
   locked = false,
   onPlace,
 }: {
+  /** The Sources row at the top (spec #205). */
+  sources?: ReactNode;
   items: Candidate[];
   /** How many Candidates match in all; more than `items` when the list is cut. */
   total: number;
@@ -1176,6 +1191,7 @@ export function Candidates({
         count={unused.length}
         hint={t.candidates_hint}
       >
+        {sources}
         <div data-testid="candidates" />
         {unused.length === 0 ? (
           <div className="text-xs text-muted-foreground">
@@ -1329,6 +1345,118 @@ function CandidateRow({
         </IconButton>
       )}
     </li>
+  );
+}
+
+/**
+ * The Sources a Composition is drawing on (spec #205): a chip per `sources`
+ * entry and the Add Source button. Rendered from the front matter at once;
+ * whether an entry names a Source comes from the Candidates query (`refs`),
+ * or, for an entry it has not seen yet, from the Sources the store holds.
+ * Every write goes through `onFmChange`, the Property path, never the text.
+ */
+function SourcesRow({
+  composition,
+  fm,
+  parsed,
+  refs,
+  onFmChange,
+  locked,
+}: {
+  composition: string;
+  fm: string;
+  /** The parsed `sources` value, for a form `readField` does not read back. */
+  parsed: unknown;
+  refs?: SourceRef[];
+  onFmChange: (fm: string) => void;
+  locked: boolean;
+}) {
+  const s = useStore();
+  const t = useT();
+  const entries = useMemo(() => sourcesEntries(readField(fm, "sources"), parsed), [fm, parsed]);
+  const remove = (i: number) => {
+    const next = entries.filter((_, j) => j !== i);
+    onFmChange(setField(fm, "sources", next.length ? next : null));
+  };
+  // Reading mode with nothing attached: nothing to show and nothing to do.
+  if (locked && entries.length === 0) return null;
+  return (
+    <div data-testid="sources-row" className="mb-3 min-w-0">
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {entries.map((raw, i) => {
+          const name = linkTarget(raw) ?? raw;
+          const ref = refs?.find((r) => r.name === name);
+          const src = ref ? ref.doc : resolveSourceName(name, s.docs);
+          const remover = !locked && (
+            <button
+              type="button"
+              data-testid="source-chip-remove"
+              className="shrink-0 rounded-sm p-0.5 text-muted-foreground opacity-60 hover:bg-background hover:text-foreground hover:opacity-100"
+              aria-label={t.remove_source(src?.title ?? name)}
+              title={t.remove_source(src?.title ?? name)}
+              onClick={() => remove(i)}
+            >
+              <X className="size-3" />
+            </button>
+          );
+          return src ? (
+            <Badge
+              key={`${i}:${raw}`}
+              variant="secondary"
+              data-testid="source-chip"
+              data-doc={src.id}
+              className={cn("h-auto min-h-6 max-w-full shrink gap-1 pl-2 font-normal", locked ? "pr-2" : "pr-1")}
+            >
+              <button
+                type="button"
+                data-testid="source-chip-open"
+                className="flex min-w-0 items-center gap-1.5 hover:underline underline-offset-2"
+                title={src.title}
+                onClick={s.openDocOnClick(src.id)}
+              >
+                <TypeDot type="source" />
+                <span className="min-w-0 truncate">{src.title}</span>
+              </button>
+              {remover}
+            </Badge>
+          ) : (
+            <Badge
+              key={`${i}:${raw}`}
+              variant="outline"
+              data-testid="source-chip-unresolved"
+              className={cn(
+                "h-auto min-h-6 max-w-full shrink flex-wrap gap-x-1.5 gap-y-0 pl-2 font-normal whitespace-normal text-muted-foreground",
+                locked ? "pr-2" : "pr-1",
+              )}
+              title={t.source_unresolved}
+            >
+              <span className="min-w-0 truncate line-through">{name}</span>
+              <span className="min-w-0 text-[10px]" data-testid="source-chip-hint">
+                {t.source_unresolved}
+              </span>
+              {remover}
+            </Badge>
+          );
+        })}
+        {!locked && (
+          <Button
+            type="button"
+            variant="outline"
+            size="xs"
+            data-testid="add-source"
+            onClick={() => s.setDialog({ kind: "add-source", id: composition })}
+          >
+            <Plus />
+            {t.add_source}
+          </Button>
+        )}
+      </div>
+      {entries.length === 0 && !locked && (
+        <p className="mt-1 min-w-0 text-xs text-muted-foreground" data-testid="sources-row-hint">
+          {t.sources_row_hint}
+        </p>
+      )}
+    </div>
   );
 }
 

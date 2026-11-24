@@ -568,6 +568,28 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps the Sources row, its chips and the Add Source picker inside the panel", () => {
+        // Spec #205: a long Source title truncates inside its chip, and an
+        // entry that is no Source carries its hint; the row wraps on a phone.
+        const long = "The Endurance of the Faithful in Every Trial of This Present Wicked System of Things";
+        cy.bridge("create_document", { docType: "source", title: long, fields: { kind: "book" }, body: "" });
+        cy.bridge("create_document", {
+          docType: "composition",
+          title: "Talk with many Sources",
+          fields: { sources: [`[[${long}]]`, "[[A Source that never was in this Vault]]"] },
+          body: "",
+        });
+        cy.openApp();
+        cy.openDoc("Talk with many Sources");
+        cy.get("[data-testid=toggle-panel]").click();
+        cy.get("[data-testid=right-panel] [data-testid=source-chip]").should("be.visible");
+        cy.get("[data-testid=right-panel] [data-testid=source-chip-unresolved]").should("be.visible");
+        expectNoOverflow();
+        cy.get("[data-testid=right-panel] [data-testid=add-source]").click();
+        cy.get("[data-testid=add-source-dialog]").should("be.visible");
+        expectNoOverflow();
+      });
+
       it("keeps the Source capture box inside the screen", () => {
         // Two type buttons carrying words, the Source's name beside them, and
         // a Locator whose French label names all three of paragraph, page and

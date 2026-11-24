@@ -88,6 +88,8 @@ export type Dialog =
   | { kind: "sync" }
   | { kind: "pairing-request"; node: string; name: string; platform: string }
   | { kind: "create-link"; target: string }
+  /** Add Source (spec #205): a Source for a Composition's `sources` Property. */
+  | { kind: "add-source"; id: string }
   | {
       kind: "version";
       id: string;

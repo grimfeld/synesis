@@ -1,6 +1,6 @@
 // What `DocPicker` (src/components/Dialogs.tsx) offers for what was typed, and
 // what its keys choose. Pure, so the choices are tested without a Vault.
-import type { DocSummary, NameEntry } from "./api";
+import { linkTarget, type DocSummary, type NameEntry } from "./api";
 import { fold, matchByName, type NameMatch } from "./names";
 
 export interface PickerSearch {
@@ -84,4 +84,56 @@ export function enterChoice(
   if (exact) return { kind: "doc", doc: exact };
   if (matches.length === 0 && create) return { kind: "create" };
   return null;
+}
+
+// ---- Add Source (spec #205): the picker offers only Sources, without the
+// ones the Composition's `sources` Property already names.
+
+/** The entries of a `sources` Property as written (`[[Title]]`, a bare name), as names. */
+export function sourceNames(raw: string[]): string[] {
+  return raw.map((v) => linkTarget(v)).filter((n): n is string => !!n);
+}
+
+/**
+ * The Source a `sources` entry names, as the engine resolves it closely
+ * enough for the picker: its last path segment against a Source's title, or
+ * against an Alias in `entries`, accent- and case-insensitive. `null` when
+ * nothing of type `source` answers to it.
+ */
+export function resolveSourceName(
+  name: string,
+  docs: DocSummary[],
+  entries: NameEntry[] = [],
+): DocSummary | null {
+  const n = fold(name.trim().split("/").pop()!.replace(/\.md$/i, "").trim());
+  if (!n) return null;
+  const byTitle = docs.find((d) => d.type === "source" && fold(d.title) === n);
+  if (byTitle) return byTitle;
+  const e = entries.find((x) => x.type === "source" && fold(x.name) === n);
+  return (e && docs.find((d) => d.id === e.id)) ?? null;
+}
+
+/** What the Add Source picker may offer: a Source, not one already attached. */
+export function addSourceFilter(
+  attached: string[],
+  docs: DocSummary[],
+  entries: NameEntry[] = [],
+): (d: DocSummary) => boolean {
+  const ids = new Set(
+    attached.map((n) => resolveSourceName(n, docs, entries)?.id).filter((x): x is string => !!x),
+  );
+  return (d) => d.type === "source" && !ids.has(d.id);
+}
+
+/**
+ * A `sources` Property's entries as written, read from the front matter text
+ * (`readField`), or from the parsed front matter for a form that does not
+ * read back (`parsed`, the document's `frontmatter.sources`).
+ */
+export function sourcesEntries(raw: string | string[] | null | undefined, parsed?: unknown): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") return raw ? [raw] : [];
+  if (raw === null) return [];
+  if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === "string");
+  return typeof parsed === "string" && parsed ? [parsed] : [];
 }
