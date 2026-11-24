@@ -332,8 +332,16 @@ describe("Writing boxes: the Source capture box", () => {
     cy.openDoc("Talk on endurance");
     cy.get("[data-testid=reading-toggle]").click();
     cy.openDoc(SOURCE);
-    content(BOX).click().type("Read, then kept{ctrl}{enter}");
+    content(BOX).click().type("Read, then kept");
+    // An editor Command from the palette still reaches the box: Reading mode
+    // locks the Writing page, not the box.
+    content(BOX).type("{ctrl}a");
+    cy.runCommand("Bold");
+    content(BOX).should("contain", "Read, then kept");
+    cy.get("[data-testid=capture-locator]").type("par. 77");
+    content(BOX).type("{ctrl}{enter}");
     cy.get("[data-testid=hub-clippings]").should("contain", "Read, then kept");
+    clippingText("par. 77").should("contain", "> **Read, then kept**");
     cy.openDoc("Talk on endurance");
     cy.get("[data-testid=reading-toggle]").click();
   });
@@ -602,6 +610,18 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
     cy.get(`${CLIP} [data-testid=picture][data-state=shown]`).should("exist");
     content(CLIP).invoke("text").should("contain", "Attachments/keep enduring with joy a35094.png");
     cy.task<boolean>("file:exists", vaultFile("Attachments/keep enduring with joy a35094.png")).should("eq", true);
+  });
+
+  it("navigates nowhere when a link or Passage is clicked", () => {
+    openClipping();
+    content(CLIP).type("See [[Paul]] and Jas 1:2-4");
+    cy.get(`${CLIP} .cm-wikilink`).contains("Paul").click();
+    cy.get(`${CLIP} .cm-wikilink`).contains("Paul").click({ ctrlKey: true });
+    cy.get(`${CLIP} .cm-passage`).contains("Jas 1:2-4").click({ ctrlKey: true });
+    cy.get("[role=dialog]").should("exist");
+    content(CLIP).should("contain", "Jas 1:2-4");
+    cy.get("h1").should("contain", "Home");
+    cy.get("[data-testid=panes]").should("not.have.attr", "data-count", "2");
   });
 
   it("starts 6 lines tall", () => {
