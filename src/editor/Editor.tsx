@@ -45,7 +45,12 @@ import { docDrop, docDropHost } from "./docDrop";
 import { useT } from "@/i18n";
 import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
-import { EDITOR_COMMANDS, releaseActiveEditor, setActiveEditor } from "./active";
+import {
+  EDITOR_COMMANDS,
+  claimWhileFocused,
+  releaseActiveEditor,
+  setActiveEditor,
+} from "./active";
 import { toCodeMirrorKey } from "@/lib/keys";
 import { api, type DetectedRange, type TagCount } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
@@ -86,6 +91,14 @@ interface Props {
    * page with no active editor.
    */
   register?: boolean;
+  /**
+   * An editor embedded in a capture box (spec #206): the one Commands act on
+   * only while it has focus (or while focus is in the Command palette opened
+   * from it), then the Writing page again. It never registers as the page's
+   * editor, whatever `register` says. The other embedded-box options (submit
+   * key, Escape, no navigation on click, growing height) belong next to it.
+   */
+  activeWhileFocused?: boolean;
   /**
    * Prose size in CSS pixels, when not the editor's own: the Delivery view's
    * adjustable size (PLAN §23.11).
@@ -135,6 +148,7 @@ export function Editor({
   readOnly = false,
   checkboxes = true,
   register = true,
+  activeWhileFocused = false,
   fontSize,
   compact = false,
   onReady,
@@ -280,11 +294,13 @@ export function Editor({
     });
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
-    if (register) setActiveEditor(view);
+    if (register && !activeWhileFocused) setActiveEditor(view);
+    const unclaim = activeWhileFocused ? claimWhileFocused(view) : undefined;
     runDetect(view.state.doc.toString());
     if (autofocus) view.focus();
     return () => {
       window.clearTimeout(detectTimer.current);
+      unclaim?.();
       releaseActiveEditor(view);
       view.destroy();
       viewRef.current = null;
@@ -322,9 +338,10 @@ export function Editor({
   // With two Panes, Commands act on the editor in the last-used one: the
   // flag moves as the user moves between them (spec #35).
   useEffect(() => {
+    if (activeWhileFocused) return;
     if (register) setActiveEditor(viewRef.current);
     else releaseActiveEditor(viewRef.current);
-  }, [register]);
+  }, [register, activeWhileFocused]);
 
   // Live Preview <-> Source mode.
   useEffect(() => {
