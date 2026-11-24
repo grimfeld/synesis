@@ -1326,7 +1326,8 @@ function CandidateRow({
               className="h-auto min-h-4 max-w-full shrink px-1 text-[10px] font-normal text-from-source"
             >
               <span className="min-w-0 truncate">
-                {t.candidate_from} <em>{x}</em>
+                {t.candidate_from(x)}
+                <em>{x}</em>
               </span>
             </Badge>
           ))}
