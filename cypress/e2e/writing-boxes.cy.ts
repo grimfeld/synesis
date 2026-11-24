@@ -4,8 +4,8 @@
 // on click, and a height that grows with the text to about 12 lines.
 //
 // Home's quick-capture box (#223), the Quick capture dialog and the New
-// document dialog's Clipping text (#224); the Source capture box adds its
-// cases with the same helpers.
+// document dialog's Clipping text (#224), and the Source capture box (#225),
+// with the same helpers.
 
 const HOME = "[data-testid=home-quick]";
 const vaultFile = (rel: string) => `${Cypress.env("vault")}/${rel}`;
@@ -172,6 +172,177 @@ describe("Writing boxes: Home's quick capture", () => {
         });
         cy.get(`${pane(1)} .cm-content`).invoke("text").should("equal", before);
       });
+  });
+});
+
+// The capture box on a Source's page (#225), in Clipping and Note mode: the
+// same editor, Ctrl/⌘+Enter keeping the focus for the next capture, a
+// Clipping quoted on every line, and Pictures named after the Source.
+describe("Writing boxes: the Source capture box", () => {
+  const SOURCE = "Keep Enduring with Joy";
+  const BOX = "[data-testid=capture-text]";
+  const pane = (i: 0 | 1) => `[data-testid=pane][data-pane=${i}]`;
+  const focusedInBox = () => cy.focused().should("have.class", "cm-content").closest(BOX).should("exist");
+  /** The stored text of the one Clipping of this Source with Locator `locator`. */
+  const clippingText = (locator: string) =>
+    cy.query<{ path: string; type: string }[]>({ kind: "list", docType: null }).then((docs) => {
+      const kept = docs.filter((d) => d.type === "clipping" && d.path.includes(locator));
+      expect(kept, `the Clipping at ${locator}`).to.have.length(1);
+      return cy.task<string>("file:read", vaultFile(kept[0].path));
+    });
+
+  beforeEach(() => {
+    cy.openApp();
+    cy.openDoc(SOURCE);
+    cy.get("[data-testid=hub-capture]").should("exist");
+  });
+
+  for (const mode of ["clipping", "note"] as const) {
+    it(`autocompletes links and Tags and decorates a Passage (${mode})`, () => {
+      cy.get(`[data-testid=capture-as-${mode}]`).click();
+      content(BOX).click();
+      typeSlowly(BOX, "See [[Geth");
+      cy.get(".cm-tooltip-autocomplete").should("contain", "Gethsemane");
+      content(BOX).type("{enter}");
+      cy.get(`${BOX} .cm-wikilink`).should("contain", "Gethsemane");
+      typeSlowly(BOX, "{end} #pra");
+      cy.get(".cm-tooltip-autocomplete").should("contain", "prayer");
+      content(BOX).type("{enter}");
+      cy.get(`${BOX} .cm-tag`).should("contain", "prayer");
+      cy.get(`${BOX} .cm-line`).should("have.length", 1);
+      content(BOX).type("{end} and Jas 1:2-4");
+      cy.get(`${BOX} .cm-passage`).should("contain", "Jas 1:2-4").trigger("mouseover");
+      cy.get("[data-testid=hover-card]").should("be.visible").and("not.contain", "Open page");
+    });
+  }
+
+  it("navigates nowhere when a link or Passage is clicked", () => {
+    content(BOX).click().type("See [[Paul]] and Jas 1:2-4");
+    cy.get("body").type("{esc}");
+    cy.get(`${BOX} .cm-wikilink`).contains("Paul").click({ ctrlKey: true });
+    cy.get(`${BOX} .cm-passage`).contains("Jas 1:2-4").click({ ctrlKey: true });
+    cy.hubTitle(SOURCE);
+    cy.get("[data-testid=panes]").should("not.have.attr", "data-count", "2");
+    content(BOX).should("contain", "Jas 1:2-4");
+  });
+
+  it("bolds with Mod+B and runs palette Commands in the box", () => {
+    content(BOX).click().type("bold me{ctrl}a{ctrl}b");
+    content(BOX).type("{end}{enter}a task{ctrl}l");
+    content(BOX).type("{ctrl}a");
+    cy.runCommand("Italic");
+    inSource(BOX, () => {
+      content(BOX).should("contain", "***bold me**").and("contain", "- [ ] a task");
+    });
+  });
+
+  it("stores a Clipping quoted on every line, markdown kept inside the quote", () => {
+    content(BOX).click().type("*Kept* in [[Paul]] today{enter}second **line**");
+    cy.get(`${BOX} .cm-line`).should("have.length", 2);
+    cy.get("[data-testid=capture-locator]").type("par. 98");
+    content(BOX).type("{ctrl}{enter}");
+    // Emptied for the next one, which the focus is already in.
+    cy.get(`${BOX} .cm-placeholder`).should("exist");
+    focusedInBox();
+    cy.hubTitle(SOURCE);
+    cy.get("[data-testid=hub-clippings]").should("contain", "Kept");
+    clippingText("par. 98").should("contain", "> *Kept* in [[Paul]] today\n> second **line**\n");
+  });
+
+  it("Ctrl/⌘+Enter keeps a Note citing the Source and keeps the focus, empty", () => {
+    cy.get("[data-testid=capture-as-note]").click();
+    content(BOX).click().type("A Note in the box{enter}on two lines");
+    cy.get("[data-testid=capture-title]").type("Box note");
+    content(BOX).type("{ctrl}{enter}");
+    cy.get(`${BOX} .cm-placeholder`).should("exist");
+    focusedInBox();
+    cy.get("[data-testid=hub-trail]").should("contain", "Box note");
+    cy.docByTitle("Box note").then((d) =>
+      cy.task<string>("file:read", vaultFile(d.path)).then((text) => {
+        expect(text).to.contain("A Note in the box\non two lines");
+        expect(text).to.contain(`source: "[[${SOURCE}]]"`);
+      }),
+    );
+    // And the next one goes straight in.
+    cy.focused().type("Another{ctrl}{enter}");
+    cy.get(`${BOX} .cm-placeholder`).should("exist");
+  });
+
+  it("names a pasted picture after the Source, in both modes", () => {
+    for (const mode of ["clipping", "note"] as const) {
+      cy.get(`[data-testid=capture-as-${mode}]`).click();
+      content(BOX).click();
+      pastePicture(`${BOX} .cm-content`);
+      cy.get(`${BOX} [data-testid=picture][data-state=shown]`).should("exist");
+      // `a35094` is the fixture's hash (ADR 0019).
+      inSource(BOX, () => {
+        content(BOX).should("contain", "![[Attachments/keep enduring with joy a35094.png]]");
+      });
+      cy.task<boolean>("file:exists", vaultFile("Attachments/keep enduring with joy a35094.png")).should("eq", true);
+      content(BOX).type("{ctrl}a{backspace}");
+    }
+  });
+
+  it("starts 3 lines tall and grows to about 12", () => {
+    const scroller = `${BOX} .cm-scroller`;
+    content(BOX).click().type("x");
+    cy.get(`${BOX} .cm-line`)
+      .first()
+      .invoke("outerHeight")
+      .then((lh) => {
+        const line = lh as number;
+        cy.get(scroller).invoke("outerHeight").should("be.closeTo", 3 * line + 16, 4);
+        content(BOX).type("{enter}".repeat(19));
+        cy.get(scroller).invoke("outerHeight").should("be.closeTo", 12 * line + 16, 8);
+      });
+  });
+
+  it("is not locked by Reading mode", () => {
+    // Reading mode is the Device's; its switch is on a Writing page.
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=reading-toggle]").click();
+    cy.openDoc(SOURCE);
+    content(BOX).click().type("Read, then kept{ctrl}{enter}");
+    cy.get("[data-testid=hub-clippings]").should("contain", "Read, then kept");
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-testid=reading-toggle]").click();
+  });
+
+  // A document dragged from a Composition's Candidates panel lands only in
+  // that Composition's text (spec #202): never in a capture box.
+  it("inserts nothing when a Candidate is dropped on it", () => {
+    cy.bridge<{ summary: { id: string } }>("create_document", {
+      docType: "note",
+      title: "Stray note",
+      fields: { tags: ["endurance"] },
+      body: "",
+    }).then(({ summary }) => {
+      const row = `[data-testid=right-panel] [data-testid=candidate][data-doc="${summary.id}"] [data-testid=candidate-open]`;
+      cy.openApp();
+      cy.openDoc("Talk on endurance");
+      cy.runCommand("Open in other Pane");
+      cy.get("[data-testid=panes]").should("have.attr", "data-count", "2");
+      // The palette opens in the last-used Pane: the right one.
+      cy.openDoc(SOURCE);
+      cy.get(`${pane(1)} ${BOX}`).should("exist");
+      // The side panel follows the last-used Pane: the talk's Candidates.
+      cy.get(`${pane(0)} .cm-content`).click();
+      cy.docByTitle("Talk on endurance").then((talk) => {
+        cy.get("[data-testid=right-panel]").should("have.attr", "data-doc", talk.id);
+      });
+      const data = new DataTransfer();
+      const target = () => cy.get(`${pane(1)} ${BOX} .cm-content`);
+      cy.get(row).trigger("dragstart", { dataTransfer: data });
+      target().trigger("dragover", { dataTransfer: data });
+      cy.get(`${pane(1)} ${BOX} .cm-dropCursor:visible`).should("not.exist");
+      target().trigger("drop", { dataTransfer: data });
+      cy.get(row).trigger("dragend", { dataTransfer: data });
+      cy.wait(1000);
+      target().should("not.contain", "Stray note");
+      cy.get(`${pane(1)} ${BOX} .cm-placeholder`).should("exist");
+      cy.get(`${pane(1)} [data-testid=pane-close]`).click();
+      cy.get("[data-testid=panes]").should("have.attr", "data-count", "1");
+    });
   });
 });
 

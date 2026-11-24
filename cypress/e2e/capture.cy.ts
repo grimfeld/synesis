@@ -5,6 +5,11 @@
 describe("Capture on a Source Hub", () => {
   beforeEach(() => cy.openApp());
 
+  // The box is the editor (spec #206): its text is CodeMirror's.
+  const TEXT = "[data-testid=capture-text] .cm-content";
+  const focusedInBox = () =>
+    cy.focused().should("have.class", "cm-content").closest("[data-testid=capture-text]").should("exist");
+
   const openSource = () => {
     cy.openDoc("Keep Enduring with Joy");
     cy.get("[data-testid=hub-capture]").should("exist");
@@ -13,7 +18,7 @@ describe("Capture on a Source Hub", () => {
   it("keeps a Clipping from the Source being read, and stays on the page", () => {
     openSource();
     cy.get("[data-testid=hub-clipping]").then((before) => {
-      cy.get("[data-testid=capture-text]").type(
+      cy.get(TEXT).type(
         "A sentence worth keeping from the chapter.",
       );
       cy.get("[data-testid=capture-locator]").type("par. 31");
@@ -35,7 +40,7 @@ describe("Capture on a Source Hub", () => {
 
   it("stores a Clipping as a blockquote, with its Citation for a name", () => {
     openSource();
-    cy.get("[data-testid=capture-text]").type("Borrowed words, kept as-is.");
+    cy.get(TEXT).type("Borrowed words, kept as-is.");
     cy.get("[data-testid=capture-locator]").type("par. 7");
     cy.get("[data-testid=capture-submit]").click();
     cy.get("[data-testid=hub-clippings]").should(
@@ -66,7 +71,7 @@ describe("Capture on a Source Hub", () => {
 
   it("keeps a Clipping when the Locator is left blank", () => {
     openSource();
-    cy.get("[data-testid=capture-text]").type("No paragraph number for this.");
+    cy.get(TEXT).type("No paragraph number for this.");
     cy.get("[data-testid=capture-submit]").click();
     cy.get("[data-testid=hub-clippings]").should(
       "contain",
@@ -81,7 +86,7 @@ describe("Capture on a Source Hub", () => {
     cy.get("[data-testid=capture-locator]").should("not.exist");
     cy.get("[data-testid=capture-title]").should("exist");
 
-    cy.get("[data-testid=capture-text]").type("What I make of the chapter.");
+    cy.get(TEXT).type("What I make of the chapter.");
     cy.get("[data-testid=capture-title]").type("Endurance and joy");
     cy.get("[data-testid=capture-submit]").click();
 
@@ -121,10 +126,12 @@ describe("Capture on a Source Hub", () => {
     openSource();
     // A run of passages from one chapter is the point: each should cost a
     // keystroke, not a trip to the mouse.
-    cy.get("[data-testid=capture-text]").type("First passage kept.{ctrl}{enter}");
+    cy.get(TEXT).type("First passage kept.{ctrl}{enter}");
     cy.get("[data-testid=hub-clippings]").should("contain", "First passage kept.");
-    cy.focused().should("have.attr", "data-testid", "capture-text");
-    cy.focused().should("have.value", "");
+    focusedInBox();
+    // Empty again: the placeholder shows.
+    cy.get("[data-testid=capture-text] .cm-placeholder").should("exist");
+    cy.get(TEXT).should("not.contain", "First passage kept.");
 
     cy.focused().type("Second passage kept.{ctrl}{enter}");
     cy.get("[data-testid=hub-clippings]").should(
@@ -138,7 +145,7 @@ describe("Capture on a Source Hub", () => {
     // Distinct from the global "Quick capture", which creates a Note that
     // belongs to no Source and opens a dialog rather than focusing this box.
     cy.runCommand("Capture from this Source");
-    cy.focused().should("have.attr", "data-testid", "capture-text");
+    focusedInBox();
   });
 
   it("offers a Note and a Clipping in the header, both citing this Source", () => {

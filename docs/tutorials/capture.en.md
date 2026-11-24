@@ -13,4 +13,4 @@ A Note is your own thinking, usually about a passage you are reading. Quick capt
 - A Scripture reference in a capture, such as `Ro 12:2`, becomes a Passage like anywhere else.
 - The box is the editor, as in a Note: `[[` offers documents and `#` offers Tags, a Passage is marked as you type, editor Commands such as [Bold](command:editor.bold) and [Insert picture](command:editor.picture) act on it, and a picture dropped or pasted in is kept in the `Attachments` folder.
 - A dated title can be changed later: click the title at the top of the Note and type a new one.
-- On a Source's page, the same kind of box keeps a Clipping or a Note from that Source instead.
+- On a Source's page, the same kind of box, the editor too, keeps a Clipping or a Note from that Source instead; a picture dropped there is named after the Source.
