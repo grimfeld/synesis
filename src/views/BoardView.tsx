@@ -147,11 +147,15 @@ export function BoardView({
   beside?: boolean;
   /**
    * In the Delivery view (PLAN §23.7-8): always reading, no mode toggle or
-   * tools, and a card press calls `onPeek` instead of leaving the view.
+   * tools, and a card press, or a bubble's link or Passage, calls `onPeek`
+   * instead of leaving the view.
    */
   delivering?: boolean;
-  /** Show a card's document over the view, at a screen point. */
-  onPeek?: (target: string, x: number, y: number) => void;
+  /**
+   * Show a document or Passages over the Delivery view, in its one card: so
+   * its Escape closes that card before the view (PLAN §23.8).
+   */
+  onPeek?: (st: HoverState) => void;
 }) {
   const s = useStore();
   const { announceBoardSaved } = s;
@@ -698,7 +702,7 @@ export function BoardView({
       // the view instead (PLAN §23.8). A wikilink names a document by its
       // path without the extension, whatever its title.
       if (delivering) {
-        onPeek?.(n.file.replace(/\.md$/i, ""), lastPress.current.x, lastPress.current.y);
+        onPeek?.({ kind: "link", target: n.file.replace(/\.md$/i, ""), ...lastPress.current });
         return;
       }
       const doc = byPath.get(n.file);
@@ -710,37 +714,39 @@ export function BoardView({
   // Bubbles (spec #207): the names their links resolve against, one load for
   // the whole Board, and where their links and Passages open. On a Writing
   // page's terms, except in the Delivery view, where nothing leaves the talk:
-  // what a bubble opens is shown over the view, as a card's document is.
+  // what a bubble opens or hovers is handed to the view's own card, as a
+  // card's document is, never to a card of the Board's.
   const [names, setNames] = useState(() => new NameIndex());
   useEffect(
     () => deliverLatest(namesApi.names(), (n) => setNames(new NameIndex(n))),
     [s.changeTick, s.docs],
   );
   const [hover, setHover] = useState<HoverState | null>(null);
-  const bubbleEnv = useMemo<EditorEnv>(
-    () => ({
+  const bubbleEnv = useMemo<EditorEnv>(() => {
+    const show = (st: HoverState) =>
+      delivering ? onPeek?.(st) : setHover(st);
+    return {
       names,
       onOpenLink: (target, other) => {
-        if (delivering) setHover({ kind: "link", target, ...lastPress.current });
+        if (delivering) show({ kind: "link", target, ...lastPress.current });
         else void s.openLink(target, other);
       },
       onOpenPassage: (p) => {
-        if (delivering) setHover({ kind: "passage", passages: [p], ...lastPress.current });
+        if (delivering) show({ kind: "passage", passages: [p], ...lastPress.current });
         else s.openPassage(p);
       },
       onPassageHover: (i) =>
-        i && setHover({ kind: "passage", passages: i.p, x: i.x, y: i.y }),
+        i && show({ kind: "passage", passages: i.p, x: i.x, y: i.y }),
       onLinkHover: (i) =>
-        i && setHover({ kind: "link", target: i.target, x: i.x, y: i.y }),
+        i && show({ kind: "link", target: i.target, x: i.x, y: i.y }),
       embedText: async (target) => {
         const r = await api.resolveLink(target);
         if (!r) return null;
         const full = await api.getDocument(r.id);
         return { title: r.title, body: splitFrontmatter(full.text).body };
       },
-    }),
-    [names, s, delivering],
-  );
+    };
+  }, [names, s, delivering, onPeek]);
   // Stable, so a bubble's editor re-renders for its own text only.
   const editBubble = useCallback((nodeId: string) => setEditing(nodeId), []);
   const bubbleDone = useCallback((nodeId: string, text: string) => {
@@ -999,6 +1005,7 @@ export function BoardView({
                         tags={s.tags}
                         sourceMode={s.sourceMode}
                         placeholder={t.board_note_empty}
+                        label={t.board_note_text}
                         onEdit={editBubble}
                         onDone={bubbleDone}
                       />
@@ -1265,13 +1272,12 @@ export function BoardView({
         />
       )}
       {/* A bubble's link or Passage card. Outside the canvas: a fixed card
-          inside the zoomed SVG would be scaled and offset with it. Without a
-          way out in the Delivery view (PLAN §23.8). */}
+          inside the zoomed SVG would be scaled and offset with it. Never in
+          the Delivery view, whose own card shows what a bubble opens. */}
       {hover && (
         <HoverCard
           state={hover}
           excludeId={id}
-          stay={delivering}
           onClose={() => setHover(null)}
         />
       )}

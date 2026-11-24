@@ -13,6 +13,7 @@ Ce tutoriel est masqué pendant que la vue est ouverte : lisez une étape, faite
 
 - Le minuteur décompte depuis une propriété `duration`, un nombre de minutes, posée sur la composition pendant la préparation. Sans elle, il compte à partir de 0:00.
 - La vue s'ouvre sur l'affichage qui était à l'écran : Discours, Côte à côte ou Tableau.
+- Sur le tableau, les bulles montrent leur markdown mis en forme, comme pendant la préparation, mais ne sont pas modifiables. Un lien ou un passage dans une bulle s'ouvre dans la même carte par-dessus la vue, et Échap ferme la carte avant la vue.
 - La taille du texte est gardée sur cet appareil ; le tableau garde son propre zoom.
 - Les raccourcis de l'application et la palette de commandes sont coupés tant que la vue est ouverte : rien ne s'exécute derrière elle.
 - Là où l'écran ne peut pas rester allumé, la barre l'indique : « L’écran peut se mettre en veille ».
