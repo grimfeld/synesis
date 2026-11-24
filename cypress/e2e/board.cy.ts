@@ -87,7 +87,8 @@ describe("Board", () => {
   it("adds a note and keeps it after a reload", () => {
     openBoard("Talk on endurance");
     cy.get("[aria-label='Add note']").click();
-    cy.focused().type("A new thought");
+    // A new bubble opens as the editor (spec #207), with the caret in it.
+    cy.get("[data-testid=board-canvas] [data-testid=board-bubble][data-editing] .cm-content").type("A new thought");
     cy.get("[data-testid=board-canvas]").click("bottom");
     cy.wait(700); // the Board save is debounced
     cy.get("[data-testid=board-canvas]").should("contain", "A new thought");

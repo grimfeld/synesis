@@ -31,6 +31,7 @@ import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { cn } from "cn";
 import {
   api,
+  namesApi,
   type Board,
   type BoardExcerpt,
   type CanvasNode,
@@ -65,6 +66,11 @@ import { createBoardSaver, type BoardSaveStatus } from "@/lib/boardSave";
 import { deliverLatest } from "@/lib/latest";
 import { registerBoard } from "@/lib/activeBoard";
 import { BoardDrawer } from "@/components/BoardDrawer";
+import { BoardBubble } from "@/components/BoardBubble";
+import { HoverCard, type HoverState } from "@/components/HoverCard";
+import type { EditorEnv } from "@/editor/decorations";
+import { NameIndex } from "@/lib/names";
+import { splitFrontmatter } from "@/lib/frontmatter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -177,6 +183,13 @@ export function BoardView({
   // button path can still anchor its preview beside itself.
   const lastPress = useRef({ x: 0, y: 0 });
   const [editing, setEditing] = useState<string | null>(null);
+  // A drag or a pan that travelled ends in a click on whatever it started
+  // on — a link in a bubble, say — which must not open it.
+  const travelled = useRef(false);
+  // The Board and its save as of the last render, for the bubbles' stable callbacks.
+  const boardRef = useRef<Board | null>(null);
+  boardRef.current = board;
+  const saveRef = useRef<(b: Board) => void>(() => {});
   const [labelling, setLabelling] = useState<string | null>(null);
   const gesture = useRef<Gesture>({ kind: "none" });
   const [, forceRender] = useState(0);
@@ -334,6 +347,7 @@ export function BoardView({
     },
     [id, saver, flushQuietly],
   );
+  saveRef.current = save;
 
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
@@ -600,6 +614,11 @@ export function BoardView({
       longPress.current = null;
     }
     gesture.current = { kind: "none" };
+    travelled.current =
+      (g.kind === "move" && g.moved) ||
+      (g.kind === "pan" &&
+        (Math.abs(e.clientX - g.startX) >= DRAG_SLOP ||
+          Math.abs(e.clientY - g.startY) >= DRAG_SLOP));
     if (reading) {
       // A press that did not travel is a click, so open what is under it.
       // Measured in client pixels, like the drag slop everywhere else, so the
@@ -688,6 +707,54 @@ export function BoardView({
     [byPath, s, delivering, onPeek],
   );
 
+  // Bubbles (spec #207): the names their links resolve against, one load for
+  // the whole Board, and where their links and Passages open. On a Writing
+  // page's terms, except in the Delivery view, where nothing leaves the talk:
+  // what a bubble opens is shown over the view, as a card's document is.
+  const [names, setNames] = useState(() => new NameIndex());
+  useEffect(
+    () => deliverLatest(namesApi.names(), (n) => setNames(new NameIndex(n))),
+    [s.changeTick, s.docs],
+  );
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const bubbleEnv = useMemo<EditorEnv>(
+    () => ({
+      names,
+      onOpenLink: (target, other) => {
+        if (delivering) setHover({ kind: "link", target, ...lastPress.current });
+        else void s.openLink(target, other);
+      },
+      onOpenPassage: (p) => {
+        if (delivering) setHover({ kind: "passage", passages: [p], ...lastPress.current });
+        else s.openPassage(p);
+      },
+      onPassageHover: (i) =>
+        i && setHover({ kind: "passage", passages: i.p, x: i.x, y: i.y }),
+      onLinkHover: (i) =>
+        i && setHover({ kind: "link", target: i.target, x: i.x, y: i.y }),
+      embedText: async (target) => {
+        const r = await api.resolveLink(target);
+        if (!r) return null;
+        const full = await api.getDocument(r.id);
+        return { title: r.title, body: splitFrontmatter(full.text).body };
+      },
+    }),
+    [names, s, delivering],
+  );
+  // Stable, so a bubble's editor re-renders for its own text only.
+  const editBubble = useCallback((nodeId: string) => setEditing(nodeId), []);
+  const bubbleDone = useCallback((nodeId: string, text: string) => {
+    setEditing((cur) => (cur === nodeId ? null : cur));
+    const b = boardRef.current;
+    if (!b) return;
+    const n = b.nodes.find((x) => x.id === nodeId);
+    if (!n || text === (n.text ?? "")) return;
+    saveRef.current({
+      ...b,
+      nodes: b.nodes.map((x) => (x.id === nodeId ? { ...x, text } : x)),
+    });
+  }, []);
+
   const toggleReading = useCallback(() => {
     setReading((r) => {
       if (!r) {
@@ -719,7 +786,12 @@ export function BoardView({
       if (editing || labelling || reading) return;
       const el = document.activeElement;
       if (!rootRef.current?.contains(el)) return;
-      if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+      // A field of its own, or a bubble's editor: its keys are its own.
+      if (
+        el instanceof HTMLInputElement ||
+        el instanceof HTMLTextAreaElement ||
+        (el instanceof HTMLElement && (el.isContentEditable || el.closest(".cm-editor")))
+      ) {
         return;
       }
       if (e.key === "Delete" || e.key === "Backspace") {
@@ -781,8 +853,15 @@ export function BoardView({
       tabIndex={-1}
       className="relative flex min-h-0 flex-1 outline-none"
       data-testid="board-root"
+      onClickCapture={(e) => {
+        if (!travelled.current) return;
+        travelled.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
       onPointerDownCapture={(e) => {
         lastPress.current = { x: e.clientX, y: e.clientY };
+        travelled.current = false;
         const target = e.target as HTMLElement;
         if (target.closest("input, textarea, button, [contenteditable=true]")) return;
         rootRef.current?.focus({ preventScroll: true });
@@ -908,19 +987,23 @@ export function BoardView({
                   doc={n.file ? byPath.get(n.file) : undefined}
                   excerpt={n.file ? excerpts[excerptKey(n.file, n.subpath)] : undefined}
                   selected={selected.has(n.id)}
-                  editing={editing === n.id}
-                  onEdit={() => setEditing(n.id)}
-                  onEditDone={(text) => {
-                    setEditing(null);
-                    if (text !== n.text) {
-                      save({
-                        ...board,
-                        nodes: board.nodes.map((x) =>
-                          x.id === n.id ? { ...x, text } : x,
-                        ),
-                      });
-                    }
-                  }}
+                  bubble={
+                    n.type === "text" ? (
+                      <BoardBubble
+                        id={n.id}
+                        text={n.text ?? ""}
+                        editing={editing === n.id}
+                        editable={!reading}
+                        env={bubbleEnv}
+                        names={names}
+                        tags={s.tags}
+                        sourceMode={s.sourceMode}
+                        placeholder={t.board_note_empty}
+                        onEdit={editBubble}
+                        onDone={bubbleDone}
+                      />
+                    ) : null
+                  }
                   onOpen={() => openNode(n)}
                   onStartEdge={() => {
                     gesture.current = {
@@ -1181,6 +1264,17 @@ export function BoardView({
           dragToText={beside && !delivering}
         />
       )}
+      {/* A bubble's link or Passage card. Outside the canvas: a fixed card
+          inside the zoomed SVG would be scaled and offset with it. Without a
+          way out in the Delivery view (PLAN §23.8). */}
+      {hover && (
+        <HoverCard
+          state={hover}
+          excludeId={id}
+          stay={delivering}
+          onClose={() => setHover(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1226,14 +1320,12 @@ function NodeBox({
   doc,
   excerpt,
   selected,
-  editing,
+  bubble,
   missing,
   reading,
   zoom,
   mobile,
   t,
-  onEdit,
-  onEditDone,
   onOpen,
   onStartEdge,
   onResize,
@@ -1242,14 +1334,13 @@ function NodeBox({
   doc: DocSummary | undefined;
   excerpt: BoardExcerpt | undefined;
   selected: boolean;
-  editing: boolean;
+  /** A `text` node's content: its bubble (spec #207). */
+  bubble: React.ReactNode;
   missing: boolean;
   reading: boolean;
   zoom: number;
   mobile: boolean;
   t: ReturnType<typeof useT>;
-  onEdit: () => void;
-  onEditDone: (text: string) => void;
   onOpen: () => void;
   onStartEdge: () => void;
   onResize: (width: number, height: number) => void;
@@ -1274,30 +1365,7 @@ function NodeBox({
         style={accent ? { borderColor: accent } : undefined}
       >
         {node.type === "text" ? (
-          editing ? (
-            <textarea
-              data-board-ui
-              autoFocus
-              defaultValue={node.text ?? ""}
-              className="size-full resize-none bg-transparent outline-none"
-              onBlur={(e) => onEditDone(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  (e.target as HTMLTextAreaElement).blur();
-                }
-              }}
-            />
-          ) : (
-            <div
-              className="thin-scroll size-full overflow-y-auto whitespace-pre-wrap break-words"
-              onDoubleClick={reading ? undefined : onEdit}
-            >
-              {node.text || (
-                <span className="text-muted-foreground">{t.board_note_empty}</span>
-              )}
-            </div>
-          )
+          bubble
         ) : (
           // A card is a button only while reading. In arranging mode it must
           // be inert: `data-board-ui` makes the canvas ignore the press, and a
