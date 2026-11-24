@@ -95,6 +95,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CaptureBox, closeBoxPopup } from "@/components/CaptureBox";
+import { keepZoneClosed } from "@/editor/active";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import L from "leaflet";
 import { diffLines, diffStats } from "@/lib/diff";
@@ -1142,6 +1143,7 @@ function NewDocument({
   const titleRef = useRef<HTMLInputElement>(null);
   useEffect(() => titleRef.current?.focus(), []);
   const formRef = useRef<HTMLFormElement>(null);
+  const clippingLabel = useId();
 
   const fetchMeta = async () => {
     if (!f.url) return;
@@ -1321,9 +1323,12 @@ function NewDocument({
                 a <label>: the editor is not a form control. A Picture is
                 named after the Source, when one is chosen (ADR 0019). */}
             <div className="grid min-w-0 gap-1.5">
-              <span className="text-xs font-medium text-muted-foreground">{t.clipping_text}</span>
+              <span id={clippingLabel} className="text-xs font-medium text-muted-foreground">
+                {t.clipping_text}
+              </span>
               <CaptureBox
                 data-testid="clipping-text"
+                ariaLabelledBy={clippingLabel}
                 value={body}
                 onChange={setBody}
                 onSubmit={() => formRef.current?.requestSubmit()}
@@ -1441,6 +1446,7 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
         value={text}
         onChange={setText}
         onSubmit={submit}
+        ariaLabel={t.quick_capture_box}
         minLines={6}
         maxLines={12}
         autofocus
@@ -1482,6 +1488,9 @@ function Palette({
   const s = useStore();
   const t = useT();
   const commands = useCommands();
+  // A capture box that lost focus to the palette stays the editor Commands
+  // act on while it is open; closing it ends that, wherever focus falls.
+  useEffect(() => keepZoneClosed, []);
   const [q, setQ] = useState(initial);
   const [names, setNames] = useState<NameIndex>(() => new NameIndex());
   // The app language's names for each kind of page, so `type:` can be typed

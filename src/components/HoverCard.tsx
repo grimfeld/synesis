@@ -26,13 +26,15 @@ function usePosition(x: number, y: number, origin: { x: number; y: number }) {
  * the containing block and would shift the card off its word. Measured with a
  * zero-size probe beside the card, so the card's own animation never skews it.
  */
-function useFixedOrigin() {
+function useFixedOrigin(x: number, y: number) {
   const probe = useRef<HTMLSpanElement>(null);
   const [origin, setOrigin] = useState({ x: 0, y: 0 });
+  // Measured when the card moves (a new word), not on every render.
   useLayoutEffect(() => {
     const r = probe.current?.getBoundingClientRect();
-    if (r && (r.left !== origin.x || r.top !== origin.y)) setOrigin({ x: r.left, y: r.top });
-  });
+    if (!r) return;
+    setOrigin((o) => (r.left === o.x && r.top === o.y ? o : { x: r.left, y: r.top }));
+  }, [x, y]);
   return { probe, origin };
 }
 
@@ -45,7 +47,7 @@ function useFixedOrigin() {
  */
 export function HoverCard({ state, excludeId, onClose, stay = false }: { state: HoverState; excludeId?: string; onClose: () => void; stay?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  const { probe, origin } = useFixedOrigin();
+  const { probe, origin } = useFixedOrigin(state.x, state.y);
   const pos = usePosition(state.x, state.y, origin);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
