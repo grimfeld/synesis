@@ -429,15 +429,11 @@ describe("Locale layout", () => {
       it("keeps a Board bubble's text and its autocomplete inside a phone", () => {
         cy.openDoc("Talk on endurance");
         cy.get("[data-testid=tab-board]").click();
-        cy.get("[aria-label='Add note']").click();
-        const box = "[data-testid=board-bubble][data-editing] .cm-content";
-        cy.get(box).type("x".repeat(60) + " Jas 1:2-4 [[Geth", { delay: 50 });
-        cy.get(".cm-tooltip-autocomplete").should("be.visible").then(($tip) => {
-          const r = $tip[0].getBoundingClientRect();
-          expect(r.left).to.be.gte(0);
-          expect(r.right).to.be.lte($tip[0].ownerDocument.defaultView!.innerWidth);
-        });
-        cy.get("[data-testid=board-bubble][data-editing]").then(($b) => {
+        cy.get("[data-testid=board-add-note]").click();
+        const bubble = "[data-testid=board-bubble][data-editing]";
+        expectCompletionOnScreen(bubble);
+        cy.get(`${bubble} .cm-content`).type("x".repeat(60) + " Jas 1:2-4", { delay: 50 });
+        cy.get(bubble).then(($b) => {
           const outer = $b[0].getBoundingClientRect();
           const content = $b.find(".cm-content")[0].getBoundingClientRect();
           expect(content.right).to.be.lte(outer.right + 1);

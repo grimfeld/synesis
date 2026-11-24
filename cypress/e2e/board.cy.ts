@@ -86,7 +86,7 @@ describe("Board", () => {
 
   it("adds a note and keeps it after a reload", () => {
     openBoard("Talk on endurance");
-    cy.get("[aria-label='Add note']").click();
+    cy.get("[data-testid=board-add-note]").click();
     // A new bubble opens as the editor (spec #207), with the caret in it.
     cy.get("[data-testid=board-canvas] [data-testid=board-bubble][data-editing] .cm-content").type("A new thought");
     cy.get("[data-testid=board-canvas]").click("bottom");
@@ -111,14 +111,14 @@ describe("Board", () => {
       else req.continue();
     });
     openBoard("Talk on endurance");
-    cy.get("[aria-label='Add note']").click();
+    cy.get("[data-testid=board-add-note]").click();
     cy.focused().type("Kept through a failure");
     cy.get("[data-testid=board-canvas]").click("bottom");
     cy.get("[data-testid=board-save-status]").should("have.attr", "data-status", "error");
     cy.get("[data-testid=board-canvas]").should("contain", "Kept through a failure");
 
     cy.then(() => (failing = false));
-    cy.get("[aria-label='Add note']").click();
+    cy.get("[data-testid=board-add-note]").click();
     cy.focused().type("And the next one");
     cy.get("[data-testid=board-canvas]").click("bottom");
     cy.get("[data-testid=board-save-status]").should("not.exist");
@@ -193,7 +193,7 @@ describe("Board", () => {
 
   it("deletes a node with the keyboard", () => {
     openBoard("Talk on endurance");
-    cy.get("[aria-label='Add note']").click();
+    cy.get("[data-testid=board-add-note]").click();
     cy.focused().type("Doomed");
     cy.get("[data-testid=board-canvas]").click("bottom");
     cy.wait(700); // the Board save is debounced
@@ -237,6 +237,11 @@ describe("Board", () => {
       );
       expect(svg, "the Clipping's quote").to.contain("remaining steadfast");
       expect(svg, "the Note's opening").to.contain("consider it all joy");
+      // A bubble is the editor (spec #207): its text is drawn, its caret
+      // layers and screen-reader announcer are not, nor the export's marks.
+      expect(svg, "a bubble's text").to.contain("Trials feel like");
+      expect(svg, "no marked chrome").not.to.contain("data-export-drop");
+      expect(svg, "no announcer").not.to.contain("cm-announced");
     });
   });
 
@@ -310,18 +315,18 @@ describe("Board", () => {
 
   it("puts the editing tools away while reading", () => {
     openBoard("Talk on endurance");
-    cy.get("[aria-label='Add note']").should("exist");
+    cy.get("[data-testid=board-add-note]").should("exist");
     cy.get("[data-testid=board-drawer]").should("exist");
 
     cy.get("[data-testid=board-mode]").click();
     cy.get("[data-testid=board-mode]").should("have.attr", "aria-pressed", "true");
-    cy.get("[aria-label='Add note']").should("not.exist");
+    cy.get("[data-testid=board-add-note]").should("not.exist");
     cy.get("[data-testid=board-drawer]").should("not.exist");
 
     // And back: arranging restores them.
     cy.get("[data-testid=board-mode]").click();
     cy.get("[data-testid=board-mode]").should("have.attr", "aria-pressed", "false");
-    cy.get("[aria-label='Add note']").should("exist");
+    cy.get("[data-testid=board-add-note]").should("exist");
   });
 
   it("does not delete with the keyboard while reading", () => {
@@ -348,7 +353,7 @@ describe("Board", () => {
             cy.openApp();
             openBoard("Talk on endurance");
             // Move something, forcing a save from the app.
-            cy.get("[aria-label='Add note']").click();
+            cy.get("[data-testid=board-add-note]").click();
             cy.focused().type("Nudge");
             cy.get("[data-testid=board-canvas]").click("bottom");
             cy.wait(700); // the Board save is debounced

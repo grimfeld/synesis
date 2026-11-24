@@ -221,7 +221,7 @@ describe("Touch", () => {
       openBoard();
       // Pan, zoom and add notes; groups, connections and the Material list
       // need a larger screen (PLAN §17.15).
-      cy.get("[aria-label='Add note']").should("exist");
+      cy.get("[data-testid=board-add-note]").should("exist");
       cy.get("[aria-label='Zoom in']").should("exist");
       cy.get("[aria-label='Add group']").should("not.exist");
       cy.get("[data-testid=board-drawer]").should("not.exist");
