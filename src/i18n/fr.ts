@@ -638,7 +638,7 @@ export const fr: Dict = {
   close: "Fermer",
   shared_tags: "Tags",
   shared_passages: "Passages",
-  candidate_from: "de",
+  candidate_from: (title: string) => (/^[aeiouyàâäæéèêëîïôöœùûü]/i.test(title.trim()) ? "d’" : "de "),
   sources_row: "Sources",
   sources_row_hint: "Rattachez les Sources dont vous partez : ce qui les cite devient matière candidate.",
   add_source: "Ajouter une Source",

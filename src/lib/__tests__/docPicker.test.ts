@@ -6,9 +6,12 @@ import {
   enterChoice,
   moveActive,
   resolveSourceName,
+  resolveTarget,
   searchPicker,
+  sourceEntry,
   sourceNames,
 } from "../docPicker";
+import { NameIndex } from "../names";
 import { readField, setField } from "../frontmatter";
 
 const d = (id: string, title: string): DocSummary =>
@@ -141,16 +144,35 @@ describe("Add Source picker", () => {
   });
 
   it("knows an attached Source by its path or an Alias", () => {
-    const entries: NameEntry[] = [{ name: "KEJ", id: "joy", type: "source", alias: true }];
+    const names = new NameIndex([{ name: "KEJ", id: "joy", type: "source", alias: true }]);
     expect(resolveSourceName("Sources/Keep Enduring with Joy", all)?.id).toBe("joy");
-    expect(resolveSourceName("kej", all, entries)?.id).toBe("joy");
-    expect(all.filter(addSourceFilter(["KEJ"], all, entries)).map((x) => x.id)).toEqual(["ch1"]);
+    expect(resolveSourceName("keep-enduring  with joy", all)?.id).toBe("joy");
+    expect(resolveSourceName("kej", all, names)?.id).toBe("joy");
+    expect(all.filter(addSourceFilter(["KEJ"], all, names)).map((x) => x.id)).toEqual(["ch1"]);
   });
 
-  it("resolves a name only to a Source", () => {
-    // "Chapter One" is also a Note's title; only the Source answers.
-    expect(resolveSourceName("Chapter One", all)?.id).toBe("ch1");
+  it("resolves as the engine does, then keeps only a Source", () => {
+    // "Chapter One" is also a Note's title, at a shorter path: the engine
+    // sends [[Chapter One]] to the Note, so the entry names no Source.
+    expect(resolveTarget("Chapter One", all)?.id).toBe("n");
+    expect(resolveSourceName("Chapter One", all)).toBeNull();
+    expect(resolveSourceName("Sources/Chapter One", all)?.id).toBe("ch1");
     expect(resolveSourceName("Isaac", all)).toBeNull();
     expect(resolveSourceName("Gone", all)).toBeNull();
+  });
+
+  it("writes a path link for a Source whose title another document shares", () => {
+    const names = new NameIndex([
+      { name: "Keep Enduring with Joy", id: "joy", type: "source", alias: false },
+      { name: "Chapter One", id: "ch1", type: "source", alias: false },
+      { name: "Chapter One", id: "n", type: "note", alias: false },
+    ]);
+    expect(sourceEntry(joy, names)).toBe("[[Keep Enduring with Joy]]");
+    const entry = sourceEntry(ch1, names);
+    expect(entry).toBe("[[Sources/Chapter One|Chapter One]]");
+    // Written so, it names the Source: attached, and no longer offered.
+    const attached = sourceNames([entry]);
+    expect(resolveSourceName(attached[0], all, names)?.id).toBe("ch1");
+    expect(all.filter(addSourceFilter(attached, all, names)).map((x) => x.id)).toEqual(["joy"]);
   });
 });
