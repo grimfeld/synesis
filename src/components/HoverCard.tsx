@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowUpRight, Plus } from "lucide-react";
 import { api, type Backlink, type DocSummary, type PassageInfo } from "@/lib/api";
 import { useQuery } from "@/lib/useQuery";
@@ -14,10 +14,26 @@ export type HoverState = { kind: "passage"; passages: PassageInfo[]; x: number; 
 const W = 340;
 const H = 360;
 
-function usePosition(x: number, y: number) {
+function usePosition(x: number, y: number, origin: { x: number; y: number }) {
   const left = Math.max(8, Math.min(x, window.innerWidth - W - 8));
   const top = y + 6 + H > window.innerHeight ? Math.max(8, y - 6 - H) : y + 6;
-  return { left, top, width: W, maxHeight: H };
+  return { left: left - origin.x, top: top - origin.y, width: W, maxHeight: H };
+}
+
+/**
+ * Where `position: fixed` puts (0, 0). The viewport's corner, except inside a
+ * transformed ancestor — a dialog, centred with a translate — which becomes
+ * the containing block and would shift the card off its word. Measured with a
+ * zero-size probe beside the card, so the card's own animation never skews it.
+ */
+function useFixedOrigin() {
+  const probe = useRef<HTMLSpanElement>(null);
+  const [origin, setOrigin] = useState({ x: 0, y: 0 });
+  useLayoutEffect(() => {
+    const r = probe.current?.getBoundingClientRect();
+    if (r && (r.left !== origin.x || r.top !== origin.y)) setOrigin({ x: r.left, y: r.top });
+  });
+  return { probe, origin };
 }
 
 /**
@@ -29,7 +45,8 @@ function usePosition(x: number, y: number) {
  */
 export function HoverCard({ state, excludeId, onClose, stay = false }: { state: HoverState; excludeId?: string; onClose: () => void; stay?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
-  const pos = usePosition(state.x, state.y);
+  const { probe, origin } = useFixedOrigin();
+  const pos = usePosition(state.x, state.y, origin);
   useEffect(() => {
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -43,9 +60,12 @@ export function HoverCard({ state, excludeId, onClose, stay = false }: { state: 
     };
   }, [onClose]);
   return (
-    <div ref={ref} data-testid="hover-card" className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
-      {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} stay={stay} /> : <LinkCard target={state.target} onClose={onClose} stay={stay} />}
-    </div>
+    <>
+      <span ref={probe} aria-hidden className="pointer-events-none fixed top-0 left-0 size-0" />
+      <div ref={ref} data-testid="hover-card" className="thin-scroll fixed z-50 overflow-auto rounded-xl border bg-popover p-3 text-sm text-popover-foreground shadow-lg animate-in fade-in-0 zoom-in-95" style={pos} onMouseLeave={onClose}>
+        {state.kind === "passage" ? <PassageCard passages={state.passages} excludeId={excludeId} onClose={onClose} stay={stay} /> : <LinkCard target={state.target} onClose={onClose} stay={stay} />}
+      </div>
+    </>
   );
 }
 

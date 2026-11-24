@@ -99,7 +99,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { CaptureBox, closeBoxPopup } from "@/components/CaptureBox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import L from "leaflet";
 import { diffLines, diffStats } from "@/lib/diff";
@@ -509,19 +509,28 @@ function Shell({
   title,
   description,
   wide,
+  className,
   onClose,
   children,
 }: {
   title: string;
   description?: string;
   wide?: boolean;
+  className?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className={cn(wide && "sm:max-w-2xl")}>
-        <DialogHeader>
+      <DialogContent
+        className={cn(wide && "sm:max-w-2xl", className)}
+        // A capture box's autocomplete popup has Escape first: the first
+        // Escape closes only the popup, the next one the dialog (spec #206).
+        onEscapeKeyDown={(e) => {
+          if (closeBoxPopup(e)) e.preventDefault();
+        }}
+      >
+        <DialogHeader className="shrink-0">
           <DialogTitle>{title}</DialogTitle>
           {description ? (
             <DialogDescription>{description}</DialogDescription>
@@ -1137,6 +1146,7 @@ function NewDocument({
   const set = (k: string, v: string) => setF((x) => ({ ...x, [k]: v }));
   const titleRef = useRef<HTMLInputElement>(null);
   useEffect(() => titleRef.current?.focus(), []);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const fetchMeta = async () => {
     if (!f.url) return;
@@ -1289,7 +1299,7 @@ function NewDocument({
       onClose={onClose}
       wide={type === "clipping"}
     >
-      <form data-testid="new-doc-form" onSubmit={submit} className="grid gap-4">
+      <form ref={formRef} data-testid="new-doc-form" onSubmit={submit} className="grid gap-4">
         <TypePicker value={type} onChange={setType} />
         {inFolder && (
           <p data-testid="new-doc-folder" className="min-w-0 text-sm break-words text-muted-foreground">
@@ -1312,15 +1322,22 @@ function NewDocument({
         )}
         {type === "clipping" && (
           <>
-            <Field label={t.clipping_text}>
-              <Textarea
-                rows={6}
+            {/* The editor (spec #206), typed bare and quoted on create. Not
+                a <label>: the editor is not a form control. A Picture is
+                named after the Source, when one is chosen (ADR 0019). */}
+            <div className="grid min-w-0 gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">{t.clipping_text}</span>
+              <CaptureBox
+                data-testid="clipping-text"
                 value={body}
-                onChange={(e) => setBody(e.target.value)}
-                autoFocus
-                className="font-prose"
+                onChange={setBody}
+                onSubmit={() => formRef.current?.requestSubmit()}
+                minLines={6}
+                maxLines={12}
+                pictureTitle={f.source?.trim() ?? ""}
+                autofocus
               />
-            </Field>
+            </div>
             {urlField}
             <Field label={t.source}>
               <DocPicker
@@ -1417,22 +1434,27 @@ function QuickCapture({ onClose }: { onClose: () => void }) {
       title={t.quick_capture}
       description={t.quick_capture_hint}
       onClose={onClose}
+      // Within the screen above an on-screen keyboard (the viewport resizes
+      // with it): the box gives up height first, the Create button stays.
+      className="flex max-h-[calc(100dvh-2rem)] flex-col"
     >
-      <Textarea
-        rows={6}
-        autoFocus
-        className="font-prose text-[15px]"
+      {/* The editor (spec #206). Untitled, so a Picture is named by the time
+          of the drop (ADR 0019). */}
+      <CaptureBox
+        data-testid="quick-capture-box"
+        className="flex min-h-0 flex-col [&_.cm-editor]:min-h-0"
         value={text}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-        }}
+        onChange={setText}
+        onSubmit={submit}
+        minLines={6}
+        maxLines={12}
+        autofocus
       />
-      <DialogFooter>
+      <DialogFooter className="shrink-0">
         <Button variant="outline" onClick={onClose}>
           {t.cancel}
         </Button>
-        <Button onClick={submit}>
+        <Button data-testid="quick-capture-create" onClick={submit}>
           {t.create}
           <Kbd className="bg-primary-foreground/20 text-primary-foreground">
             {shortcut("↵")}

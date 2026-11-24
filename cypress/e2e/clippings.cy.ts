@@ -61,7 +61,7 @@ describe("Clippings", () => {
     cy.runCommand("New Clipping");
     // There is no Title field to fill.
     cy.get("[data-testid=new-doc-title]").should("not.exist");
-    cy.get("[data-testid=new-doc-form] textarea").type(
+    cy.get("[data-testid=clipping-text] .cm-content").type(
       "A borrowed sentence worth keeping.",
     );
     cy.get(

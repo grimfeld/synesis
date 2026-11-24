@@ -295,6 +295,32 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      it("keeps the Quick capture dialog inside a phone, its Create button above the keyboard", () => {
+        cy.get("body").type("{ctrl}{shift}n");
+        cy.get("[data-testid=quick-capture-box]").then(($box) => {
+          const dialog = $box.closest("[role=dialog]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(dialog.left);
+          expect(box.right).to.be.lte(dialog.right);
+          expect(box.width).to.be.greaterThan(dialog.width * 0.8);
+        });
+        expectNoOverflow();
+        // The on-screen keyboard resizes the viewport (`interactive-widget`),
+        // here to what a phone keeps above it, and the box is filled past
+        // its maximum: the box gives up height, the Create button stays.
+        cy.viewport(390, 420);
+        cy.get("[data-testid=quick-capture-box] .cm-content").type("x".repeat(80) + " Jas 1:2-4" + "{enter}line".repeat(14));
+        cy.get("[data-testid=quick-capture-create]").should(($b) => {
+          const r = $b[0].getBoundingClientRect();
+          expect(r.top).to.be.gte(0);
+          expect(r.bottom).to.be.lte($b[0].ownerDocument.defaultView!.innerHeight);
+        });
+        cy.get("[data-testid=quick-capture-box] .cm-scroller").should(($s) =>
+          expect($s[0].scrollHeight).to.be.greaterThan($s[0].clientHeight),
+        );
+        expectNoOverflow();
+      });
+
       it("keeps every view inside the screen", () => {
         for (const view of ["home", "timeline", "coverage", "graph", "library", "clippings", "map", "family-tree"]) {
           cy.get("[data-sidebar=trigger]").first().click();

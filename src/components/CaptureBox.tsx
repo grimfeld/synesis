@@ -6,6 +6,8 @@
 // unsaved), and the box grows with its text to a maximum, then scrolls.
 // Reading mode does not lock it.
 import { useEffect, useMemo, useState } from "react";
+import { closeCompletion, completionStatus } from "@codemirror/autocomplete";
+import { EditorView } from "@codemirror/view";
 import { Editor } from "@/editor/Editor";
 import type { EditorEnv } from "@/editor/decorations";
 import { HoverCard, type HoverState } from "@/components/HoverCard";
@@ -15,6 +17,21 @@ import { splitFrontmatter } from "@/lib/frontmatter";
 import { NameIndex } from "@/lib/names";
 import { useStore } from "@/lib/store";
 import { cn } from "cn";
+
+/**
+ * A dialog's Escape with a capture box's autocomplete popup open: closes only
+ * the popup and returns true, so the dialog calls `preventDefault` and stays
+ * open; a second Escape closes it. Needed because a Radix dialog hears Escape
+ * on the document before the editor does, and its dismissal (or a
+ * `preventDefault`) leaves the editor's own Escape unrun.
+ */
+export function closeBoxPopup(e: KeyboardEvent): boolean {
+  const dom = e.target instanceof Element ? e.target.closest<HTMLElement>(".cm-editor") : null;
+  const view = dom ? EditorView.findFromDOM(dom) : null;
+  if (!view || completionStatus(view.state) === null) return false;
+  closeCompletion(view);
+  return true;
+}
 
 export interface CaptureBoxProps {
   value: string;
