@@ -3,6 +3,8 @@
 How work gets from a branch to main in this repository. Written by `/ship:setup-ship`; the
 `ship` plugin's skills (`pr-review`, `night-shift`, `land`) read it. Keep it true when the process changes.
 
+The repository enables the `ship` plugin itself: `.claude/settings.json` declares the `grimfeld` marketplace (grimfeld/skills) and enables `ship@grimfeld`, so every Claude Code session on a clone, cloud or local, has the `ship:` skills without user-level setup.
+
 ## The rule
 
 A PR reaches `main` only after a person has reviewed it and added the **`ship`** label.
