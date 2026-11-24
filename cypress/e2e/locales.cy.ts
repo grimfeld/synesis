@@ -585,6 +585,21 @@ describe("Locale layout", () => {
         cy.get("[data-testid=right-panel] [data-testid=source-chip]").should("be.visible");
         cy.get("[data-testid=right-panel] [data-testid=source-chip-unresolved]").should("be.visible");
         expectNoOverflow();
+        // The long title ends in an ellipsis inside its chip, and the chip
+        // stays inside the row (#221).
+        cy.get("[data-testid=right-panel] [data-testid=sources-row]").then(($row) => {
+          const row = $row[0].getBoundingClientRect();
+          cy.get("[data-testid=right-panel] [data-testid=source-chip]")
+            .first()
+            .should(($chip) => {
+              const chip = $chip[0].getBoundingClientRect();
+              expect(chip.left, "chip starts inside the row").to.be.at.least(row.left - 1);
+              expect(chip.right, "chip ends inside the row").to.be.at.most(row.right + 1);
+              const title = $chip.find("[data-testid=source-chip-open] .truncate")[0];
+              expect(title.ownerDocument.defaultView!.getComputedStyle(title).textOverflow).to.equal("ellipsis");
+              expect(title.scrollWidth, "the title is cut with an ellipsis").to.be.greaterThan(title.clientWidth);
+            });
+        });
         cy.get("[data-testid=right-panel] [data-testid=add-source]").click();
         cy.get("[data-testid=add-source-dialog]").should("be.visible");
         expectNoOverflow();
