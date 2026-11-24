@@ -3,7 +3,8 @@
 // opening on click — and editable in place after a double-click, with what a
 // Writing page has: `[[` and `#` autocomplete, Passage decorations with hover
 // cards, the editor Commands. Blur or Escape hands the text back to the Board,
-// which saves it through its own debounced save.
+// which saves it through its own debounced save; every keystroke is also told
+// to the Board (`onDraft`), which writes it if it is left with the bubble open.
 import { memo, useEffect, useRef } from "react";
 import { EditorView } from "@codemirror/view";
 import { Editor } from "@/editor/Editor";
@@ -25,10 +26,13 @@ export interface BoardBubbleProps {
   /** The Device's Source mode, followed while editing; at rest a bubble always renders. */
   sourceMode: boolean;
   placeholder: string;
-  /** The editor's accessible name, localized. */
+  /** The editor's accessible name while it is being edited, localized. */
   label: string;
   onEdit: (id: string) => void;
-  onDone: (id: string, text: string) => void;
+  /** The text as typed so far, while editing. */
+  onDraft: (id: string, text: string) => void;
+  /** Editing is over: the text, or null when it was left as it opened. */
+  onDone: (id: string, text: string | null) => void;
 }
 
 /** Memoised: a pan or a drag re-renders the Board every frame, never its bubbles' editors. */
@@ -44,10 +48,20 @@ export const BoardBubble = memo(function BoardBubble({
   placeholder,
   label,
   onEdit,
+  onDraft,
   onDone,
 }: BoardBubbleProps) {
   const box = useRef<HTMLDivElement>(null);
   const draft = useRef(text);
+  // While editing, the editor keeps the text it opened with: a reload of the
+  // Board from disk (Obsidian, a sync) must not replace what is being typed.
+  // Closing saves what was typed over it; a bubble left as it opened saves
+  // nothing, so the reloaded text stays.
+  const openedWith = useRef<string | null>(null);
+  if (!editing) openedWith.current = null;
+  else if (openedWith.current === null) openedWith.current = text;
+  const editingNow = useRef(editing);
+  editingNow.current = editing;
   /** Where the double-click landed, for the caret. */
   const at = useRef<{ x: number; y: number } | null>(null);
   /** Handed back already, this time round: blur and a focus elsewhere both say so. */
@@ -55,7 +69,7 @@ export const BoardBubble = memo(function BoardBubble({
   const finish = () => {
     if (finished.current) return;
     finished.current = true;
-    onDone(id, draft.current);
+    onDone(id, draft.current === openedWith.current ? null : draft.current);
   };
   const editor = () => {
     const dom = box.current?.querySelector<HTMLElement>(".cm-editor");
@@ -67,7 +81,7 @@ export const BoardBubble = memo(function BoardBubble({
   // have already unlocked it, children's effects running first.
   useEffect(() => {
     if (!editing) return;
-    draft.current = text;
+    draft.current = openedWith.current ?? text;
     finished.current = false;
     const view = editor();
     if (!view) return;
@@ -115,13 +129,17 @@ export const BoardBubble = memo(function BoardBubble({
       }}
     >
       <Editor
-        value={text}
-        onChange={(t) => (draft.current = t)}
+        value={openedWith.current ?? text}
+        onChange={(t) => {
+          draft.current = t;
+          if (editingNow.current) onDraft(id, t);
+        }}
         env={env}
         names={names}
         tags={tags}
         placeholder={placeholder}
-        ariaLabel={label}
+        // Named as a text box only while it is one; at rest it is its text.
+        ariaLabel={editing ? label : undefined}
         sourceMode={editing && sourceMode}
         still={!editing}
         activeWhileFocused

@@ -58,7 +58,7 @@ describe("Tutorial: Talk and Board side by side", () => {
 
     // 5. Do it once: a bubble added on the Board beside the talk is saved.
     cy.tutorialStep(4);
-    cy.get("[data-testid=split-board] [aria-label='Add note']").click();
+    cy.get("[data-testid=split-board] [data-testid=board-add-note]").click();
     cy.focused().type("Endurance finishes its work");
     cy.get("[data-testid=split-board] [data-testid=board-canvas]").click("bottom");
     cy.get("[data-testid=board-canvas]").should("contain", "Endurance finishes its work");

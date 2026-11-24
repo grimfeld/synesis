@@ -729,6 +729,77 @@ describe("Writing boxes: a Board's bubbles", () => {
     });
   });
 
+  it("opens a selected bubble with Enter or F2, the caret after its text, named only while edited", () => {
+    // At rest a bubble is its text, not a text box.
+    bubble("Trials feel like").find(".cm-content").should("not.have.attr", "aria-label");
+    bubble("Trials feel like").click();
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    cy.focused().type("{enter}");
+    cy.get(editingBox).should("have.length", 1).and("contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`).should("have.focus").and("have.attr", "aria-label");
+    // Enter opened it and typed nothing: the text is as it was.
+    cy.get(`${editingBox} .cm-line`).should("have.length", 2);
+    cy.focused().type(" by keyboard");
+    cy.focused().type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.match(/ by keyboard$/);
+    });
+    // F2 the same way, on the bubble still selected.
+    cy.get("[data-testid=board-root]").trigger("keydown", { key: "F2" });
+    cy.get(editingBox).should("have.length", 1).and("contain", "by keyboard");
+    cy.get(`${editingBox} .cm-content`).should("have.focus").type("{esc}");
+    cy.get(editingBox).should("not.exist");
+  });
+
+  it("keeps what was typed when a palette Command leaves the Board with the bubble open", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} kept on leaving", { delay: 50 });
+    // The palette keeps the bubble open, so a Command picked there reaches
+    // it; this one switches to the talk, taking the Board off screen.
+    cy.palette(">Talk");
+    cy.get(editingBox).should("exist");
+    cy.get("[data-testid=palette] [cmdk-item][data-value='doc.board']").click();
+    cy.get("[data-testid=palette]").should("not.exist");
+    cy.get("[data-testid=board-canvas]").should("not.exist");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.contain("kept on leaving");
+    });
+  });
+
+  it("moves when dragged by its link, and opens nothing", () => {
+    const opts = { pointerId: 1, isPrimary: true, button: 0, force: true };
+    const node = () => cy.get(`[data-node-id=${WHO_RAN}]`).first();
+    const link = () => bubble("Who ran").find(".cm-wikilink").contains("Paul");
+    node().then(($n) => {
+      const before = $n[0].getBoundingClientRect();
+      link().then(($a) => {
+        const r = $a[0].getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        cy.wrap($a).trigger("pointerdown", { ...opts, clientX: x, clientY: y });
+        cy.get("[data-testid=board-canvas]")
+          .trigger("pointermove", { ...opts, clientX: x + 80, clientY: y + 60 })
+          .trigger("pointerup", { ...opts, clientX: x + 80, clientY: y + 60 });
+        // The click the browser ends a drag with lands on the link: not a
+        // click on it. Only the click, as a press would start a new gesture.
+        link().trigger("click", { force: true });
+      });
+      cy.get("[data-testid=hover-card]").should("not.exist");
+      cy.get("[data-testid=hub-header]").should("not.exist");
+      cy.get("[data-testid=board-canvas]").should("exist");
+      node().should(($after) => {
+        const r = $after[0].getBoundingClientRect();
+        expect(Math.round(r.left), "the bubble moved").to.not.equal(Math.round(before.left));
+      });
+    });
+    // A click that did not travel still opens it.
+    link().click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+
   it("renders and opens on a Board opened for reading, and edits nothing", () => {
     cy.get("[data-testid=board-mode]").click();
     bubble("Trials feel like").dblclick();
