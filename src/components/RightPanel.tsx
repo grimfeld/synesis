@@ -218,6 +218,7 @@ export function RightPanel({
           total={candidatesData?.total ?? 0}
           detected={detected}
           composition={id}
+          locked={locked}
           // Placing a card is an edit to the Board, so not while locked.
           onPlace={locked ? undefined : (c) => placeCandidate(c)}
         />
@@ -1146,6 +1147,7 @@ export function Candidates({
   total,
   detected,
   composition,
+  locked = false,
   onPlace,
 }: {
   items: Candidate[];
@@ -1154,6 +1156,8 @@ export function Candidates({
   detected: DetectedRange[];
   /** The Composition whose text the rows drag into (spec #202). */
   composition?: string;
+  /** Reading mode: the text takes nothing, so no row is draggable. */
+  locked?: boolean;
   /** Put an unused Candidate on the Composition's Board; absent while locked. */
   onPlace?: (c: Candidate) => void;
 }) {
@@ -1178,7 +1182,7 @@ export function Candidates({
             {live ? t.loading : t.no_candidates}
           </div>
         ) : (
-          <CandidateList items={unused} composition={composition} onPlace={onPlace} />
+          <CandidateList items={unused} composition={composition} onPlace={onPlace} locked={locked} />
         )}
         {total > items.length && (
           <p
@@ -1197,7 +1201,7 @@ export function Candidates({
           defaultOpen={false}
         >
           <div data-testid="on-board" />
-          <CandidateList items={placed} composition={composition} />
+          <CandidateList items={placed} composition={composition} locked={locked} />
         </Section>
       )}
       {used.length > 0 && (
@@ -1208,7 +1212,7 @@ export function Candidates({
           defaultOpen={false}
         >
           <div data-testid="used-material" />
-          <CandidateList items={used} composition={composition} />
+          <CandidateList items={used} composition={composition} locked={locked} />
         </Section>
       )}
     </>
@@ -1218,16 +1222,24 @@ export function Candidates({
 function CandidateList({
   items,
   composition,
+  locked,
   onPlace,
 }: {
   items: Candidate[];
   composition?: string;
+  locked: boolean;
   onPlace?: (c: Candidate) => void;
 }) {
   return (
     <ul className="space-y-0.5">
       {items.map((c) => (
-        <CandidateRow key={c.doc.id} c={c} composition={composition} onPlace={onPlace} />
+        <CandidateRow
+          key={c.doc.id}
+          c={c}
+          composition={composition}
+          locked={locked}
+          onPlace={onPlace}
+        />
       ))}
     </ul>
   );
@@ -1240,15 +1252,18 @@ function CandidateList({
 function CandidateRow({
   c,
   composition,
+  locked,
   onPlace,
 }: {
   c: Candidate;
   composition?: string;
+  locked: boolean;
   onPlace?: (c: Candidate) => void;
 }) {
   const s = useStore();
   const t = useT();
-  const drag = useDocDrag(c.doc, composition);
+  // Reading mode removes the drag, as it hides "Place on the Board".
+  const drag = useDocDrag(c.doc, composition, !locked);
   return (
     <li className="flex items-start gap-0.5" data-testid="candidate" data-doc={c.doc.id}>
       <button
