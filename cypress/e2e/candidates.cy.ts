@@ -1,5 +1,30 @@
 // Candidates on a Composition: shared material the Composition does not yet
 // link, versus material it already links, embeds or tags ("Used").
+
+/** The stored text of a document. */
+function storedText(title: string) {
+  return cy.docByTitle(title).then((d) => cy.task<string>("file:read", `${Cypress.env("vault")}/${d.path}`));
+}
+
+/** A Candidate row's button in the panel, by document id. */
+const candidateRow = (id: string) =>
+  `[data-testid=right-panel] [data-testid=candidate][data-doc="${id}"] [data-testid=candidate-open]`;
+
+/**
+ * Drag a Candidate row onto the editor line holding `line`, the way the
+ * browser would: one DataTransfer from `dragstart` to `dragend` (spec #202).
+ */
+function dragOntoLine(id: string, line: string) {
+  const data = new DataTransfer();
+  cy.get(candidateRow(id)).trigger("dragstart", { dataTransfer: data });
+  cy.get(candidateRow(id)).should("have.attr", "data-dragging", "true");
+  cy.contains(".cm-line", line).trigger("dragover", { dataTransfer: data });
+  cy.contains(".cm-line", line).trigger("drop", { dataTransfer: data });
+  cy.get(candidateRow(id)).trigger("dragend", { dataTransfer: data });
+  cy.get(candidateRow(id)).should("not.have.attr", "data-dragging");
+}
+
+const undoKey = Cypress.platform === "darwin" ? "{cmd}z" : "{ctrl}z";
 describe("Candidates", () => {
   beforeEach(() => cy.openApp());
 
@@ -159,5 +184,80 @@ describe("Candidates", () => {
     cy.get("[data-testid=right-panel] [data-testid=used-material]")
       .parent()
       .should("contain", "Undeserved kindness in Romans");
+  });
+
+  // Spec #202: material on screen is pulled into the sentence by dragging it.
+  it("drags a Clipping Candidate into the text as an Embed with its Citation", () => {
+    cy.bridge<{ summary: { id: string; path: string } }>("create_document", {
+      docType: "clipping",
+      // A Clipping has no title (ADR 0013): its file is named by its Citation.
+      title: "",
+      fields: { source: "[[Keep Enduring with Joy]]", locator: "par. 4", tags: ["endurance"] },
+      body: "> Joy is a quality of the heart.\n",
+    }).then(({ summary }) => {
+      const stem = summary.path.replace(/\.md$/, "").split("/").pop();
+      const embed = `![[${stem}|Keep Enduring with Joy · par. 4]]`;
+      cy.openApp();
+      cy.openDoc("Talk on endurance");
+      cy.get("[data-testid=right-panel] [data-testid=candidates]")
+        .parent()
+        .find(candidateRow(summary.id))
+        .should("have.attr", "draggable", "true");
+      dragOntoLine(summary.id, "Ro 15:5 calls God");
+      // On a line of its own after the line it was dropped on, selected, and
+      // drawn live below it.
+      cy.get(".cm-content").should("contain", embed);
+      cy.window().then((win) => {
+        expect(win.getSelection()?.toString()).to.equal(embed);
+      });
+      cy.get(".cm-embed-box").should("contain", "Joy is a quality of the heart.");
+      cy.wait(1000);
+      storedText("Talk on endurance").should(
+        "contain",
+        `Ro 15:5 calls God the one who supplies endurance.\n\n${embed}`,
+      );
+      // Saved, the Clipping is used.
+      cy.get("[data-testid=right-panel] [data-testid=candidates]")
+        .parent()
+        .find(`[data-doc="${summary.id}"]`)
+        .should("not.exist");
+      cy.get("[data-testid=right-panel]")
+        .contains("Used in this Composition")
+        .click();
+      cy.get("[data-testid=right-panel] [data-testid=used-material]")
+        .parent()
+        .find(`[data-doc="${summary.id}"]`)
+        .should("exist");
+    });
+  });
+
+  it("drags a Note Candidate in as an inline link, and one Undo removes it", () => {
+    cy.bridge<{ summary: { id: string } }>("create_document", {
+      docType: "note",
+      title: "Dragged note",
+      fields: { tags: ["endurance"] },
+      body: "",
+    }).then(({ summary }) => {
+      cy.openApp();
+      cy.openDoc("Talk on endurance");
+      dragOntoLine(summary.id, "Jas 1:2 sounds impossible");
+      cy.get(".cm-content").should("contain", "[[Dragged note]]");
+      cy.get(".cm-content").should("not.contain", "![[Dragged note");
+      cy.window().then((win) => {
+        expect(win.getSelection()?.toString()).to.equal("[[Dragged note]]");
+      });
+      cy.wait(1000);
+      // Inline, on the line it was dropped on.
+      storedText("Talk on endurance").then((text) => {
+        const line = text.split("\n").find((l) => l.includes("[[Dragged note]]"));
+        expect(line).to.contain("sounds impossible");
+      });
+      cy.focused().type(undoKey);
+      cy.get(".cm-content").should("not.contain", "Dragged note");
+      cy.wait(1000);
+      storedText("Talk on endurance").should("not.contain", "Dragged note");
+      // Still a Candidate, dragged from the panel the same way again.
+      cy.get(candidateRow(summary.id)).should("exist");
+    });
   });
 });

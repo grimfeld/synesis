@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { linkInBody, linkText } from "../linkText";
+import { clippingCitation, embedLink, linkInBody, linkText } from "../linkText";
 import type { DocSummary } from "../api";
 
 const doc = (title: string, path: string): DocSummary =>
@@ -85,5 +85,52 @@ describe("linkInBody", () => {
       doc("John", "Characters/John.md"),
     );
     expect(r!.body).toBe("he wrote to [[Characters/John|John]]");
+  });
+});
+
+describe("embedLink", () => {
+  const clipping = (path: string) =>
+    ({ title: "ignored", path, type: "clipping" }) as DocSummary;
+
+  it("writes ADR 0013's aliased form: the file's stem, the Citation as alias", () => {
+    expect(
+      embedLink(
+        clipping("Clippings/keep enduring with joy par. 12 2026-08-05 20.10.md"),
+        "Keep Enduring with Joy · par. 12",
+        false,
+      ),
+    ).toBe(
+      "![[keep enduring with joy par. 12 2026-08-05 20.10|Keep Enduring with Joy · par. 12]]",
+    );
+  });
+
+  it("writes a path when the stem is ambiguous", () => {
+    expect(embedLink(clipping("Clippings/a/x.md"), "Src · p. 1", true)).toBe(
+      "![[Clippings/a/x|Src · p. 1]]",
+    );
+  });
+
+  it("keeps characters that would end the link out of the alias", () => {
+    expect(embedLink(clipping("Clippings/x.md"), "A|B [[c]] · l.\n2", false)).toBe(
+      "![[x|A/B ((c)) · l. 2]]",
+    );
+  });
+
+  it("writes no alias when there is no Citation to show", () => {
+    expect(embedLink(clipping("Clippings/x.md"), "  ", false)).toBe("![[x]]");
+  });
+});
+
+describe("clippingCitation", () => {
+  it("names the Source and Locator, the Source's link brackets and alias dropped", () => {
+    expect(
+      clippingCitation({ source: "[[Keep Enduring with Joy|KEJ]]", locator: " par. 12 " }),
+    ).toBe("Keep Enduring with Joy · par. 12");
+  });
+
+  it("leaves out what is missing", () => {
+    expect(clippingCitation({ source: "[[Insight: Ephesus]]" })).toBe("Insight: Ephesus");
+    expect(clippingCitation({ locator: "p. 3" })).toBe("p. 3");
+    expect(clippingCitation({})).toBe("");
   });
 });
