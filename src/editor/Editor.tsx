@@ -45,7 +45,7 @@ import { livePreview } from "./livePreview";
 import { pictureDisplay, pictureHost, pictureInput } from "./pictures";
 import { docDrop, docDropHost } from "./docDrop";
 import { useT } from "@/i18n";
-import { lock, throughLock } from "./lock";
+import { lockFor, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
 import {
   EDITOR_COMMANDS,
@@ -292,8 +292,6 @@ export function Editor({
   const modeCompartment = useRef(new Compartment());
   const lockCompartment = useRef(new Compartment());
   const stillCompartment = useRef(new Compartment());
-  const locking = () =>
-    readOnly || still ? lock({ checkboxes: checkboxes && !still }) : [];
   const labelCompartment = useRef(new Compartment());
 
   useEffect(() => {
@@ -343,7 +341,7 @@ export function Editor({
         pictureInput,
         docDropHost.of({ owner: () => dropOwnerRef.current }),
         docDrop,
-        lockCompartment.current.of(locking()),
+        lockCompartment.current.of(lockFor(readOnly, still, checkboxes)),
         stillCompartment.current.of(still ? passPresses : []),
         tooltipsOnBody ? tooltips({ parent: document.body }) : [],
         history(),
@@ -515,11 +513,10 @@ export function Editor({
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: [
-        lockCompartment.current.reconfigure(locking()),
+        lockCompartment.current.reconfigure(lockFor(readOnly, still, checkboxes)),
         stillCompartment.current.reconfigure(still ? passPresses : []),
       ],
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [readOnly, checkboxes, still]);
 
   // External value changes (reload from disk, a restored Version). Through the
