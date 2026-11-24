@@ -283,17 +283,18 @@
   }
   /* A Sheet is a fixed overlay outside #root's padding: its panel pads the
      edges it touches (its backdrop stays edge to edge). In the base layer, so
-     a Sheet that sets its own padding replaces this and adds the inset itself. */
-  [data-slot="sheet-content"][data-side="left"] {
+     a Sheet that sets its own padding replaces this and adds the inset itself.
+     A class, not data-slot: the mobile sidebar overrides data-slot. */
+  .sheet-panel[data-side="left"] {
     padding: var(--safe-top) 0 var(--safe-bottom) var(--safe-left);
   }
-  [data-slot="sheet-content"][data-side="right"] {
+  .sheet-panel[data-side="right"] {
     padding: var(--safe-top) var(--safe-right) var(--safe-bottom) 0;
   }
-  [data-slot="sheet-content"][data-side="top"] {
+  .sheet-panel[data-side="top"] {
     padding: var(--safe-top) var(--safe-right) 0 var(--safe-left);
   }
-  [data-slot="sheet-content"][data-side="bottom"] {
+  .sheet-panel[data-side="bottom"] {
     padding: 0 var(--safe-right) var(--safe-bottom) var(--safe-left);
   }
   body {
