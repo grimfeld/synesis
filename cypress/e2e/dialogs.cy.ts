@@ -38,7 +38,7 @@ describe("Dialogs", () => {
 
   it("creates a Clipping with a new Source from the same dialog", () => {
     cy.runCommand("New Clipping");
-    cy.get("[data-testid=new-doc-form] textarea").type(
+    cy.get("[data-testid=clipping-text] .cm-content").type(
       "A line worth keeping (Ps 119:105).",
     );
     cy.get(
@@ -77,9 +77,10 @@ describe("Dialogs", () => {
 
   it("quick capture dialog creates and opens a Note", () => {
     cy.get("body").type("{ctrl}{shift}n");
-    cy.get("[role=dialog] textarea").type(
+    cy.get("[data-testid=quick-capture-box] .cm-content").type(
       "From the quick capture dialog{ctrl}{enter}",
     );
+    cy.get("[role=dialog]").should("not.exist");
     cy.get(".cm-content").should("contain", "From the quick capture dialog");
   });
 

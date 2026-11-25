@@ -58,7 +58,7 @@ import {
   type SourceKind,
 } from "@/lib/library";
 import { quoteBody } from "@/lib/clippingBody";
-import { removeField, setField, splitFrontmatter } from "@/lib/frontmatter";
+import { removeField, setField } from "@/lib/frontmatter";
 import { kindCatalogue, kindOf, stopChoices, type KindDef, type StopChoice } from "@/lib/map";
 import { addAtlas, removeMap } from "@/lib/atlas";
 import { pinIconSvg } from "@/lib/pinIcons";
@@ -72,6 +72,7 @@ import { propertyLabel, useT } from "@/i18n";
 import { Editor } from "@/editor/Editor";
 import { attachPictures } from "@/editor/pictures";
 import type { EditorEnv } from "@/editor/decorations";
+import { useEditorEnv } from "@/editor/useEditorEnv";
 import { DocPicker, stamp } from "@/components/Dialogs";
 import { ChipsRow, TagsRow, TitleEditor } from "@/components/DocHeader";
 import { KindPicker } from "@/components/KindPicker";
@@ -101,7 +102,8 @@ import { TutorialButton } from "@/components/TutorialPanel";
 import { PaneButtons } from "@/components/Panes";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Kbd } from "@/components/ui/kbd";
-import { Textarea } from "@/components/ui/textarea";
+import { CaptureBox } from "@/components/CaptureBox";
+import { captureRest } from "@/lib/captureRest";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -193,24 +195,7 @@ export function HubView({ id }: { id: string }) {
     refetchUnlinked();
   }, [refetchBacklinks, refetchUnlinked]);
 
-  const env = useMemo<EditorEnv>(
-    () => ({
-      names: d.names,
-      onOpenLink: (target, other) => void s.openLink(target, other),
-      onOpenPassage: (p) => s.openPassage(p),
-      onPassageHover: (i) =>
-        setHover(i ? { kind: "passage", passages: i.p, x: i.x, y: i.y } : null),
-      onLinkHover: (i) =>
-        setHover(i ? { kind: "link", target: i.target, x: i.x, y: i.y } : null),
-      embedText: async (target) => {
-        const r = await api.resolveLink(target);
-        if (!r) return null;
-        const full = await api.getDocument(r.id);
-        return { title: r.title, body: splitFrontmatter(full.text).body };
-      },
-    }),
-    [d.names, s],
-  );
+  const env = useEditorEnv(d.names, setHover);
 
   if (!doc)
     return (
@@ -2076,14 +2061,23 @@ function SourceCapture({ source }: { source: DocSummary }) {
   const t = useT();
   const [type, setType] = useState<"clipping" | "note">("clipping");
   const [text, setText] = useState("");
+  // The box's text as of now, which a create in flight reads when it ends.
+  const textRef = useRef("");
+  const change = (v: string) => {
+    textRef.current = v;
+    setText(v);
+  };
   const [locator, setLocator] = useState("");
   const [title, setTitle] = useState("");
   const [busy, setBusy] = useState(false);
-  const area = useRef<HTMLTextAreaElement>(null);
+  // Bumped to empty the box after a capture without losing its focus.
+  const [revision, setRevision] = useState(0);
+  const boxRef = useRef<HTMLDivElement>(null);
   const clipping = type === "clipping";
 
   const submit = async () => {
-    if (!text.trim() || busy) return;
+    const submitted = textRef.current;
+    if (!submitted.trim() || busy) return;
     setBusy(true);
     try {
       const fields: Record<string, string> = {
@@ -2096,18 +2090,24 @@ function SourceCapture({ source }: { source: DocSummary }) {
         // Citation in these fields (ADR 0013).
         clipping ? "" : title.trim() || stamp(),
         fields,
-        clipping ? quoteBody(text) : text.trim() + "\n",
+        // Typed bare, stored quoted on every line, markdown kept inside.
+        clipping ? quoteBody(submitted) : submitted.trim() + "\n",
         // Stay on the Source: capturing five passages from one chapter is the
         // point, and opening each one defeats it.
         false,
       );
-      setText("");
+      // The box stays editable meanwhile: keep what was typed since.
+      change(captureRest(submitted, textRef.current));
+      setRevision((r) => r + 1);
       setLocator("");
       setTitle("");
     } finally {
       setBusy(false);
-      // After re-enabling, not before: a disabled textarea cannot take focus.
-      requestAnimationFrame(() => area.current?.focus());
+      // Back to the box for the next one, also from the button or the
+      // Locator's Enter. A failed create keeps the text there.
+      requestAnimationFrame(() =>
+        boxRef.current?.querySelector<HTMLElement>(".cm-content")?.focus(),
+      );
     }
   };
 
@@ -2115,7 +2115,7 @@ function SourceCapture({ source }: { source: DocSummary }) {
     <section
       data-testid="hub-capture"
       className={cn(
-        "mb-6 rounded-lg border-l-2 bg-card p-3",
+        "mb-6 min-w-0 rounded-lg border-l-2 bg-card p-3",
         clipping ? "border-l-type-clipping" : "border-l-type-note",
       )}
     >
@@ -2140,21 +2140,25 @@ function SourceCapture({ source }: { source: DocSummary }) {
           {t.capture_from(source.title)}
         </span>
       </div>
-      <Textarea
-        ref={area}
-        rows={3}
-        data-testid="capture-text"
-        className="font-prose text-[15px]"
-        placeholder={
-          clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
-        }
-        value={text}
-        disabled={busy}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key === "Enter") submit();
-        }}
-      />
+      {/* The editor (spec #206). A Picture is named after the Source in
+          either mode (ADR 0019). Keyed by mode so the placeholder follows. */}
+      <div ref={boxRef} className="min-w-0">
+        <CaptureBox
+          key={type}
+          data-testid="capture-text"
+          value={text}
+          revision={revision}
+          onChange={change}
+          onSubmit={submit}
+          placeholder={
+            clipping ? t.capture_clipping_placeholder : t.capture_note_placeholder
+          }
+          ariaLabel={clipping ? t.clipping_text : t.capture_note_text}
+          minLines={3}
+          maxLines={12}
+          pictureTitle={source.title}
+        />
+      </div>
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <Input
           data-testid={clipping ? "capture-locator" : "capture-title"}

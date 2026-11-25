@@ -3,6 +3,7 @@ import {
   Annotation,
   EditorState,
   Compartment,
+  Prec,
   Transaction,
 } from "@codemirror/state";
 import {
@@ -45,7 +46,12 @@ import { docDrop, docDropHost } from "./docDrop";
 import { useT } from "@/i18n";
 import { lock, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
-import { EDITOR_COMMANDS, releaseActiveEditor, setActiveEditor } from "./active";
+import {
+  EDITOR_COMMANDS,
+  claimWhileFocused,
+  releaseActiveEditor,
+  setActiveEditor,
+} from "./active";
 import { toCodeMirrorKey } from "@/lib/keys";
 import { api, type DetectedRange, type TagCount } from "@/lib/api";
 import type { NameIndex } from "@/lib/names";
@@ -87,6 +93,41 @@ interface Props {
    */
   register?: boolean;
   /**
+   * An editor embedded in a capture box (spec #206): the one Commands act on
+   * only while it has focus (or while focus is in the Command palette opened
+   * from it), then the Writing page again. It never registers as the page's
+   * editor, whatever `register` says. The other embedded-box options (submit
+   * key, no navigation on click, growing height, accessible name) belong next
+   * to it. Escape in a dialog is the dialog's: `closeBoxPopup`.
+   */
+  activeWhileFocused?: boolean;
+  /**
+   * A capture box's submit key (spec #206): Ctrl/⌘+Enter calls this instead
+   * of inserting a blank line. Enter stays a new line, and picks the
+   * completion while the autocomplete popup is open.
+   */
+  onSubmit?: () => void;
+  /**
+   * The text box's accessible name (a capture box, spec #206), on the
+   * editable content, which is what a screen reader announces as the
+   * textbox. `ariaLabelledBy` names it after a visible label's id instead.
+   * A Writing page sets neither.
+   */
+  ariaLabel?: string;
+  ariaLabelledBy?: string;
+  /**
+   * False in a capture box, whose text is unsaved (spec #206): clicking a
+   * link, Tag, Passage or Embed title places the cursor and opens nothing.
+   * Hover cards still show.
+   */
+  navigate?: boolean;
+  /**
+   * A capture box's height in lines (spec #206): it starts `min` lines tall,
+   * grows with its text to `max`, then scrolls inside. Also gives it a box's
+   * slim padding and the full width of its container.
+   */
+  lines?: { min: number; max: number };
+  /**
    * Prose size in CSS pixels, when not the editor's own: the Delivery view's
    * adjustable size (PLAN §23.11).
    */
@@ -112,6 +153,39 @@ interface Props {
   dropOwner?: string;
 }
 
+/**
+ * A capture box's layout (spec #206): full width, slim padding, `min` lines
+ * tall at first, growing to `max` lines and then scrolling inside. Lines are
+ * in the prose line height, in the editor's own font size (`em` here).
+ */
+function boxLayout({ min, max }: { min: number; max: number }) {
+  const lh = "var(--prose-line-height)";
+  return Prec.high(
+    EditorView.theme({
+      ".cm-scroller": {
+        overflow: "auto",
+        padding: "8px 0",
+        maxHeight: `calc(${max} * ${lh} * 1em + 16px)`,
+      },
+      // The whole empty box takes a click, not only its first line.
+      ".cm-content": {
+        minHeight: `calc(${min} * ${lh} * 1em)`,
+        maxWidth: "none",
+        padding: "0 12px",
+      },
+    }),
+  );
+}
+
+/** The content's accessible name, when one is given; nothing otherwise. */
+function nameAttrs(label?: string, labelledBy?: string) {
+  if (!label && !labelledBy) return [];
+  return EditorView.contentAttributes.of({
+    ...(label ? { "aria-label": label } : {}),
+    ...(labelledBy ? { "aria-labelledby": labelledBy } : {}),
+  });
+}
+
 /** Shortcuts from the Command registry, bound inside the editor so they win over CodeMirror's defaults. */
 const editorKeymap = keymap.of(
   EDITOR_COMMANDS.filter((c) => c.shortcut).map((c) => ({
@@ -135,6 +209,12 @@ export function Editor({
   readOnly = false,
   checkboxes = true,
   register = true,
+  activeWhileFocused = false,
+  onSubmit,
+  ariaLabel,
+  ariaLabelledBy,
+  navigate = true,
+  lines,
   fontSize,
   compact = false,
   onReady,
@@ -148,6 +228,10 @@ export function Editor({
   dropOwnerRef.current = dropOwner;
   const tRef = useRef(t);
   tRef.current = t;
+  const onSubmitRef = useRef(onSubmit);
+  onSubmitRef.current = onSubmit;
+  const navigateRef = useRef(navigate);
+  navigateRef.current = navigate;
   const host = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const member = useRef<LiveMember | null>(null);
@@ -163,6 +247,7 @@ export function Editor({
   const envCompartment = useRef(new Compartment());
   const modeCompartment = useRef(new Compartment());
   const lockCompartment = useRef(new Compartment());
+  const labelCompartment = useRef(new Compartment());
 
   useEffect(() => {
     if (!host.current) return;
@@ -184,8 +269,13 @@ export function Editor({
       get names() {
         return namesRef.current;
       },
-      onOpenLink: (t, o) => envRef.current.onOpenLink(t, o),
-      onOpenPassage: (p, a) => envRef.current.onOpenPassage(p, a),
+      // A capture box opens nothing: leaving would lose its unsaved text.
+      onOpenLink: (t, o) => {
+        if (navigateRef.current) envRef.current.onOpenLink(t, o);
+      },
+      onOpenPassage: (p, a) => {
+        if (navigateRef.current) envRef.current.onOpenPassage(p, a);
+      },
       onPassageHover: (i) => envRef.current.onPassageHover(i),
       onLinkHover: (i) => envRef.current.onLinkHover(i),
       embedText: (t) => envRef.current.embedText(t),
@@ -210,6 +300,8 @@ export function Editor({
         history(),
         drawSelection(),
         EditorView.lineWrapping,
+        lines ? boxLayout(lines) : [],
+        labelCompartment.current.of(nameAttrs(ariaLabel, ariaLabelledBy)),
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
           // Through variables, so a caller can size the prose from the host
@@ -250,6 +342,21 @@ export function Editor({
           () => tagsRef.current,
         ),
         cmPlaceholder(placeholder ?? ""),
+        // A capture box's own key. The autocomplete popup's keymap is higher
+        // still, so Enter reaches it first while it is open.
+        Prec.high(
+          keymap.of([
+            {
+              key: "Mod-Enter",
+              run: () => {
+                const submit = onSubmitRef.current;
+                if (!submit) return false;
+                submit();
+                return true;
+              },
+            },
+          ]),
+        ),
         editorKeymap,
         keymap.of([
           ...closeBracketsKeymap,
@@ -280,11 +387,13 @@ export function Editor({
     });
     const view = new EditorView({ state, parent: host.current });
     viewRef.current = view;
-    if (register) setActiveEditor(view);
+    if (register && !activeWhileFocused) setActiveEditor(view);
+    const unclaim = activeWhileFocused ? claimWhileFocused(view) : undefined;
     runDetect(view.state.doc.toString());
     if (autofocus) view.focus();
     return () => {
       window.clearTimeout(detectTimer.current);
+      unclaim?.();
       releaseActiveEditor(view);
       view.destroy();
       viewRef.current = null;
@@ -322,9 +431,11 @@ export function Editor({
   // With two Panes, Commands act on the editor in the last-used one: the
   // flag moves as the user moves between them (spec #35).
   useEffect(() => {
-    if (register) setActiveEditor(viewRef.current);
-    else releaseActiveEditor(viewRef.current);
-  }, [register]);
+    const v = viewRef.current;
+    if (activeWhileFocused || !v) return;
+    if (register) setActiveEditor(v);
+    else releaseActiveEditor(v);
+  }, [register, activeWhileFocused]);
 
   // Live Preview <-> Source mode.
   useEffect(() => {
@@ -334,6 +445,13 @@ export function Editor({
       ),
     });
   }, [sourceMode]);
+
+  // The accessible name follows the app language.
+  useEffect(() => {
+    viewRef.current?.dispatch({
+      effects: labelCompartment.current.reconfigure(nameAttrs(ariaLabel, ariaLabelledBy)),
+    });
+  }, [ariaLabel, ariaLabelledBy]);
 
   // Reading mode on and off.
   useEffect(() => {

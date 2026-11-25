@@ -55,6 +55,7 @@ import { whenBoard } from "@/lib/activeBoard";
 import {
   EDITOR_COMMANDS,
   getActiveEditor,
+  useBoxActive,
   useHasEditor,
 } from "@/editor/active";
 
@@ -139,6 +140,7 @@ export function useCommands(): Command[] {
   const s = useStore();
   const t = useT();
   const hasEditor = useHasEditor();
+  const boxActive = useBoxActive();
   const tutorials = useTutorials();
   const appearance = useAppearance();
   const fillKinds = useFillKinds();
@@ -404,7 +406,7 @@ export function useCommands(): Command[] {
           keywords: "capture clipping note keep quote excerpt source",
           run: () =>
             document
-              .querySelector<HTMLTextAreaElement>("[data-testid=capture-text]")
+              .querySelector<HTMLElement>("[data-testid=capture-text] .cm-content")
               ?.focus(),
         });
       }
@@ -442,8 +444,9 @@ export function useCommands(): Command[] {
       }
     }
     // Editing Commands are not offered on a locked page: the lock would drop
-    // their change anyway, and a Command that does nothing is a lie.
-    if (hasEditor && !s.readingMode) {
+    // their change anyway, and a Command that does nothing is a lie. A
+    // capture box is never locked (spec #206).
+    if (hasEditor && (!s.readingMode || boxActive)) {
       list.push({
         id: "editor.source",
         title: s.sourceMode ? t.live_preview : t.source_mode,
@@ -517,7 +520,7 @@ export function useCommands(): Command[] {
       });
     }
     return list;
-  }, [s, t, hasEditor, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds, characterHasKin]);
+  }, [s, t, hasEditor, boxActive, tutorials, appearance.setGalleryOpen, fillKinds, importBorder, drawBorder, regionIds, characterHasKin]);
 }
 
 /**

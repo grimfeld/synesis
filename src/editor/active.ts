@@ -1,33 +1,98 @@
-// The editor that commands act on, plus the markdown editing operations
-// exposed as Commands (bold, heading, checkbox, insert link…). Kept free of
+// The editor that commands act on (which one: src/lib/activeEditor.ts), plus
+// the markdown editing operations exposed as Commands (bold, heading, checkbox, insert link…). Kept free of
 // React so the Command registry and the CodeMirror keymap share one list.
 import { useSyncExternalStore } from "react";
 import { EditorSelection, type ChangeSpec } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { startCompletion } from "@codemirror/autocomplete";
 import { pickPictures } from "./pictures";
+import { createActiveEditor } from "@/lib/activeEditor";
 
-let active: EditorView | null = null;
-const listeners = new Set<() => void>();
+const registry = createActiveEditor<EditorView>();
 
-export function setActiveEditor(view: EditorView | null) {
-  active = view;
-  for (const l of listeners) l();
+/**
+ * Marks the Command palette: focus moving into it keeps a box the active
+ * editor. The palette calls `keepZoneClosed` when it closes.
+ */
+export const KEEPS_EDITOR_ATTR = "data-keeps-editor";
+
+/** A Writing page (or a Hub's About) becomes the editor Commands act on. */
+export function setActiveEditor(view: EditorView) {
+  registry.register(view);
 }
-/** Stop `view` being the active editor, unless another has taken over since. */
+/** Forget every claim `view` holds (unmount, or its Pane is no longer active). */
 export function releaseActiveEditor(view: EditorView | null) {
-  if (view && active === view) setActiveEditor(null);
+  if (view) registry.release(view);
 }
+/** The editor Commands act on: a focused capture box, else the Writing page. */
 export function getActiveEditor(): EditorView | null {
-  return active;
+  return registry.active();
 }
-function subscribe(l: () => void) {
-  listeners.add(l);
-  return () => listeners.delete(l);
-}
-/** True while a document editor is mounted. */
+/** True while an editor Commands can act on is mounted. */
 export function useHasEditor(): boolean {
-  return useSyncExternalStore(subscribe, () => active !== null);
+  return useSyncExternalStore(registry.subscribe, () => registry.active() !== null);
+}
+
+/**
+ * True while the active editor is a capture box. Reading mode does not lock a
+ * box (spec #206), so its Commands stay offered there.
+ */
+export function useBoxActive(): boolean {
+  return useSyncExternalStore(registry.subscribe, () => registry.boxActive());
+}
+
+const inKeepZone = (el: EventTarget | null) =>
+  el instanceof Element && el.closest(`[${KEEPS_EDITOR_ATTR}]`) !== null;
+
+/**
+ * The Command palette closed (or focus left it for the body, which no
+ * focusin announces): a box's kept claim ends. Deferred one task, so a
+ * Command the palette started (it runs on a timeout once the palette closes)
+ * still reaches the box; a box that has taken focus back by then keeps it,
+ * and so does a palette that still holds focus (StrictMode's rehearsed
+ * unmount, a click on the palette's own background).
+ */
+export function keepZoneClosed() {
+  window.setTimeout(() => {
+    if (!inKeepZone(document.activeElement)) registry.keepEnded();
+  }, 0);
+}
+
+/**
+ * Make `view` the active editor only while it has focus (a capture box,
+ * spec #206). Focus moving into the Command palette keeps the claim, so a
+ * Command picked there still reaches the box; focus landing anywhere else
+ * gives it back. Returns the cleanup, which also releases the claim.
+ */
+export function claimWhileFocused(view: EditorView): () => void {
+  const dom = view.dom;
+  const onFocusIn = () => registry.focus(view);
+  const onFocusOut = (e: FocusEvent) => {
+    // Focus moving within the editor (its search panel) is still the box's.
+    if (e.relatedTarget instanceof Node && dom.contains(e.relatedTarget)) return;
+    registry.blur(view, { kept: inKeepZone(e.relatedTarget) });
+  };
+  const onDocFocusIn = (e: FocusEvent) => {
+    if (e.target instanceof Node && dom.contains(e.target)) return;
+    if (inKeepZone(e.target)) return;
+    registry.focusElsewhere();
+  };
+  // Focus leaving the palette for nowhere fires no focusin to end the keep.
+  const onDocFocusOut = (e: FocusEvent) => {
+    if (e.relatedTarget === null && inKeepZone(e.target)) keepZoneClosed();
+  };
+  dom.addEventListener("focusin", onFocusIn);
+  dom.addEventListener("focusout", onFocusOut);
+  document.addEventListener("focusin", onDocFocusIn);
+  document.addEventListener("focusout", onDocFocusOut);
+  if (view.hasFocus) registry.focus(view);
+  return () => {
+    dom.removeEventListener("focusin", onFocusIn);
+    dom.removeEventListener("focusout", onFocusOut);
+    document.removeEventListener("focusin", onDocFocusIn);
+    document.removeEventListener("focusout", onDocFocusOut);
+    registry.release(view);
+  };
 }
 
 /** Wrap the selection in `mark` (or unwrap it when already wrapped). */

@@ -7,6 +7,27 @@ import { expectNoOverflow } from "../support/layout";
 const LANGS = ["en", "fr"] as const;
 
 /**
+ * Type `[[Ge` into the capture box's editor and check the autocomplete popup
+ * opens on screen (spec #206), then close it and empty the box again.
+ */
+function expectCompletionOnScreen(box: string) {
+  cy.get(`${box} .cm-content`).click().type("[[Ge", { delay: 150 });
+  cy.get(".cm-tooltip-autocomplete").should(($p) => {
+    const r = $p[0].getBoundingClientRect();
+    const win = $p[0].ownerDocument.defaultView!;
+    expect(r.width, "popup width").to.be.greaterThan(0);
+    expect(r.left, "popup left").to.be.gte(0);
+    expect(r.top, "popup top").to.be.gte(0);
+    expect(r.right, "popup right").to.be.lte(win.innerWidth);
+    expect(r.bottom, "popup bottom").to.be.lte(win.innerHeight);
+  });
+  // The first Escape closes only the popup, in a dialog too.
+  cy.get(`${box} .cm-content`).type("{esc}");
+  cy.get(".cm-tooltip-autocomplete").should("not.exist");
+  cy.get(`${box} .cm-content`).type("{ctrl}a{backspace}");
+}
+
+/**
  * A fresh Character, opened from the sidebar, with its lifespan just added
  * through "Add Date". Made through the engine rather than the palette: a spec
  * should not have to know what the Command is called in each language.
@@ -277,6 +298,49 @@ describe("Locale layout", () => {
         cy.get("[data-testid=nav-settings]").click();
         cy.get("[data-testid=pairing-show]").click();
         cy.get("[data-testid=pairing-qr]", { timeout: 10000 }).should("be.visible");
+        expectNoOverflow();
+      });
+
+      // Home's quick-capture box is the editor (spec #206): full width of its
+      // card, its placeholder and a long unbroken line wrapped inside it.
+      it("keeps Home's capture box inside its card on a phone", () => {
+        cy.get("[data-testid=home-quick-box]").then(($box) => {
+          const card = $box.closest("[data-testid=home-quick]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(card.left);
+          expect(box.right).to.be.lte(card.right);
+          expect(box.width).to.be.greaterThan(card.width * 0.8);
+        });
+        expectNoOverflow();
+        cy.get("[data-testid=home-quick] .cm-content").type("x".repeat(80) + " Jas 1:2-4");
+        expectNoOverflow();
+      });
+
+      it("keeps the Quick capture dialog inside a phone, its Create button above the keyboard", () => {
+        cy.get("body").type("{ctrl}{shift}n");
+        cy.get("[data-testid=quick-capture-box]").then(($box) => {
+          const dialog = $box.closest("[role=dialog]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(dialog.left);
+          expect(box.right).to.be.lte(dialog.right);
+          expect(box.width).to.be.greaterThan(dialog.width * 0.8);
+        });
+        expectNoOverflow();
+        expectCompletionOnScreen("[data-testid=quick-capture-box]");
+        cy.get("[role=dialog]").should("exist");
+        // The on-screen keyboard resizes the viewport (`interactive-widget`),
+        // here to what a phone keeps above it, and the box is filled past
+        // its maximum: the box gives up height, the Create button stays.
+        cy.viewport(390, 420);
+        cy.get("[data-testid=quick-capture-box] .cm-content").type("x".repeat(80) + " Jas 1:2-4" + "{enter}line".repeat(14));
+        cy.get("[data-testid=quick-capture-create]").should(($b) => {
+          const r = $b[0].getBoundingClientRect();
+          expect(r.top).to.be.gte(0);
+          expect(r.bottom).to.be.lte($b[0].ownerDocument.defaultView!.innerHeight);
+        });
+        cy.get("[data-testid=quick-capture-box] .cm-scroller").should(($s) =>
+          expect($s[0].scrollHeight).to.be.greaterThan($s[0].clientHeight),
+        );
         expectNoOverflow();
       });
 
@@ -744,6 +808,35 @@ describe("Locale layout", () => {
         // The spec opens the seeded vault once, in before(); put it back.
         cy.bridge("open_vault", { path: Cypress.env("vault") });
       });
+    });
+  }
+});
+
+// The Source capture box is the editor (spec #206, #225): in either mode it
+// takes its card's width on a phone, and a long line wraps inside it.
+describe("Locale layout: the Source capture box", () => {
+  afterEach(() => cy.bridge("set_language", { lang: "en" }));
+
+  for (const lang of LANGS) {
+    it(`keeps the Source capture box inside its card on a phone (${lang})`, () => {
+      cy.bridge("set_language", { lang });
+      cy.viewport(390, 844);
+      cy.openApp();
+      cy.openDoc("Keep Enduring with Joy");
+      for (const mode of ["clipping", "note"] as const) {
+        cy.get(`[data-testid=capture-as-${mode}]`).click();
+        cy.get("[data-testid=capture-text]").then(($box) => {
+          const card = $box.closest("[data-testid=hub-capture]")[0].getBoundingClientRect();
+          const box = $box[0].getBoundingClientRect();
+          expect(box.left).to.be.gte(card.left);
+          expect(box.right).to.be.lte(card.right);
+          expect(box.width).to.be.greaterThan(card.width * 0.8);
+        });
+        expectNoOverflow();
+        expectCompletionOnScreen("[data-testid=capture-text]");
+        cy.get("[data-testid=capture-text] .cm-content").type("x".repeat(80) + " Jas 1:2-4");
+        expectNoOverflow();
+      }
     });
   }
 });

@@ -13,13 +13,13 @@ describe("Tutorial: Quick capture & Notes", () => {
     cy.tutorialStep(0);
     cy.tutorialCommand("nav.home");
     cy.get("h1").should("contain", "Home");
-    cy.get("[data-testid=home-quick]").should("contain", "Quick capture").find("textarea").should("exist");
+    cy.get("[data-testid=home-quick]").should("contain", "Quick capture").find(".cm-content").should("exist");
     cy.tutorialNext();
 
     // 2. The Quick capture Command opens the same box as a dialog.
     cy.tutorialStep(1);
     cy.tutorialCommand("create.quick");
-    cy.get("[role=dialog]").should("contain", "Quick capture").find("textarea").should("exist");
+    cy.get("[role=dialog]").should("contain", "Quick capture").find("[data-testid=quick-capture-box] .cm-content").should("exist");
     cy.get("body").type("{esc}");
     cy.get("[role=dialog]").should("not.exist");
     cy.tutorialNext();
@@ -42,9 +42,9 @@ describe("Tutorial: Quick capture & Notes", () => {
 
     // 5. Do it once: capture on Home, then open the Note from Recent.
     cy.tutorialStep(4);
-    cy.get("[data-testid=home-quick] textarea").type("Captured while following the tutorial, see Ro 12:2.");
+    cy.get("[data-testid=home-quick] .cm-content").type("Captured while following the tutorial, see Ro 12:2.");
     cy.get("[data-testid=home-quick]").contains("button", "Create").click();
-    cy.get("[data-testid=home-quick] textarea").should("have.value", "");
+    cy.get("[data-testid=home-quick] .cm-placeholder").should("exist");
     cy.get("h1").should("contain", "Home");
     // Titled with the moment it was captured, and first in Recent.
     cy.get("[data-testid=home-recent] li").first().find("button").first().click();
