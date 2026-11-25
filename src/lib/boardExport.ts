@@ -7,6 +7,10 @@
 import { contentBounds } from "./board";
 import type { Board } from "./api";
 
+/** What of a bubble's editor is not text: layers, the announcer, any popup. */
+const EDITOR_CHROME = ".cm-layer, .cm-announced, .cm-tooltip, .cm-panels";
+const DROP = "data-export-drop";
+
 /** Margin around the content in the exported picture, in Board pixels. */
 const MARGIN = 40;
 
@@ -36,6 +40,7 @@ export function boardToSvg(source: SVGSVGElement, board: Board): string {
   svg.removeAttribute("class");
 
   inlineStyles(source, svg);
+  svg.querySelectorAll(`[${DROP}]`).forEach((el) => el.remove());
   stripInteractive(svg);
 
   const bg = getComputedStyle(source).getPropertyValue("background-color");
@@ -72,6 +77,12 @@ function inlineStyles(source: Element, clone: Element) {
       el.style.fontFamily = cs.fontFamily;
       el.style.fontWeight = cs.fontWeight;
     }
+  } else if (source.matches(EDITOR_CHROME)) {
+    // A bubble's editor (spec #207): its caret and selection layers and its
+    // screen-reader announcer are not content, and placed by `position`,
+    // which is not copied, they would take up room in the picture.
+    clone.setAttribute(DROP, "");
+    return;
   } else {
     // HTML inside foreignObject: the node cards.
     el.style.color = cs.color;

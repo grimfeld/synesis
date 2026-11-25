@@ -12,6 +12,7 @@ Un tableau est l'endroit où vous pensez un discours avant de l'écrire : vos pr
 
 ## À savoir
 
+- Une bulle est l'éditeur : au repos, elle montre son markdown mis en forme et ses images, et un clic sur un lien ou un passage l'ouvre. Double-cliquez dessus, ou sélectionnez-la et appuyez sur Entrée, pour écrire, avec `[[` pour les documents, `#` pour les tags, les passages repérés pendant la saisie et les commandes de l'éditeur comme [Gras](command:editor.bold) ; cliquez ailleurs ou appuyez sur Échap pour finir.
 - Le tableau est enregistré à côté de la composition dans un fichier `.canvas`, qu'Obsidian ouvre comme un canevas à part entière.
 - Une version de la composition couvre aussi son tableau, et en restaurer une restaure les deux.
 - **Ajuster au tableau** montre tout d'un coup ; [Exporter le tableau](command:board.export) l'enregistre en image (PNG ou SVG), depuis la barre d'outils ou de n'importe où sur la composition.

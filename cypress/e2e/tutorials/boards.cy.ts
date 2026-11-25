@@ -21,7 +21,7 @@ describe("Tutorial: Boards", () => {
 
     // 2. Add note, type, click the empty Board to finish.
     cy.tutorialStep(1);
-    cy.get("[aria-label='Add note']").click();
+    cy.get("[data-testid=board-add-note]").click();
     cy.focused().type("Joy is not the absence of trials");
     cy.get("[data-testid=board-canvas]").click("bottom");
     cy.wait(700); // the Board save is debounced

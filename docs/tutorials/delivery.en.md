@@ -13,6 +13,7 @@ This Tutorial is hidden while the view is open: read a step, do it, then press *
 
 - The timer counts down from a `duration` Property, a number of minutes, set on the Composition while you prepare. Without one it counts up from 0:00.
 - The view opens on the face that was showing: Talk, Split or Board.
+- On the Board, the bubbles show their markdown rendered, as when you prepare, but cannot be edited. A link or Passage in one opens in the same card over the view, and Escape closes the card before the view.
 - The text size is kept on this Device; the Board keeps its own zoom.
 - The app's shortcuts and the Command Palette are off while the view is open, so nothing runs behind it.
 - Where the screen cannot be kept awake, the bar says "This screen may go to sleep".

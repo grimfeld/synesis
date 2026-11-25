@@ -11,6 +11,7 @@ import {
   keymap,
   drawSelection,
   placeholder as cmPlaceholder,
+  tooltips,
 } from "@codemirror/view";
 import {
   defaultKeymap,
@@ -44,7 +45,7 @@ import { livePreview } from "./livePreview";
 import { pictureDisplay, pictureHost, pictureInput } from "./pictures";
 import { docDrop, docDropHost } from "./docDrop";
 import { useT } from "@/i18n";
-import { lock, throughLock } from "./lock";
+import { lockFor, throughLock } from "./lock";
 import { makeAutocomplete } from "./autocomplete";
 import {
   EDITOR_COMMANDS,
@@ -108,6 +109,12 @@ interface Props {
    */
   onSubmit?: () => void;
   /**
+   * Escape inside the editor (a Board bubble closing, spec #207). The
+   * autocomplete popup has Escape first: with it open, Escape only closes it.
+   * Return false to leave the key to the editor's other bindings.
+   */
+  onEscape?: () => boolean | void;
+  /**
    * The text box's accessible name (a capture box, spec #206), on the
    * editable content, which is what a screen reader announces as the
    * textbox. `ariaLabelledBy` names it after a visible label's id instead.
@@ -127,6 +134,26 @@ interface Props {
    * slim padding and the full width of its container.
    */
   lines?: { min: number; max: number };
+  /**
+   * A Board bubble at rest (spec #207): rendered as when reading, every line
+   * in Live Preview, and locked, checkboxes too; a press passes through to
+   * the Board (the editor neither selects nor takes focus), so the bubble
+   * still moves and selects. A click on a link, Tag or Passage still opens
+   * it. Turned off, the same editor is editable in place.
+   */
+  still?: boolean;
+  /**
+   * A Board bubble's layout (spec #207): the editor fills its container's
+   * height and scrolls inside, with no padding of its own. Read once at mount.
+   */
+  fill?: boolean;
+  /**
+   * The autocomplete popup and other tooltips go on `document.body` rather
+   * than beside the editor: a Board bubble sits in a scaled SVG
+   * `foreignObject`, where a popup beside it would be zoomed and clipped.
+   * Read once at mount.
+   */
+  tooltipsOnBody?: boolean;
   /**
    * Prose size in CSS pixels, when not the editor's own: the Delivery view's
    * adjustable size (PLAN §23.11).
@@ -177,6 +204,24 @@ function boxLayout({ min, max }: { min: number; max: number }) {
   );
 }
 
+/** A Board bubble's layout (spec #207): its node's height, scrolling inside. */
+const fillLayout = Prec.high(
+  EditorView.theme({
+    "&": { height: "100%" },
+    ".cm-scroller": { overflow: "auto", padding: "0" },
+    ".cm-content": { maxWidth: "none", padding: "0", minHeight: "100%" },
+  }),
+);
+
+/**
+ * At rest, a press is the Board's: CodeMirror neither selects nor focuses.
+ * Nor is it a text box to assistive technology (CodeMirror's own role): it
+ * is the text it shows.
+ */
+const passPresses = [
+  EditorView.domEventHandlers({ mousedown: () => true }),
+  EditorView.contentAttributes.of({ role: "document" }),
+];
 /** The content's accessible name, when one is given; nothing otherwise. */
 function nameAttrs(label?: string, labelledBy?: string) {
   if (!label && !labelledBy) return [];
@@ -211,10 +256,14 @@ export function Editor({
   register = true,
   activeWhileFocused = false,
   onSubmit,
+  onEscape,
   ariaLabel,
   ariaLabelledBy,
   navigate = true,
   lines,
+  still = false,
+  fill = false,
+  tooltipsOnBody = false,
   fontSize,
   compact = false,
   onReady,
@@ -230,6 +279,8 @@ export function Editor({
   tRef.current = t;
   const onSubmitRef = useRef(onSubmit);
   onSubmitRef.current = onSubmit;
+  const onEscapeRef = useRef(onEscape);
+  onEscapeRef.current = onEscape;
   const navigateRef = useRef(navigate);
   navigateRef.current = navigate;
   const host = useRef<HTMLDivElement>(null);
@@ -247,6 +298,7 @@ export function Editor({
   const envCompartment = useRef(new Compartment());
   const modeCompartment = useRef(new Compartment());
   const lockCompartment = useRef(new Compartment());
+  const stillCompartment = useRef(new Compartment());
   const labelCompartment = useRef(new Compartment());
 
   useEffect(() => {
@@ -296,11 +348,14 @@ export function Editor({
         pictureInput,
         docDropHost.of({ owner: () => dropOwnerRef.current }),
         docDrop,
-        lockCompartment.current.of(readOnly ? lock({ checkboxes }) : []),
+        lockCompartment.current.of(lockFor(readOnly, still, checkboxes)),
+        stillCompartment.current.of(still ? passPresses : []),
+        tooltipsOnBody ? tooltips({ parent: document.body }) : [],
         history(),
         drawSelection(),
         EditorView.lineWrapping,
         lines ? boxLayout(lines) : [],
+        fill ? fillLayout : [],
         labelCompartment.current.of(nameAttrs(ariaLabel, ariaLabelledBy)),
         // Layout that must outrank CodeMirror's base theme: prose font, centred column, outer scrolling.
         EditorView.theme({
@@ -353,6 +408,14 @@ export function Editor({
                 if (!submit) return false;
                 submit();
                 return true;
+              },
+            },
+            {
+              key: "Escape",
+              run: () => {
+                const escape = onEscapeRef.current;
+                if (!escape) return false;
+                return escape() !== false;
               },
             },
           ]),
@@ -453,14 +516,15 @@ export function Editor({
     });
   }, [ariaLabel, ariaLabelledBy]);
 
-  // Reading mode on and off.
+  // Reading mode on and off; a Board bubble opened for editing and closed.
   useEffect(() => {
     viewRef.current?.dispatch({
-      effects: lockCompartment.current.reconfigure(
-        readOnly ? lock({ checkboxes }) : [],
-      ),
+      effects: [
+        lockCompartment.current.reconfigure(lockFor(readOnly, still, checkboxes)),
+        stillCompartment.current.reconfigure(still ? passPresses : []),
+      ],
     });
-  }, [readOnly, checkboxes]);
+  }, [readOnly, checkboxes, still]);
 
   // External value changes (reload from disk, a restored Version). Through the
   // lock: the text changing under a reader is not the reader editing it.
@@ -515,5 +579,5 @@ export function Editor({
         "--editor-measure": "36em",
       } as React.CSSProperties)
     : undefined;
-  return <div ref={host} style={style} />;
+  return <div ref={host} style={style} className={fill ? "h-full" : undefined} />;
 }

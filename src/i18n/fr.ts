@@ -378,6 +378,7 @@ export const fr: Dict = {
   board_empty:
     "Ce tableau est vide. Ajoutez une note ou faites glisser de la matière depuis la droite.",
   board_note_empty: "Note vide",
+  board_note_text: "Texte de la note",
   board_add_note: "Ajouter une note",
   board_add_group: "Ajouter un groupe",
   board_group: "Groupe",

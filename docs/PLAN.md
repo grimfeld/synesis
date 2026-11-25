@@ -308,6 +308,7 @@ People preparing talks want to arrange their material spatially before writing p
 17. **Versions cover text and Board together**, and the diff view gains a Board tab listing nodes added, removed and moved. Restore restores both, said plainly in the confirmation. A Version is a moment (§14.8); restoring half of one is not.
 18. **Export** is a Command producing SVG and PNG of the Board's extent. The renderer is SVG anyway (the `TimelineView` precedent), so this is cheap. Not PDF — that belongs to the later Composition export (§8), and a Board is not a page.
     **Built (2026-10-13):** `board.export`, "Export the Board", offered on any Composition. One Command, the format picked in the save dialog by extension, as the toolbar button already did. The picture is drawn from the Board on screen, so from the talk the Command switches to the Board and waits for it to mount (`src/lib/activeBoard.ts`, where a loaded, editable Board registers itself).
+19. **A `text` node is the editor, and renders at rest** (spec #207, closing the open question on Passage detection). A bubble at rest is the shared editor, locked: its markdown rendered as in Live Preview, Pictures drawn, and a click on a link, Tag or Passage opening it as on a Writing page (in the Delivery view, over the view). A double-click edits it in place with the editor's writing help (`[[` and `#` autocomplete, Passage decorations with hover cards, the editor Commands); blur or Escape hands the text to the Board's debounced save, and the Board's keys stand aside meanwhile. A Board opened for reading renders and opens, and edits nothing. Passages in a bubble are **detected for decoration only, never indexed**: the `.canvas` is not a body the engine scans for Passages, and a typed `[[link]]` stays an ordinary Mention (11).
 
 ### Build order
 
@@ -335,7 +336,6 @@ Demo vault: "Talk on endurance" gains a Board exercising every node type — a f
 
 - Whether a Board can exist before its Composition does. Currently no: name the talk first.
 - Nested groups.
-- Whether `text` node markdown gets Passage detection like other bodies.
 
 ## 18. Events listed elsewhere carry their Date (grilling session, 2026-09-14)
 

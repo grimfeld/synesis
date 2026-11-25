@@ -49,3 +49,11 @@ export function lock({
     }),
   ];
 }
+
+/**
+ * The lock an editor wears: Reading mode's (`readOnly`), or a Board bubble's
+ * at rest (`still`, spec #207), whose checkboxes are locked too, or none.
+ */
+export function lockFor(readOnly: boolean, still: boolean, checkboxes: boolean): Extension {
+  return readOnly || still ? lock({ checkboxes: checkboxes && !still }) : [];
+}

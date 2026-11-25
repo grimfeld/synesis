@@ -65,6 +65,11 @@ import { createBoardSaver, type BoardSaveStatus } from "@/lib/boardSave";
 import { deliverLatest } from "@/lib/latest";
 import { registerBoard } from "@/lib/activeBoard";
 import { BoardDrawer } from "@/components/BoardDrawer";
+import { BoardBubble } from "@/components/BoardBubble";
+import { HoverCard, type HoverState } from "@/components/HoverCard";
+import type { EditorEnv } from "@/editor/decorations";
+import { useEditorEnv } from "@/editor/useEditorEnv";
+import { useNames } from "@/lib/useNames";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -100,6 +105,13 @@ function excerptKey(path: string, subpath: string | undefined): string {
 
 /** How far a pointer may travel before a press counts as a drag, not a click. */
 const DRAG_SLOP = 4;
+
+/** The Board with a bubble's text replaced, or null when the node is gone or unchanged. */
+function withText(board: Board, nodeId: string, text: string): Board | null {
+  const n = board.nodes.find((x) => x.id === nodeId);
+  if (!n || text === (n.text ?? "")) return null;
+  return { ...board, nodes: board.nodes.map((x) => (x.id === nodeId ? { ...x, text } : x)) };
+}
 /** Long-press duration that picks up a node on touch (PLAN §17.15). */
 const LONG_PRESS_MS = 400;
 
@@ -141,11 +153,15 @@ export function BoardView({
   beside?: boolean;
   /**
    * In the Delivery view (PLAN §23.7-8): always reading, no mode toggle or
-   * tools, and a card press calls `onPeek` instead of leaving the view.
+   * tools, and a card press, or a bubble's link or Passage, calls `onPeek`
+   * instead of leaving the view.
    */
   delivering?: boolean;
-  /** Show a card's document over the view, at a screen point. */
-  onPeek?: (target: string, x: number, y: number) => void;
+  /**
+   * Show a document or Passages over the Delivery view, in its one card: so
+   * its Escape closes that card before the view (PLAN §23.8).
+   */
+  onPeek?: (st: HoverState) => void;
 }) {
   const s = useStore();
   const { announceBoardSaved } = s;
@@ -177,6 +193,19 @@ export function BoardView({
   // button path can still anchor its preview beside itself.
   const lastPress = useRef({ x: 0, y: 0 });
   const [editing, setEditing] = useState<string | null>(null);
+  // A drag or a pan that travelled ends in a click on whatever it started
+  // on — a link in a bubble, say — which must not open it.
+  const travelled = useRef(false);
+  // The Board and its save as of the last render (or the last save, which
+  // may not have rendered yet), for the bubbles' stable callbacks.
+  const boardRef = useRef<Board | null>(null);
+  boardRef.current = board;
+  const saveRef = useRef<(b: Board) => void>(() => {});
+  // The open bubble's text as typed. It reaches the Board when the bubble
+  // closes; leaving the Board with it open (a Command from the palette that
+  // switches tab) writes it in the unmount flush below, whichever of the
+  // bubble and the Board is torn down first.
+  const openDraft = useRef<{ node: string; text: string } | null>(null);
   const [labelling, setLabelling] = useState<string | null>(null);
   const gesture = useRef<Gesture>({ kind: "none" });
   const [, forceRender] = useState(0);
@@ -326,6 +355,7 @@ export function BoardView({
   const save = useCallback(
     (next: Board) => {
       setBoard(next);
+      boardRef.current = next;
       saver.set({ id, board: next });
       if (saveTimer.current) window.clearTimeout(saveTimer.current);
       // Debounced: a drag produces a change per frame, and each save writes
@@ -334,14 +364,20 @@ export function BoardView({
     },
     [id, saver, flushQuietly],
   );
+  saveRef.current = save;
 
   // Leaving the Board — another tab, another document, closing the window —
   // writes what is pending instead of discarding it.
   useEffect(
     () => () => {
+      const d = openDraft.current;
+      openDraft.current = null;
+      const b = boardRef.current;
+      const next = d && b ? withText(b, d.node, d.text) : null;
+      if (next) saver.set({ id, board: next });
       void flushQuietly();
     },
-    [flushQuietly, id],
+    [flushQuietly, id, saver],
   );
 
   // The Board edited outside the app while it is open — Obsidian writing the
@@ -600,6 +636,11 @@ export function BoardView({
       longPress.current = null;
     }
     gesture.current = { kind: "none" };
+    travelled.current =
+      (g.kind === "move" && g.moved) ||
+      (g.kind === "pan" &&
+        (Math.abs(e.clientX - g.startX) >= DRAG_SLOP ||
+          Math.abs(e.clientY - g.startY) >= DRAG_SLOP));
     if (reading) {
       // A press that did not travel is a click, so open what is under it.
       // Measured in client pixels, like the drag slop everywhere else, so the
@@ -679,7 +720,7 @@ export function BoardView({
       // the view instead (PLAN §23.8). A wikilink names a document by its
       // path without the extension, whatever its title.
       if (delivering) {
-        onPeek?.(n.file.replace(/\.md$/i, ""), lastPress.current.x, lastPress.current.y);
+        onPeek?.({ kind: "link", target: n.file.replace(/\.md$/i, ""), ...lastPress.current });
         return;
       }
       const doc = byPath.get(n.file);
@@ -687,6 +728,43 @@ export function BoardView({
     },
     [byPath, s, delivering, onPeek],
   );
+
+  // Bubbles (spec #207): the names their links resolve against, one load for
+  // the whole Board, and where their links and Passages open. On a Writing
+  // page's terms, except in the Delivery view, where nothing leaves the talk:
+  // what a bubble opens or hovers is handed to the view's own card, as a
+  // card's document is, never to a card of the Board's.
+  const names = useNames();
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const pageEnv = useEditorEnv(names, setHover);
+  const bubbleEnv = useMemo<EditorEnv>(() => {
+    if (!delivering) return pageEnv;
+    // A null hover (the pointer leaving) is ignored: the view's card stays
+    // until it is closed, as a card's document does.
+    const peek = (st: HoverState) => onPeek?.(st);
+    return {
+      ...pageEnv,
+      onOpenLink: (target) => peek({ kind: "link", target, ...lastPress.current }),
+      onOpenPassage: (p) => peek({ kind: "passage", passages: [p], ...lastPress.current }),
+      onPassageHover: (i) => i && peek({ kind: "passage", passages: i.p, x: i.x, y: i.y }),
+      onLinkHover: (i) => i && peek({ kind: "link", target: i.target, x: i.x, y: i.y }),
+    };
+  }, [pageEnv, delivering, onPeek]);
+  // Stable, so a bubble's editor re-renders for its own text only.
+  const editBubble = useCallback((nodeId: string) => setEditing(nodeId), []);
+  const bubbleDraft = useCallback((nodeId: string, text: string | null) => {
+    // Back to what it opened with: leaving saves nothing, as closing would.
+    if (text === null) {
+      if (openDraft.current?.node === nodeId) openDraft.current = null;
+    } else openDraft.current = { node: nodeId, text };
+  }, []);
+  const bubbleDone = useCallback((nodeId: string, text: string | null) => {
+    setEditing((cur) => (cur === nodeId ? null : cur));
+    if (openDraft.current?.node === nodeId) openDraft.current = null;
+    const b = boardRef.current;
+    const next = b && text !== null ? withText(b, nodeId, text) : null;
+    if (next) saveRef.current(next);
+  }, []);
 
   const toggleReading = useCallback(() => {
     setReading((r) => {
@@ -710,19 +788,36 @@ export function BoardView({
     }
   };
 
-  // Keyboard: delete removes the selection, escape clears it. Only while
-  // focus is on the Board: beside the talk, the editor is a `contenteditable`
-  // that neither check below would recognise, so a window-wide listener would
-  // delete nodes on the talk's Backspace and take its select-all (PLAN §22.6).
+  const nodeById = useMemo(
+    () => new Map((board?.nodes ?? []).map((n) => [n.id, n])),
+    [board],
+  );
+
+  // Keyboard: delete removes the selection, escape clears it, Enter or F2
+  // edits the one selected bubble. Only while focus is on the Board: beside
+  // the talk, the editor is a `contenteditable` that neither check below
+  // would recognise, so a window-wide listener would delete nodes on the
+  // talk's Backspace and take its select-all (PLAN §22.6).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (editing || labelling || reading) return;
       const el = document.activeElement;
       if (!rootRef.current?.contains(el)) return;
+      // A field of its own. A bubble's editor takes focus only while it is
+      // being edited, which `editing` above already stands aside for.
       if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
         return;
       }
-      if (e.key === "Delete" || e.key === "Backspace") {
+      if ((e.key === "Enter" || e.key === "F2") && el === rootRef.current) {
+        // The keyboard's double-click: one selected bubble opens for
+        // editing, the caret after its text. Not from a toolbar button,
+        // whose own Enter presses it.
+        const only = selected.size === 1 ? nodeById.get([...selected][0]) : undefined;
+        if (only?.type === "text") {
+          e.preventDefault();
+          setEditing(only.id);
+        }
+      } else if (e.key === "Delete" || e.key === "Backspace") {
         if (selected.size > 0) {
           e.preventDefault();
           deleteSelected();
@@ -738,12 +833,7 @@ export function BoardView({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selected, deleteSelected, board, editing, labelling, reading]);
-
-  const nodeById = useMemo(
-    () => new Map((board?.nodes ?? []).map((n) => [n.id, n])),
-    [board],
-  );
+  }, [selected, deleteSelected, board, nodeById, editing, labelling, reading]);
 
   if (!board) {
     if (loadFailed)
@@ -781,8 +871,15 @@ export function BoardView({
       tabIndex={-1}
       className="relative flex min-h-0 flex-1 outline-none"
       data-testid="board-root"
+      onClickCapture={(e) => {
+        if (!travelled.current) return;
+        travelled.current = false;
+        e.stopPropagation();
+        e.preventDefault();
+      }}
       onPointerDownCapture={(e) => {
         lastPress.current = { x: e.clientX, y: e.clientY };
+        travelled.current = false;
         const target = e.target as HTMLElement;
         if (target.closest("input, textarea, button, [contenteditable=true]")) return;
         rootRef.current?.focus({ preventScroll: true });
@@ -908,19 +1005,25 @@ export function BoardView({
                   doc={n.file ? byPath.get(n.file) : undefined}
                   excerpt={n.file ? excerpts[excerptKey(n.file, n.subpath)] : undefined}
                   selected={selected.has(n.id)}
-                  editing={editing === n.id}
-                  onEdit={() => setEditing(n.id)}
-                  onEditDone={(text) => {
-                    setEditing(null);
-                    if (text !== n.text) {
-                      save({
-                        ...board,
-                        nodes: board.nodes.map((x) =>
-                          x.id === n.id ? { ...x, text } : x,
-                        ),
-                      });
-                    }
-                  }}
+                  bubble={
+                    n.type === "text" ? (
+                      <BoardBubble
+                        id={n.id}
+                        text={n.text ?? ""}
+                        editing={editing === n.id}
+                        editable={!reading}
+                        env={bubbleEnv}
+                        names={names}
+                        tags={s.tags}
+                        sourceMode={s.sourceMode}
+                        placeholder={t.board_note_empty}
+                        label={t.board_note_text}
+                        onEdit={editBubble}
+                        onDraft={bubbleDraft}
+                        onDone={bubbleDone}
+                      />
+                    ) : null
+                  }
                   onOpen={() => openNode(n)}
                   onStartEdge={() => {
                     gesture.current = {
@@ -1021,6 +1124,7 @@ export function BoardView({
           {!reading && (
             <IconButton
               label={t.board_add_note}
+              data-testid="board-add-note"
               onClick={() => addNode({ type: "text", text: "" })}
             >
               <Plus />
@@ -1181,6 +1285,16 @@ export function BoardView({
           dragToText={beside && !delivering}
         />
       )}
+      {/* A bubble's link or Passage card. Outside the canvas: a fixed card
+          inside the zoomed SVG would be scaled and offset with it. Never in
+          the Delivery view, whose own card shows what a bubble opens. */}
+      {hover && (
+        <HoverCard
+          state={hover}
+          excludeId={id}
+          onClose={() => setHover(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1226,14 +1340,12 @@ function NodeBox({
   doc,
   excerpt,
   selected,
-  editing,
+  bubble,
   missing,
   reading,
   zoom,
   mobile,
   t,
-  onEdit,
-  onEditDone,
   onOpen,
   onStartEdge,
   onResize,
@@ -1242,14 +1354,13 @@ function NodeBox({
   doc: DocSummary | undefined;
   excerpt: BoardExcerpt | undefined;
   selected: boolean;
-  editing: boolean;
+  /** A `text` node's content: its bubble (spec #207). */
+  bubble: React.ReactNode;
   missing: boolean;
   reading: boolean;
   zoom: number;
   mobile: boolean;
   t: ReturnType<typeof useT>;
-  onEdit: () => void;
-  onEditDone: (text: string) => void;
   onOpen: () => void;
   onStartEdge: () => void;
   onResize: (width: number, height: number) => void;
@@ -1274,30 +1385,7 @@ function NodeBox({
         style={accent ? { borderColor: accent } : undefined}
       >
         {node.type === "text" ? (
-          editing ? (
-            <textarea
-              data-board-ui
-              autoFocus
-              defaultValue={node.text ?? ""}
-              className="size-full resize-none bg-transparent outline-none"
-              onBlur={(e) => onEditDone(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  (e.target as HTMLTextAreaElement).blur();
-                }
-              }}
-            />
-          ) : (
-            <div
-              className="thin-scroll size-full overflow-y-auto whitespace-pre-wrap break-words"
-              onDoubleClick={reading ? undefined : onEdit}
-            >
-              {node.text || (
-                <span className="text-muted-foreground">{t.board_note_empty}</span>
-              )}
-            </div>
-          )
+          bubble
         ) : (
           // A card is a button only while reading. In arranging mode it must
           // be inert: `data-board-ui` makes the canvas ignore the press, and a

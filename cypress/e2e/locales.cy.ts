@@ -423,6 +423,24 @@ describe("Locale layout", () => {
         expectNoOverflow();
       });
 
+      // A bubble is the editor (spec #207): a long line wraps inside its
+      // node, and the autocomplete popup, on the page rather than in the
+      // zoomed canvas, stays on the screen.
+      it("keeps a Board bubble's text and its autocomplete inside a phone", () => {
+        cy.openDoc("Talk on endurance");
+        cy.get("[data-testid=tab-board]").click();
+        cy.get("[data-testid=board-add-note]").click();
+        const bubble = "[data-testid=board-bubble][data-editing]";
+        expectCompletionOnScreen(bubble);
+        cy.get(`${bubble} .cm-content`).type("x".repeat(60) + " Jas 1:2-4", { delay: 50 });
+        cy.get(bubble).then(($b) => {
+          const outer = $b[0].getBoundingClientRect();
+          const content = $b.find(".cm-content")[0].getBoundingClientRect();
+          expect(content.right).to.be.lte(outer.right + 1);
+        });
+        expectNoOverflow();
+      });
+
       it("hides Split on a phone and keeps the tabs in the header", () => {
         // Two sides of 320px do not fit a 390px phone (PLAN §22.5).
         cy.openDoc("Talk on endurance");

@@ -196,7 +196,7 @@ export function DeliveryView({ id }: { id: string }) {
       docs={s.docs}
       delivering
       beside={shown === "split"}
-      onPeek={(target, x, y) => peekAt({ kind: "link", target, x, y })}
+      onPeek={peekAt}
     />
   );
 

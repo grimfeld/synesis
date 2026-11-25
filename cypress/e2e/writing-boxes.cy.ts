@@ -635,3 +635,309 @@ describe("Writing boxes: the New document dialog's Clipping text", () => {
       });
   });
 });
+
+// A Board's text bubbles are the editor too (spec #207, #226): rendered and
+// locked at rest, a link or Passage opening on click, edited in place after a
+// double-click with the editor's help, the Board's keys standing aside.
+describe("Writing boxes: a Board's bubbles", () => {
+  const TRIALS = "a1b2c3d4e5f60002";
+  const WHO_RAN = "a1b2c3d4e5f60006";
+  const RICH = "Who ran before us — **[[Paul]]**, and Heb 12:1-3.\n![[insight on the scriptures.png|80]]";
+  /** The bubble that holds `text` (at rest or being edited). */
+  const bubble = (text: string) => cy.contains("[data-testid=board-bubble]", text);
+  const editingBox = "[data-testid=board-bubble][data-editing]";
+  type Saved = { nodes: { id: string; text?: string }[] };
+  const saved = (check: (b: Saved) => void) => {
+    cy.wait(700); // the Board save is debounced
+    cy.docByTitle("Talk on endurance").then((d) => {
+      cy.bridge<Saved>("get_board", { id: d.id }).should(check);
+    });
+  };
+  const openBoard = () => {
+    cy.openDoc("Talk on endurance");
+    cy.get("[data-sidebar=trigger]").first().click();
+    cy.get("[data-testid=tab-board]").click();
+    cy.get("[data-testid=board-canvas]").should("exist");
+  };
+
+  // The demo Board as shipped, one bubble given a link, bold and a Picture.
+  beforeEach(() => {
+    cy.readFile("examples/demo-vault/Compositions/talk on endurance.canvas").then((raw) => {
+      const board = typeof raw === "string" ? JSON.parse(raw) : raw;
+      board.nodes = board.nodes.map((n: { id: string }) => (n.id === WHO_RAN ? { ...n, text: RICH } : n));
+      cy.docByTitle("Talk on endurance").then((d) => cy.bridge("save_board", { id: d.id, board }));
+    });
+    cy.openApp();
+    openBoard();
+  });
+
+  it("renders its markdown at rest and opens a link on click", () => {
+    bubble("Who ran").within(() => {
+      cy.get(".cm-content").should("have.attr", "contenteditable", "false");
+      // Rendered: the markup hidden, the link and Passage decorated, the Picture drawn.
+      cy.get(".cm-content").should("not.contain", "**").and("not.contain", "[[");
+      cy.get(".cm-wikilink").should("contain", "Paul");
+      cy.get(".cm-passage").should("contain", "Heb 12:1-3");
+      cy.get("[data-testid=picture][data-state=shown]").should("exist");
+    });
+    // A Passage shows its card, as on a Writing page.
+    bubble("Who ran").find(".cm-passage").click();
+    cy.get("[data-testid=hover-card]").should("be.visible");
+    cy.get("body").type("{esc}");
+    bubble("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+
+  it("edits on double-click with autocomplete and Passages, the Board's keys inert, and saves on Escape", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(editingBox).should("have.length", 1).and("contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`).should("have.attr", "contenteditable", "true");
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} See [[Geth", { delay: 150 });
+    cy.get(".cm-tooltip-autocomplete").should("be.visible").and("contain", "Gethsemane");
+    cy.get(`${editingBox} .cm-content`).type("{enter}");
+    cy.get(`${editingBox} .cm-wikilink`).should("contain", "Gethsemane");
+    cy.get(`${editingBox} .cm-content`).type("{end} and Jas 1:2-4");
+    cy.get(`${editingBox} .cm-passage`).should("contain", "Jas 1:2-4").trigger("mouseover");
+    cy.get("[data-testid=hover-card]").should("be.visible");
+    // Delete and select-all are the editor's: the selected node stays, and
+    // the Board's selection stays one node.
+    cy.get(`${editingBox} .cm-content`).type("{del}{ctrl}a{rightarrow}");
+    cy.get(`[data-node-id=${TRIALS}]`).should("exist");
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get(`${editingBox} .cm-content`).type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    bubble("Trials feel like").find(".cm-content").should("have.attr", "contenteditable", "false");
+    saved((b) => {
+      const n = b.nodes.find((x) => x.id === TRIALS);
+      expect(n, "the bubble kept").to.exist;
+      expect(n!.text).to.contain("Gethsemane").and.contain("Jas 1:2-4");
+      expect(b.nodes).to.have.length(8);
+    });
+    // And it survives a reload.
+    cy.openApp();
+    openBoard();
+    bubble("Trials feel like").find(".cm-wikilink").should("contain", "Gethsemane");
+  });
+
+  it("runs editor Commands in the bubble and saves on a click elsewhere", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end}{enter}bold me{shift}{home}{ctrl}b");
+    cy.get("[data-testid=board-canvas]").click("bottom");
+    cy.get(editingBox).should("not.exist");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.contain("**bold me**");
+    });
+  });
+
+  it("opens a selected bubble with Enter or F2, the caret after its text, a named text box only while edited", () => {
+    // At rest a bubble is its text, not a text box.
+    bubble("Trials feel like")
+      .find(".cm-content")
+      .should("have.attr", "role", "document")
+      .and("not.have.attr", "aria-label");
+    bubble("Trials feel like").click();
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    cy.focused().type("{enter}");
+    cy.get(editingBox).should("have.length", 1).and("contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`)
+      .should("have.focus")
+      .and("have.attr", "role", "textbox")
+      .and("have.attr", "aria-label")
+      .and("not.be.empty");
+    // Enter opened it and typed nothing: the text is as it was.
+    cy.get(`${editingBox} .cm-line`).should("have.length", 2);
+    cy.focused().type(" by keyboard");
+    cy.focused().type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.match(/ by keyboard$/);
+    });
+    // F2 the same way, on the bubble still selected.
+    cy.get("[data-testid=board-root]").trigger("keydown", { key: "F2" });
+    cy.get(editingBox).should("have.length", 1).and("contain", "by keyboard");
+    cy.get(`${editingBox} .cm-content`).should("have.focus").type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    // Enter on a toolbar button presses it, the bubble still selected: the
+    // keydown, then the click a browser makes of it. A new note opens, not
+    // the selected bubble.
+    cy.get("[data-testid=board-add-note]").focus().trigger("keydown", { key: "Enter" });
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-add-note]").should("have.focus").click();
+    cy.get(editingBox).should("have.length", 1).and("not.contain", "Trials feel like");
+    cy.get(`${editingBox} .cm-content`).should("have.focus").type("{esc}");
+    cy.get(editingBox).should("not.exist");
+    // A file card selected: Enter opens no editor.
+    cy.contains("[data-testid=board-canvas] div", "Endurance is not merely putting up").click();
+    cy.get("[data-testid=board-selection]").should("have.attr", "data-count", "1");
+    cy.get("[data-testid=board-root]").should("have.focus");
+    cy.focused().type("{enter}");
+    cy.get(editingBox).should("not.exist");
+    cy.get("[data-testid=board-canvas] .cm-content[contenteditable=true]").should("not.exist");
+    cy.get("[data-testid=board-root]").should("have.focus");
+  });
+
+  // PLAN §17.14: the Board reloads from disk while a bubble is open (Obsidian,
+  // a sync). The bubble keeps what is being typed; closing saves it over the
+  // outside text, and a bubble closed as it opened saves nothing, so the
+  // outside text stays. The watcher's event does not reach a plain browser,
+  // so the test plays it (`__devEmit`, src/lib/devbridge.ts) once the engine
+  // has folded the file in.
+  describe("edited outside the app while a bubble is open", () => {
+    const CLOSE = "a1b2c3d4e5f60007";
+    const OUTSIDE = "Changed outside the app.";
+    const MARK = "Also changed outside.";
+    const editOutside = () =>
+      cy.docByTitle("Talk on endurance").then((talk) => {
+        const file = `${Cypress.env("vault")}/${talk.path.replace(/\.md$/, ".canvas")}`;
+        cy.task<string>("file:read", file).then((text) => {
+          const board = JSON.parse(text);
+          board.nodes = board.nodes.map((n: { id: string }) =>
+            n.id === TRIALS ? { ...n, text: OUTSIDE } : n.id === CLOSE ? { ...n, text: MARK } : n,
+          );
+          cy.task("file:write", { path: file, text: JSON.stringify(board, null, 2) });
+        });
+        const folded = (tries = 30): void => {
+          cy.bridge<Saved>("get_board", { id: talk.id }).then((b) => {
+            if (b.nodes.find((n) => n.id === CLOSE)?.text === MARK) return;
+            if (tries <= 0) throw new Error("the watcher never folded the canvas");
+            cy.wait(250);
+            folded(tries - 1);
+          });
+        };
+        folded();
+        cy.window().then((win) =>
+          (win as unknown as { __devEmit: (e: string, p: unknown) => void }).__devEmit("vault:changed", {
+            changed: [],
+            removed: [],
+            boards: [talk.id],
+          }),
+        );
+        // The Board reloaded: the other bubble shows the outside text.
+        bubble(MARK).should("exist");
+      });
+
+    it("saves what was typed over the outside text", () => {
+      bubble("Trials feel like").dblclick();
+      cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} typed in the app", { delay: 50 });
+      editOutside();
+      // Still being typed, as typed.
+      cy.get(editingBox).should("contain", "typed in the app").and("not.contain", OUTSIDE);
+      cy.get(`${editingBox} .cm-content`).type("{esc}");
+      cy.get(editingBox).should("not.exist");
+      bubble("typed in the app").should("contain", "Trials feel like");
+      cy.get("[data-testid=board-canvas]").should("not.contain", OUTSIDE);
+      saved((b) => {
+        const text = b.nodes.find((x) => x.id === TRIALS)!.text;
+        expect(text).to.contain("Trials feel like").and.match(/ typed in the app$/);
+        expect(b.nodes.find((x) => x.id === CLOSE)!.text).to.equal(MARK);
+      });
+    });
+
+    it("keeps the outside text when the bubble closes unchanged", () => {
+      bubble("Trials feel like").dblclick();
+      cy.get(`${editingBox} .cm-content`).should("have.focus");
+      editOutside();
+      cy.get(`${editingBox} .cm-content`).type("{esc}");
+      cy.get(editingBox).should("not.exist");
+      bubble(OUTSIDE).should("exist");
+      cy.get("[data-testid=board-canvas]").should("not.contain", "Trials feel like");
+      saved((b) => {
+        expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.equal(OUTSIDE);
+      });
+    });
+  });
+
+  it("keeps what was typed when a palette Command leaves the Board with the bubble open", () => {
+    bubble("Trials feel like").dblclick();
+    cy.get(`${editingBox} .cm-content`).type("{ctrl}{end} kept on leaving", { delay: 50 });
+    // The palette keeps the bubble open, so a Command picked there reaches
+    // it; this one switches to the talk, taking the Board off screen.
+    cy.palette(">Talk");
+    cy.get(editingBox).should("exist");
+    cy.get("[data-testid=palette] [cmdk-item][data-value='doc.board']").click();
+    cy.get("[data-testid=palette]").should("not.exist");
+    cy.get("[data-testid=board-canvas]").should("not.exist");
+    saved((b) => {
+      expect(b.nodes.find((x) => x.id === TRIALS)!.text).to.contain("kept on leaving");
+    });
+  });
+
+  it("moves when dragged by its link, and opens nothing", () => {
+    const opts = { pointerId: 1, isPrimary: true, button: 0, force: true };
+    const node = () => cy.get(`[data-node-id=${WHO_RAN}]`).first();
+    const link = () => bubble("Who ran").find(".cm-wikilink").contains("Paul");
+    node().then(($n) => {
+      const before = $n[0].getBoundingClientRect();
+      link().then(($a) => {
+        const r = $a[0].getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        cy.wrap($a).trigger("pointerdown", { ...opts, clientX: x, clientY: y });
+        cy.get("[data-testid=board-canvas]")
+          .trigger("pointermove", { ...opts, clientX: x + 80, clientY: y + 60 })
+          .trigger("pointerup", { ...opts, clientX: x + 80, clientY: y + 60 });
+        // The click the browser ends a drag with lands on the link: not a
+        // click on it. Only the click, as a press would start a new gesture.
+        link().trigger("click", { force: true });
+      });
+      cy.get("[data-testid=hover-card]").should("not.exist");
+      cy.get("[data-testid=hub-header]").should("not.exist");
+      cy.get("[data-testid=board-canvas]").should("exist");
+      node().should(($after) => {
+        const r = $after[0].getBoundingClientRect();
+        expect(Math.round(r.left), "the bubble moved").to.not.equal(Math.round(before.left));
+      });
+    });
+    // A click that did not travel still opens it.
+    link().click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+
+  it("renders and opens on a Board opened for reading, and edits nothing", () => {
+    cy.get("[data-testid=board-mode]").click();
+    bubble("Trials feel like").dblclick();
+    cy.get(editingBox).should("not.exist");
+    bubble("Trials feel like").find(".cm-content").should("have.attr", "contenteditable", "false");
+    bubble("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hub-header]").should("exist");
+  });
+
+  it("renders in the Delivery view, opens a link over it, and Escape closes the card before the view", () => {
+    cy.get("[data-testid=deliver]").click();
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=delivery-face-board]").should("have.attr", "aria-selected", "true");
+    /** The Delivery view's own bubble, not the Board's on the page behind it. */
+    const delivered = (text: string) =>
+      cy.get("[data-testid=delivery]").contains("[data-testid=board-bubble]", text);
+    delivered("Who ran").within(() => {
+      cy.get(".cm-content").should("have.attr", "contenteditable", "false");
+      cy.get(".cm-content").should("not.contain", "**").and("not.contain", "[[");
+      cy.get("[data-testid=picture][data-state=shown]").should("exist");
+    });
+    // Not editable there.
+    delivered("Trials feel like").dblclick();
+    cy.get(editingBox).should("not.exist");
+    // A link opens in the view's one card, and nothing navigates.
+    delivered("Who ran").find(".cm-wikilink").contains("Paul").click();
+    cy.get("[data-testid=hover-card]").should("have.length", 1).and("be.visible").and("contain", "Paul");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=hub-header]").should("not.exist");
+    // Escape closes the card first; the view stays, on the same face.
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=hover-card]").should("not.exist");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("[data-testid=delivery-face-board]").should("have.attr", "aria-selected", "true");
+    delivered("Who ran").should("be.visible");
+    // A Passage the same way; then Escape leaves the view.
+    delivered("Who ran").find(".cm-passage").click();
+    cy.get("[data-testid=hover-card]").should("have.length", 1).and("be.visible");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=hover-card]").should("not.exist");
+    cy.get("[data-testid=delivery]").should("be.visible");
+    cy.get("body").type("{esc}");
+    cy.get("[data-testid=delivery]").should("not.exist");
+  });
+});
