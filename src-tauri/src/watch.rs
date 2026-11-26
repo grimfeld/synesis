@@ -4,14 +4,29 @@
 
 use crate::AppState;
 use engine::vault::HIDDEN_DIR;
-use notify_debouncer_mini::{new_debouncer, notify::RecursiveMode, DebounceEventResult, Debouncer};
+use notify_debouncer_mini::{
+    new_debouncer_opt, notify::RecursiveMode, Config, DebounceEventResult, Debouncer,
+};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
+/// What notices changes. iOS has no FSEvents, and notify's kqueue backend
+/// holds an open file for every file and folder it watches; a joined Vault's
+/// Notes and their sync snapshots run past iOS's 256 open files, after which
+/// the index and every read fail with "Too many open files" and the app
+/// crashes. Polling holds nothing open.
+#[cfg(target_os = "ios")]
+type Backend = notify_debouncer_mini::notify::PollWatcher;
+#[cfg(not(target_os = "ios"))]
+type Backend = notify_debouncer_mini::notify::RecommendedWatcher;
+
+/// How often iOS looks for changes. Only a polling backend reads it.
+const POLL_EVERY: Duration = Duration::from_secs(2);
+
 pub struct Watcher {
-    _debouncer: Debouncer<notify_debouncer_mini::notify::RecommendedWatcher>,
+    _debouncer: Debouncer<Backend>,
 }
 
 #[derive(Serialize, Clone)]
@@ -71,9 +86,13 @@ fn folder_event(rel: &str, is_dir: bool, exists: bool) -> FolderEvent {
 impl Watcher {
     pub fn start(app: AppHandle, root: PathBuf) -> Result<Watcher, String> {
         let root_for_events = root.clone();
-        let mut debouncer = new_debouncer(
-            Duration::from_millis(400),
-            move |res: DebounceEventResult| {
+        let config = Config::default()
+            .with_timeout(Duration::from_millis(400))
+            .with_notify_config(
+                notify_debouncer_mini::notify::Config::default().with_poll_interval(POLL_EVERY),
+            );
+        let mut debouncer =
+            new_debouncer_opt::<_, Backend>(config, move |res: DebounceEventResult| {
                 let events = match res {
                     Ok(e) => e,
                     Err(_) => return,
@@ -204,9 +223,8 @@ impl Watcher {
                         },
                     );
                 }
-            },
-        )
-        .map_err(|e| e.to_string())?;
+            })
+            .map_err(|e| e.to_string())?;
         debouncer
             .watcher()
             .watch(&root, RecursiveMode::Recursive)

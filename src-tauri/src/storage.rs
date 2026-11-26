@@ -8,7 +8,7 @@
 
 use crate::{err, CmdResult};
 use serde::Serialize;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
 /// Whether this Device needs a permission to write Vaults where the user can
@@ -136,6 +136,85 @@ pub fn is_hidden_path(app: &AppHandle, path: &str) -> bool {
         return false;
     }
     path.contains("/Android/data/")
+}
+
+/// The folder iOS gives this app (`…/Containers/Data/Application/<UUID>`),
+/// whose Documents holds the Vaults made on this Device. `None` elsewhere.
+pub fn app_container(app: &AppHandle) -> Option<PathBuf> {
+    if std::env::consts::OS != "ios" {
+        return None;
+    }
+    app.path()
+        .document_dir()
+        .ok()
+        .and_then(|d| d.parent().map(PathBuf::from))
+}
+
+/// `stored`, moved into `container` when it points inside an earlier iOS app
+/// container. iOS gives the app a new `<UUID>` folder on every update and
+/// moves its files there, so a path saved before the update names a folder
+/// that is gone, and opening it fails with an OS error.
+pub fn rebase_on_container(stored: &str, container: &Path) -> Option<PathBuf> {
+    let parts: Vec<&str> = stored.split('/').collect();
+    let at = parts.windows(4).position(|w| {
+        w[0] == "Containers" && w[1] == "Data" && w[2] == "Application" && is_uuid(w[3])
+    })?;
+    let rest = &parts[at + 4..];
+    let rebased = rest
+        .iter()
+        .filter(|p| !p.is_empty())
+        .fold(container.to_path_buf(), |acc, p| acc.join(p));
+    (rebased != Path::new(stored)).then_some(rebased)
+}
+
+fn is_uuid(s: &str) -> bool {
+    s.len() == 36
+        && s.chars().enumerate().all(|(i, c)| match i {
+            8 | 13 | 18 | 23 => c == '-',
+            _ => c.is_ascii_hexdigit(),
+        })
+}
+
+/// After an iOS update: point every saved Vault path at the app's new
+/// container, and move each Vault's per-Device state (index, pairing) with
+/// it, since that state is filed under a hash of the path
+/// (`engine::vault::local_dir_for`). A path is changed only when it is gone
+/// and its rebased twin is there. Returns whether anything changed.
+pub fn follow_moved_container(
+    settings: &mut crate::Settings,
+    container: &Path,
+    data_dir: &Path,
+) -> bool {
+    let mut moved: Vec<(String, String)> = Vec::new();
+    let mut follow = |p: &mut String| {
+        if Path::new(p.as_str()).exists() {
+            return;
+        }
+        let Some(new) = rebase_on_container(p, container) else {
+            return;
+        };
+        if !new.exists() {
+            return;
+        }
+        let new = new.to_string_lossy().to_string();
+        if !moved.iter().any(|(old, _)| old == p) {
+            moved.push((p.clone(), new.clone()));
+        }
+        *p = new;
+    };
+    if let Some(p) = settings.vault_path.as_mut() {
+        follow(p);
+    }
+    settings.recent.iter_mut().for_each(&mut follow);
+    settings.vaults.iter_mut().for_each(|v| follow(&mut v.path));
+    for (old, new) in &moved {
+        let from = engine::vault::local_dir_for(data_dir, Path::new(old));
+        let to = engine::vault::local_dir_for(data_dir, Path::new(new));
+        if from.is_dir() && !to.exists() {
+            let _ = std::fs::rename(&from, &to);
+        }
+    }
+    !moved.is_empty()
 }
 
 /// Calls into the Kotlin side that `scripts/android-post-init.mjs` injects
@@ -283,6 +362,67 @@ mod tests {
             .join("device.json")
             .is_file());
         std::fs::remove_dir_all(&root).ok();
+    }
+
+    const OLD: &str =
+        "/private/var/mobile/Containers/Data/Application/0A1B2C3D-4E5F-6071-8293-A4B5C6D7E8F9";
+
+    #[test]
+    fn a_path_in_an_earlier_ios_container_moves_to_the_current_one() {
+        let now = Path::new(
+            "/var/mobile/Containers/Data/Application/FFFFFFFF-0000-1111-2222-333333333333",
+        );
+        assert_eq!(
+            rebase_on_container(&format!("{OLD}/Documents/Synesis/main"), now),
+            Some(now.join("Documents").join("Synesis").join("main"))
+        );
+        // iCloud and desktop paths are not inside an app container.
+        let icloud = "/private/var/mobile/Library/Mobile Documents/iCloud~tech~grimfeld~synesis/Documents/main";
+        assert_eq!(rebase_on_container(icloud, now), None);
+        assert_eq!(
+            rebase_on_container("/Users/me/Documents/Synesis/main", now),
+            None
+        );
+        // Not a UUID: left alone.
+        assert_eq!(
+            rebase_on_container("/x/Containers/Data/Application/main/Documents", now),
+            None
+        );
+    }
+
+    #[test]
+    fn an_update_keeps_the_vaults_and_their_pairing() {
+        let tmp = std::env::temp_dir().join(format!("synesis-ios-{}", std::process::id()));
+        let container =
+            tmp.join("Containers/Data/Application/FFFFFFFF-0000-1111-2222-333333333333");
+        let vault = container.join("Documents/Synesis/main");
+        std::fs::create_dir_all(&vault).unwrap();
+        let data_dir = container.join("Library/Application Support/app");
+        let old = format!("{OLD}/Documents/Synesis/main");
+        // The state the old build filed under the old path's hash.
+        let old_local = engine::vault::local_dir_for(&data_dir, Path::new(&old));
+        std::fs::create_dir_all(&old_local).unwrap();
+        std::fs::write(old_local.join("pairing.json"), "{}").unwrap();
+
+        let mut s: crate::Settings = serde_json::from_str("{}").unwrap();
+        s.vault_path = Some(old.clone());
+        s.recent = vec![old.clone(), "/elsewhere/gone".into()];
+        s.vaults = vec![crate::KnownVault {
+            id: "v".into(),
+            name: "main".into(),
+            path: old.clone(),
+        }];
+        assert!(follow_moved_container(&mut s, &container, &data_dir));
+        let new = vault.to_string_lossy().to_string();
+        assert_eq!(s.vault_path.as_deref(), Some(new.as_str()));
+        assert_eq!(s.recent, vec![new.clone(), "/elsewhere/gone".into()]);
+        assert_eq!(s.vaults[0].path, new);
+        assert!(engine::vault::local_dir_for(&data_dir, &vault)
+            .join("pairing.json")
+            .is_file());
+        // Run again: nothing left to follow.
+        assert!(!follow_moved_container(&mut s, &container, &data_dir));
+        std::fs::remove_dir_all(&tmp).ok();
     }
 
     #[test]
