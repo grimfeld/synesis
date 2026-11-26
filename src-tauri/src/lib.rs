@@ -1491,7 +1491,16 @@ pub fn run() {
         })
         .setup(|app| {
             let sp = settings_path(app.handle());
-            let settings = load_settings(&sp);
+            let mut settings = load_settings(&sp);
+            // iOS moves the app to a new folder on every update; saved Vault
+            // paths still name the old one until they follow it.
+            let followed = match (
+                storage::app_container(app.handle()),
+                app.path().app_data_dir(),
+            ) {
+                (Some(c), Ok(d)) => storage::follow_moved_container(&mut settings, &c, &d),
+                _ => false,
+            };
             app.manage(AppState {
                 vault: Mutex::new(None),
                 settings: Mutex::new(settings),
@@ -1500,6 +1509,9 @@ pub fn run() {
                 p2p: Mutex::new(None),
                 quitting: std::sync::atomic::AtomicBool::new(false),
             });
+            if followed {
+                let _ = app.state::<AppState>().save_settings();
+            }
             app.manage(windows::WindowState::default());
             #[cfg(desktop)]
             pairing::setup_tray(app.handle())?;
